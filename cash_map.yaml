@@ -1,0 +1,12 @@
+# cash_map.yaml
+proxy_by_currency:        # ① Which ETF to use for each ISO currency
+  USD: SGOV
+  EUR: ESTR
+  GBP: IB01
+
+alias_to_currency:        # ② Any broker cash tickers → currency code
+  CUR:USD: USD            # Interactive Brokers
+  USD CASH: USD
+  CASH: USD               # generic fallback
+  BASE_CURRENCY: USD
+  CUR:EUR: EUR            # example for multi-ccy accounts

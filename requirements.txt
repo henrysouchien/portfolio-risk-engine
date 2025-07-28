@@ -1,0 +1,47 @@
+# Core Data & Analysis
+pandas>=1.5.0
+numpy>=1.21.0
+statsmodels>=0.13.0
+pyarrow>=10.0.0
+
+# Data Fetching & HTTP
+requests>=2.28.0
+
+# Configuration & Environment
+python-dotenv>=0.19.0
+pyyaml>=6.0
+
+# Web Framework & API
+flask>=2.3.0
+flask-limiter>=3.5.0
+flask-cors>=4.0.0
+
+# Authentication & Security
+google-auth>=2.15.0
+google-auth-oauthlib>=1.0.0
+certifi>=2022.0.0
+
+# AI & Language Models
+anthropic>=0.3.0
+openai>=1.0.0
+
+# Financial Data Integration
+plaid-python>=9.0.0
+
+# Cloud Storage & Database
+boto3>=1.26.0
+redis>=4.5.0
+
+# Database Dependencies (Added for Migration)
+psycopg2-binary>=2.9.5
+psycopg2>=2.9.5
+
+# Testing Dependencies (Added for Migration Test Suite)
+pytest>=7.0.0
+psutil>=5.9.0
+
+# Optimization & Mathematical Computing
+cvxpy>=1.3.0
+
+# Web Interface (Optional - for Streamlit demos)
+streamlit>=1.28.0 
