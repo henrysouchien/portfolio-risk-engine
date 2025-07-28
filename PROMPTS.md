@@ -229,3 +229,48 @@ You will be given:
 - File B (optional): New version of the module being tested
 
 Return: An updated version of File A that works with the new codebase and passes tests.
+
+# FRONTEND REFACTOR PROMPT (PHASE 3)
+
+You are acting as the lead implementer on a full frontend refactor project. You have complete access to the codebase.
+
+Use the following **Phase 3 Architectural Stability Plan** as the definitive specification for what to change. Do not make speculative improvements or introduce architectural changes beyond what is in the plan.
+
+---
+
+### Your responsibilities:
+
+1. **Execute all fixes listed in the plan**, including implementation code blocks.
+2. **Follow the exact patterns and class/hook names**, replacing placeholders with correct codebase names.
+3. **For every fix:**
+   - Apply to all listed files (e.g. `hooks/useRiskAnalysis.ts`)
+   - Use proper JSDoc annotations on new code
+   - Ensure correct cleanup, memoization, or registry logic
+4. **For shared helpers (e.g. useCancelableRequest, AdapterRegistry):**
+   - Implement in a shared location (e.g. `utils/`, `lib/`, `hooks/`)
+   - Ensure it can be reused across all hooks or services that need it
+5. **Do not remove flow functionality.** Refactored components must still pass:
+   - Google sign-in → portfolio load → component analysis
+   - Plaid link → refresh portfolio → component analysis
+   - Manual portfolio upload → component analysis
+6. **Maintain compatibility with Zustand stores**, service adapters, and routing setup
+
+---
+
+### Constraints:
+
+- Do not change names of existing service adapters, hooks, or stores unless absolutely necessary.
+- Do not delete any test or helper unless explicitly told.
+- Use existing interfaces and types where possible.
+- Prioritize memoization, leak prevention, and clean lifecycle management.
+- If unsure about a filename, class, or hook usage, search the codebase and infer from real usage.
+
+---
+
+### Start here:
+
+```ts
+// Step 1: Refactor adapter instantiation using AdapterRegistry
+// File: hooks/useRiskAnalysis.ts
+// Replace in-render instantiation with memoized singleton
+...
