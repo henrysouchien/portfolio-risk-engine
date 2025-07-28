@@ -234,7 +234,20 @@ Return: An updated version of File A that works with the new codebase and passes
 
 You are acting as the lead implementer on a full frontend refactor project. You have complete access to the codebase.
 
-Use the following **Phase 3 Architectural Stability Plan** as the definitive specification for what to change. Do not make speculative improvements or introduce architectural changes beyond what is in the plan.
+Use the following **FRONTEND_REFACTOR_PHASE3_PLAN** as the definitive specification for what to change. Do not make speculative improvements or introduce architectural changes beyond what is in the plan.
+
+Before coding, skim these files to understand the multi-user session model and current Hook → Manager → Cache → APIService pattern. Use them only for context—don’t modify unless instructed by the Phase-3 plan.”
+
+Interface / multi-user architecture docs:
+
+- docs/interfaces/INTERFACE_ARCHITECTURE.md – shows the 4-layer, session-cookie auth model.
+- docs/interfaces/alignment_table.md – quick cross-interface function map.
+- docs/FRONTEND_BACKEND_CONNECTION_MAP.md – concrete Hook → Manager → APIService flow.
+
+Key implementation file(s) for context:
+
+- frontend/src/providers/SessionServicesProvider.tsx – how services are currently wired.
+- frontend/src/hooks/useRiskAnalysis.ts – Example hook illustrates existing patterns.
 
 ---
 
@@ -246,9 +259,11 @@ Use the following **Phase 3 Architectural Stability Plan** as the definitive spe
    - Apply to all listed files (e.g. `hooks/useRiskAnalysis.ts`)
    - Use proper JSDoc annotations on new code
    - Ensure correct cleanup, memoization, or registry logic
+   - If the fix involves the new ServiceContainer, ensure it is created in chassis/services/ServiceContainer.ts and registered in SessionServicesProvider.
 4. **For shared helpers (e.g. useCancelableRequest, AdapterRegistry):**
    - Implement in a shared location (e.g. `utils/`, `lib/`, `hooks/`)
    - Ensure it can be reused across all hooks or services that need it
+   - Include the shared useCancellableRequest, ErrorAdapter, and loadRuntimeConfig helpers added in the plan.
 5. **Do not remove flow functionality.** Refactored components must still pass:
    - Google sign-in → portfolio load → component analysis
    - Plaid link → refresh portfolio → component analysis
@@ -264,10 +279,11 @@ Use the following **Phase 3 Architectural Stability Plan** as the definitive spe
 - Use existing interfaces and types where possible.
 - Prioritize memoization, leak prevention, and clean lifecycle management.
 - If unsure about a filename, class, or hook usage, search the codebase and infer from real usage.
+- Never add user_id or any PII to request bodies; rely on session cookies only (enforced by ESLint no-user-id-in-body).
 
 ---
 
-### Start here:
+### Start here: FRONTEND_REFACTOR_PHASE3_PLAN.md
 
 ```ts
 // Step 1: Refactor adapter instantiation using AdapterRegistry
