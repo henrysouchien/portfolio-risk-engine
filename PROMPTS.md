@@ -236,7 +236,7 @@ You are acting as the lead implementer on a full frontend refactor project. You 
 
 Use the following **FRONTEND_REFACTOR_PHASE3_PLAN** as the definitive specification for what to change. Do not make speculative improvements or introduce architectural changes beyond what is in the plan.
 
-Before coding, skim these files to understand the multi-user session model and current Hook → Manager → Cache → APIService pattern. Use them only for context—don’t modify unless instructed by the Phase-3 plan.”
+Before coding, skim these files to understand the multi-user session model and current Hook → Manager → Cache → APIService pattern. Use them only for context—don’t modify unless instructed by the Phase-3 plan.
 
 Interface / multi-user architecture docs:
 
