@@ -285,8 +285,135 @@ Key implementation file(s) for context:
 
 ### Start here: FRONTEND_REFACTOR_PHASE3_PLAN.md
 
-```ts
-// Step 1: Refactor adapter instantiation using AdapterRegistry
-// File: hooks/useRiskAnalysis.ts
-// Replace in-render instantiation with memoized singleton
-...
+
+# FRONTEND REFACTOR REVIEWER PROMPT (PHASE 3)
+
+## 🧪 AI QA Reviewer Prompt: Frontend Refactor Verification
+
+You are acting as a **QA reviewer** for a frontend architectural refactor.  
+The implementation was completed by another AI (Claude) using a plan titled `FRONTEND_REFACTOR_PHASE3_PLAN`.
+
+Your job is to verify that the implementation matches the plan exactly — without introducing speculative improvements or architectural changes beyond what was explicitly instructed.
+
+---
+
+### ✅ Review Goals
+
+1. **Verify each fix in the plan was implemented as written**
+   - `AdapterRegistry` is used in all listed hooks (`useRiskAnalysis`, `useFactorAnalysis`, etc.) with proper memoization.
+   - Polling logic is cancellable via `AbortController` or an equivalent cleanup mechanism.
+   - Shared mutable state (e.g. `PortfolioManager`) is replaced with Zustand or properly injected via a stable registry.
+   - All `useEffect` listeners and timers return cleanup functions to prevent leaks.
+
+2. **Check implementation naming matches the real codebase**
+   - Service adapters, hook names, and Zustand store keys match actual project names.
+   - No placeholder names or incorrect references should remain.
+
+3. **Ensure return values from custom hooks are stable**
+   - Confirm `useMemo`, `useCallback`, or return wrappers are used to prevent re-renders from unstable return objects.
+
+4. **Look for missing JSDoc annotations**
+   - All new or refactored hooks, adapters, and helpers include clear JSDoc-style docstrings:
+     ```ts
+     /**
+      * Returns risk analysis metrics from the portfolio.
+      * @param portfolioId - Unique portfolio identifier
+      * @returns Risk metrics including volatility, beta, etc.
+      */
+     ```
+
+5. **Confirm that core user flows are logically preserved**
+   - The following flows should remain intact (code should not break them):
+     - Google sign-in → portfolio load → component analysis
+     - Plaid link → refresh portfolio → component analysis
+     - Manual portfolio upload → component analysis
+
+6. **Do not recommend speculative improvements**
+   - Only flag deviations, omissions, or regressions from the approved refactor plan.
+
+⸻
+
+
+# Prompt for GPT-4 (o3) — Architectural + Data Flow Review
+
+You are acting as a **lead systems architect** reviewing a production frontend codebase after a major architectural refactor.
+
+You have full access to the codebase and documentation, including the FRONTEND_REFACTOR_PHASE#_PLAN.
+
+---
+
+### 🎯 Your goal:
+
+Conduct a **high-level architectural and data flow review** of the current React + TypeScript frontend. Validate whether the refactor has achieved architectural clarity, stability, and maintainability.
+
+---
+
+### 🧪 Review Scope:
+
+1. **Architecture Layering**
+   - Are concerns properly separated between views, hooks, adapters, and services?
+   - Are manager/service/adapters clearly distinguished and single-responsibility?
+
+2. **Data Flow**
+   - Is there a **single source of truth** for each data domain (e.g. portfolio, auth, UI)?
+   - Is data flowing cleanly from source (API/Zustand) → consumer (hooks/views)?
+   - Are there any unclear data ownership patterns?
+
+3. **Adapter and Registry Design**
+   - Are adapters instantiated safely via the registry pattern?
+   - Is there any risk of shared mutable state or duplicated service logic?
+
+4. **Routing and Component Coupling**
+   - Is business logic de-coupled from routing concerns?
+   - Do components correctly react to routing state without hard dependencies?
+
+5. **Hooks Return Contracts**
+   - Do hooks return stable, memoized objects?
+   - Is the hook API consistent and predictable?
+
+6. **Lifecycle + Cleanup**
+   - Are effects cleaned up properly?
+   - Any risk of memory leaks or persistent listeners?
+
+---
+
+### 🚫 Out of Scope:
+
+- Do not suggest speculative rewrites or refactors beyond the current architecture.
+- Do not propose changes to naming, styling, or directory layout unless tied to a data or stability issue.
+
+---
+
+### 📦 Deliverables:
+
+- Bullet-pointed architectural observations (good + bad)
+- Specific risks or anti-patterns still present
+- Suggested next steps (if any) to further stabilize or clarify architecture
+
+# Prompt for Claude Portfolio Holdings Extraction
+
+Please extract the portfolio holdings and respond with ONLY a valid JSON object in this exact format:
+            {
+               "holdings": [
+                  {
+                  "ticker": "AAPL",
+                  "shares": 100,
+                  "market_value": 15000.00,
+                  "security_name": "Apple Inc."
+                  }
+               ],
+               "total_portfolio_value": 27500.00,
+               "statement_date": "2024-12-31",
+               "account_type": "Individual Brokerage"
+            }
+      
+            IMPORTANT INSTRUCTIONS:
+            1. Extract ALL stock positions (ignore cash, bonds, options unless specifically requested)
+            2. Use standard ticker symbols (e.g., AAPL, not Apple Inc.)
+            3. Include exact share quantities and market values if available
+            4. If market values aren't available, use null
+            5. Your entire response must be valid JSON - no other text
+            6. If no holdings are found, return an empty holdings array
+      
+            DO NOT include any text outside the JSON response.
+             `;
