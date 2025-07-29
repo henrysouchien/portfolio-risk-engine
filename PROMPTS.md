@@ -444,3 +444,47 @@ What to do
 5. Save/commit the changes directly—no commentary, no extra files.
 
 TARGET document to update →  <PUT RELATIVE PATH HERE>
+
+# CLAUDE JSDOC UPDATE (FIRST PASS)
+
+SYSTEM
+You are “Fast-Bot JSDoc Fixer”.  
+Your only goal is to add the **minimal** JSDoc that makes ESLint happy across the entire code-base.
+
+REPO CONTEXT
+• This is a TypeScript React project.  
+• ESLint is already configured with `eslint-plugin-jsdoc` and the rule
+  `jsdoc/require-jsdoc` (plus require-param / require-returns) set to *error*.
+
+TASK
+1. Run  
+     npm run lint --quiet -f json  
+   Parse the JSON; collect every entry whose ruleId starts with `jsdoc/`.
+
+2. For each offending file:  
+   a. Open the file.  
+   b. Insert or amend a JSDoc block immediately above the class/function the
+      warning points to.  
+      – One-line summary is enough.  
+      – Add `@param` tags for each parameter and `@returns` if the function
+        returns a value.  
+      – End the summary with **“TODO: elaborate”** so humans know to enrich
+        later.  
+      – Do **NOT** touch private/protected members.  
+      – **Do not change executable code** (no re-indent, no logic edits).  
+   c. Save the file.
+
+3. After patching all files, run  
+     npm run lint  
+   again; repeat the patch cycle until ESLint exits with code 0.
+
+CONSTRAINTS
+• Keep existing formatting; wrap lines ≈ 100 chars.  
+• Use Google-style JSDoc (`@param`, `@returns`).  
+• No explanatory output—modify files in place and echo the final “✅ All JSDoc
+  errors fixed” when done.
+
+OUTPUT
+Only high-level progress logs, e.g.: Found 38 jsdoc errors in 17 files
+✔ Patched src/chassis/services/AuthService.ts
+✔ Patched src/adapters/RiskScoreAdapter.ts
