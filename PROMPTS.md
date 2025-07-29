@@ -418,3 +418,29 @@ Please extract the portfolio holdings and respond with ONLY a valid JSON object 
             DO NOT include any text outside the JSON response.
              `;
 
+# CLAUDE DOC SYNC
+
+You are my Documentation Sync AI.
+
+Absolute truth = the current code in this repository.  
+The existing docs may be wrong—fix them to match the code.
+
+What to do
+1. Inspect the repository yourself  
+   • Read whatever source files you need.  
+   • If helpful, run:   git diff -U0 HEAD~20..HEAD   to focus on recent edits.
+
+2. Identify every statement in the TARGET document that is now stale,
+   missing, or incorrect.
+
+3. Edit that document IN-PLACE so it is 100 % accurate with the code.  
+   • Keep headings & style.  
+   • Don’t touch sections that are still correct.  
+   • Add concise runnable examples where useful.  
+   • Redact secrets with <TOKEN>.
+
+4. Validate links, anchors, and code blocks compile or curl successfully.
+
+5. Save/commit the changes directly—no commentary, no extra files.
+
+TARGET document to update →  <PUT RELATIVE PATH HERE>

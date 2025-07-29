@@ -769,8 +769,8 @@ The system now uses professional-grade risk-free rates from the FMP Treasury API
 
 **Purpose**: AI-powered portfolio analysis and conversational interface
 
-#### Claude Function Executor (`services/claude/function_executor.py`)
-**1367 lines of sophisticated AI function integration**
+#### Claude Service Integration (`chassis/services/ClaudeService.ts`)
+**TypeScript-based AI function integration with modern React architecture**
 
 **Portfolio Analysis Functions (4)**:
 - `create_portfolio_scenario()`: Create new portfolio configurations
@@ -1226,9 +1226,9 @@ limits = {
 
 **Production-Ready Single Page Application** with complete risk analysis interface:
 
-#### Core Dashboard Structure (`frontend/src/components/dashboard/DashboardApp.jsx`)
+#### Core Dashboard Structure (`frontend/src/components/apps/DashboardApp.tsx`)
 
-**580 lines of sophisticated React architecture** providing:
+**Complete authenticated user experience** providing:
 
 **1. Dashboard Views (6 comprehensive views)**:
 - **Risk Score View**: Portfolio risk scoring with detailed breakdown and recommendations
@@ -1392,8 +1392,15 @@ POST /api/analyze → Core Risk Engine → Structured Response
 **Component Architecture**:
 ```
 frontend/src/
-├── components/dashboard/
-│   ├── DashboardApp.jsx           # Main dashboard orchestrator (580 lines)
+├── App.tsx                        # Root component with provider hierarchy
+├── router/
+│   └── AppOrchestrator.tsx        # State machine for app experiences
+├── components/
+│   ├── apps/                      # Complete app experiences
+│   │   ├── DashboardApp.tsx       # Authenticated user experience
+│   │   └── LandingApp.tsx         # Authentication experience
+│   ├── dashboard/                 # Dashboard components
+│   │   ├── DashboardApp.tsx       # Main dashboard orchestrator
 │   ├── layout/
 │   │   └── DashboardLayout.jsx    # Layout wrapper with navigation
 │   ├── views/                     # Dashboard view containers
@@ -1406,50 +1413,100 @@ frontend/src/
 │   └── shared/
 │       └── LoadingView.jsx        # Loading states and progress indicators
 ├── chassis/                       # Core infrastructure
-│   ├── context/
-│   │   └── AppContext.jsx         # Global application state
-│   ├── hooks/
-│   │   ├── usePortfolioSummary.js # Portfolio data hook
-│   │   ├── useRiskAnalysis.js     # Risk analysis hook
-│   │   └── usePerformanceAnalysis.js # Performance metrics hook
-│   ├── services/
-│   │   ├── APIService.js          # HTTP service layer
-│   │   ├── ClaudeService.js       # Claude AI integration
-│   │   └── frontendLogger.js      # Logging service
-│   └── managers/
-│       └── PortfolioManager.js    # Portfolio business logic
-├── store/
-│   └── dashboardStore.js          # Zustand state management
-└── data/
-    └── mockPortfolioData.js       # Fallback data for development
+│   │   ├── layout/
+│   │   │   └── DashboardLayout.tsx # Layout wrapper with navigation
+│   │   ├── views/                 # Dashboard view containers
+│   │   │   ├── RiskScoreViewContainer.tsx      # Risk scoring
+│   │   │   ├── HoldingsViewContainer.tsx       # Portfolio holdings
+│   │   │   ├── FactorAnalysisViewContainer.tsx # Factor analysis
+│   │   │   ├── PerformanceAnalyticsViewContainer.tsx # Performance
+│   │   │   ├── AnalysisReportView.tsx         # Reports
+│   │   │   └── RiskSettingsView.tsx           # Settings
+│   │   └── shared/
+│   │       └── LoadingView.tsx    # Loading states and progress indicators
+│   ├── auth/                      # Authentication components
+│   ├── portfolio/                 # Portfolio management components
+│   ├── plaid/                     # Plaid integration components
+│   └── shared/                    # Reusable UI components
+├── providers/                     # React context providers
+│   ├── QueryProvider.tsx         # React Query provider
+│   ├── AuthProvider.tsx          # Authentication context
+│   └── SessionServicesProvider.tsx # User-scoped services
+├── stores/                        # Zustand state management
+│   ├── authStore.ts              # Authentication state
+│   ├── portfolioStore.ts         # Portfolio data state
+│   └── uiStore.ts                # UI state
+├── chassis/                       # Core infrastructure
+│   ├── services/                 # Business logic services
+│   │   ├── APIService.ts         # HTTP service layer
+│   │   ├── ClaudeService.ts      # Claude AI integration
+│   │   ├── PortfolioCacheService.ts # Data caching
+│   │   ├── AuthService.ts        # Authentication operations
+│   │   ├── PlaidService.ts       # Plaid integration
+│   │   ├── RiskAnalysisService.ts # Risk analysis operations
+│   │   └── ServiceContainer.ts   # Dependency injection
+│   ├── managers/                 # High-level business logic
+│   │   ├── PortfolioManager.ts   # Portfolio operations
+│   │   ├── AuthManager.ts        # Authentication management
+│   │   └── PlaidManager.ts       # Plaid operations
+│   └── types/                    # TypeScript type definitions
+├── hooks/                        # React hooks for data access
+│   ├── usePortfolio.ts          # Portfolio data
+│   ├── useRiskAnalysis.ts       # Risk analysis
+│   ├── useRiskScore.ts          # Risk scoring
+│   ├── useFactorAnalysis.ts     # Factor analysis
+│   ├── usePerformance.ts        # Performance metrics
+│   ├── usePortfolioSummary.ts   # Portfolio summaries
+│   ├── useAuthFlow.ts           # Authentication flows
+│   ├── usePlaid.ts              # Plaid operations
+│   ├── useChat.ts               # AI chat functionality
+│   └── useCancelableRequest.ts  # Request cancellation
+├── utils/                       # Utility functions
+│   ├── AdapterRegistry.ts       # Adapter instance management
+│   ├── loadRuntimeConfig.ts     # Runtime configuration
+│   ├── NavigationIntents.ts     # Navigation intent system
+│   └── ErrorAdapter.ts         # Error standardization
+└── services/                    # Frontend services
+    ├── frontendLogger.ts        # Logging service
+    ├── SecureStorage.ts         # Secure token storage
+    └── PortfolioCache.ts        # Portfolio caching
 ```
 
 **Key Architecture Benefits**:
 
-1. **Performance-First Design**: 
-   - Critical views load instantly with no Suspense overhead
-   - Secondary views preload in background for fast access
-   - On-demand views lazy load to optimize bundle size
+1. **Multi-User Security**: 
+   - Complete data isolation between users via SessionServicesProvider
+   - User-scoped service instances prevent data bleeding
+   - Secure cross-tab synchronization with auth state
 
-2. **Real Data Integration**:
-   - Production hooks connect to actual backend APIs
-   - Fallback to mock data for development/offline use
-   - Comprehensive error handling and loading states
+2. **State-Driven Architecture**:
+   - AppOrchestrator manages app state transitions as a state machine
+   - Clear separation between authentication (LandingApp) and dashboard (DashboardApp) experiences
+   - Timing-safe service initialization prevents race conditions
 
-3. **Context-Aware AI**:
-   - Claude chat receives full dashboard context
-   - AI can navigate between views and trigger actions
-   - Visual-chat integration for seamless user experience
+3. **Performance Optimization**:
+   - Intelligent caching with React Query and user-scoped cache keys
+   - Selective state subscriptions prevent unnecessary re-renders
+   - Request deduplication and background synchronization
+   - AdapterRegistry prevents adapter recreation across hook calls
 
 4. **Production Monitoring**:
-   - Comprehensive logging at component, performance, and user levels
-   - Performance metrics tracking for optimization
-   - Error tracking and reporting
+   - Comprehensive logging throughout the application with ArchitecturalLogger
+   - Error boundaries for graceful failure handling
+   - Performance tracking and optimization metrics
 
 5. **Scalable Architecture**:
-   - Clean separation between UI, business logic, and data layers
-   - Modular component design for easy extension
-   - Type-safe interfaces and error boundaries
+   - Clean separation of concerns across all layers (App/Provider/Store/Service/Hook/Component)
+   - Easy to add new app experiences (AdminApp, OnboardingApp, MaintenanceApp)
+   - Modular service and component design with dependency injection
+
+**Recent Phase 3 Refactor Improvements:**
+- **ServiceContainer**: Dependency injection container for per-user service instances
+- **AdapterRegistry**: Parameterized caching for stable adapter instances with cleanup
+- **useCancelableRequest**: Shared request cancellation logic across all hooks
+- **ErrorAdapter**: Standardized error envelope format for consistent error handling
+- **loadRuntimeConfig**: Zod-validated runtime configuration loading
+- **NavigationIntents**: Intent-based navigation system for decoupled routing
 
 ### Route Documentation (`routes/`)
 
