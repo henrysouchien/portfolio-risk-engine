@@ -47,7 +47,8 @@ The system includes robust data quality validation to prevent unstable factor ca
 The Risk Module implements a comprehensive multi-user database system with PostgreSQL backend:
 
 **Database Components:**
-- **Database Client** (`inputs/database_client.py`): Connection pooling, query execution, transaction management
+- **Database Session Management** (`db_session.py`): Connection pooling, query execution, transaction management
+- **Database Client** (`inputs/database_client.py`): Per-request PostgreSQL helper with no singleton pattern
 - **Multi-Currency Support** (`inputs/database_client.py`): Currency extraction and position mapping
 - **User Management** (`services/auth_service.py`): Authentication, session handling, user isolation
 - **Portfolio Manager** (`inputs/portfolio_manager.py`): Dual-mode portfolio operations (file/database)
@@ -217,8 +218,9 @@ CREATE TABLE user_sessions (
 - **Dynamic Proxy Mapping**: Cash-to-ETF mapping applied at analysis time, not storage time
 - **Fallback Logic**: Automatic currency extraction from ticker format when currency field missing
 
-**Database Client Features:**
-- **Connection Pooling**: Automatic connection management with 2-5 connections
+**Database Architecture Features:**
+- **Connection Pooling** (`db_session.py`): Automatic connection management with 2-5 connections
+- **Per-Request Clients** (`inputs/database_client.py`): No singleton pattern, injection-based design
 - **Transaction Safety**: ACID compliance with rollback on failure
 - **Currency Extraction**: Automatic currency detection from ticker format (CUR:USD → USD)
 - **Multi-Source Support**: Same ticker from different sources (Plaid + manual entry)
@@ -227,8 +229,9 @@ CREATE TABLE user_sessions (
 ### Interface Layer
 
 For web interface, REST API, and Claude AI chat integration, see:
-- **[Interface README](docs/interfaces/INTERFACE_README.md)** - User guide for REST API, Claude chat, and web interface
-- **[Interface Architecture](docs/interfaces/INTERFACE_ARCHITECTURE.md)** - Technical architecture of the interface layer
+- **[API Reference](docs/API_REFERENCE.md)** - REST API documentation and endpoints
+- **[Frontend Backend Connection Map](docs/interfaces/FRONTEND_BACKEND_CONNECTION_MAP.md)** - Interface connection mapping
+- **[Interface Alignment Table](docs/interfaces/alignment_table.md)** - Function alignment across interfaces
 
 ## 🔄 Dual-Mode Interface Pattern
 
@@ -448,8 +451,13 @@ def run_portfolio(filepath: str, *, return_data: bool = False):
 risk_module/
 ├── 📄 Readme.md                    # Main project documentation
 ├── 📄 architecture.md              # Technical architecture (this file)
+├── 📄 COMPLETE_CODEBASE_MAP.md     # Comprehensive codebase mapping
+├── 📄 E2E_TESTING_GUIDE.md         # End-to-end testing documentation
+├── 📄 PROMPTS.md                   # Development prompts and guidelines
 ├── ⚙️ settings.py                  # Default configuration settings
 ├── 🔧 app.py                       # Flask web application
+├── 🔧 db_session.py                # Database session management
+├── 🔧 check_user_data.py           # Database inspection utility
 ├── 🔒 update_secrets.sh            # Secrets synchronization script
 ├── 📋 requirements.txt             # Python dependencies
 ├── 📜 LICENSE                      # MIT License
@@ -463,12 +471,18 @@ risk_module/
 │   │   ├── auth.py                     # Authentication (124 lines)
 │   │   └── admin.py                    # Admin interface (134 lines)
 │   ├── 📁 services/                    # Service orchestration
-│   │   ├── portfolio_service.py        # Portfolio analysis service (382 lines)
-│   │   ├── stock_service.py            # Stock analysis service (130 lines)
-│   │   ├── scenario_service.py         # Scenario analysis service (270 lines)
-│   │   └── optimization_service.py     # Optimization service (194 lines)
+│   │   ├── portfolio_service.py        # Portfolio analysis service
+│   │   ├── stock_service.py            # Stock analysis service
+│   │   ├── scenario_service.py         # Scenario analysis service
+│   │   ├── optimization_service.py     # Optimization service
+│   │   ├── auth_service.py             # Authentication service
+│   │   ├── factor_proxy_service.py     # Factor proxy management
+│   │   ├── validation_service.py       # Data validation service
+│   │   └── claude/                     # Claude AI services
+│   │       ├── function_executor.py    # Claude function execution
+│   │       └── chat_service.py         # Claude chat interface
 │   └── 📁 frontend/                    # Web frontend
-│       └── src/App.js                  # React SPA (1,477 lines)
+│       └── src/                        # React SPA components and infrastructure
 │
 ├── 📊 LAYER 2: CORE LAYER (Pure Business Logic)
 │   ├── 📁 core/                        # Extracted business logic
@@ -488,7 +502,8 @@ risk_module/
 │   ├── 📋 risk_summary.py              # Single-stock risk profiling (4KB)
 │   ├── ⚡ portfolio_optimizer.py        # Portfolio optimization (36KB)
 │   ├── 🔌 data_loader.py               # Data fetching and caching (8KB)
-│   ├── 🗃️ database_client.py           # PostgreSQL client with connection pooling
+│   ├── 🗃️ db_session.py                # Database session and connection pooling
+│   ├── 🗃️ inputs/database_client.py     # Per-request PostgreSQL client
 │   ├── 🤖 gpt_helpers.py               # GPT integration (4KB)
 │   ├── 🔧 proxy_builder.py             # Factor proxy generation (19KB)
 │   ├── 🏦 plaid_loader.py              # Plaid brokerage integration (29KB)
@@ -508,11 +523,12 @@ risk_module/
 │
 ├── 📁 docs/ (Documentation)
 │   ├── interfaces/
-│   │   ├── INTERFACE_README.md         # Interface documentation
-│   │   └── INTERFACE_ARCHITECTURE.md   # Interface architecture
+│   │   ├── FRONTEND_BACKEND_CONNECTION_MAP.md  # Interface connection mapping
+│   │   └── alignment_table.md                  # Function alignment across interfaces
 │   ├── API_REFERENCE.md               # API documentation
-│   ├── WEB_APP.md                     # Web application guide
-│   └── README.md                      # Documentation index
+│   ├── DATA_SCHEMAS.md                # Database schema documentation
+│   ├── ideas/                         # Architecture ideas and concepts
+│   └── planning/                      # Development planning documents
 │
 ├── 📁 tests/ (Testing)
 │   ├── test_service_layer.py          # Service layer tests
@@ -830,7 +846,7 @@ The system now uses professional-grade risk-free rates from the FMP Treasury API
 - Context-aware responses based on portfolio state
 
 #### Portfolio Context Service (`services/portfolio/context_service.py`)
-**374 lines of portfolio caching and context management**
+**Portfolio caching and context management with user isolation**
 
 **Key Functions**:
 - `cache_portfolio_context()`: Portfolio state caching
@@ -2350,6 +2366,10 @@ comparison = compare_risk_tables(old_risk_df, new_risk_df)
 - [README.md](./README.md): Project overview and usage guide
 - [portfolio.yaml](./portfolio.yaml): Example portfolio configuration
 - [risk_limits.yaml](./risk_limits.yaml): Risk limit definitions
+- [check_user_data.py](./check_user_data.py): Database inspection utility
+- [COMPLETE_CODEBASE_MAP.md](./COMPLETE_CODEBASE_MAP.md): Comprehensive codebase mapping
+- [E2E_TESTING_GUIDE.md](./E2E_TESTING_GUIDE.md): End-to-end testing documentation
+- [PROMPTS.md](./PROMPTS.md): Development prompts and guidelines
 - [Financial Modeling Prep API](https://financialmodelingprep.com/developer/docs/): API documentation
 
 ---

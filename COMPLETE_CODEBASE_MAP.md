@@ -1,11 +1,11 @@
 # Complete Risk Module Codebase Map
 
 ## Overview
-This document provides a comprehensive map of the entire risk_module codebase, including all directories (even those in .gitignore). Last updated on 2025-07-27 to reflect major frontend and testing refactoring.
+This document provides a comprehensive map of the entire risk_module codebase, including all directories (even those in .gitignore). Last updated on 2025-07-30 to reflect recent proxy refactoring and service layer changes.
 
 ## Directory Structure with Python File Counts
 
-### Root Level Files (18 Python files)
+### Root Level Files (21 Python files)
 - `ai_function_registry.py` - Registry for AI/Claude function definitions
 - `app.py` - Main Flask application entry point
 - `data_loader.py` - Data loading utilities
@@ -17,19 +17,23 @@ This document provides a comprehensive map of the entire risk_module codebase, i
 - `portfolio_optimizer.py` - Portfolio optimization algorithms
 - `portfolio_risk.py` - Portfolio risk calculations
 - `portfolio_risk_score.py` - Risk scoring system
+- `position_metadata.py` - Position metadata utilities
 - `proxy_builder.py` - Proxy ETF builder
 - `risk_helpers.py` - Risk calculation helpers
 - `risk_summary.py` - Risk summary generation
 - `run_portfolio_risk.py` - Portfolio risk runner script
 - `run_risk.py` - Main risk calculation runner
+- `run_migration.py` - Database migration runner
 - `settings.py` - Application settings
 - `test_logging.py` - Logging test utilities
+- `check_user_data.py` - Database content verification utility
+- `db_pool.py` - Database connection pooling
+- `db_session.py` - Database session management
 
 ### Core Application Layers (CRITICAL - Gitignored)
 
-#### `/services/` (16 Python files) - Business Logic Layer
+#### `/services/` (17 Python files) - Business Logic Layer
 Service layer implementing core business logic:
-- `service_layer.py` - Main service orchestration
 - `service_manager.py` - Service lifecycle management
 - `portfolio_service.py` - Portfolio management service
 - `stock_service.py` - Stock analysis service
@@ -39,6 +43,8 @@ Service layer implementing core business logic:
 - `async_service.py` - Asynchronous service utilities
 - `auth_service.py` - Authentication service
 - `usage_examples.py` - Service usage examples
+- `cache_mixin.py` - Cache management utilities
+- `factor_proxy_service.py` - Factor proxy management service (NEW)
 - **`/claude/`** subdirectory:
   - `chat_service.py` - Claude chat integration
   - `function_executor.py` - Function execution for Claude
@@ -54,7 +60,7 @@ Flask route definitions:
 - `plaid.py` - Plaid integration routes
 - `frontend_logging.py` - Frontend logging routes
 
-#### `/utils/` (9 Python files) - Utility Layer
+#### `/utils/` (8 Python files) - Utility Layer
 Shared utilities:
 - `auth.py` - Authentication utilities
 - `config.py` - Configuration management
@@ -63,7 +69,8 @@ Shared utilities:
 - `errors.py` - Error handling utilities
 - `etf_mappings.py` - ETF mapping utilities
 - `json_logging.py` - JSON logging utilities
-- `portfolio_context.py` - Portfolio context utilities
+
+**Note**: `portfolio_context.py` has been removed as part of recent refactoring
 
 #### `/inputs/` (7 Python files) - Data Access Layer
 Data input and management:
@@ -89,116 +96,83 @@ Core data structures and algorithms:
 ### Frontend Application (React/TypeScript)
 
 #### `/frontend/` (0 Python files + full React app)
-Modern React frontend with TypeScript (refactored architecture):
-- **`/src/`** - Source code
-  - **`/chassis/`** - Core frontend architecture (clean architecture pattern)
-    - `/hooks/` - Custom React hooks (useAuth, useChat, usePortfolio, etc.)
-    - `/managers/` - State management (AuthManager, ChatManager, etc.)
-    - `/navigation/` - Navigation intent system
-    - `/schemas/` - TypeScript schemas and API definitions
-    - `/services/` - API service layer (APIService, ClaudeService, etc.)
-    - `/types/` - TypeScript type definitions
-    - `/viewModels/` - View model pattern implementation
-  - **`/adapters/`** - Data adapters for API integration
-  - **`/components/`** - UI components (organized by feature)
-    - `/auth/` - Authentication components (GoogleSignInButton, LandingPage)
-    - `/chat/` - Chat/AI interface (RiskAnalysisChat)
-    - `/dashboard/` - Dashboard components with nested structure:
-      - `/layout/` - Dashboard layout components
-      - `/shared/` - Shared dashboard components (charts, UI elements)
-      - `/views/` - Feature-specific views (Risk, Holdings, Performance)
-    - `/layouts/` - Application layout components
-    - `/plaid/` - Plaid integration UI
-    - `/portfolio/` - Portfolio management UI
-    - `/shared/` - Shared components across features
-  - **`/config/`** - Environment configuration
-  - **`/hooks/`** - Application-level custom hooks
-  - **`/pages/`** - Page components
-  - **`/router/`** - Application routing
-  - **`/services/`** - Additional services (SecureStorage, logging)
-  - **`/store/`** - Application state stores
-  - **`/utils/`** - Utility functions and formatters
-- **`/examples/`** - Usage examples and documentation
-- **`/public/`** - Static assets
-- **`/build/`** - Production build output
-- Configuration files: package.json, tsconfig.json, jest.config.js, babel.config.js
+Full React frontend application:
+- **`/node_modules/`** - Complete npm dependencies (extensive)
+- Configuration files present in root:
+  - `package.json` - Frontend dependencies and scripts
+  - `package-lock.json` - Dependency lock file
+  - `tsconfig.json` - TypeScript configuration
+- Documentation:
+  - `README.md` - Frontend documentation
+  - `FRONTEND_DATA_FLOW_GUIDE.md` - Data flow guide
+- Build and development logs:
+  - `build-final.log` - Final build log
+  - `build-test.log` - Test build log
+  - `eslint-check.log` - ESLint validation log
+  - `typescript-check.log` - TypeScript validation log
+- Additional files:
+  - `cookies.txt` - Session data
+  - `package-update.json` - Package update tracking
 
-### Testing Infrastructure (Comprehensive Multi-Layer Testing)
+**Note**: The detailed `/src/` directory structure with chassis pattern, components, and clean architecture appears to be either in development or located elsewhere. The current frontend directory shows a standard Node.js project structure with extensive dependencies.
 
-#### `/tests/` (Expanded testing framework)
-Comprehensive test suite with multiple layers:
+### Testing Infrastructure (Basic Test Setup)
 
-**Core Python API Tests** (`/api/` subdirectory):
-- `test_api_endpoints.py` - API endpoint tests
-- `test_auth_system.py` - Authentication tests
-- `test_full_workflow.py` - Full workflow tests
-- `test_logging.py` - Logging test utilities
-- `test_portfolio_api_crud.py` - Portfolio API CRUD tests
-- `test_portfolio_crud.py` - Portfolio CRUD tests
-- `test_services.py` - Service layer tests
+#### `/tests/` (Basic testing framework)
+Basic test setup with core functionality:
 
-**Frontend Testing** (`/frontend/` subdirectory):
-- **`/unit/`** - Unit tests organized by feature:
-  - `/adapters/` - Data adapter tests
-  - `/components/` - Component tests (auth, dashboard, plaid, portfolio, shared)
-  - `/hooks/` - Custom hook tests
-  - `/services/` - Service tests
-  - `/stores/` - State store tests
-- **`/integration/`** - Frontend integration tests
-- **`/mocks/`** - Mock implementations and test utilities
-- Configuration: `jest.config.js`, test setup files
-
-**End-to-End Testing** (`/e2e/` subdirectory):
-- **`/component-tests/`** - Component-level E2E tests
-- **`/user-journeys/`** - Complete user workflow tests
-- **`/fixtures/`** - Test data and configurations
-- **`/helpers/`** - E2E test utilities and AI test reporting
-- **`/config/`** - Playwright configuration
-- **`/reports/`** - Test execution reports
-
-**Integration Testing** (`/integration/` subdirectory):
-- Authentication flow tests
-- Claude AI integration tests
-- Dashboard functionality tests
-- Data flow analysis tests
-- Production-ready workflow tests
-
-**Performance & Debug Testing**:
-- **`/performance/`** - Performance benchmarks
-- **`/debug/`** - Debug-specific test scenarios
-- **`/reports/`** - AI-generated test reports
-
-**Utility Tests** (`/utils/` subdirectory):
-- `test_basic_functionality.py` - Basic functionality tests
-- `test_cli.py` - CLI interface tests
-- `test_final_status.py` - Integration tests
-- `test_parameter_alignment.py` - Parameter alignment tests
-- `run_portfolio_crud_tests.py` - Portfolio CRUD test runner
-- `show_api_output.py` - API output debugging
-
-**Test Infrastructure**:
+**Core Test Files**:
 - `ai_test_orchestrator.py` - AI-powered test orchestration
-- **`/fixtures/`** - Test data files and configurations
-- **`/cache_prices/`** - Test price data cache
-- **`/error_logs/`** - Error logs and debugging output
+- `conftest.py` - Pytest configuration
+- `test_factor_proxies.py` - Factor proxy tests
+- `auth.setup.js` - Authentication setup for E2E tests
 - Documentation: `AI_TEST_GUIDE.md`, `README.md`, `TESTING_COMMANDS.md`
+
+**Scripts and Configuration**:
+- Various shell scripts for E2E testing (`run-e2e-tests.sh`, `run-e2e-tests-ai.sh`)
+- `setup-e2e-tests.sh` - E2E test environment setup
+- `setup-test-auth.sh` - Test authentication setup
+- `setup-authentication.js` - Authentication setup for frontend testing
+- `playwright.config.js` - Playwright configuration for E2E tests
+- `jest.config.js` - Jest configuration for unit tests
+
+**Test Results Storage**:
+- `/test-results/` - Test execution results
+- `/coverage/` - Code coverage reports (clover.xml, coverage-final.json, lcov.info)
+
+**Note**: The comprehensive multi-layer testing framework mentioned in previous documentation appears to be primarily located in the `/risk_module_secrets/` directory, which contains extensive E2E tests, integration tests, and various test scenarios.
 
 ### Development & Archive
 
-#### `/archive/` (101 Python files)
-Historical development files and backups
+#### `/archive/` (Extensive Python files and frontend components)
+Historical development files and backups including:
+- Legacy frontend components
+- Backend service archives
+- Development prototypes
+- Historical configuration files
 
-#### `/backup/` (201 Python files)
-System backups including full copies of core files
+#### `/backup/` (Extensive Python files)
+System backups including full copies of core files and documentation
 
-#### `/prototype/` (5 Python files + notebooks)
-Jupyter notebook prototypes converted to Python
+#### `/prototype/` (17 Python files + notebooks)
+Jupyter notebook prototypes converted to Python:
+- `data_loader.py` - Data loading prototype
+- `plaid_loader_dev_2025-07-10.py` - Plaid integration development
+- `proxy_builder_dev_2025-07-10.py` - Proxy builder development
+- `risk_module_dev_2025-07-10.py` - Risk module development
+- `run_risk_summary_to_gpt_dev.py` - GPT integration development
+- Various Jupyter notebooks (.ipynb files)
 
-#### `/tools/` (3 Python files)
+#### `/tools/` (9 Python files)
 Development tools:
 - `check_dependencies.py` - Dependency checker
 - `test_all_interfaces.py` - Interface testing
 - `view_alignment.py` - Code alignment viewer
+- `check_parameter_alignment.py` - Parameter alignment checker
+- `living_code_map.py` - Dynamic code mapping
+- `living_code_map_clean.py` - Clean code mapping
+- `watch_and_update.py` - File watching utility
+- `backfill_subindustry_peers.py` - Data backfill utility
 
 ### Documentation
 
@@ -218,57 +192,124 @@ Completed feature documentation and plans
 ### Data & Cache
 
 #### `/cache_prices/`
-Price data cache (Parquet files)
+Price data cache (Parquet files) - Over 1000+ cached price files for various tickers
+
+#### `/cache_test/`
+Test cache directory with test key files
 
 #### `/error_logs/`
-Application error logs
+Comprehensive application error logs including:
+- API request logs (daily files from 2025-07-16 to 2025-07-30)
+- Authentication event logs
+- Claude integration logs
+- Critical alerts
+- Database operation logs
+- Frontend error logs
+- Performance metrics
+- Portfolio operation logs
+- Resource usage logs
+- Service health logs
+- SQL query logs
+- Usage statistics
+- Workflow state logs
+
+#### `/exports/`
+Data export directory
+
+#### `/user_data/`
+User-specific data storage
+
+#### `/temp/`
+Temporary file storage
+
+#### `/database/`
+Database-related files and migrations
 
 ### Configuration Files
 - Various YAML files for:
-  - Portfolio configurations
-  - Risk limits
-  - Industry/exchange mappings
-  - Cash mappings
+  - Portfolio configurations (`portfolio.yaml`, various scenario files)
+  - Risk limits (`risk_limits.yaml`, `risk_limits_adjusted.yaml`)
+  - Industry/exchange mappings (`industry_to_etf.yaml`, `exchange_etf_proxies.yaml`)
+  - Cash mappings (`cash_map.yaml`)
+  - Pipeline test configurations (`pipeline_test.yaml`)
 - `package.json` - Node.js dependencies for frontend
+- `package.json.backup` - Backup of frontend dependencies
 - `requirements.txt` - Python dependencies
 - `playwright.config.js` - E2E testing configuration
-- Various shell scripts for testing and deployment
+- `jest.config.js` - Jest testing configuration
+- `tsconfig.json` - TypeScript configuration (frontend)
+- Various shell scripts for testing, deployment, and utilities:
+  - `backup_system.sh` - System backup script
+  - `secrets_helper.sh` - Secrets management
+  - `update_secrets.sh` - Secret update utility
+  - `sync-to-public.sh` - Public repository sync
+- Database schema: `db_schema.sql`
+- Jupyter notebook: `risk_runner.ipynb`
+
+### Additional Directories
+
+#### `/scripts/`
+Development and validation scripts:
+- `ai-create-snapshot.sh` - AI snapshot creation
+- `ai-test-baseline.sh` - Baseline testing
+- `ai-validate-repo.sh` - Repository validation
+- Various validation scripts for different phases
+
+#### `/templates/`
+Template files:
+- `dashboard.html` - Dashboard HTML template
+
+#### `/src/`
+Legacy source files:
+- `App.test.js` - Legacy application test
 
 ### Security & Secrets
 
-#### `/risk_module_secrets/` (163 Python files)
-**CRITICAL**: Contains duplicated application code and secrets
-- Appears to be a full backup/mirror of the application
-- Contains sensitive configuration
+#### `/risk_module_secrets/` (Extensive files)
+**CRITICAL**: Contains duplicated application code, documentation, and configuration
+- Full backup/mirror of the application with extensive test files
+- Contains development scripts and historical data
+- Includes comprehensive test suites and E2E testing files
+- Contains various YAML configuration files and scenarios
+- Migration test results and performance benchmarks
 
-6. **Security Concerns**:
-   - `/risk_module_secrets/` contains sensitive data
-   - Multiple backup directories with potential secrets
+**Security Considerations**:
+- `/risk_module_secrets/` contains sensitive configuration data
+- Multiple backup directories with potential secrets
+- Contains API keys and authentication tokens (redacted in documentation)
+- Database connection strings and configuration files
 
 ## File Count Summary
-- Total Python files: ~560+
-- Core application: ~61 files (18 root + 12 services + 9 routes + 9 utils + 7 inputs + 10 core)
-- Tests: ~50+ files (expanded multi-layer testing framework)
-- Archive/Backup: ~300+ files
-- Frontend: Full React application (0 Python files, significantly refactored with clean architecture)
+- Total Python files: 554 (as of 2025-07-30)
+- Core application: ~65 files (21 root + 17 services + 7 routes + 8 utils + 7 inputs + 10 core)
+- Tests: ~5 files (basic test setup, extensive tests in secrets directory)
+- Archive/Backup: Extensive files across multiple directories
+- Prototype: 17+ files (Python + Jupyter notebooks)
+- Tools: 9 files
+- Frontend: Full React application (0 Python files, comprehensive node_modules)
 - Admin tools: 2 files
+- Additional: `check_user_data.py` - Database content checker
 
-## Architecture Changes Since Last Update
-### Frontend Refactoring (Major Changes):
-1. **Clean Architecture Implementation**: Introduction of chassis pattern with clear separation of concerns
-2. **Adapter Pattern**: New `/adapters/` directory for API data transformation
-3. **View Model Pattern**: Added `/viewModels/` for presentation logic
-4. **Navigation System**: New intent-based navigation system
-5. **Dashboard Restructuring**: Hierarchical organization with layout, shared components, and views
-6. **Enhanced State Management**: Improved store architecture and hook patterns
+## Architecture Changes Since Last Update (2025-07-30)
+### Backend Service Layer Refactoring (Recent Changes):
+1. **Proxy Service Implementation**: New `factor_proxy_service.py` for centralized proxy management
+2. **Cache Management**: Added `cache_mixin.py` for service-level caching utilities
+3. **Database Context Management**: Updated admin tools to use proper database sessions
+4. **Portfolio Context Cleanup**: Removed deprecated `portfolio_context.py` from utils
+5. **Migration Infrastructure**: Enhanced migration tools and database client updates
 
-### Testing Framework Expansion (Major Changes):
-1. **Multi-Layer Testing**: Comprehensive testing strategy across unit, integration, and E2E levels
-2. **Frontend Testing Suite**: Dedicated frontend testing with Jest and React Testing Library
-3. **AI-Powered Testing**: AI test orchestration and reporting system
-4. **Debug Testing**: Specialized debug test scenarios
-5. **Performance Testing**: Dedicated performance benchmarking
-6. **User Journey Testing**: Complete end-to-end user workflow validation
+### Configuration and Data Management Updates:
+1. **Enhanced Admin Tools**: Updated admin scripts with proper database session handling
+2. **User Data Verification**: New `check_user_data.py` utility for database content verification
+3. **Testing Infrastructure**: Basic test setup with E2E testing capabilities
+4. **Comprehensive Logging**: Extensive error logging and performance monitoring
+5. **Cache Structure**: Organized cache directories for prices and test data
+
+### Documentation and Development Tools:
+1. **Living Code Map**: Dynamic code mapping tools for real-time codebase analysis
+2. **Parameter Alignment**: Tools for checking parameter consistency across codebase
+3. **Backfill Utilities**: Data backfill tools for subindustry peer data
+4. **Watch and Update**: File monitoring utilities for development workflow
 
 ## Key Integration Points
 1. Database: PostgreSQL via `database_client.py`
