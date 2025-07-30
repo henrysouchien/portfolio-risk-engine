@@ -247,7 +247,9 @@ def serialize_for_cache(obj):
     else:
         return str(obj)
 
-@functools.lru_cache(maxsize=100)  # Keep 100 most recent portfolio analyses
+from utils.config import PORTFOLIO_RISK_LRU_SIZE
+
+@functools.lru_cache(maxsize=PORTFOLIO_RISK_LRU_SIZE)  # Keep 100 most recent portfolio analyses
 def _cached_build_portfolio_view(
     weights_json: str,
     start_date: str,

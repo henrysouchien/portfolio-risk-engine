@@ -71,14 +71,16 @@ def get_cash_positions():
     try:
         # Try database first
         from inputs.database_client import DatabaseClient
-        db_client = DatabaseClient()
-        cash_map = db_client.get_cash_mappings()
-        
-        # Log successful database connection
-        response_time = time.time() - start_time
-        log_service_health("PostgreSQL", "healthy", response_time, user_id=None)
-        
-        return set(cash_map.get("proxy_by_currency", {}).values())
+        from db_session import get_db_session
+        with get_db_session() as conn:
+            db_client = DatabaseClient(conn)
+            cash_map = db_client.get_cash_mappings()
+            
+            # Log successful database connection
+            response_time = time.time() - start_time
+            log_service_health("PostgreSQL", "healthy", response_time, user_id=None)
+            
+            return set(cash_map.get("proxy_by_currency", {}).values())
     except Exception as e:
         # LOGGING: Add critical alert for database connection failures
         response_time = time.time() - start_time

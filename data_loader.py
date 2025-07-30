@@ -20,6 +20,7 @@ from utils.logging import (
     log_api_health,
     log_error_handling
 )
+from utils.config import DATA_LOADER_LRU_SIZE, TREASURY_RATE_LRU_SIZE
 
 # ── internals ──────────────────────────────────────────────────────────
 def _hash(parts: Iterable[str | int | float]) -> str:
@@ -311,7 +312,7 @@ _fetch_monthly_close_disk = fetch_monthly_close
 _fetch_monthly_treasury_rates_disk = fetch_monthly_treasury_rates
 
 # 2) re-export the public name with an LRU layer
-@lru_cache(maxsize=256)          # tune size to taste
+@lru_cache(maxsize=DATA_LOADER_LRU_SIZE)
 def fetch_monthly_close(         # ← same name seen by callers
     ticker: str,
     start_date: str | None = None,
@@ -328,7 +329,7 @@ def fetch_monthly_close(         # ← same name seen by callers
     return _fetch_monthly_close_disk(ticker, start_date, end_date)
 
 
-@lru_cache(maxsize=64)          # smaller cache for Treasury rates
+@lru_cache(maxsize=TREASURY_RATE_LRU_SIZE)
 def fetch_monthly_treasury_rates(
     maturity: str = "month3",
     start_date: str | None = None,

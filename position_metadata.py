@@ -30,8 +30,10 @@ def get_position_metadata(user_id: Optional[int] = None, portfolio_name: Optiona
     if user_id and portfolio_name:
         try:
             from inputs.database_client import DatabaseClient
-            db_client = DatabaseClient()
-            metadata = db_client.get_position_metadata(user_id, portfolio_name)
+            from db_session import get_db_session
+            with get_db_session() as conn:
+                db_client = DatabaseClient(conn)
+                metadata = db_client.get_position_metadata(user_id, portfolio_name)
         except Exception:
             pass
     
