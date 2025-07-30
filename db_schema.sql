@@ -600,5 +600,24 @@ INSERT INTO industry_proxies (industry, proxy_etf) VALUES
 ON CONFLICT (industry) DO NOTHING;
 
 -- ============================================================================
+-- SUB-INDUSTRY PEERS REFERENCE TABLE
+-- ============================================================================
+
+-- Global sub-industry peers cache table
+-- Stores peer ticker lists for factor analysis, populated by GPT or manual curation
+-- Eliminates duplicate GPT calls across portfolios and users
+CREATE TABLE IF NOT EXISTS subindustry_peers (
+    ticker        VARCHAR(20) PRIMARY KEY,
+    peers         JSONB     NOT NULL,
+    source        VARCHAR(30) DEFAULT 'gpt',
+    generated_at  TIMESTAMP  DEFAULT NOW(),
+    updated_at    TIMESTAMP  DEFAULT NOW()
+);
+
+-- Index for maintenance queries and date-based cleanup
+CREATE INDEX IF NOT EXISTS idx_sub_peers_generated_at
+    ON subindustry_peers (generated_at);
+
+-- ============================================================================
 -- END OF SCHEMA
 -- ============================================================================ 

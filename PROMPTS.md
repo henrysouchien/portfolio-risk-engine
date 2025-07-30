@@ -488,3 +488,182 @@ OUTPUT
 Only high-level progress logs, e.g.: Found 38 jsdoc errors in 17 files
 ✔ Patched src/chassis/services/AuthService.ts
 ✔ Patched src/adapters/RiskScoreAdapter.ts
+
+PROMPT FOR PROXY REFACTORING
+
+You are an engineering copilot on a Flask + PostgreSQL code-base named “risk_module”.
+
+Goal: implement the “Sub-Industry Proxy Refactor” described in docs/planning/SUBINDUSTRY_PROXY_REFACTOR.md.
+
+Follow these rules:
+• Work **one numbered step at a time**.  
+• After finishing a step: output only the file diffs for that step (path + new content) and stop.  
+• Do not start the next step until explicitly asked.  
+• Code must pass `pytest -q` and conform to black + flake8.
+
+STEP 1: create migration file.
+
+Add database/migrations/20250801_add_subindustry_peers.sql
+
+Contents:
+```sql
+CREATE TABLE IF NOT EXISTS subindustry_peers (
+    ticker        VARCHAR(20) PRIMARY KEY,
+    peers         JSONB     NOT NULL,
+    source        VARCHAR(30) DEFAULT 'gpt',
+    generated_at  TIMESTAMP  DEFAULT NOW(),
+    updated_at    TIMESTAMP  DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_sub_peers_generated_at
+    ON subindustry_peers (generated_at);
+```
+
+Output:
+--- Added file: database/migrations/20250801_add_subindustry_peers.sql  
+<full file content>
+
+Do not modify any other files.  Produce diff only; no extra commentary.
+
+STEP 2: extend inputs/database_client.py
+
+1. Import json at top if missing.
+2. Add two methods inside DatabaseClient class:
+
+    def get_subindustry_peers(self, ticker: str) -> Optional[List[str]]:
+        # SELECT peers FROM subindustry_peers WHERE ticker = %s
+        # return json.loads(...) if row else None
+
+    def save_subindustry_peers(self,
+                               ticker: str,
+                               peers: List[str],
+                               source: str = 'gpt') -> None:
+        # INSERT ... ON CONFLICT (ticker)
+        # DO UPDATE SET peers = EXCLUDED.peers,
+        #              source = EXCLUDED.source,
+        #              updated_at = NOW()
+
+3. Decorate both with existing decorators:
+   @log_error_handling('medium')
+   @log_portfolio_operation_decorator('subindustry_reference')
+   @log_performance(0.5)
+   @handle_database_error
+
+Output:
+--- Modified file: inputs/database_client.py  
+<only changed sections>
+
+No other files; no prose.
+
+STEP 3: add services/factor_proxy_service.py
+
+File content:
+
+```python
+from typing import Dict, Set, List
+import json, os, tempfile
+from db_session import get_db_session
+from inputs.database_client import DatabaseClient
+from proxy_builder import build_proxy_for_ticker, load_exchange_proxy_map, load_industry_etf_map, get_subindustry_peers_from_ticker
+from utils.logging import log_error_handling, log_performance
+
+@log_error_handling('medium')
+@log_performance(1.0)
+def ensure_factor_proxies(user_id: int,
+                          portfolio_name: str,
+                          tickers: Set[str],
+                          allow_gpt: bool = True) -> Dict[str, Dict]:
+    \"\"\"Guarantee proxy rows for every ticker and return full dict.\"\"\"
+    with get_db_session() as conn:
+        db = DatabaseClient(conn)
+        existing = db.get_factor_proxies(user_id, portfolio_name)
+
+    missing = tickers.difference(existing.keys())
+    if not missing:
+        return existing
+
+    exch_map = load_exchange_proxy_map()
+    ind_map  = load_industry_etf_map()
+    new_rows = {}
+
+    for tkr in missing:
+        proxy = build_proxy_for_ticker(tkr, exch_map, ind_map) or {}
+        peers = None
+        try:
+            with get_db_session() as conn:
+                peers = DatabaseClient(conn).get_subindustry_peers(tkr)
+        except Exception:
+            pass
+
+        if not peers and allow_gpt:
+            peers = get_subindustry_peers_from_ticker(tkr)
+            try:
+                with get_db_session() as conn:
+                    DatabaseClient(conn).save_subindustry_peers(tkr, peers)
+            except Exception:
+                pass
+
+        proxy['subindustry'] = peers or []
+        new_rows[tkr] = proxy
+
+    if new_rows:
+        with get_db_session() as conn:
+            DatabaseClient(conn).save_factor_proxies(user_id, portfolio_name, new_rows)
+
+    merged = {**existing, **new_rows}
+    return merged
+```
+
+Output:
+--- Added file: services/factor_proxy_service.py
+<full file content>
+
+STEP 4: modify inputs/portfolio_manager.py
+
+A) in create_portfolio(), after saving positions:
+
+from services.factor_proxy_service import ensure_factor_proxies
+...
+tickers = set(portfolio_input.keys())
+ensure_factor_proxies(self.internal_user_id, portfolio_name, tickers)
+
+B) in update_portfolio_holdings(), after computing new holdings:
+
+tickers = set(updated_input.keys())
+ensure_factor_proxies(self.internal_user_id, portfolio_name, tickers)
+
+
+Output:
+--- Modified file: inputs/portfolio_manager.py  
+<only changed snippets>
+
+STEP 5: modify routes/api.py
+
+In both api_analyze_portfolio() and api_risk_score():
+
+1. Remove entire block that exports YAML + inject_all_proxies + save_factor_proxies.
+2. Replace with:
+from services.factor_proxy_service import ensure_factor_proxies
+...
+pd = pm.load_portfolio_data(portfolio_name)
+pd.stock_factor_proxies = ensure_factor_proxies(
+user['user_id'],
+portfolio_name,
+set(pd.portfolio_input.keys()),
+allow_gpt_subindustry=True # keep existing tier logic
+)
+
+Output:
+--- Modified file: routes/api.py  
+<diff for the two functions>
+
+No other changes.
+
+STEP 6A: add tools/backfill_subindustry_peers.py (optional)
+
+STEP 6B: add tests/test_factor_proxies.py verifying:
+• first portfolio triggers save; second does not call GPT (mock it).
+
+Output both new files.
+
+End with “All steps complete”.
