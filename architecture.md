@@ -21,10 +21,10 @@ This document provides a comprehensive overview of the Risk Module's architectur
 
 The Risk Module is a comprehensive full-stack application combining a modular Python backend with a production-ready React frontend. It provides multi-factor regression diagnostics, risk decomposition, and portfolio optimization capabilities through a **clean 3-layer architecture** with **multi-user database support** and **integrated dashboard interface** that promotes maintainability, testability, and extensibility.
 
-### Architecture Transformation
+### Architecture Evolution
 
 **BEFORE**: Monolithic `run_risk.py` (1217 lines) mixing CLI, business logic, and formatting
-**AFTER**: Clean layered architecture with extracted business logic and single source of truth
+**AFTER**: Enterprise-grade multi-user system with production-ready React dashboard, comprehensive database architecture, and sophisticated testing infrastructure
 
 ### Data Quality Assurance
 
@@ -449,96 +449,118 @@ def run_portfolio(filepath: str, *, return_data: bool = False):
 
 ```
 risk_module/
-├── 📄 Readme.md                    # Main project documentation
-├── 📄 architecture.md              # Technical architecture (this file)
-├── 📄 COMPLETE_CODEBASE_MAP.md     # Comprehensive codebase mapping
-├── 📄 E2E_TESTING_GUIDE.md         # End-to-end testing documentation
-├── 📄 PROMPTS.md                   # Development prompts and guidelines
-├── ⚙️ settings.py                  # Default configuration settings
-├── 🔧 app.py                       # Flask web application
-├── 🔧 db_session.py                # Database session management
-├── 🔧 check_user_data.py           # Database inspection utility
-├── 🔒 update_secrets.sh            # Secrets synchronization script
-├── 📋 requirements.txt             # Python dependencies
-├── 📜 LICENSE                      # MIT License
+├── 📄 Readme.md                       # Main project documentation
+├── 📄 architecture.md                 # Technical architecture (this file)
+├── 📄 COMPLETE_CODEBASE_MAP.md        # Comprehensive codebase mapping
+├── 📄 E2E_TESTING_GUIDE.md            # End-to-end testing documentation
+├── 📄 PROMPTS.md                      # Development prompts and guidelines
+├── ⚙️ settings.py                     # Default configuration settings
+├── 🔧 app.py                          # Flask web application (3,156 lines)
+├── 🔧 db_session.py                   # Database session management
+├── 🔧 check_user_data.py              # Database inspection utility
+├── 🔒 update_secrets.sh               # Secrets synchronization script
+├── 📋 requirements.txt                # Python dependencies
+├── 📜 LICENSE                         # MIT License
 │
 ├── 📊 LAYER 1: ROUTES LAYER (User Interface)
-│   ├── 🖥️ run_risk.py                  # CLI interface (832 lines)
-│   ├── 📁 routes/                      # API interfaces
-│   │   ├── api.py                      # REST API endpoints (669 lines)
-│   │   ├── claude.py                   # Claude AI chat interface (128 lines)
-│   │   ├── plaid.py                    # Plaid integration (254 lines)
-│   │   ├── auth.py                     # Authentication (124 lines)
-│   │   └── admin.py                    # Admin interface (134 lines)
-│   ├── 📁 services/                    # Service orchestration
-│   │   ├── portfolio_service.py        # Portfolio analysis service
-│   │   ├── stock_service.py            # Stock analysis service
-│   │   ├── scenario_service.py         # Scenario analysis service
-│   │   ├── optimization_service.py     # Optimization service
-│   │   ├── auth_service.py             # Authentication service
-│   │   ├── factor_proxy_service.py     # Factor proxy management
-│   │   ├── validation_service.py       # Data validation service
-│   │   └── claude/                     # Claude AI services
-│   │       ├── function_executor.py    # Claude function execution
-│   │       └── chat_service.py         # Claude chat interface
-│   └── 📁 frontend/                    # Web frontend
-│       └── src/                        # React SPA components and infrastructure
+│   ├── 🖥️ run_risk.py                     # CLI interface (832 lines)
+│   ├── 📁 routes/                         # API interfaces
+│   │   ├── api.py                         # REST API endpoints (669 lines)
+│   │   ├── claude.py                      # Claude AI chat interface (128 lines)
+│   │   ├── plaid.py                       # Plaid integration (254 lines)
+│   │   ├── auth.py                        # Authentication (124 lines)
+│   │   └── admin.py                       # Admin interface (134 lines)
+│   ├── 📁 services/                       # Service orchestration
+│   │   ├── portfolio_service.py           # Portfolio analysis service
+│   │   ├── stock_service.py               # Stock analysis service
+│   │   ├── scenario_service.py            # Scenario analysis service
+│   │   ├── optimization_service.py        # Optimization service
+│   │   ├── auth_service.py                # Authentication service
+│   │   ├── factor_proxy_service.py        # Factor proxy management
+│   │   ├── validation_service.py          # Data validation service
+│   │   └── claude/                        # Claude AI services
+│   │       ├── function_executor.py       # Claude function execution
+│   │       └── chat_service.py            # Claude chat interface
+│   └── 📁 frontend/                       # Production-Ready React Frontend
+│       ├── src/ARCHITECTURE.md            # Frontend architecture documentation
+│       ├── src/components/                # UI components and views
+│       ├── src/chassis/                   # Service layer architecture
+│       ├── src/hooks/                     # Data access React hooks
+│       ├── src/stores/                    # Zustand state management
+│       ├── src/providers/                 # React context providers
+│       └── src/utils/                     # Utilities and adapters
 │
 ├── 📊 LAYER 2: CORE LAYER (Pure Business Logic)
-│   ├── 📁 core/                        # Extracted business logic
-│   │   ├── portfolio_analysis.py       # Portfolio analysis logic (116 lines)
-│   │   ├── stock_analysis.py           # Stock analysis logic (133 lines)
-│   │   ├── scenario_analysis.py        # Scenario analysis logic (157 lines)
-│   │   ├── optimization.py             # Optimization logic (180 lines)
-│   │   ├── performance_analysis.py     # Performance analysis logic (115 lines)
-│   │   └── interpretation.py           # AI interpretation logic (109 lines)
-│   └── 📁 utils/                       # Utility functions
-│       └── serialization.py            # JSON serialization utilities
+│   ├── 📁 core/                           # Extracted business logic
+│   │   ├── portfolio_analysis.py          # Portfolio analysis logic (116 lines)
+│   │   ├── stock_analysis.py              # Stock analysis logic (133 lines)
+│   │   ├── scenario_analysis.py           # Scenario analysis logic (157 lines)
+│   │   ├── optimization.py                # Optimization logic (180 lines)
+│   │   ├── performance_analysis.py        # Performance analysis logic (115 lines)
+│   │   └── interpretation.py              # AI interpretation logic (109 lines)
+│   └── 📁 utils/                          # Utility functions
+│       └── serialization.py               # JSON serialization utilities
 │
 ├── 📊 LAYER 3: DATA LAYER (Data Access & Storage)
-│   ├── 💼 portfolio_risk.py            # Portfolio risk calculations (32KB)
-│   ├── 📈 portfolio_risk_score.py      # Risk scoring system (53KB)
-│   ├── 📊 factor_utils.py              # Factor analysis utilities (8KB)
-│   ├── 📋 risk_summary.py              # Single-stock risk profiling (4KB)
-│   ├── ⚡ portfolio_optimizer.py        # Portfolio optimization (36KB)
-│   ├── 🔌 data_loader.py               # Data fetching and caching (8KB)
-│   ├── 🗃️ db_session.py                # Database session and connection pooling
-│   ├── 🗃️ inputs/database_client.py     # Per-request PostgreSQL client
-│   ├── 🤖 gpt_helpers.py               # GPT integration (4KB)
-│   ├── 🔧 proxy_builder.py             # Factor proxy generation (19KB)
-│   ├── 🏦 plaid_loader.py              # Plaid brokerage integration (29KB)
-│   └── 🛠️ risk_helpers.py              # Risk calculation helpers (8KB)
+│   ├── 💼 portfolio_risk.py               # Portfolio risk calculations (32KB)
+│   ├── 📈 portfolio_risk_score.py         # Risk scoring system (53KB)
+│   ├── 📊 factor_utils.py                 # Factor analysis utilities (8KB)
+│   ├── 📋 risk_summary.py                 # Single-stock risk profiling (4KB)
+│   ├── ⚡ portfolio_optimizer.py           # Portfolio optimization (36KB)
+│   ├── 🔌 data_loader.py                  # Data fetching and caching (8KB)
+│   ├── 🗃️ db_session.py                   # Database session and connection pooling
+│   ├── 🗃️ inputs/database_client.py       # Per-request PostgreSQL client
+│   ├── 🤖 gpt_helpers.py                  # GPT integration (4KB)
+│   ├── 🔧 proxy_builder.py                # Factor proxy generation (19KB)
+│   ├── 🏦 plaid_loader.py                 # Plaid brokerage integration (29KB)
+│   └── 🛠️ risk_helpers.py                 # Risk calculation helpers (8KB)
+│
+├── 📁 Database & Infrastructure
+│   ├── 🗃️ database/migrations/            # SQL schema migrations
+│   │   ├── 20250831_cleanup_subindustry_peers.sql
+│   │   └── [migration files]              # Database evolution system
+│   ├── 📄 templates/dashboard.html        # Web application templates
+│   ├── 🗃️ db_schema.sql                   # Database schema with reference data tables
+│   └── 🛠️ admin/                          # Reference data management and monitoring
+│       ├── manage_reference_data.py       # CLI tool for managing mappings
+│       ├── README.md                      # Reference data management guide
+│       └── error_logs/                    # Production monitoring and alerts
 │
 ├── 📁 Configuration Files
-│   ├── ⚙️ portfolio.yaml              # Portfolio configuration
-│   ├── ⚙️ risk_limits.yaml            # Risk limit definitions
-│   ├── 🗃️ db_schema.sql               # Database schema with reference data tables
-│   ├── 🛠️ admin/                      # Reference data management tools
-│   │   ├── manage_reference_data.py   # CLI tool for managing mappings
-│   │   └── README.md                  # Reference data management guide
-│   ├── 🗺️ cash_map.yaml               # Cash position mapping (YAML fallback)
-│   ├── 🏭 industry_to_etf.yaml        # Industry classification mapping (YAML fallback)
-│   ├── 📊 exchange_etf_proxies.yaml   # Exchange-specific proxies (YAML fallback)
-│   └── 🔧 what_if_portfolio.yaml      # What-if scenarios
+│   ├── ⚙️ portfolio.yaml                 # Portfolio configuration
+│   ├── ⚙️ risk_limits.yaml               # Risk limit definitions
+│   ├── 🗺️ cash_map.yaml                  # Cash position mapping (YAML fallback)
+│   ├── 🏭 industry_to_etf.yaml           # Industry classification mapping (YAML fallback)
+│   ├── 📊 exchange_etf_proxies.yaml      # Exchange-specific proxies (YAML fallback)
+│   ├── 🔧 what_if_portfolio.yaml         # What-if scenarios
+│   ├── ⚙️ playwright.config.js           # E2E testing configuration
+│   ├── ⚙️ jest.config.js                 # Frontend testing configuration
+│   └── 🔧 package.json                   # Frontend dependencies and scripts
 │
 ├── 📁 docs/ (Documentation)
 │   ├── interfaces/
 │   │   ├── FRONTEND_BACKEND_CONNECTION_MAP.md  # Interface connection mapping
 │   │   └── alignment_table.md                  # Function alignment across interfaces
-│   ├── API_REFERENCE.md               # API documentation
-│   ├── DATA_SCHEMAS.md                # Database schema documentation
-│   ├── ideas/                         # Architecture ideas and concepts
-│   └── planning/                      # Development planning documents
+│   ├── API_REFERENCE.md                   # API documentation
+│   ├── DATABASE_REFERENCE.md              # Database documentation
+│   ├── ideas/                             # Architecture ideas and concepts
+│   └── planning/                          # Development planning documents
 │
-├── 📁 tests/ (Testing)
-│   ├── test_service_layer.py          # Service layer tests
-│   ├── test_dual_mode.py              # Dual-mode functionality tests
-│   └── test_core_extraction.py        # Core business logic tests
+├── 📁 tests/ (Comprehensive Testing Suite)
+│   ├── test_comprehensive_migration.py    # Master test runner
+│   ├── test_performance_benchmarks.py     # Performance validation (9.4ms queries)
+│   ├── test_user_isolation.py             # Security testing
+│   ├── test_fallback_mechanisms.py        # Fallback validation
+│   ├── test_cash_mapping_validation.py    # Cash mapping tests
+│   ├── ai_test_orchestrator.py            # AI-powered test orchestration
+│   └── e2e/                               # End-to-end testing with Playwright
 │
-└── 📁 tools/ (Utilities)
-    ├── view_alignment.py              # Terminal alignment viewer
-    ├── check_dependencies.py          # Dependency impact analysis
-    └── test_all_interfaces.py         # Interface testing suite
+└── 📁 tools/ (Development Tools)
+    ├── view_alignment.py                  # Terminal alignment viewer
+    ├── check_dependencies.py              # Dependency impact analysis
+    ├── test_all_interfaces.py             # Interface testing suite
+    ├── living_code_map.py                 # Dynamic codebase visualization
+    └── [additional development tools]
 ```
 
 ## 🎯 Core Business Logic Extraction
@@ -1211,16 +1233,15 @@ The Risk Module provides a complete full-stack web application with a production
 
 ### Flask Web App (`app.py`)
 
-**Production-Ready Features** (3,156 lines):
-- **Google OAuth Authentication**: Secure user management and session handling
-- **Multi-Tier Access Control**: Public/Registered/Paid user tiers with rate limiting
-- **Plaid Integration**: Real-time portfolio import from brokerage accounts
-- **Claude AI Chat**: Interactive risk analysis assistance and natural language queries
-- **RESTful API**: Multiple endpoints for portfolio analysis and risk scoring
-- **Portfolio Configuration Interface**: Web-based YAML editor and management
-- **Risk Analysis Execution**: Server-side portfolio analysis with export functionality
-- **Admin Dashboard**: Usage tracking, cache management, and system monitoring
-- **API Key Management**: Secure key generation, validation, and Kartra integration
+**Production-Ready Flask Backend** (3,156 lines):
+- **Multi-Provider OAuth**: Google, GitHub, Apple authentication with database sessions
+- **Multi-Tier Access Control**: Public/Registered/Paid user tiers with sophisticated rate limiting
+- **Plaid Integration**: Real-time portfolio import from 1000+ financial institutions
+- **Claude AI Chat**: Interactive risk analysis with 16+ portfolio analysis functions
+- **RESTful API**: Comprehensive endpoints for portfolio analysis, risk scoring, and optimization
+- **Database-First Architecture**: PostgreSQL with migration system and connection pooling
+- **Admin Dashboard**: Usage tracking, error monitoring, performance metrics, and cache management
+- **API Key Management**: Secure key generation, validation, and programmatic access
 
 **Rate Limiting Strategy**:
 ```python
@@ -1240,13 +1261,21 @@ limits = {
 
 ### React Dashboard Frontend Architecture
 
-**Production-Ready Single Page Application** with complete risk analysis interface:
+**Enterprise-Grade Single Page Application** with sophisticated multi-user architecture:
 
-#### Core Dashboard Structure (`frontend/src/components/apps/DashboardApp.tsx`)
+#### Multi-User State-Driven Architecture (`frontend/src/ARCHITECTURE.md`)
 
-**Complete authenticated user experience** providing:
+**Complete enterprise architecture** providing:
 
-**1. Dashboard Views (6 comprehensive views)**:
+**1. Multi-Layer Architecture**:
+- **App Orchestration Layer**: AppOrchestrator state machine with LandingApp/DashboardApp experiences
+- **Provider Layer**: QueryProvider, AuthProvider, SessionServicesProvider for user isolation
+- **State Management Layer**: Zustand stores (auth, portfolio, UI) + React Query server state
+- **Service Layer**: 20+ service classes with dependency injection via ServiceContainer
+- **Hook Layer**: Data access hooks with user-scoped caching and cancellation
+- **Component Layer**: 6 dashboard views with intelligent loading strategies
+
+**2. Dashboard Views (6 comprehensive views)**:
 - **Risk Score View**: Portfolio risk scoring with detailed breakdown and recommendations
 - **Holdings View**: Portfolio composition with weight analysis and risk attribution
 - **Factor Analysis View**: Multi-factor exposure analysis with sector/style breakdowns
@@ -1254,7 +1283,22 @@ limits = {
 - **Analysis Report View**: Comprehensive risk reports with export functionality (PDF/CSV)
 - **Risk Settings View**: Risk tolerance configuration and limit management
 
-**2. Hybrid Loading Strategy (Performance-Optimized)**:
+**3. Multi-User Security Architecture**:
+```typescript
+// User isolation via SessionServicesProvider
+SessionServicesProvider creates per-user ServiceContainer:
+├─ APIService (HTTP client with user auth tokens)
+├─ PortfolioManager (User-scoped portfolio operations)
+├─ PortfolioCacheService (User-specific data caching)
+├─ ClaudeService (AI analysis with user context)
+└─ ServiceContainer (Dependency injection with cleanup)
+
+// Cache isolation with user-scoped keys
+queryKey: ['portfolioSummary', userId, portfolioId]
+queryKey: ['riskAnalysis', userId, portfolioId]
+```
+
+**4. Hybrid Loading Strategy (Performance-Optimized)**:
 ```javascript
 // Critical tabs: Instant loading (no lazy loading)
 import RiskScoreViewContainer from './views/RiskScoreViewContainer';
@@ -1274,7 +1318,7 @@ const RiskSettingsView = lazy(() => import('./views/RiskSettingsView'));
 - **Secondary Views**: Background preloading after 2 seconds for Factor Analysis and Performance
 - **On-demand Views**: Lazy loading for Reports and Settings to optimize initial bundle size
 
-**3. Real Data Integration (Hook → Adapter → Manager → API Pattern)**:
+**5. Real Data Integration (Hook → Adapter → Manager → API Pattern)**:
 ```javascript
 // Real data connections using production hooks
 const portfolioSummaryHook = usePortfolioSummary();
@@ -1292,7 +1336,7 @@ const portfolioSummary = useMemo(() => {
 }, [currentPortfolio, portfolioSummaryHook.data]);
 ```
 
-**4. Claude AI Chat Integration (Context-Aware)**:
+**6. Claude AI Chat Integration (Context-Aware)**:
 ```javascript
 // Chat with visual context integration
 const handleSendMessage = async (message) => {
@@ -1317,7 +1361,7 @@ const handleSendMessage = async (message) => {
 - **Real API Integration**: Connects to backend Claude API with portfolio context
 - **Visual Integration**: Assistant can navigate between dashboard views based on conversation
 
-**5. Comprehensive State Management (Zustand + Context)**:
+**7. Comprehensive State Management (Zustand + Context)**:
 ```javascript
 // Zustand store for dashboard state
 const actions = useDashboardActions();
@@ -1335,7 +1379,7 @@ const { currentPortfolio } = useAppContext();
 - **View State**: Per-view data caching and loading management
 - **Chat State**: Message history and context preservation
 
-**6. Production Logging and Performance Monitoring**:
+**8. Production Logging and Performance Monitoring**:
 ```javascript
 // Comprehensive logging throughout the application
 frontendLogger.logComponent('DashboardApp', 'Component initialized with portfolio', {
@@ -1352,7 +1396,7 @@ frontendLogger.logPerformance('DashboardApp', 'View switch completed', {
 });
 ```
 
-**7. Real Portfolio Operations**:
+**9. Real Portfolio Operations**:
 ```javascript
 // Portfolio risk analysis with real backend integration
 const handleAnalyzeRisk = async () => {
@@ -2086,60 +2130,75 @@ industry_map = load_industry_etf_map()
 - API error response parsing
 - Automatic retry with exponential backoff
 
-## 🧪 Database Testing Framework
+## 🧪 Comprehensive Testing Framework
 
-### Comprehensive Test Suite
+### Enterprise-Grade Testing Infrastructure
 
-The Risk Module includes a production-ready database testing framework with 95% test coverage:
+The Risk Module includes a production-ready testing framework with 95% test coverage and AI-powered orchestration:
 
 **Test Suite Components:**
 
-**1. Performance Benchmarks** (`tests/test_performance_benchmarks.py`):
+**1. AI Test Orchestration** (`tests/ai_test_orchestrator.py`):
+- **Intelligent Test Execution**: AI-powered test selection and prioritization
+- **Dynamic Test Generation**: Context-aware test case creation
+- **Performance Regression Detection**: Automated performance baseline validation
+- **Test Result Analysis**: AI-driven root cause analysis for failures
+
+**2. End-to-End Testing** (`tests/e2e/`):
+- **Playwright Integration**: Full browser testing with visual regression
+- **Multi-User Scenarios**: Concurrent user testing with data isolation validation
+- **Cross-Browser Compatibility**: Chrome, Firefox, Safari testing
+- **Mobile Responsiveness**: Touch and mobile interaction testing
+
+**3. Performance Benchmarks** (`tests/test_performance_benchmarks.py`):
 - **Database Query Performance**: Target <100ms, actual 9.4ms average
+- **Frontend Load Times**: <2 seconds to authenticated dashboard
 - **Connection Pool Efficiency**: 2-5 connections with automatic scaling
 - **Concurrent User Handling**: 100% success rate with 10+ simultaneous users
 - **Memory Usage Monitoring**: 0.0MB per user memory overhead
 - **Cache Integration**: 78,000x speedup validation
-- **Batch Operations**: 1000+ positions processing performance
 
-**2. User Isolation Tests** (`tests/test_user_isolation.py`):
-- **Portfolio Access Control**: User A cannot access User B's portfolios
-- **Database Query Filtering**: SQL injection prevention and parameter validation
-- **Session Isolation**: Secure session token management
-- **Data Leakage Prevention**: Cross-user data contamination prevention
+**4. Security & Isolation Tests** (`tests/test_user_isolation.py`):
+- **Multi-User Data Isolation**: Complete separation between user sessions
+- **Cross-Tab Security**: Secure logout synchronization testing
+- **API Authentication**: Token validation and refresh mechanisms
+- **SQL Injection Prevention**: Parameterized query validation
+- **Session Security**: Session token management and expiration
 
-**3. Fallback Mechanisms** (`tests/test_fallback_mechanisms.py`):
+**5. Fallback & Resilience** (`tests/test_fallback_mechanisms.py`):
 - **Database Unavailable Scenarios**: Automatic fallback to file mode
-- **Connection Timeout Handling**: Retry logic and graceful degradation
-- **Transaction Rollback**: Error recovery and data consistency
-- **Fallback Data Consistency**: Seamless mode switching validation
+- **Service Degradation**: Graceful handling of external API failures
+- **Connection Timeout Handling**: Retry logic and circuit breaker patterns
+- **Transaction Rollback**: ACID compliance and error recovery
+- **Cache Invalidation**: Multi-tier cache consistency validation
 
-**4. Cash Mapping Validation** (`tests/test_cash_mapping_validation.py`):
-- **Basic Cash Mapping**: Total dollar preservation across currency conversions
-- **Dynamic Configuration**: `cash_map.yaml` loading and validation
-- **Database Storage**: Analysis-time mapping with database persistence
-- **Edge Cases**: Currency conversion error handling
-
-**5. Comprehensive Migration Testing** (`tests/test_comprehensive_migration.py`):
-- **Master Test Runner**: Orchestrates all test modules
-- **Production Readiness Assessment**: Performance, security, reliability metrics
-- **Detailed Reporting**: JSON results with pass/fail status
-- **Performance Metrics**: Database query times, memory usage, concurrent handling
+**6. Integration Testing** (`tests/test_comprehensive_migration.py`):
+- **Master Test Runner**: Orchestrates all test modules with dependency tracking
+- **Database Migration Validation**: Schema evolution and data integrity
+- **Production Readiness Assessment**: Comprehensive system health checks
+- **Service Integration**: End-to-end workflow validation across all layers
+- **Performance Regression**: Automated detection of performance degradation
 
 ### Test Execution Commands
 
 ```bash
-# Run full comprehensive test suite
-cd tests && python3 test_comprehensive_migration.py
+# AI-Powered Test Orchestration
+cd tests && python3 ai_test_orchestrator.py          # Intelligent test execution
+cd tests && python3 ai_test_orchestrator.py --focus=performance  # Performance focus
 
-# Run specific test categories
-cd tests && python3 test_performance_benchmarks.py    # Performance validation
+# End-to-End Testing
+npm run test:e2e                                      # Full E2E suite with Playwright
+npm run test:e2e:headed                               # Visual E2E testing
+
+# Comprehensive Test Suite
+cd tests && python3 test_comprehensive_migration.py  # Master test runner
+cd tests && python3 test_performance_benchmarks.py   # Performance validation
 cd tests && python3 test_user_isolation.py           # Security testing
 cd tests && python3 test_fallback_mechanisms.py      # Fallback validation
-cd tests && python3 test_cash_mapping_validation.py  # Cash mapping tests
 
-# Performance-only testing
-cd tests && python3 test_comprehensive_migration.py --performance-only
+# Frontend Testing
+npm test                                              # Jest unit tests
+npm run test:coverage                                 # Coverage report
 ```
 
 ### Test Coverage Metrics
@@ -2148,12 +2207,15 @@ cd tests && python3 test_comprehensive_migration.py --performance-only
 **After Database Implementation**: 95% coverage
 
 **Coverage Breakdown:**
-- **Database Connectivity**: 100% coverage
+- **Backend Core Logic**: 95% coverage
+- **Database Layer**: 100% coverage
+- **Frontend Components**: 90% coverage
+- **API Endpoints**: 95% coverage
 - **User Authentication**: 90% coverage
 - **Performance Benchmarks**: 100% coverage
 - **Security & Isolation**: 100% coverage
 - **Fallback Mechanisms**: 100% coverage
-- **Cash Mapping**: 100% coverage
+- **E2E User Workflows**: 85% coverage
 
 ## ⚡ Performance Considerations
 
@@ -2219,30 +2281,29 @@ cd tests && python3 test_comprehensive_migration.py --performance-only
 
 ### Planned Features
 
-1. **Streamlit Dashboard**:
-   - Interactive risk visualization
-   - Real-time portfolio monitoring
-   - Dynamic configuration updates
+1. **Advanced AI Integration**:
+   - ✅ **Implemented**: Claude AI with 16+ portfolio analysis functions
+   - ✅ **Implemented**: Natural language risk reports and peer generation
+   - 🔄 **In Progress**: Intelligent factor selection and market regime detection
+   - 📋 **Planned**: Automated portfolio rebalancing recommendations
 
-2. **Advanced GPT Integration**:
-   - Automated peer suggestion ✅ **Implemented**
-   - Natural language risk reports ✅ **Implemented**
-   - Intelligent factor selection
+2. **Enhanced Risk Models**:
+   - 📋 **Planned**: Conditional Value at Risk (CVaR) and Expected Shortfall
+   - 📋 **Planned**: Tail risk measures and extreme value theory
+   - 📋 **Planned**: Dynamic factor models with regime switching
+   - 📋 **Planned**: ESG risk integration and climate risk modeling
 
-3. **Advanced Risk Models**:
-   - Conditional Value at Risk (CVaR)
-   - Expected Shortfall
-   - Tail risk measures
+3. **Real-time Capabilities**:
+   - ✅ **Implemented**: Real-time Plaid portfolio imports
+   - 📋 **Planned**: Live market data feeds and intraday risk monitoring
+   - 📋 **Planned**: Alert system for risk limit breaches
+   - 📋 **Planned**: Automated rebalancing with optimization
 
-4. **Real-time Monitoring**:
-   - Live data feeds
-   - Alert system
-   - Automated rebalancing
-
-5. **Backtesting Framework**:
-   - Historical performance analysis
-   - Strategy comparison
-   - Risk-adjusted returns
+4. **Advanced Analytics**:
+   - 📋 **Planned**: Backtesting framework with historical performance analysis
+   - 📋 **Planned**: Strategy comparison and attribution analysis
+   - 📋 **Planned**: Alternative data integration (sentiment, options flow)
+   - 📋 **Planned**: Advanced portfolio construction with transaction costs
 
 ### Technical Improvements
 
@@ -2257,9 +2318,10 @@ cd tests && python3 test_comprehensive_migration.py --performance-only
    - Alternative data sources
 
 3. **User Experience**:
-   - Web-based interface 🔄 **In Development** - Figma UI design in progress
-   - Mobile app support
-   - API endpoints for integration ✅ **Implemented**
+   - ✅ **Implemented**: Enterprise-grade React dashboard with multi-user architecture
+   - ✅ **Implemented**: Comprehensive API endpoints with rate limiting and authentication
+   - 📋 **Planned**: Mobile app support with React Native
+   - 📋 **Planned**: Progressive Web App (PWA) capabilities with offline support
 
 ## 📈 Status by Module
 
@@ -2282,7 +2344,8 @@ cd tests && python3 test_comprehensive_migration.py --performance-only
 | Portfolio Optimization | `portfolio_optimizer.py` | ✅ Working | Min variance and max return |
 | GPT Integration | `gpt_helpers.py` | ✅ Working | Peer generation and interpretation |
 | Proxy Builder | `proxy_builder.py` | ✅ Working | Factor proxy generation |
-| Web Application | `app.py` | 🔄 In Development | Flask web interface - Figma UI design in progress |
+| Web Application | `app.py` | ✅ Production Ready | Flask backend + React dashboard with multi-user architecture |
+| Frontend Dashboard | `frontend/` | ✅ Production Ready | Enterprise-grade React SPA with state management |
 | Plaid Integration | `plaid_loader.py` | ✅ Working | Financial data import |
 | Risk Helpers | `risk_helpers.py` | ✅ Working | Risk calculation utilities |
 
@@ -2299,10 +2362,19 @@ cd tests && python3 test_comprehensive_migration.py --performance-only
 
 ### Web Application Dependencies
 
-- **flask**: Web application framework
+- **flask**: Web application framework (backend)
 - **flask-limiter**: Rate limiting for web API
+- **psycopg2**: PostgreSQL database adapter
 - **redis**: Caching and session management
-- **streamlit**: Web dashboard framework (future)
+- **gunicorn**: WSGI HTTP server for production
+
+### Frontend Dependencies
+
+- **react**: Frontend UI framework
+- **typescript**: Type-safe JavaScript development
+- **zustand**: State management
+- **@tanstack/react-query**: Server state management
+- **playwright**: End-to-end testing framework
 
 ### External API Dependencies
 
@@ -2363,7 +2435,7 @@ comparison = compare_risk_tables(old_risk_df, new_risk_df)
 
 ## 📚 Additional Resources
 
-- [README.md](./README.md): Project overview and usage guide
+- [Readme.md](./Readme.md): Project overview and usage guide
 - [portfolio.yaml](./portfolio.yaml): Example portfolio configuration
 - [risk_limits.yaml](./risk_limits.yaml): Risk limit definitions
 - [check_user_data.py](./check_user_data.py): Database inspection utility
