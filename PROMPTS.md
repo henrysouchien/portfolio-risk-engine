@@ -489,3 +489,134 @@ Only high-level progress logs, e.g.: Found 38 jsdoc errors in 17 files
 ✔ Patched src/chassis/services/AuthService.ts
 ✔ Patched src/adapters/RiskScoreAdapter.ts
 
+#CLAUDE API REGISTRY UPDATE
+
+You are now acting as a code-analysis assistant.
+
+Goal
+=====
+Scan the backend of the risk_module repo and generate machine-readable entries for every public REST endpoint so the front-end can import them from `frontend/src/apiRegistry.ts`.
+
+Output format
+-------------
+Return ONLY a TypeScript code block that can be dropped into the existing `apiRegistry.ts` file, immediately after the current `riskScore` entry.
+
+Each entry must match this typed schema:
+
+```ts
+<key>: {
+  path: '<exact path>',
+  method: '<HTTP_VERB>',               // 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+  description: '<one-line purpose>',
+  requestShape: {
+    <field>: '<primitive type | object | array | optional?>'
+  },
+  responseShape: {
+    <field>: '<primitive type | object | array | optional?>'
+  }
+}
+```
+
+Guidelines
+----------
+1. Scan **`routes/api.py`** (main) plus any other flask/fastapi route files (`routes/*.py`, `services/portfolio/...` if they expose additional blueprints).
+2. Ignore internal “/admin/*” debug endpoints; include only those meant for public consumption.
+3. The **key** (left of `:`) should be camelCase and descriptive (`riskAnalysis`, `optimizeMaxReturn`, `createPortfolio`, …).
+4. `requestShape` and `responseShape`:
+   • List only the top-level JSON fields.  
+   • Use `'object'` when a field itself is a nested dict (no need to recurse fully).  
+   • Mark optional fields with a `?` suffix (e.g., `"config?"`).
+
+5. Keep the code block pure – NO narrative text before or after; Claude should output:
+
+```ts
+riskAnalysis: { ... },
+optimizeMaxReturn: { ... },
+...
+```
+
+Steps Claude should perform
+---------------------------
+1. Grep for `@api_bp.route(` to collect every route path and accepted methods.  
+2. Read the docstring above each route or inline comments to craft the one-line description.  
+3. Inspect the body for `request.json` usages to infer input fields; inspect the `jsonify({ ... })` call (or response object) to infer output fields.  
+4. Produce the TypeScript entries in the required schema.
+
+Context / Example
+-----------------
+We already have an entry for `riskScore`, so follow its structure exactly:
+
+```ts
+riskScore: {
+  path: '/api/risk-score',
+  method: 'POST',
+  description: 'Returns overall risk score and related analysis for a portfolio',
+  requestShape: { portfolio_name: 'string' },
+  responseShape: {
+    success: 'boolean',
+    risk_score: 'number',
+    limits_analysis: 'object',
+    analysis_date: 'string',
+    formatted_report: 'string',
+    summary: 'object',
+    portfolio_metadata: 'object'
+  }
+},
+```
+
+Deliverable
+-----------
+Return the TypeScript object literals (comma-separated) for **all missing endpoints** in a single fenced code block.
+
+Example final output Claude should emit:
+
+```ts
+riskAnalysis: { ... },
+optimizeMinVariance: { ... },
+createPortfolio: { ... },
+...
+```
+
+(No narrative text, no import/export lines.)
+
+#CLAUDE UPDATE QUERY KEYS
+
+You’re a code-analysis assistant.
+
+Goal
+=====
+Extend `frontend/src/queryKeys.ts` so it contains a helper for every TanStack query key used anywhere in `frontend/src/**`.
+
+Instructions
+------------
+1. Grep for all `queryKey:` occurrences in `frontend/src/**`.
+2. Extract the first element of each array literal (e.g. `'riskScore'` from `['riskScore', id]`).
+3. Compare that list to the helpers already defined in `queryKeys.ts`.
+4. For any label that’s missing, generate a new helper using the same pattern:
+
+```ts
+export const <camelCaseLabel>Key = (id?: string | null) =>
+  scoped('<originalLabel>', id);
+```
+
+• If the original key has no variable part (e.g. `['initial-portfolio']`) generate a constant:
+
+```ts
+export const initialPortfolioKey = ['initial-portfolio'] as const;
+```
+
+5. Output ONLY the TypeScript code block with the additional helpers—no narrative text.
+
+Example output Claude should produce:
+
+```ts
+export const userPreferencesKey = (userId?: string | null) =>
+  scoped('userPreferences', userId);
+
+export const marketDataKey = (symbol?: string | null) =>
+  scoped('marketData', symbol);
+
+export const onboardingStatusKey = ['onboardingStatus'] as const;
+```
+
+(No imports, exports, or comments outside the code block.)
