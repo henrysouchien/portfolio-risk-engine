@@ -50,7 +50,8 @@ def interpret_portfolio_risk(diagnostics_text: str) -> str:
     user_prompt = (
         "You are a professional risk analyst at a hedge fund.\n"
         "I want you to help evaluate my portfolio. I will give you details of the portfolio's risk metrics.\n"
-        "I want you to help interpret them for me and communicate with me in simple language.\n\n"
+        "I want you to help interpret them for me and communicate with me in simple language.\n"
+        "Start your response with 'Let's break down your portfolio's risk profile'...\n\n"
         f"{diagnostics_text}"
     )
 
