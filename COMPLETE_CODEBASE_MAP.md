@@ -32,7 +32,7 @@ This document provides a comprehensive map of the entire risk_module codebase, i
 
 ### Core Application Layers (CRITICAL - Gitignored)
 
-#### `/services/` (14 Python files) - Business Logic Layer
+#### `/services/` (37 Python files) - Business Logic Layer
 Service layer implementing core business logic:
 - `service_manager.py` - Service lifecycle management
 - `portfolio_service.py` - Portfolio management service
@@ -46,10 +46,13 @@ Service layer implementing core business logic:
 - `cache_mixin.py` - Cache management utilities
 - `factor_proxy_service.py` - Factor proxy management service
 - **`/claude/`** subdirectory (3 Python files):
+  - `__init__.py` - Claude module initialization
   - `chat_service.py` - Claude chat integration
   - `function_executor.py` - Function execution for Claude
-- **`/portfolio/`** subdirectory (1 Python file):
+- **`/portfolio/`** subdirectory (2 Python files):
+  - `__init__.py` - Portfolio module initialization
   - `context_service.py` - Portfolio context management
+- Plus additional service files (37 total including subdirectories and __init__.py files)
 
 #### `/routes/` (7 Python files) - API Endpoints Layer
 Flask route definitions:
@@ -127,11 +130,13 @@ Production-ready React frontend application with comprehensive architecture:
     - `/portfolio/` - Portfolio management components
     - `/shared/` - Reusable UI components
   - **`/features/`** - Feature-organized hooks and logic
-    - `/analysis/` - Factor analysis and performance hooks
+    - `/analysis/` - Factor analysis and performance hooks (with formatters)
     - `/auth/` - Authentication flow hooks
     - `/external/` - Plaid and AI chat hooks
-    - `/portfolio/` - Portfolio data and operations hooks
-    - `/risk/` - Risk calculations and scoring hooks
+    - `/portfolio/` - Portfolio data and operations hooks (with formatters)
+    - `/riskScore/` - Risk score calculations and hooks (with formatters)
+    - `/optimize/` - Portfolio optimization hooks
+    - `/scenario/` - Scenario analysis hooks
     - `/utils/` - Request cancellation and polling hooks
   - **`/stores/`** - Zustand state management
   - **`/providers/`** - React context providers
@@ -309,7 +314,7 @@ Legacy source files:
 
 ## File Count Summary
 - Total Python files: 554 (as of 2025-08-02)
-- Core application: ~66 files (22 root + 14 services + 7 routes + 8 utils + 7 inputs + 10 core)
+- Core application: ~89 files (22 root + 37 services + 7 routes + 8 utils + 7 inputs + 10 core)
 - Tests: ~5 files (basic test setup, extensive tests in secrets directory)
 - Archive/Backup: Extensive files across multiple directories
 - Prototype: 17+ files (Python + Jupyter notebooks)
@@ -326,16 +331,16 @@ Legacy source files:
 5. **Service Layer**: Production-ready services including APIService, AuthService, ClaudeService, and PlaidService
 
 ### Backend Service Layer Stability:
-1. **Service Count Correction**: Accurate count of 14 service files (previously listed as 17)
+1. **Service Count Accuracy**: Confirmed 37 service files including subdirectories and initialization files
 2. **Proxy Service Maturation**: Established `factor_proxy_service.py` for centralized proxy management
 3. **Cache Management**: Stable `cache_mixin.py` for service-level caching utilities
 4. **Function Registry**: Enhanced `ai_function_registry.py` for AI/Claude function definitions
 
 ### Documentation and Development Tools:
 1. **Security Audit**: New comprehensive security audit report (SECURITY_AUDIT_REPORT.md)
-2. **Prompts Interface**: New PROMPTS_INTERFACE.md for AI assistant configuration
-3. **Living Code Map**: Dynamic code mapping tools for real-time codebase analysis
-4. **Testing Infrastructure**: Maintained E2E testing capabilities with comprehensive coverage
+2. **Prompts Documentation**: Multiple prompt files including PROMPTS_INTERFACE.md, PROMPTS_DEV.md, and PROMPTS_WORKING.md
+3. **E2E Testing**: New E2E_TESTING_GUIDE.md for comprehensive testing documentation
+4. **Living Code Map**: Dynamic code mapping tools for real-time codebase analysis
 
 ## Key Integration Points
 1. Database: PostgreSQL via `database_client.py`
