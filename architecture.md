@@ -1426,13 +1426,13 @@ React State ← Component Update ← Structured Response ← Business Logic ← 
 
 **Hook → Adapter → Manager → API Pattern**:
 ```javascript
-// 1. React Hook (frontend/src/chassis/hooks/usePortfolioSummary.js)
+// 1. React Hook (frontend/src/features/portfolio/hooks/usePortfolioSummary.ts)
 const portfolioHook = usePortfolioSummary(); // Manages component state
 
-// 2. Service Adapter (frontend/src/chassis/services/APIService.js)  
+// 2. Service Adapter (frontend/src/chassis/services/APIService.ts)  
 const apiService = new APIService(); // Handles HTTP communication
 
-// 3. Portfolio Manager (frontend/src/chassis/managers/PortfolioManager.js)
+// 3. Portfolio Manager (frontend/src/chassis/managers/PortfolioManager.ts)
 const portfolioManager = new PortfolioManager(apiService, claudeService); // Business logic
 
 // 4. Backend API (routes/api.py)
@@ -1460,34 +1460,58 @@ frontend/src/
 │   │   ├── DashboardApp.tsx       # Authenticated user experience
 │   │   └── LandingApp.tsx         # Authentication experience
 │   ├── dashboard/                 # Dashboard components
-│   │   ├── DashboardApp.tsx       # Main dashboard orchestrator
-│   ├── layout/
-│   │   └── DashboardLayout.jsx    # Layout wrapper with navigation
-│   ├── views/                     # Dashboard view containers
-│   │   ├── RiskScoreViewContainer.jsx      # Risk scoring (critical - instant load)
-│   │   ├── HoldingsViewContainer.jsx       # Portfolio holdings (critical - instant load)
-│   │   ├── FactorAnalysisViewContainer.jsx # Factor analysis (secondary - preloaded)
-│   │   ├── PerformanceAnalyticsViewContainer.jsx # Performance (secondary - preloaded)
-│   │   ├── AnalysisReportView.jsx         # Reports (on-demand - lazy loaded)
-│   │   └── RiskSettingsView.jsx           # Settings (on-demand - lazy loaded)
-│   └── shared/
-│       └── LoadingView.jsx        # Loading states and progress indicators
-├── chassis/                       # Core infrastructure
-│   │   ├── layout/
-│   │   │   └── DashboardLayout.tsx # Layout wrapper with navigation
+│   │   ├── DashboardContainer.tsx # Dashboard state container
+│   │   ├── DashboardRouter.tsx    # Dashboard navigation routing
+│   │   ├── NavigationErrorBoundary.tsx # Error boundary for navigation
+│   │   ├── ViewRenderer.tsx       # View rendering logic
+│   │   ├── layout/                # Dashboard layout components
+│   │   │   ├── DashboardLayout.tsx # Layout wrapper with navigation
+│   │   │   ├── HeaderBar.tsx      # Dashboard header
+│   │   │   ├── Sidebar.tsx        # Navigation sidebar
+│   │   │   ├── SummaryBar.tsx     # Portfolio summary bar
+│   │   │   └── ChatPanel.tsx      # AI chat panel
 │   │   ├── views/                 # Dashboard view containers
 │   │   │   ├── RiskScoreViewContainer.tsx      # Risk scoring
 │   │   │   ├── HoldingsViewContainer.tsx       # Portfolio holdings
 │   │   │   ├── FactorAnalysisViewContainer.tsx # Factor analysis
 │   │   │   ├── PerformanceAnalyticsViewContainer.tsx # Performance
-│   │   │   ├── AnalysisReportView.tsx         # Reports
-│   │   │   └── RiskSettingsView.tsx           # Settings
-│   │   └── shared/
-│   │       └── LoadingView.tsx    # Loading states and progress indicators
+│   │   │   ├── AnalysisReportViewContainer.tsx # Reports
+│   │   │   ├── RiskSettingsViewContainer.tsx   # Settings
+│   │   │   └── StockResearchViewContainer.tsx  # Stock research
+│   │   └── shared/                # Shared dashboard components
+│   │       ├── ErrorBoundary.tsx  # Error handling
+│   │       ├── charts/            # Chart components
+│   │       │   ├── PerformanceLineChart.tsx
+│   │       │   ├── RiskContributionChart.tsx
+│   │       │   ├── RiskRadarChart.tsx
+│   │       │   └── VarianceBarChart.tsx
+│   │       └── ui/                # UI components
+│   │           ├── LoadingView.tsx
+│   │           ├── MetricsCard.tsx
+│   │           ├── RiskScoreDisplay.tsx
+│   │           └── StatusIndicator.tsx
 │   ├── auth/                      # Authentication components
+│   │   ├── GoogleSignInButton.tsx
+│   │   └── LandingPage.tsx
 │   ├── portfolio/                 # Portfolio management components
+│   │   ├── PortfolioHoldings.tsx
+│   │   ├── PlaidPortfolioHoldings.tsx
+│   │   ├── RiskScoreDisplay.tsx
+│   │   └── TabbedPortfolioAnalysis.tsx
 │   ├── plaid/                     # Plaid integration components
-│   └── shared/                    # Reusable UI components
+│   │   ├── PlaidLinkButton.tsx
+│   │   └── ConnectedAccounts.tsx
+│   ├── chat/                      # AI chat components
+│   │   └── RiskAnalysisChat.tsx
+│   ├── layouts/                   # Page layout components
+│   │   └── DashboardLayout.tsx
+│   ├── shared/                    # Reusable UI components
+│   │   ├── ConditionalStates.tsx
+│   │   ├── ErrorDisplay.tsx
+│   │   ├── LoadingSpinner.tsx
+│   │   └── StatusDisplay.tsx
+│   └── transitions/               # Loading and transition components
+│       └── AuthTransition.tsx
 ├── providers/                     # React context providers
 │   ├── QueryProvider.tsx         # React Query provider
 │   ├── AuthProvider.tsx          # Authentication context
@@ -1496,40 +1520,74 @@ frontend/src/
 │   ├── authStore.ts              # Authentication state
 │   ├── portfolioStore.ts         # Portfolio data state
 │   └── uiStore.ts                # UI state
+├── features/                      # Feature-organized hooks and logic
+│   ├── analysis/                  # Analysis feature
+│   │   ├── hooks/                 # Analysis hooks (useFactorAnalysis, usePerformance)
+│   │   └── formatters/            # Data formatters
+│   ├── auth/hooks/                # Authentication hooks
+│   ├── external/hooks/            # External service hooks (usePlaid, useChat)
+│   ├── portfolio/                 # Portfolio feature
+│   │   ├── hooks/                 # Portfolio hooks (usePortfolio, usePortfolioSummary)
+│   │   └── formatters/            # Portfolio data formatters
+│   ├── risk/                      # Risk feature
+│   │   ├── hooks/                 # Risk analysis hooks (useRiskAnalysis, useRiskScore)
+│   │   └── formatters/            # Risk data formatters
+│   ├── utils/hooks/               # Utility hooks (useCancelableRequest, useCancellablePolling)
+│   ├── optimize/hooks/            # Portfolio optimization hooks
+│   └── scenario/hooks/            # Scenario analysis hooks
+├── adapters/                      # Data transformation layer
+│   ├── FactorAnalysisAdapter.ts   # Factor analysis data transformation
+│   ├── PerformanceAdapter.ts      # Performance data transformation
+│   ├── PortfolioSummaryAdapter.ts # Portfolio summary transformation
+│   ├── RiskAnalysisAdapter.ts     # Risk analysis transformation
+│   ├── RiskDashboardAdapter.ts    # Dashboard data transformation
+│   └── RiskScoreAdapter.ts        # Risk score data transformation
 ├── chassis/                       # Core infrastructure
-│   ├── services/                 # Business logic services
-│   │   ├── APIService.ts         # HTTP service layer
-│   │   ├── ClaudeService.ts      # Claude AI integration
-│   │   ├── PortfolioCacheService.ts # Data caching
-│   │   ├── AuthService.ts        # Authentication operations
-│   │   ├── PlaidService.ts       # Plaid integration
+│   ├── services/                  # API services and business logic
+│   │   ├── APIService.ts          # HTTP client and authentication
+│   │   ├── AuthService.ts         # Authentication operations
+│   │   ├── ClaudeService.ts       # AI analysis integration
+│   │   ├── PlaidService.ts        # Plaid integration
+│   │   ├── PortfolioCacheService.ts # Data caching service
 │   │   ├── RiskAnalysisService.ts # Risk analysis operations
-│   │   └── ServiceContainer.ts   # Dependency injection
-│   ├── managers/                 # High-level business logic
-│   │   ├── PortfolioManager.ts   # Portfolio operations
-│   │   ├── AuthManager.ts        # Authentication management
-│   │   └── PlaidManager.ts       # Plaid operations
-│   └── types/                    # TypeScript type definitions
-├── hooks/                        # React hooks for data access
-│   ├── usePortfolio.ts          # Portfolio data
-│   ├── useRiskAnalysis.ts       # Risk analysis
-│   ├── useRiskScore.ts          # Risk scoring
-│   ├── useFactorAnalysis.ts     # Factor analysis
-│   ├── usePerformance.ts        # Performance metrics
-│   ├── usePortfolioSummary.ts   # Portfolio summaries
-│   ├── useAuthFlow.ts           # Authentication flows
-│   ├── usePlaid.ts              # Plaid operations
-│   ├── useChat.ts               # AI chat functionality
-│   └── useCancelableRequest.ts  # Request cancellation
-├── utils/                       # Utility functions
-│   ├── AdapterRegistry.ts       # Adapter instance management
-│   ├── loadRuntimeConfig.ts     # Runtime configuration
-│   ├── NavigationIntents.ts     # Navigation intent system
-│   └── ErrorAdapter.ts         # Error standardization
-└── services/                    # Frontend services
-    ├── frontendLogger.ts        # Logging service
-    ├── SecureStorage.ts         # Secure token storage
-    └── PortfolioCache.ts        # Portfolio caching
+│   │   └── ServiceContainer.ts    # Dependency injection container
+│   ├── managers/                  # Business logic managers
+│   │   ├── AuthManager.ts         # Authentication business logic
+│   │   ├── PlaidManager.ts        # Plaid business logic
+│   │   └── PortfolioManager.ts    # Portfolio business logic
+│   ├── navigation/                # Navigation system
+│   │   ├── NavigationIntents.ts   # Navigation intent system
+│   │   └── NavigationResolver.ts  # Navigation resolution logic
+│   ├── schemas/                   # API and data schemas
+│   │   └── api-schemas.ts         # API request/response schemas
+│   └── types/                     # TypeScript type definitions
+├── utils/                         # Utilities and helpers
+│   ├── AdapterRegistry.ts         # Adapter instance management
+│   ├── ArchitecturalLogger.ts     # Architecture flow logging
+│   ├── ErrorAdapter.ts            # Error standardization
+│   ├── NavigationIntents.ts       # Navigation intent system
+│   ├── broadcastLogout.ts         # Cross-tab logout synchronization
+│   ├── sessionCleanup.ts          # Session cleanup utilities
+│   └── loadRuntimeConfig.ts       # Runtime configuration loading
+├── repository/                    # Data access layer
+│   └── PortfolioRepository.ts     # Portfolio data operations
+├── services/                      # Frontend utilities
+│   ├── SecureStorage.ts           # Secure token storage
+│   └── frontendLogger.ts          # Frontend logging service
+├── config/                        # Configuration
+│   ├── environment.ts             # Environment configuration
+│   ├── portfolio.ts               # Portfolio configuration
+│   └── queryConfig.ts             # React Query configuration
+├── pages/                         # Page components
+│   ├── InstantTryPage.tsx         # Instant try experience
+│   └── LandingPage.tsx            # Landing page
+├── data/                          # Data-related utilities
+│   └── index.ts                   # Data exports
+├── apiRegistry.ts                 # API endpoint registry
+├── queryKeys.ts                   # React Query key management
+├── index.js                       # Application entry point
+├── App.css                        # Global styles
+└── index.css                      # CSS entry point
 ```
 
 **Key Architecture Benefits**:

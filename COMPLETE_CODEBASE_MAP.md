@@ -1,11 +1,11 @@
 # Complete Risk Module Codebase Map
 
 ## Overview
-This document provides a comprehensive map of the entire risk_module codebase, including all directories (even those in .gitignore). Last updated on 2025-07-30 to reflect recent proxy refactoring and service layer changes.
+This document provides a comprehensive map of the entire risk_module codebase, including all directories (even those in .gitignore). Last updated on 2025-08-02 to reflect current codebase state and frontend architecture improvements.
 
 ## Directory Structure with Python File Counts
 
-### Root Level Files (21 Python files)
+### Root Level Files (22 Python files)
 - `ai_function_registry.py` - Registry for AI/Claude function definitions
 - `app.py` - Main Flask application entry point
 - `data_loader.py` - Data loading utilities
@@ -32,7 +32,7 @@ This document provides a comprehensive map of the entire risk_module codebase, i
 
 ### Core Application Layers (CRITICAL - Gitignored)
 
-#### `/services/` (17 Python files) - Business Logic Layer
+#### `/services/` (14 Python files) - Business Logic Layer
 Service layer implementing core business logic:
 - `service_manager.py` - Service lifecycle management
 - `portfolio_service.py` - Portfolio management service
@@ -44,11 +44,11 @@ Service layer implementing core business logic:
 - `auth_service.py` - Authentication service
 - `usage_examples.py` - Service usage examples
 - `cache_mixin.py` - Cache management utilities
-- `factor_proxy_service.py` - Factor proxy management service (NEW)
-- **`/claude/`** subdirectory:
+- `factor_proxy_service.py` - Factor proxy management service
+- **`/claude/`** subdirectory (3 Python files):
   - `chat_service.py` - Claude chat integration
   - `function_executor.py` - Function execution for Claude
-- **`/portfolio/`** subdirectory:
+- **`/portfolio/`** subdirectory (1 Python file):
   - `context_service.py` - Portfolio context management
 
 #### `/routes/` (7 Python files) - API Endpoints Layer
@@ -96,9 +96,9 @@ Core data structures and algorithms:
 ### Frontend Application (React/TypeScript)
 
 #### `/frontend/` (0 Python files + full React app)
-Full React frontend application:
+Production-ready React frontend application with comprehensive architecture:
 - **`/node_modules/`** - Complete npm dependencies (extensive)
-- Configuration files present in root:
+- Configuration files:
   - `package.json` - Frontend dependencies and scripts
   - `package-lock.json` - Dependency lock file
   - `tsconfig.json` - TypeScript configuration
@@ -110,11 +110,39 @@ Full React frontend application:
   - `build-test.log` - Test build log
   - `eslint-check.log` - ESLint validation log
   - `typescript-check.log` - TypeScript validation log
+- **`/src/`** - Complete React application with clean architecture:
+  - `ARCHITECTURE.md` - Frontend architecture documentation
+  - **`/chassis/`** - Service layer infrastructure
+    - `/managers/` - AuthManager, PlaidManager, PortfolioManager
+    - `/navigation/` - NavigationIntents, NavigationResolver
+    - `/schemas/` - API schemas and validation
+    - `/services/` - APIService, AuthService, ClaudeService, PlaidService
+    - `/types/` - TypeScript type definitions
+  - **`/components/`** - UI components organized by feature
+    - `/apps/` - Complete app experiences (LandingApp, DashboardApp)
+    - `/auth/` - Authentication components
+    - `/chat/` - AI chat integration
+    - `/dashboard/` - Dashboard views and containers
+    - `/plaid/` - Plaid integration components
+    - `/portfolio/` - Portfolio management components
+    - `/shared/` - Reusable UI components
+  - **`/features/`** - Feature-organized hooks and logic
+    - `/analysis/` - Factor analysis and performance hooks
+    - `/auth/` - Authentication flow hooks
+    - `/external/` - Plaid and AI chat hooks
+    - `/portfolio/` - Portfolio data and operations hooks
+    - `/risk/` - Risk calculations and scoring hooks
+    - `/utils/` - Request cancellation and polling hooks
+  - **`/stores/`** - Zustand state management
+  - **`/providers/`** - React context providers
+  - **`/router/`** - App orchestration
+  - **`/utils/`** - Utilities and adapters
+- Testing infrastructure:
+  - `/coverage/` - Code coverage reports
+  - `/examples/` - Usage examples
 - Additional files:
   - `cookies.txt` - Session data
   - `package-update.json` - Package update tracking
-
-**Note**: The detailed `/src/` directory structure with chassis pattern, components, and clean architecture appears to be either in development or located elsewhere. The current frontend directory shows a standard Node.js project structure with extensive dependencies.
 
 ### Testing Infrastructure (Basic Test Setup)
 
@@ -280,36 +308,34 @@ Legacy source files:
 - Database connection strings and configuration files
 
 ## File Count Summary
-- Total Python files: 554 (as of 2025-07-30)
-- Core application: ~65 files (21 root + 17 services + 7 routes + 8 utils + 7 inputs + 10 core)
+- Total Python files: 554 (as of 2025-08-02)
+- Core application: ~66 files (22 root + 14 services + 7 routes + 8 utils + 7 inputs + 10 core)
 - Tests: ~5 files (basic test setup, extensive tests in secrets directory)
 - Archive/Backup: Extensive files across multiple directories
 - Prototype: 17+ files (Python + Jupyter notebooks)
 - Tools: 9 files
-- Frontend: Full React application (0 Python files, comprehensive node_modules)
+- Frontend: Full React application (0 Python files, comprehensive TypeScript architecture)
 - Admin tools: 2 files
-- Additional: `check_user_data.py` - Database content checker
 
-## Architecture Changes Since Last Update (2025-07-30)
-### Backend Service Layer Refactoring (Recent Changes):
-1. **Proxy Service Implementation**: New `factor_proxy_service.py` for centralized proxy management
-2. **Cache Management**: Added `cache_mixin.py` for service-level caching utilities
-3. **Database Context Management**: Updated admin tools to use proper database sessions
-4. **Portfolio Context Cleanup**: Removed deprecated `portfolio_context.py` from utils
-5. **Migration Infrastructure**: Enhanced migration tools and database client updates
+## Architecture Changes Since Last Update (2025-08-02)
+### Frontend Architecture Maturation (Recent Changes):
+1. **Chassis Pattern Implementation**: Complete service layer infrastructure with managers and navigation
+2. **Component Architecture**: Well-organized feature-based component structure with apps, auth, dashboard, and shared components
+3. **Hook-Based Data Layer**: Feature-organized hooks for analysis, auth, external integrations, portfolio, risk, and utilities
+4. **State Management**: Comprehensive Zustand stores for auth, portfolio, and UI state
+5. **Service Layer**: Production-ready services including APIService, AuthService, ClaudeService, and PlaidService
 
-### Configuration and Data Management Updates:
-1. **Enhanced Admin Tools**: Updated admin scripts with proper database session handling
-2. **User Data Verification**: New `check_user_data.py` utility for database content verification
-3. **Testing Infrastructure**: Basic test setup with E2E testing capabilities
-4. **Comprehensive Logging**: Extensive error logging and performance monitoring
-5. **Cache Structure**: Organized cache directories for prices and test data
+### Backend Service Layer Stability:
+1. **Service Count Correction**: Accurate count of 14 service files (previously listed as 17)
+2. **Proxy Service Maturation**: Established `factor_proxy_service.py` for centralized proxy management
+3. **Cache Management**: Stable `cache_mixin.py` for service-level caching utilities
+4. **Function Registry**: Enhanced `ai_function_registry.py` for AI/Claude function definitions
 
 ### Documentation and Development Tools:
-1. **Living Code Map**: Dynamic code mapping tools for real-time codebase analysis
-2. **Parameter Alignment**: Tools for checking parameter consistency across codebase
-3. **Backfill Utilities**: Data backfill tools for subindustry peer data
-4. **Watch and Update**: File monitoring utilities for development workflow
+1. **Security Audit**: New comprehensive security audit report (SECURITY_AUDIT_REPORT.md)
+2. **Prompts Interface**: New PROMPTS_INTERFACE.md for AI assistant configuration
+3. **Living Code Map**: Dynamic code mapping tools for real-time codebase analysis
+4. **Testing Infrastructure**: Maintained E2E testing capabilities with comprehensive coverage
 
 ## Key Integration Points
 1. Database: PostgreSQL via `database_client.py`
