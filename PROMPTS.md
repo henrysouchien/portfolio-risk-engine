@@ -489,6 +489,156 @@ Only high-level progress logs, e.g.: Found 38 jsdoc errors in 17 files
 ✔ Patched src/chassis/services/AuthService.ts
 ✔ Patched src/adapters/RiskScoreAdapter.ts
 
+#CLAUDE DATA FLOW DOCUMENTATION
+
+You are a senior TypeScript / React documentation specialist.
+
+Repository context
+------------------
+All code is already loaded in your workspace.  
+The UI feature “data-flow path” always consists of four files that share a <Feature> stem:
+
+  1. Adapter      →  frontend/src/adapters/<Feature>Adapter.ts
+  2. Hook         →  frontend/src/features/**/hooks/use<Feature>.ts
+  3. Container    →  frontend/src/components/dashboard/views/<Feature>ViewContainer.tsx
+  4. Presentation →  frontend/src/components/dashboard/views/<Feature>View.tsx
+
+Examples that already follow this pattern (and whose comments are the gold standard):
+  • RiskScoreAdapter / useRiskScore / RiskScoreViewContainer / RiskScoreView
+  • FactorAnalysisAdapter / useFactorAnalysis / … etc.
+
+Task
+----
+For *every* existing <Feature> path, add or update documentation so that each of the four files contains:
+
+A. A single **leading JSDoc block** (starting at line 1) that includes:
+   • A one-line data-flow diagram (`Adapter → Hook → Container → View`).  
+   • Precise **input data shape** (or props) expected.  
+   • Precise **output / transformed data shape** produced.  
+   • Default-value & fallback logic.  
+   • Colour-coding or threshold rules (if any).  
+   • Caching strategy (TanStack Query config, adapter cache TTL).  
+   • Error / retry logic.  
+   • Any backward-compatibility aliases.  
+   • Cross-references to related files (e.g. “See RiskScoreAdapter docs for full schema”).  
+   • ≤ 120 characters per line.
+
+B. **Inline commentary banners** before major logic blocks, matching the style in `useRiskScore.ts`:
+   • Use `// STEP 1:` , `// QUERY CONFIG:` , `// RISK INTERPRETATION:` etc.  
+   • 1 to 3 concise lines per banner—high-signal only (skip trivial lines).
+
+What to examine while writing
+-----------------------------
+1. The adapter’s `transform()` pipeline (validation, caching, output fields).  
+2. The hook’s query key, returned actions, and state flags.  
+3. The container’s wiring of hook data ↔ view props.  
+4. The view component’s rendering logic and prop expectations.
+
+Constraints
+-----------
+• **Comments only** – no runtime behavior changes.  
+• Preserve all imports/exports and existing code order.  
+• If a doc-block or inline banner already exists, update it instead of duplicating.  
+• Width ≤ 120 chars; use `/** … */` for top-level blocks.  
+• Do **not** over-comment obvious lines.
+
+Deliverable
+-----------
+Return a single unified diff (`diff --git …`) that can be applied with `git apply`.  
+Touch only comment lines or add new comment lines—no other edits.  
+Do **not** include any extra narration outside the patch.
+
+Begin.
+
+#CLAUDE DATA FLOW AUDIC
+
+You are a TypeScript / React static-analysis assistant.
+
+Scope
+-----
+The repository follows a strict 4-file pattern per UI feature:
+
+  Adapter      : frontend/src/adapters/<Feature>Adapter.ts
+  Hook         : frontend/src/features/**/hooks/use<Feature>.ts
+  Container    : frontend/src/components/dashboard/views/<Feature>ViewContainer.tsx
+  Presentation : frontend/src/components/dashboard/views/<Feature>View.tsx
+
+All of those files now contain detailed doc-blocks with the sections:
+
+  • INPUT DATA STRUCTURE
+  • OUTPUT DATA STRUCTURE               (adapter & hook)
+  • DATA PROPERTIES / PROPS EXPECTED    (view)
+  • TRANSFORMATION PIPELINE
+  • CACHING / ERROR HANDLING
+
+Task
+----
+For EVERY <Feature> path:
+
+1. Parse the *OUTPUT DATA STRUCTURE* list in the adapter doc-block  
+   →  Treat it as the “source-of-truth schema”.
+
+2. Parse the *DATA PROPERTIES* list in the corresponding hook doc-block.  
+   →  Compare keys & types to the adapter schema.
+
+3. Read the container code to see which props it passes from hook → view.  
+   →  Record any missing / renamed / extra props.
+
+4. Open the view component and inspect:
+     a) destructured props in the function signature  
+     b) dot-lookups inside the render tree  
+   →  Compare to the adapter schema again.
+
+5. Generate an “Issue Report” per feature that contains four subsections:
+
+   [SCHEMA MISMATCH]
+     • Keys present in adapter but absent in hook docs
+     • Keys present in hook docs but absent in adapter
+     • Type discrepancies (string vs number, etc.)
+
+   [UNUSED DATA]
+     • Adapter fields never consumed by the view
+
+   [MISSING DATA]
+     • Props the view expects but adapter/hook never supply
+
+   [OPPORTUNITIES]
+     • Fields fetched but not displayed (candidate UI enhancements)
+     • Any TODO or FIXME comments encountered
+
+Output format
+-------------
+Return **valid, line-wrapped Markdown**:
+
+```markdown
+## <FeatureName>
+### SCHEMA MISMATCH
+- …
+
+### UNUSED DATA
+- …
+
+### MISSING DATA
+- …
+
+### OPPORTUNITIES
+- …
+```
+
+If a subsection is empty write “_None_”.
+
+Constraints
+-----------
+• Static-analysis only—do not edit any files.  
+• Assume doc-blocks are authoritative unless proven false by code.  
+• Ignore color-coding helper fields (e.g., `color`, `maxScore`) when checking for “unused”.  
+• Do not repeat issues inside multiple subsections.  
+• If a feature path is missing one of the four files, note that under SCHEMA MISMATCH.  
+• No extra narrative outside the markdown report.
+
+Begin your analysis now and return the consolidated report for *all* features.
+
+
 #CLAUDE API REGISTRY UPDATE
 
 You are now acting as a code-analysis assistant.
