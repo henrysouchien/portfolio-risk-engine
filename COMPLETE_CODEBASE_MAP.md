@@ -1,7 +1,7 @@
 # Complete Risk Module Codebase Map
 
 ## Overview
-This document provides a comprehensive map of the entire risk_module codebase, including all directories (even those in .gitignore). Last updated on 2025-08-02 to reflect current codebase state and frontend architecture improvements.
+This document provides a comprehensive map of the entire risk_module codebase, including all directories (even those in .gitignore). Last updated on 2025-08-04 to reflect current codebase state and frontend architecture improvements.
 
 ## Directory Structure with Python File Counts
 
@@ -32,7 +32,7 @@ This document provides a comprehensive map of the entire risk_module codebase, i
 
 ### Core Application Layers (CRITICAL - Gitignored)
 
-#### `/services/` (37 Python files) - Business Logic Layer
+#### `/services/` (17 Python files) - Business Logic Layer
 Service layer implementing core business logic:
 - `service_manager.py` - Service lifecycle management
 - `portfolio_service.py` - Portfolio management service
@@ -52,7 +52,7 @@ Service layer implementing core business logic:
 - **`/portfolio/`** subdirectory (2 Python files):
   - `__init__.py` - Portfolio module initialization
   - `context_service.py` - Portfolio context management
-- Plus additional service files (37 total including subdirectories and __init__.py files)
+- Plus additional service files (17 total including subdirectories and __init__.py files)
 
 #### `/routes/` (7 Python files) - API Endpoints Layer
 Flask route definitions:
@@ -313,8 +313,8 @@ Legacy source files:
 - Database connection strings and configuration files
 
 ## File Count Summary
-- Total Python files: 554 (as of 2025-08-02)
-- Core application: ~89 files (22 root + 37 services + 7 routes + 8 utils + 7 inputs + 10 core)
+- Total Python files: 558 (as of 2025-08-04)
+- Core application: ~71 files (22 root + 17 services + 7 routes + 8 utils + 7 inputs + 10 core)
 - Tests: ~5 files (basic test setup, extensive tests in secrets directory)
 - Archive/Backup: Extensive files across multiple directories
 - Prototype: 17+ files (Python + Jupyter notebooks)
@@ -322,7 +322,7 @@ Legacy source files:
 - Frontend: Full React application (0 Python files, comprehensive TypeScript architecture)
 - Admin tools: 2 files
 
-## Architecture Changes Since Last Update (2025-08-02)
+## Architecture Changes Since Last Update (2025-08-04)
 ### Frontend Architecture Maturation (Recent Changes):
 1. **Chassis Pattern Implementation**: Complete service layer infrastructure with managers and navigation
 2. **Component Architecture**: Well-organized feature-based component structure with apps, auth, dashboard, and shared components
@@ -331,7 +331,7 @@ Legacy source files:
 5. **Service Layer**: Production-ready services including APIService, AuthService, ClaudeService, and PlaidService
 
 ### Backend Service Layer Stability:
-1. **Service Count Accuracy**: Confirmed 37 service files including subdirectories and initialization files
+1. **Service Count Accuracy**: Confirmed 17 service files including subdirectories and initialization files
 2. **Proxy Service Maturation**: Established `factor_proxy_service.py` for centralized proxy management
 3. **Cache Management**: Stable `cache_mixin.py` for service-level caching utilities
 4. **Function Registry**: Enhanced `ai_function_registry.py` for AI/Claude function definitions
