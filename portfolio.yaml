@@ -44,4 +44,88 @@ expected_returns:
   STWD: 0.059000000000000004
   TKO: 0.295
   V: 0.134
-stock_factor_proxies: {}
+stock_factor_proxies:
+  SGOV:
+    market: SPY
+    momentum: MTUM
+    value: IWD
+    industry: SGOV
+    subindustry: []
+  DSU:
+    market: SPY
+    momentum: MTUM
+    value: IWD
+    industry: DSU
+    subindustry: []
+  EQT:
+    market: SPY
+    momentum: MTUM
+    value: IWD
+    industry: XOP
+    subindustry: []
+  IGIC:
+    market: SPY
+    momentum: MTUM
+    value: IWD
+    industry: KIE
+    subindustry: []
+  IT:
+    market: SPY
+    momentum: MTUM
+    value: IWD
+    industry: XLK
+    subindustry: []
+  KINS:
+    market: SPY
+    momentum: MTUM
+    value: IWD
+    industry: KIE
+    subindustry: []
+  MSCI:
+    market: SPY
+    momentum: MTUM
+    value: IWD
+    industry: KCE
+    subindustry: []
+  NVDA:
+    market: SPY
+    momentum: MTUM
+    value: IWD
+    industry: SOXX
+    subindustry: []
+  RNMBY:
+    market: SPY
+    momentum: MTUM
+    value: IWD
+    industry: ITA
+    subindustry: []
+  SFM:
+    market: SPY
+    momentum: MTUM
+    value: IWD
+    industry: XLP
+    subindustry: []
+  SLV:
+    market: SPY
+    momentum: MTUM
+    value: IWD
+    industry: SLV
+    subindustry: []
+  STWD:
+    market: SPY
+    momentum: MTUM
+    value: IWD
+    industry: REM
+    subindustry: []
+  TKO:
+    market: SPY
+    momentum: MTUM
+    value: IWD
+    industry: XLC
+    subindustry: []
+  V:
+    market: SPY
+    momentum: MTUM
+    value: IWD
+    industry: KCE
+    subindustry: []
