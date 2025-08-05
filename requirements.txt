@@ -8,6 +8,8 @@ pyarrow>=10.0.0
 flask>=2.3.0
 flask-limiter>=3.5.0
 flask-cors>=4.0.0
+flask-smorest>=0.42.0
+marshmallow>=3.19.0
 werkzeug>=3.0.0
 
 # Database & ORM
