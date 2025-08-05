@@ -88,8 +88,9 @@ class RiskAnalysisResult:
     Usage Patterns:
     1. **Structured Data Access**: Use getter methods for programmatic analysis
     2. **Formatted Reporting**: Use to_formatted_report() for human-readable display
-    3. **Serialization**: Use to_dict() for JSON export and API responses
-    4. **Comparison**: Compare multiple results for scenario analysis
+    3. **API Serialization**: Use to_api_response() for JSON export and API responses
+    4. **Legacy Serialization**: to_dict() is deprecated, use to_api_response() instead
+    5. **Comparison**: Compare multiple results for scenario analysis
     
     Architecture Role:
         Core Functions → Service Layer → RiskAnalysisResult → Consumer (Claude/API/UI)
@@ -111,6 +112,10 @@ class RiskAnalysisResult:
         # Get formatted report for Claude/display
         report = result.to_formatted_report()
         # "=== PORTFOLIO RISK SUMMARY ===\nAnnual Volatility: 18.50%\n..."
+        
+        # Export for API response
+        api_data = result.to_api_response()
+        # {"volatility_annual": 0.185, "portfolio_factor_betas": {...}, ...}
         
         # Check compliance
         risk_violations = [check for check in result.risk_checks if not check["Pass"]]
@@ -325,8 +330,12 @@ class RiskAnalysisResult:
             "portfolio_variance": self.variance_decomposition.get('portfolio_variance', 0)
         }
     
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for serialization."""
+    def to_api_response(self) -> Dict[str, Any]:
+        """
+        Schema-compliant version of the old to_dict().
+        For Phase 1.5 this must be a 1-to-1 copy of to_dict()'s output
+        (no structural changes, no field renames, no pruning).
+        """
         return {
             "volatility_annual": self.volatility_annual,
             "volatility_monthly": self.volatility_monthly,
@@ -353,6 +362,14 @@ class RiskAnalysisResult:
             "portfolio_name": self.portfolio_name,
             "formatted_report": self.to_formatted_report()
         }
+
+    def to_dict(self) -> Dict[str, Any]:
+        """DEPRECATED – use to_api_response().  To be removed in Phase 2."""
+        import warnings
+        warnings.warn("RiskAnalysisResult.to_dict() is deprecated; "
+                     "use to_api_response() instead.",
+                     DeprecationWarning, stacklevel=2)
+        return self.to_api_response()
     
     @classmethod
     def from_build_portfolio_view(cls, portfolio_view_result: Dict[str, Any],
