@@ -866,46 +866,49 @@ class RiskAnalysisResult:
         (no structural changes, no field renames, no pruning).
         """
         return {
+            # Fields ordered to match CLI section sequence
+            "allocations": _convert_to_json_serializable(self.allocations),  # PORTFOLIO ALLOCATIONS & DOLLAR EXPOSURE
+            "total_value": self.total_value,  # TOTAL PORTFOLIO VALUE
+            "net_exposure": self.net_exposure,  # NET EXPOSURE (sum of weights)
+            "gross_exposure": self.gross_exposure,  # GROSS EXPOSURE (sum of abs(weights))
+            "leverage": self.leverage,  # LEVERAGE (gross / net)
+            "expected_returns": self.expected_returns,  # EXPECTED RETURNS
+            "stock_factor_proxies": self.factor_proxies,  # Stock Factor Proxies
+            "target_allocations_table": self._build_target_allocations_table(),  # Target Allocations
+            "risk_contributions": _convert_to_json_serializable(self.risk_contributions),  # Risk Contributions
+            "covariance_matrix": _convert_to_json_serializable(self.covariance_matrix),  # Covariance Matrix
+            "correlation_matrix": _convert_to_json_serializable(self.correlation_matrix),  # Correlation Matrix
+            "stock_betas": _convert_to_json_serializable(self.stock_betas),  # Per-Stock Factor Betas
+            "portfolio_factor_betas": _convert_to_json_serializable(self.portfolio_factor_betas),  # Portfolio-Level Factor Betas
+            "industry_group_betas": self._build_industry_group_betas_table(),  # Per-Industry Group Betas
+            "asset_vol_summary": _convert_to_json_serializable(self.asset_vol_summary),  # Per-Asset Vol & Var
+            "factor_vols": _convert_to_json_serializable(self.factor_vols),  # Factor Annual Volatilities (σ_i,f)
+            "weighted_factor_var": _convert_to_json_serializable(self.weighted_factor_var),  # Weighted Factor Variance
+            "variance_decomposition": _convert_to_json_serializable(self.variance_decomposition),  # Portfolio Variance Decomposition
+            "factor_variance_absolute": self._build_factor_variance_absolute_table(),  # Factor Variance (absolute)
+            "top_stock_variance_euler": self._build_top_stock_variance_euler_table(),  # Top Stock Variance (Euler %)
+            "factor_variance_percentage": self._build_factor_variance_percentage_table(),  # Factor Variance (% of Portfolio, excluding industry)
+            "industry_variance_absolute": self._build_industry_variance_absolute_table(),  # Industry Variance (absolute)
+            "industry_variance_percentage": self._build_industry_variance_percentage_table(),  # Industry Variance (% of Portfolio)
+            "risk_checks": _convert_to_json_serializable(self.risk_checks),  # Portfolio Risk Limit Checks
+            "beta_checks": _convert_to_json_serializable(self.beta_checks),  # Beta Exposure Checks
+            
+            # Additional API-only fields
             "volatility_annual": self.volatility_annual,
             "volatility_monthly": self.volatility_monthly,
             "herfindahl": self.herfindahl,
-            "portfolio_factor_betas": _convert_to_json_serializable(self.portfolio_factor_betas),
-            "variance_decomposition": _convert_to_json_serializable(self.variance_decomposition),
-            "risk_contributions": _convert_to_json_serializable(self.risk_contributions),
-            "stock_betas": _convert_to_json_serializable(self.stock_betas),
-            "covariance_matrix": _convert_to_json_serializable(self.covariance_matrix),
-            "correlation_matrix": _convert_to_json_serializable(self.correlation_matrix),
-            "allocations": _convert_to_json_serializable(self.allocations),
-            "factor_vols": _convert_to_json_serializable(self.factor_vols),
-            "weighted_factor_var": _convert_to_json_serializable(self.weighted_factor_var),
-            "asset_vol_summary": _convert_to_json_serializable(self.asset_vol_summary),
             "portfolio_returns": _convert_to_json_serializable(self.portfolio_returns),
             "euler_variance_pct": _convert_to_json_serializable(self.euler_variance_pct),
             "industry_variance": _convert_to_json_serializable(self.industry_variance),
             "suggested_limits": _convert_to_json_serializable(self.suggested_limits),
-            "risk_checks": _convert_to_json_serializable(self.risk_checks),
-            "beta_checks": _convert_to_json_serializable(self.beta_checks),
             "max_betas": _convert_to_json_serializable(self.max_betas),
             "max_betas_by_proxy": _convert_to_json_serializable(self.max_betas_by_proxy),
             "analysis_date": self.analysis_date.isoformat(),
             "portfolio_name": self.portfolio_name,
-            "formatted_report": self.to_formatted_report(),
-            "expected_returns": self.expected_returns,
             "factor_proxies": self.factor_proxies,
-            "net_exposure": self.net_exposure,
-            "gross_exposure": self.gross_exposure,
-            "leverage": self.leverage,
-            "total_value": self.total_value,
-            "target_allocations_table": self._build_target_allocations_table(),
+            "formatted_report": self.to_formatted_report(),
             "risk_limit_violations_summary": self._get_risk_limit_violations_summary(),
-            "beta_exposure_checks_table": self._get_beta_exposure_checks_table(),
-            "industry_group_betas": self._build_industry_group_betas_table(),
-            "industry_variance_percentage": self._build_industry_variance_percentage_table(),
-            "factor_variance_percentage": self._build_factor_variance_percentage_table(),
-            "factor_variance_absolute": self._build_factor_variance_absolute_table(),
-            "top_stock_variance_euler": self._build_top_stock_variance_euler_table(),
-            "stock_factor_proxies": self.factor_proxies,
-            "industry_variance_absolute": self._build_industry_variance_absolute_table()
+            "beta_exposure_checks_table": self._get_beta_exposure_checks_table()
         }
 
     def to_dict(self) -> Dict[str, Any]:
