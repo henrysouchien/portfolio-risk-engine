@@ -905,10 +905,7 @@ class RiskAnalysisResult:
             "factor_variance_absolute": self._build_factor_variance_absolute_table(),
             "top_stock_variance_euler": self._build_top_stock_variance_euler_table(),
             "stock_factor_proxies": self.factor_proxies,
-            "industry_variance_absolute": self._build_industry_variance_absolute_table(),
-            "net_exposure": self.net_exposure,
-            "gross_exposure": self.gross_exposure,
-            "leverage": self.leverage
+            "industry_variance_absolute": self._build_industry_variance_absolute_table()
         }
 
     def to_dict(self) -> Dict[str, Any]:
@@ -953,13 +950,19 @@ class RiskAnalysisResult:
         portfolio_view_result.get("euler_variance_pct")  → self.euler_variance_pct (defensive)
         portfolio_view_result.get("industry_variance")   → self.industry_variance (defensive)
         portfolio_view_result.get("suggested_limits")    → self.suggested_limits (defensive)
+        portfolio_view_result.get("net_exposure")       → self.net_exposure (defensive)
+        portfolio_view_result.get("gross_exposure")     → self.gross_exposure (defensive)
+        portfolio_view_result.get("leverage")           → self.leverage (defensive)
+        portfolio_view_result.get("total_value")        → self.total_value (defensive)
         risk_checks parameter                            → self.risk_checks
         beta_checks parameter                            → self.beta_checks
         max_betas parameter                              → self.max_betas
         max_betas_by_proxy parameter                     → self.max_betas_by_proxy
         datetime.now()                                   → self.analysis_date
         portfolio_name parameter                         → self.portfolio_name
-        
+        expected_returns parameter                       → self.expected_returns
+        factor_proxies parameter                         → self.factor_proxies
+
         Data Flow: build_portfolio_view() → RiskAnalysisResult
         Completeness: 100% - All available fields captured with defensive .get() patterns
         
@@ -984,6 +987,10 @@ class RiskAnalysisResult:
             euler_variance_pct=portfolio_view_result.get("euler_variance_pct", pd.Series()),
             industry_variance=portfolio_view_result.get("industry_variance", {}),
             suggested_limits=portfolio_view_result.get("suggested_limits", {}),
+            net_exposure=portfolio_view_result.get("net_exposure"),
+            gross_exposure=portfolio_view_result.get("gross_exposure"),
+            leverage=portfolio_view_result.get("leverage"),
+            total_value=portfolio_view_result.get("total_value"),
             risk_checks=risk_checks or [],
             beta_checks=beta_checks or [],
             max_betas=max_betas or {},
@@ -992,10 +999,6 @@ class RiskAnalysisResult:
             portfolio_name=portfolio_name,
             expected_returns=expected_returns,
             factor_proxies=factor_proxies,
-            net_exposure=portfolio_view_result.get("net_exposure"),
-            gross_exposure=portfolio_view_result.get("gross_exposure"),
-            leverage=portfolio_view_result.get("leverage"),
-            total_value=portfolio_view_result.get("total_value")
         )
     
     def to_formatted_report(self) -> str:
