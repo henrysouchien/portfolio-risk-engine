@@ -249,7 +249,7 @@ def solve_min_variance_with_risk_limits(
 
     # 4. Gross volatility limit (annualize monthly covariance properly)
     max_vol = risk_cfg["portfolio_limits"]["max_volatility"]
-    cons += [cp.sqrt(cp.quad_form(w, Σ)) * np.sqrt(12) <= max_vol]
+    cons += [cp.quad_form(w, Σ) <= (max_vol / np.sqrt(12)) ** 2]
 
     prob = cp.Problem(obj, cons)
     # Try QCP-capable solvers for second-order cone constraints
@@ -1105,7 +1105,7 @@ def solve_max_return_with_risk_limits(
 
     # portfolio vol cap (monthly Σ → annual σ)
     σ_cap = risk_cfg["portfolio_limits"]["max_volatility"]
-    cons += [cp.sqrt(cp.quad_form(w, Σ_m)) * np.sqrt(12) <= σ_cap]
+    cons += [cp.quad_form(w, Σ_m) <= (σ_cap / np.sqrt(12)) ** 2]
 
     # 3a) Aggregate β caps
     for fac, cap in agg_caps.items():
