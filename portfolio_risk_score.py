@@ -730,7 +730,41 @@ def calculate_suggested_risk_limits(summary: Dict[str, Any], max_loss: float, cu
 
 def display_suggested_risk_limits(suggestions: Dict[str, Any], max_loss: float):
     """
-    Display suggested risk limits in a user-friendly format.
+    Pretty-print the risk-limit recommendations produced by
+    ``calculate_suggested_risk_limits``.
+
+    This helper is intended for interactive CLI or notebook sessions
+    where a human-readable summary is more useful than the raw
+    dictionary.  The function prints:
+
+    • A headline describing the user’s maximum-loss tolerance and, if
+      applicable, the leverage-adjusted context.  
+    • A coloured block for each limit category (factor, concentration,
+      volatility, sector) showing the current value versus the
+      suggested maximum.  
+    • A "💡 Priority Actions" section that lists the most urgent
+      remediation steps, ranked by severity.
+
+    Parameters
+    ----------
+    suggestions : Dict[str, Any]
+        The structure returned by ``calculate_suggested_risk_limits``.
+    max_loss : float
+        Absolute maximum portfolio loss tolerance (e.g. ``0.25`` for
+        25 %).  Used only for display; the function does **not** mutate
+        the input data.
+
+    Returns
+    -------
+    None
+        The report is written directly to ``stdout``.  Callers can
+        choose to capture or redirect the output if required.
+
+    Notes
+    -----
+    The function intentionally performs no internal logging so that it
+    can be composed inside higher-level helpers like
+    ``_format_risk_score_output`` which handle logging/capture.
     """
     # Get current leverage for display
     current_leverage = suggestions.get("leverage_limit", {}).get("current_leverage", 1.0)
@@ -978,12 +1012,38 @@ def calculate_portfolio_risk_score(
 
 def display_portfolio_risk_score(risk_score: Dict[str, Any]) -> None:
     """
-    Display portfolio risk score in a user-friendly format similar to a credit score report.
-    
+    Pretty-print a single portfolio disruption-risk score in a style
+    inspired by consumer credit-score reports.
+
+    The output includes:
+    • Overall headline score with emoji-based colour coding for quick
+      visual interpretation.  
+    • Breakdown of component scores (factor, concentration, volatility,
+      sector) together with short plain-English explanations.  
+    • Key risk factors and actionable recommendations distilled from
+      the numerical analysis.  
+    • A concise interpretation block that maps the numeric score to an
+      action level (Excellent → Very Poor).
+
+    This function is designed for interactive CLI / notebook use where
+    immediate human readability is valuable.  For programmatic
+    consumption (for example in an API) rely on the structured dict
+    returned by ``calculate_portfolio_risk_score``.
+
     Parameters
     ----------
     risk_score : Dict[str, Any]
-        Output from calculate_portfolio_risk_score()
+        The dictionary returned by ``calculate_portfolio_risk_score``.
+
+    Returns
+    -------
+    None
+        Output is printed directly to ``stdout``.
+
+    Raises
+    ------
+    KeyError
+        If mandatory keys are missing from ``risk_score``.
     """
     score = risk_score["score"]
     category = risk_score["category"]
@@ -1121,10 +1181,45 @@ def display_portfolio_risk_score(risk_score: Dict[str, Any]) -> None:
 
 def _format_risk_score_output(risk_score: Dict[str, Any], limits_analysis: Dict[str, Any], suggestions: Dict[str, Any], max_loss: float) -> str:
     """
-    Format the risk score analysis output as a string for API responses.
-    
-    This captures the same output that would be printed to the console
-    and returns it as a formatted string.
+    Compose a consolidated, human-readable report string that combines
+    all pieces of the disruption-risk analysis.
+
+    This helper simply redirects ``stdout`` to an in-memory buffer,
+    invokes the existing *display* utilities and then returns the
+    captured text.  No additional calculations are performed; the
+    function is pure presentation logic and has no side-effects other
+    than the temporary redirection of the standard output streams.
+
+    Parameters
+    ----------
+    risk_score : Dict[str, Any]
+        Dictionary produced by :pyfunc:`calculate_portfolio_risk_score`.
+    limits_analysis : Dict[str, Any]
+        Dictionary produced by :pyfunc:`analyze_portfolio_risk_limits`.
+    suggestions : Dict[str, Any]
+        Dictionary produced by :pyfunc:`calculate_suggested_risk_limits`.
+    max_loss : float
+        Absolute maximum-loss tolerance (e.g. ``0.25`` for 25 %). Used
+        exclusively for labelling inside the printed report.
+
+    Returns
+    -------
+    str
+        A multi-line string that mirrors the CLI output of the
+        high-level analysis workflow.
+
+    Notes
+    -----
+    • The helper is intended for API endpoints or e-mail integrations
+      where returning a single string blob is more convenient than a
+      series of ``print`` statements.
+    • All input dictionaries remain unchanged; the function does **not**
+      mutate state.
+
+    Examples
+    --------
+    >>> fmt = _format_risk_score_output(risk, limits, sugg, 0.25)
+    >>> send_email("Risk Report", fmt)
     """
     import io
     import sys
@@ -1196,15 +1291,75 @@ from utils.logging import log_portfolio_operation_decorator, log_performance, lo
 @log_performance(5.0)
 def run_risk_score_analysis(portfolio_yaml: str = "portfolio.yaml", risk_yaml: str = "risk_limits.yaml", *, return_data: bool = False):
     """
-    Run a complete risk score analysis on a portfolio.
-    
+    High-level orchestration entry point for generating a full disruption-risk
+    assessment of a single portfolio.
+
+    The function performs the following steps:
+
+    1. **Load configuration** – reads the *portfolio* definition and the
+       *risk-limit* preferences from YAML files.
+    2. **Standardise weights** – converts raw position weights into
+       consistent economic exposure using latest prices.
+    3. **Build portfolio view** – enriches the position list with factor
+       exposures, return/variance statistics, and industry breakdowns.
+    4. **Compute analytics** –
+       • overall 0-100 disruption-risk score;
+       • detailed limit-violation analysis;
+       • backward-calculated risk-limit suggestions that would keep the
+         portfolio within the user-specified maximum loss tolerance.
+    5. **Render output** – either prints a richly formatted report to
+       *stdout* (CLI/notebook usage) **or** returns all artefacts as a
+       JSON-serialisable dictionary for API callers when
+       ``return_data=True``.
+
+    Several logging decorators wrap this function to capture execution
+    time, CPU/memory usage, and workflow state, and to provide robust
+    error handling.
+
     Parameters
     ----------
-    portfolio_yaml : str
-        Path to portfolio configuration file
-    risk_yaml : str
-        Path to risk limits configuration file
+    portfolio_yaml : str, optional
+        Path to the portfolio configuration file. Defaults to
+        ``"portfolio.yaml"``.
+    risk_yaml : str, optional
+        Path to the risk-limit configuration file. Defaults to
+        ``"risk_limits.yaml"``.
+    return_data : bool, default ``False``
+        If ``True`` the function suppresses the console report and
+        instead returns a dictionary with all intermediate and final
+        results. In the default *False* mode the report is printed but
+        the same dictionary is still returned so that callers can
+        inspect it programmatically.
+
+    Returns
+    -------
+    dict | None
+        A JSON-safe dictionary with the keys ``risk_score``,
+        ``limits_analysis``, ``portfolio_analysis``, and
+        ``suggested_limits``. ``None`` is returned only when the routine
+        aborts early because mandatory dependencies are missing or a
+        fatal exception occurs.
+
+    Raises
+    ------
+    FileNotFoundError
+        If either YAML file cannot be found.
+    yaml.YAMLError
+        If a configuration file cannot be parsed.
+    Exception
+        Propagated from lower-level helpers if the analysis fails.
+
+    Examples
+    --------
+    >>> # CLI usage (prints report)
+    >>> python -m portfolio_risk_score
+
+    >>> # Programmatic usage
+    >>> from portfolio_risk_score import run_risk_score_analysis
+    >>> out = run_risk_score_analysis("my_portfolio.yaml", "my_risk.yaml", return_data=True)
+    >>> print(out["risk_score"]["score"])
     """
+    
     # LOGGING: Add risk score analysis start logging
     # LOGGING: Add workflow state logging for risk score analysis workflow here
     # LOGGING: Add resource usage monitoring for risk score calculation here
