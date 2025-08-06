@@ -174,7 +174,7 @@ class RiskAnalysisResult:
     risk_contributions: pd.Series
     
     # Stock-level factor betas (pandas DataFrame)
-    df_stock_betas: pd.DataFrame
+    stock_betas: pd.DataFrame
     
     # Covariance and correlation matrices (pandas DataFrame)
     covariance_matrix: pd.DataFrame
@@ -219,6 +219,12 @@ class RiskAnalysisResult:
     # Additional fields for CLI-API parity
     expected_returns: Optional[Dict[str, float]] = None
     factor_proxies: Optional[Dict[str, str]] = None
+    
+    # Portfolio exposure metrics (calculated from allocations)
+    net_exposure: Optional[float] = None
+    gross_exposure: Optional[float] = None
+    leverage: Optional[float] = None
+    total_value: Optional[float] = None
     
     def get_summary(self) -> Dict[str, Any]:
         """
@@ -795,7 +801,7 @@ class RiskAnalysisResult:
                 display = stock["formatted_line"]           # "AAPL      : 15.2%"
             ```
         """
-        if not self.euler_variance_pct:
+        if self.euler_variance_pct.empty:
             return []
         
         # Get top 10 stocks by variance contribution (exact CLI logic)
@@ -866,7 +872,7 @@ class RiskAnalysisResult:
             "portfolio_factor_betas": _convert_to_json_serializable(self.portfolio_factor_betas),
             "variance_decomposition": _convert_to_json_serializable(self.variance_decomposition),
             "risk_contributions": _convert_to_json_serializable(self.risk_contributions),
-            "df_stock_betas": _convert_to_json_serializable(self.df_stock_betas),
+            "stock_betas": _convert_to_json_serializable(self.stock_betas),
             "covariance_matrix": _convert_to_json_serializable(self.covariance_matrix),
             "correlation_matrix": _convert_to_json_serializable(self.correlation_matrix),
             "allocations": _convert_to_json_serializable(self.allocations),
@@ -886,6 +892,10 @@ class RiskAnalysisResult:
             "formatted_report": self.to_formatted_report(),
             "expected_returns": self.expected_returns,
             "factor_proxies": self.factor_proxies,
+            "net_exposure": self.net_exposure,
+            "gross_exposure": self.gross_exposure,
+            "leverage": self.leverage,
+            "total_value": self.total_value,
             "target_allocations_table": self._build_target_allocations_table(),
             "risk_limit_violations_summary": self._get_risk_limit_violations_summary(),
             "beta_exposure_checks_table": self._get_beta_exposure_checks_table(),
@@ -894,12 +904,11 @@ class RiskAnalysisResult:
             "factor_variance_percentage": self._build_factor_variance_percentage_table(),
             "factor_variance_absolute": self._build_factor_variance_absolute_table(),
             "top_stock_variance_euler": self._build_top_stock_variance_euler_table(),
+            "stock_factor_proxies": self.factor_proxies,
+            "industry_variance_absolute": self._build_industry_variance_absolute_table(),
             "net_exposure": self.net_exposure,
             "gross_exposure": self.gross_exposure,
-            "leverage": self.leverage,
-            "expected_returns": self.expected_returns,
-            "stock_factor_proxies": self.factor_proxies,
-            "industry_variance_absolute": self._build_industry_variance_absolute_table()
+            "leverage": self.leverage
         }
 
     def to_dict(self) -> Dict[str, Any]:
@@ -933,7 +942,7 @@ class RiskAnalysisResult:
         portfolio_view_result["portfolio_factor_betas"]  → self.portfolio_factor_betas
         portfolio_view_result["variance_decomposition"]  → self.variance_decomposition
         portfolio_view_result["risk_contributions"]      → self.risk_contributions
-        portfolio_view_result["df_stock_betas"]           → self.df_stock_betas
+        portfolio_view_result["df_stock_betas"]           → self.stock_betas
         portfolio_view_result.get("covariance_matrix")   → self.covariance_matrix (defensive)
         portfolio_view_result.get("correlation_matrix")  → self.correlation_matrix (defensive)
         portfolio_view_result.get("allocations")         → self.allocations (defensive)
@@ -964,7 +973,7 @@ class RiskAnalysisResult:
             portfolio_factor_betas=portfolio_view_result["portfolio_factor_betas"],
             variance_decomposition=portfolio_view_result["variance_decomposition"],
             risk_contributions=portfolio_view_result["risk_contributions"],
-            df_stock_betas=portfolio_view_result["df_stock_betas"],
+            stock_betas=portfolio_view_result["df_stock_betas"],
             covariance_matrix=portfolio_view_result.get("covariance_matrix", pd.DataFrame()),
             correlation_matrix=portfolio_view_result.get("correlation_matrix", pd.DataFrame()),
             allocations=portfolio_view_result.get("allocations", pd.DataFrame()),
@@ -982,7 +991,11 @@ class RiskAnalysisResult:
             analysis_date=datetime.now(),
             portfolio_name=portfolio_name,
             expected_returns=expected_returns,
-            factor_proxies=factor_proxies
+            factor_proxies=factor_proxies,
+            net_exposure=portfolio_view_result.get("net_exposure"),
+            gross_exposure=portfolio_view_result.get("gross_exposure"),
+            leverage=portfolio_view_result.get("leverage"),
+            total_value=portfolio_view_result.get("total_value")
         )
     
     def to_formatted_report(self) -> str:

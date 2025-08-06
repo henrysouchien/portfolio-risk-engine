@@ -60,7 +60,9 @@ def analyze_portfolio(filepath: str) -> Dict[str, Any]:
     with open("risk_limits.yaml", "r") as f:
         risk_config = yaml.safe_load(f)
 
-    weights = standardize_portfolio_input(config["portfolio_input"], latest_price)["weights"]
+    # Get full standardized portfolio data (including exposure metrics)
+    standardized_data = standardize_portfolio_input(config["portfolio_input"], latest_price)
+    weights = standardized_data["weights"]
     
     # ─── 2. Build Portfolio View ─────────────────────────────
     summary = build_portfolio_view(
@@ -70,6 +72,14 @@ def analyze_portfolio(filepath: str) -> Dict[str, Any]:
         config.get("expected_returns"),
         config.get("stock_factor_proxies")
     )
+    
+    # ─── 2.1. Add Exposure Metrics to Summary ─────────────────
+    summary.update({
+        "net_exposure": standardized_data["net_exposure"],
+        "gross_exposure": standardized_data["gross_exposure"],
+        "leverage": standardized_data["leverage"],
+        "total_value": standardized_data["total_value"]
+    })
     
     # ─── 3. Calculate Beta Limits ────────────────────────────
     lookback_years = PORTFOLIO_DEFAULTS.get('worst_case_lookback_years', 10)
