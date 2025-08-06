@@ -205,6 +205,10 @@ class RiskAnalysisResult:
     analysis_date: datetime
     portfolio_name: Optional[str] = None
     
+    # Additional fields for CLI-API parity
+    expected_returns: Optional[Dict[str, float]] = None
+    factor_proxies: Optional[Dict[str, str]] = None
+    
     def get_summary(self) -> Dict[str, Any]:
         """
         Get key portfolio risk metrics in a condensed summary format.
@@ -350,6 +354,155 @@ class RiskAnalysisResult:
             "portfolio_variance": self.variance_decomposition.get('portfolio_variance', 0)
         }
     
+    def _build_target_allocations_table(self) -> Dict[str, Any]:
+        """
+        Build target allocations comparison table from compute_target_allocations DataFrame.
+        
+        This method expects the rich DataFrame output from compute_target_allocations()
+        with columns: Portfolio Weight, Equal Weight, Prop Target (optional), Eq Diff, Prop Diff (optional).
+        
+        It's a pure data transformation layer - no business logic or recalculation.
+        """
+        if self.allocations is None or self.allocations.empty:
+            return {}
+        
+        # Validate we have the expected DataFrame structure
+        required_columns = {'Portfolio Weight', 'Equal Weight'}
+        if not (hasattr(self.allocations, 'columns') and required_columns.issubset(self.allocations.columns)):
+            raise ValueError(
+                f"Expected allocations DataFrame with columns {required_columns}, "
+                f"got: {getattr(self.allocations, 'columns', 'non-DataFrame object')}"
+            )
+        
+        # Transform the rich DataFrame data for API consumption
+        table = {}
+        equal_weight_values = []
+        
+        for ticker in self.allocations.index:
+            portfolio_weight = self.allocations.loc[ticker, 'Portfolio Weight']
+            equal_weight = self.allocations.loc[ticker, 'Equal Weight']
+            
+            # Handle NaN values
+            portfolio_weight = float(portfolio_weight) if not np.isnan(portfolio_weight) else 0.0
+            equal_weight = float(equal_weight) if not np.isnan(equal_weight) else 0.0
+            equal_weight_values.append(equal_weight)
+            
+            # Use pre-calculated deviation if available, otherwise calculate
+            if 'Eq Diff' in self.allocations.columns:
+                deviation = self.allocations.loc[ticker, 'Eq Diff']
+                deviation = float(deviation) if not np.isnan(deviation) else portfolio_weight - equal_weight
+            else:
+                deviation = portfolio_weight - equal_weight
+            
+            table[str(ticker)] = {
+                "current_weight": portfolio_weight,
+                "equal_weight": equal_weight,
+                "deviation": deviation,
+                "relative_deviation": deviation / equal_weight if equal_weight > 0 else 0
+            }
+            
+            # Add proportional target information if available
+            if 'Prop Target' in self.allocations.columns:
+                prop_target = self.allocations.loc[ticker, 'Prop Target']
+                prop_target = float(prop_target) if not np.isnan(prop_target) else None
+                if prop_target is not None:
+                    table[str(ticker)]["prop_target"] = prop_target
+                    
+                    if 'Prop Diff' in self.allocations.columns:
+                        prop_diff = self.allocations.loc[ticker, 'Prop Diff']
+                        prop_diff = float(prop_diff) if not np.isnan(prop_diff) else portfolio_weight - prop_target
+                    else:
+                        prop_diff = portfolio_weight - prop_target
+                        
+                    table[str(ticker)]["prop_deviation"] = prop_diff
+                    table[str(ticker)]["prop_relative_deviation"] = prop_diff / prop_target if prop_target > 0 else 0
+        
+        # Use the equal weight from the DataFrame (should be consistent across all tickers)
+        equal_weight_target = equal_weight_values[0] if equal_weight_values else 0.0
+        total_positions = len(table)
+        
+        return {
+            "allocations_comparison": table,
+            "equal_weight_target": equal_weight_target,
+            "total_positions": total_positions,
+            "concentration_score": self.herfindahl
+        }
+    
+    def _get_risk_limit_violations_summary(self) -> Dict[str, Any]:
+        """
+        Generate comprehensive risk limit violations summary.
+        
+        Returns detailed analysis of all risk limit breaches.
+        """
+        violations_summary = {
+            "total_violations": 0,
+            "volatility_violations": [],
+            "beta_violations": [],
+            "concentration_violations": [],
+            "other_violations": []
+        }
+        
+        # Process beta checks
+        if self.beta_checks:
+            for check in self.beta_checks:
+                if not check.get("pass", True):
+                    violation = {
+                        "factor": check.get("factor", "unknown"),
+                        "current_beta": check.get("portfolio_beta", 0),
+                        "limit": check.get("max_allowed_beta", 0),
+                        "excess": check.get("portfolio_beta", 0) - check.get("max_allowed_beta", 0),
+                        "severity": "high" if abs(check.get("portfolio_beta", 0) - check.get("max_allowed_beta", 0)) > 0.5 else "medium"
+                    }
+                    violations_summary["beta_violations"].append(violation)
+                    violations_summary["total_violations"] += 1
+        
+        # Check volatility against common limits
+        if self.volatility_annual > 0.4:  # 40% volatility threshold
+            violations_summary["volatility_violations"].append({
+                "metric": "annual_volatility", 
+                "current": self.volatility_annual,
+                "limit": 0.4,
+                "excess": self.volatility_annual - 0.4
+            })
+            violations_summary["total_violations"] += 1
+        
+        # Check concentration via Herfindahl index
+        if self.herfindahl > 0.25:  # High concentration threshold
+            violations_summary["concentration_violations"].append({
+                "metric": "herfindahl_index",
+                "current": self.herfindahl,
+                "limit": 0.25,
+                "excess": self.herfindahl - 0.25
+            })
+            violations_summary["total_violations"] += 1
+        
+        violations_summary["compliance_status"] = "Compliant" if violations_summary["total_violations"] == 0 else "Non-Compliant"
+        
+        return violations_summary
+    
+    def _get_beta_exposure_checks_table(self) -> List[Dict[str, Any]]:
+        """
+        Generate formatted beta exposure checks table.
+        
+        Returns table showing factor betas vs limits with pass/fail status.
+        """
+        if not self.beta_checks:
+            return []
+        
+        table = []
+        for check in self.beta_checks:
+            row = {
+                "factor": check.get("factor", "unknown").title(),
+                "portfolio_beta": round(check.get("portfolio_beta", 0), 3),
+                "max_allowed": round(check.get("max_allowed_beta", 0), 3),
+                "buffer": round(check.get("buffer", 0), 3),
+                "status": "PASS" if check.get("pass", False) else "FAIL",
+                "pass": check.get("pass", False)  # Boolean version
+            }
+            table.append(row)
+        
+        return table
+    
     def to_api_response(self) -> Dict[str, Any]:
         """
         Schema-compliant version of the old to_dict().
@@ -380,7 +533,14 @@ class RiskAnalysisResult:
             "max_betas_by_proxy": _convert_to_json_serializable(self.max_betas_by_proxy),
             "analysis_date": self.analysis_date.isoformat(),
             "portfolio_name": self.portfolio_name,
-            "formatted_report": self.to_formatted_report()
+            "formatted_report": self.to_formatted_report(),
+            # New fields for CLI-API parity (high-impact)
+            "expected_returns": self.expected_returns,
+            "factor_proxies": self.factor_proxies,
+            # New fields for CLI-API parity (medium-impact)
+            "target_allocations_table": self._build_target_allocations_table(),
+            "risk_limit_violations_summary": self._get_risk_limit_violations_summary(),
+            "beta_exposure_checks_table": self._get_beta_exposure_checks_table()
         }
 
     def to_dict(self) -> Dict[str, Any]:
@@ -397,7 +557,9 @@ class RiskAnalysisResult:
                                  risk_checks: Optional[List[Dict[str, Any]]] = None,
                                  beta_checks: Optional[List[Dict[str, Any]]] = None,
                                  max_betas: Optional[Dict[str, float]] = None,
-                                 max_betas_by_proxy: Optional[Dict[str, float]] = None) -> 'RiskAnalysisResult':
+                                 max_betas_by_proxy: Optional[Dict[str, float]] = None,
+                                 expected_returns: Optional[Dict[str, float]] = None,
+                                 factor_proxies: Optional[Dict[str, str]] = None) -> 'RiskAnalysisResult':
         """
         Create RiskAnalysisResult from build_portfolio_view output.
         
@@ -459,7 +621,9 @@ class RiskAnalysisResult:
             max_betas=max_betas or {},
             max_betas_by_proxy=max_betas_by_proxy or {},
             analysis_date=datetime.now(),
-            portfolio_name=portfolio_name
+            portfolio_name=portfolio_name,
+            expected_returns=expected_returns,
+            factor_proxies=factor_proxies
         )
     
     def to_formatted_report(self) -> str:
@@ -1070,6 +1234,10 @@ class PerformanceResult:
     # Metadata
     analysis_date: datetime
     portfolio_name: Optional[str] = None
+    portfolio_file: Optional[str] = None
+    
+    # Additional fields for CLI-API parity
+    _allocations: Optional[Dict[str, Any]] = None
     
     def get_summary(self) -> Dict[str, Any]:
         """Get key performance metrics summary."""
@@ -1100,6 +1268,78 @@ class PerformanceResult:
             "information_ratio": self.risk_adjusted_returns.get("information_ratio", 0),
             "calmar_ratio": self.risk_adjusted_returns.get("calmar_ratio", 0)
         }
+    
+    def _categorize_performance(self) -> str:
+        """
+        Categorize performance based on risk-adjusted metrics.
+        
+        Returns user-friendly performance category based on Sharpe ratio and returns.
+        """
+        sharpe = self.risk_adjusted_returns.get("sharpe_ratio", 0)
+        annual_return = self.returns.get("annualized_return", 0)
+        
+        if sharpe >= 1.5 and annual_return >= 15:
+            return "🟢 EXCELLENT: Outstanding risk-adjusted performance"
+        elif sharpe >= 1.0 and annual_return >= 10:
+            return "🟡 GOOD: Solid performance with reasonable risk"
+        elif sharpe >= 0.5 and annual_return >= 5:
+            return "🟠 FAIR: Moderate performance with some risk concerns"
+        else:
+            return "🔴 POOR: Underperforming with high risk"
+    
+    def _generate_key_insights(self) -> list:
+        """
+        Generate key insights bullets based on performance metrics.
+        
+        Returns actionable insights highlighting strengths and areas for improvement.
+        """
+        insights = []
+        
+        # Alpha generation insight
+        alpha = self.benchmark_analysis.get("alpha_annual", 0)
+        if alpha > 5:
+            insights.append(f"• Strong alpha generation (+{alpha:.1f}% vs benchmark)")
+        elif alpha < -2:
+            insights.append(f"• Underperforming benchmark ({alpha:.1f}% alpha)")
+        
+        # Risk-adjusted returns insight
+        sharpe = self.risk_adjusted_returns.get("sharpe_ratio", 0)
+        if sharpe > 1.2:
+            insights.append(f"• Excellent risk-adjusted returns (Sharpe: {sharpe:.2f})")
+        elif sharpe < 0.5:
+            insights.append(f"• Poor risk-adjusted returns (Sharpe: {sharpe:.2f})")
+        
+        # Volatility insight
+        volatility = self.risk_metrics.get("volatility", 0)
+        benchmark_vol = self.benchmark_comparison.get("benchmark_volatility", 0)
+        if volatility > benchmark_vol * 1.2:
+            insights.append(f"• High volatility ({volatility:.1f}% vs {benchmark_vol:.1f}% benchmark)")
+        
+        # Win rate insight
+        win_rate = self.returns.get("win_rate", 0)
+        if win_rate > 65:
+            insights.append(f"• High consistency ({win_rate:.0f}% positive months)")
+        elif win_rate < 50:
+            insights.append(f"• Low consistency ({win_rate:.0f}% positive months)")
+        
+        # Drawdown insight
+        max_dd = self.risk_metrics.get("maximum_drawdown", 0)
+        if abs(max_dd) > 25:
+            insights.append(f"• Significant drawdown risk (max: {max_dd:.1f}%)")
+        
+        return insights
+    
+    def get_position_count(self) -> int:
+        """
+        Get the number of positions in the portfolio.
+        
+        Attempts to derive from allocations data if available.
+        """
+        if self._allocations:
+            return len(self._allocations)
+        
+        # Fallback: estimate from portfolio name or return unknown
+        return 0  # Will be updated when allocations data is available
     
     def to_formatted_report(self) -> str:
         """
@@ -1181,7 +1421,12 @@ class PerformanceResult:
             "monthly_returns": self.monthly_returns,
             "analysis_date": self.analysis_date.isoformat(),
             "portfolio_name": self.portfolio_name,
-            "formatted_report": self.to_formatted_report()
+            "formatted_report": self.to_formatted_report(),
+            # New fields for CLI-API parity
+            "portfolio_file": self.portfolio_file,
+            "position_count": self.get_position_count(),
+            "performance_category": self._categorize_performance(),
+            "key_insights": self._generate_key_insights()
         }
 
     def to_dict(self) -> Dict[str, Any]:
@@ -1194,7 +1439,9 @@ class PerformanceResult:
     
     @classmethod
     def from_performance_metrics(cls, performance_metrics: Dict[str, Any],
-                                portfolio_name: Optional[str] = None) -> 'PerformanceResult':
+                                portfolio_name: Optional[str] = None,
+                                portfolio_file: Optional[str] = None,
+                                allocations: Optional[Dict[str, Any]] = None) -> 'PerformanceResult':
         """
         Create PerformanceResult from calculate_portfolio_performance_metrics output.
         
@@ -1229,7 +1476,9 @@ class PerformanceResult:
             risk_free_rate=performance_metrics["risk_free_rate"],
             monthly_returns=performance_metrics["monthly_returns"],
             analysis_date=datetime.now(),
-            portfolio_name=portfolio_name
+            portfolio_name=portfolio_name,
+            portfolio_file=portfolio_file,
+            _allocations=allocations
         )
     
     def __hash__(self) -> int:
@@ -1489,6 +1738,65 @@ class RiskScoreResult:
         
         return "\n".join(sections)
 
+    def _get_priority_actions(self) -> list:
+        """
+        Generate prioritized action recommendations based on risk violations.
+        
+        Returns actions ranked by impact and urgency.
+        """
+        actions = []
+        recommendations = self.limits_analysis.get("recommendations", [])
+        risk_factors = self.limits_analysis.get("risk_factors", [])
+        
+        # Priority 1: Critical violations requiring immediate action
+        for rec in recommendations[:3]:  # Top 3 recommendations
+            if any(keyword in rec.lower() for keyword in ["reduce", "limit", "excess"]):
+                actions.append(f"1. {rec}")
+        
+        # Priority 2: Risk factors to monitor
+        for factor in risk_factors[:2]:  # Top 2 risk factors
+            if factor not in [r.split(". ", 1)[-1] for r in actions]:
+                actions.append(f"2. Monitor: {factor}")
+        
+        # Priority 3: Additional recommendations
+        remaining_recs = [r for r in recommendations[3:] if r not in [a.split(". ", 1)[-1] for a in actions]]
+        for rec in remaining_recs[:2]:
+            actions.append(f"3. {rec}")
+        
+        return actions
+    
+    def _get_violations_summary(self) -> Dict[str, Any]:
+        """
+        Generate a comprehensive violations summary.
+        
+        Returns structured summary of all limit violations.
+        """
+        violations = self.limits_analysis.get("limit_violations", {})
+        risk_factors = self.limits_analysis.get("risk_factors", [])
+        
+        # Count total violations
+        total_violations = sum(violations.values()) if isinstance(violations, dict) else len(risk_factors)
+        
+        # Categorize violations by severity
+        critical_violations = []
+        moderate_violations = []
+        
+        for factor in risk_factors:
+            if any(keyword in factor.lower() for keyword in ["excess", "high", "limit"]):
+                critical_violations.append(factor)
+            else:
+                moderate_violations.append(factor)
+        
+        return {
+            "total_violations": total_violations,
+            "critical_count": len(critical_violations),
+            "moderate_count": len(moderate_violations),
+            "violation_types": violations,
+            "critical_violations": critical_violations,
+            "moderate_violations": moderate_violations,
+            "compliance_status": "Non-Compliant" if total_violations > 0 else "Compliant"
+        }
+
     def to_api_response(self) -> Dict[str, Any]:
         """
         Schema-compliant version of the old to_dict().
@@ -1504,7 +1812,10 @@ class RiskScoreResult:
             "risk_limits_file": self.risk_limits_file,
             "formatted_report": self.formatted_report or self.to_formatted_report(),
             "analysis_date": self.analysis_date.isoformat(),
-            "portfolio_name": self.portfolio_name
+            "portfolio_name": self.portfolio_name,
+            # New fields for CLI-API parity
+            "priority_actions": self._get_priority_actions(),
+            "violations_summary": self._get_violations_summary()
         }
 
     def to_dict(self) -> Dict[str, Any]:

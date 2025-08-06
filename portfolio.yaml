@@ -1,131 +1,321 @@
 portfolio_input:
-  SGOV:
-    dollars: -8179.289999999999
-  DSU:
-    shares: 1410.9007
-  EQT:
-    shares: 40.0
-  IGIC:
-    shares: 100.0
-  IT:
-    shares: 23.0
-  KINS:
-    shares: 150.0
-  MSCI:
-    shares: 20.1786
+  CGUS:
+    weight: 0.0145
+  GLD:
+    weight: 0.07
+  XLE:
+    weight: 0.0132
+  GOOGL:
+    weight: 0.1506
   NVDA:
-    shares: 25.0
-  RNMBY:
-    shares: 3.0
-  SFM:
-    shares: 14.0
-  SLV:
-    shares: 100.0
-  STWD:
-    shares: 516.0
-  TKO:
-    shares: 12.0
-  V:
-    shares: 3.0
+    weight: 0.0449
+  UBER:
+    weight: 0.0344
+  WELL:
+    weight: 0.0291
+  HOOD:
+    weight: 0.1664
+  COIN:
+    weight: 0.0819
+  SPOT:
+    weight: 0.0634
+  TER:
+    weight: 0.0515
+  TLN:
+    weight: 0.0674
+  STIM:
+    weight: 0.0066
+  UVXY:
+    weight: 0.0198
+  EWA:
+    weight: 0.0132
+  CVLT:
+    weight: 0.0674
+  INTC:
+    weight: 0.0092
+  DKNG:
+    weight: 0.0515
+  RDDT:
+    weight: 0.0132
+  DPST:
+    weight: 0.0277
+  CWEB:
+    weight: 0.0159
+  SGOV:
+    weight: 0.0013
 start_date: '2019-01-31'
 end_date: '2025-06-27'
 expected_returns:
+  CGUS: 0.08
+  GLD: 0.05
+  XLE: 0.1
+  GOOGL: 0.15
+  NVDA: 0.2
+  UBER: 0.12
+  WELL: 0.09
+  HOOD: 0.15
+  COIN: 0.18
+  SPOT: 0.14
+  TER: 0.11
+  TLN: 0.1
+  STIM: 0.08
+  UVXY: 0.05
+  EWA: 0.07
+  CVLT: 0.12
+  INTC: 0.08
+  DKNG: 0.15
+  RDDT: 0.1
+  DPST: 0.12
+  CWEB: 0.13
   SGOV: 0.001
-  DSU: 0.015
-  EQT: 0.29100000000000004
-  IGIC: 0.299
-  IT: 0.235
-  KINS: 0.24100000000000002
-  MSCI: 0.078
-  NVDA: 0.7490000000000001
-  RNMBY: 0.848
-  SFM: 0.43799999999999994
-  SLV: 0.08900000000000001
-  STWD: 0.059000000000000004
-  TKO: 0.295
-  V: 0.134
 stock_factor_proxies:
-  SGOV:
+  CGUS:
     market: SPY
     momentum: MTUM
     value: IWD
-    industry: SGOV
+    industry: CGUS
     subindustry: []
-  DSU:
+  GLD:
     market: SPY
     momentum: MTUM
     value: IWD
-    industry: DSU
+    industry: GLD
     subindustry: []
-  EQT:
+  XLE:
     market: SPY
     momentum: MTUM
     value: IWD
-    industry: XOP
+    industry: XLE
     subindustry: []
-  IGIC:
+  GOOGL:
     market: SPY
     momentum: MTUM
     value: IWD
-    industry: KIE
-    subindustry: []
-  IT:
-    market: SPY
-    momentum: MTUM
-    value: IWD
-    industry: XLK
-    subindustry: []
-  KINS:
-    market: SPY
-    momentum: MTUM
-    value: IWD
-    industry: KIE
-    subindustry: []
-  MSCI:
-    market: SPY
-    momentum: MTUM
-    value: IWD
-    industry: KCE
-    subindustry: []
+    industry: XLC
+    subindustry:
+    - META
+    - MSFT
+    - AMZN
+    - SNAP
+    - IAC
+    - YELP
+    - EBAY
   NVDA:
     market: SPY
     momentum: MTUM
     value: IWD
     industry: SOXX
-    subindustry: []
-  RNMBY:
+    subindustry:
+    - AMD
+    - INTC
+    - AVGO
+    - QCOM
+    - MRVL
+    - TXN
+    - 'ON'
+    - ADI
+    - LSCC
+    - MCHP
+  UBER:
     market: SPY
     momentum: MTUM
     value: IWD
-    industry: ITA
-    subindustry: []
-  SFM:
+    industry: XSW
+    subindustry:
+    - LYFT
+    - BKNG
+    - EXPE
+  WELL:
     market: SPY
     momentum: MTUM
     value: IWD
-    industry: XLP
-    subindustry: []
-  SLV:
+    industry: IHF
+    subindustry:
+    - VTR
+    - DOC
+    - HR
+    - NHI
+    - SBRA
+    - OHI
+    - CTRE
+    - UHT
+    - LTC
+  HOOD:
     market: SPY
     momentum: MTUM
     value: IWD
-    industry: SLV
-    subindustry: []
-  STWD:
-    market: SPY
-    momentum: MTUM
-    value: IWD
-    industry: REM
-    subindustry: []
-  TKO:
-    market: SPY
-    momentum: MTUM
-    value: IWD
-    industry: XLC
-    subindustry: []
-  V:
+    industry: IGV
+    subindustry:
+    - SCHW
+    - IBKR
+    - VIRT
+    - MS
+    - GS
+    - JPM
+    - BK
+    - C
+  COIN:
     market: SPY
     momentum: MTUM
     value: IWD
     industry: KCE
+    subindustry:
+    - CBOE
+    - ICE
+    - NDAQ
+    - CME
+    - MKTX
+    - TW
+    - IBKR
+    - STNE
+    - SCHW
+  SPOT:
+    market: SPY
+    momentum: MTUM
+    value: IWD
+    industry: XLC
+    subindustry:
+    - AAPL
+    - AMZN
+    - GOOGL
+    - META
+    - SIRI
+    - ROKU
+    - TME
+  TER:
+    market: SPY
+    momentum: MTUM
+    value: IWD
+    industry: SOXX
+    subindustry:
+    - FORM
+    - COHU
+    - CAMT
+    - ACLS
+    - ONTO
+    - AEHR
+    - AMAT
+    - LRCX
+    - KLAC
+    - ASML
+  TLN:
+    market: SPY
+    momentum: MTUM
+    value: IWD
+    industry: XLU
+    subindustry:
+    - NEE
+    - DUK
+    - AES
+    - NRG
+    - CVA
+    - AY
+    - ORA
+    - PEG
+    - AEP
+    - D
+  STIM:
+    market: SPY
+    momentum: MTUM
+    value: IWD
+    industry: IDNA
+    subindustry:
+    - BSGM
+    - NRC
+    - ICAD
+    - MASI
+    - QDEL
+    - TNDM
+    - DXCM
+    - GH
+    - EXAS
+  UVXY:
+    market: ACWX
+    momentum: IMTM
+    value: EFV
+    industry: UVXY
+    subindustry: []
+  EWA:
+    market: SPY
+    momentum: MTUM
+    value: IWD
+    industry: EWA
+    subindustry: []
+  CVLT:
+    market: SPY
+    momentum: MTUM
+    value: IWD
+    industry: XSW
+    subindustry:
+    - VERI
+    - BLKB
+    - CLVT
+    - APPF
+    - MSTR
+    - SPSC
+    - PRGS
+    - SSNC
+  INTC:
+    market: SPY
+    momentum: MTUM
+    value: IWD
+    industry: SOXX
+    subindustry:
+    - AMD
+    - NVDA
+    - AVGO
+    - QCOM
+    - TXN
+    - MRVL
+    - ADI
+    - 'ON'
+    - MU
+    - SWKS
+  DKNG:
+    market: SPY
+    momentum: MTUM
+    value: IWD
+    industry: XLY
+    subindustry:
+    - CZR
+    - MGM
+    - WYNN
+    - PENN
+    - BALY
+    - BYD
+    - CHDN
+    - LVS
+  RDDT:
+    market: SPY
+    momentum: MTUM
+    value: IWD
+    industry: XLC
+    subindustry:
+    - META
+    - GOOGL
+    - PINS
+    - TWTR
+    - SNAP
+    - YELP
+    - IAC
+    - ANGI
+    - TRIP
+    - BZ
+  DPST:
+    market: SPY
+    momentum: MTUM
+    value: IWD
+    industry: DPST
+    subindustry: []
+  CWEB:
+    market: SPY
+    momentum: MTUM
+    value: IWD
+    industry: CWEB
+    subindustry: []
+  SGOV:
+    market: SPY
+    momentum: MTUM
+    value: IWD
+    industry: SGOV
     subindustry: []

@@ -46,7 +46,7 @@ from gpt_helpers import (
     generate_subindustry_peers,
 )
 from helpers_display import format_stock_metrics
-from utils.serialization import make_json_safe, _format_portfolio_output_as_text
+from utils.serialization import make_json_safe
 from core.portfolio_analysis import analyze_portfolio
 
 # Import logging decorators

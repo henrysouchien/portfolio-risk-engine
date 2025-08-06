@@ -6,13 +6,9 @@ Core AI interpretation business logic.
 Extracted from run_risk.py as part of the refactoring to create a clean service layer.
 """
 
-from io import StringIO
-from contextlib import redirect_stdout 
 from typing import Optional, Dict, Any
 from datetime import datetime
 
-from core.portfolio_analysis import analyze_portfolio
-from utils.serialization import _format_portfolio_output_as_text
 from gpt_helpers import interpret_portfolio_risk
 
 # Import logging decorators for AI interpretation
@@ -47,12 +43,14 @@ def analyze_and_interpret(portfolio_yaml: str) -> Dict[str, Any]:
         - analysis_metadata: Analysis configuration and timestamps
     """
     
-    # Run portfolio analysis and capture CLI output
-    buf = StringIO()
-    with redirect_stdout(buf):
-        analyze_portfolio(portfolio_yaml)
-
-    diagnostics = buf.getvalue()
+    # Import run_portfolio here to avoid circular imports
+    from run_risk import run_portfolio
+    
+    # Get full analysis with formatted report (matching API path behavior)
+    portfolio_result = run_portfolio(portfolio_yaml, return_data=True)
+    
+    # Extract the formatted report for GPT interpretation
+    diagnostics = portfolio_result.get("formatted_report", "")
     summary_txt = interpret_portfolio_risk(diagnostics)
 
     # Return structured data with raw objects (for service layer)
@@ -100,7 +98,7 @@ def interpret_portfolio_data(
     """
     
     # Generate formatted diagnostics text from structured output
-    diagnostics = _format_portfolio_output_as_text(portfolio_output)
+    diagnostics = portfolio_output.get("formatted_report", "")
     
     # Get AI interpretation
     summary_txt = interpret_portfolio_risk(diagnostics)

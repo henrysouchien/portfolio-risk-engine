@@ -252,7 +252,78 @@ def solve_min_variance_with_risk_limits(
     cons += [cp.sqrt(cp.quad_form(w, Σ)) * np.sqrt(12) <= max_vol]
 
     prob = cp.Problem(obj, cons)
-    prob.solve(solver=cp.ECOS, qcp=True, verbose=False)
+    # Try QCP-capable solvers for second-order cone constraints
+    # Order solvers by reliability for QCP problems
+    qcp_solvers = [
+        ("ECOS", cp.ECOS, {"verbose": False}),
+        ("CLARABEL", cp.CLARABEL, {"verbose": False}),
+        ("MOSEK", cp.MOSEK, {"verbose": False}),  # If available
+        ("SCS", cp.SCS, {"verbose": False, "eps": 1e-6}),  # Try SCS with QCP
+    ]
+    
+    # Try non-QCP solvers as fallback (may fail for volatility constraints)
+    fallback_solvers = [
+        ("OSQP", cp.OSQP, {"verbose": False, "eps_abs": 1e-6, "eps_rel": 1e-6, "adaptive_rho": True}),
+    ]
+    
+    solved = False
+    last_error = None
+    
+    # First try QCP solvers
+    for name, solver, kwargs in qcp_solvers:
+        try:
+            # Check DCP compliance before solving
+            if not prob.is_dcp():
+                print(f"⚠️ Problem is not DCP compliant. Attempting with {name} anyway...")
+            
+            prob.solve(solver=solver, qcp=True, **kwargs)
+            if prob.status in ("optimal", "optimal_inaccurate"):
+                print(f"✅ Solved with {name} (QCP mode)")
+                solved = True
+                break
+            else:
+                print(f"⚠️ {name} returned status: {prob.status}")
+        except Exception as e:
+            error_msg = str(e)
+            if "DCP" in error_msg:
+                print(f"❌ {name} failed with DCP error: {error_msg}")
+                # Try enabling QCP mode explicitly
+                try:
+                    print(f"🔄 Retrying {name} with explicit QCP handling...")
+                    prob.solve(solver=solver, qcp=True, verbose=True, **kwargs)
+                    if prob.status in ("optimal", "optimal_inaccurate"):
+                        print(f"✅ Solved with {name} (QCP retry)")
+                        solved = True
+                        break
+                except Exception as retry_e:
+                    print(f"❌ {name} retry also failed: {str(retry_e)}")
+            else:
+                print(f"❌ {name} failed: {error_msg}")
+            last_error = e
+            continue
+    
+    # If QCP solvers failed, try fallback solvers  
+    if not solved:
+        print("🔄 Trying fallback solvers...")
+        for name, solver, kwargs in fallback_solvers:
+            try:
+                prob.solve(solver=solver, **kwargs)
+                if prob.status in ("optimal", "optimal_inaccurate"):
+                    print(f"✅ Solved with {name} (fallback)")
+                    solved = True
+                    break
+                else:
+                    print(f"⚠️ {name} returned status: {prob.status}")
+            except Exception as e:
+                print(f"❌ {name} failed: {str(e)}")
+                last_error = e
+                continue
+    
+    if not solved:
+        if last_error:
+            raise ValueError(f"All solvers failed. Last error: {last_error}")
+        else:
+            raise ValueError(f"All solvers failed with status: {prob.status}")
 
     if prob.status not in ("optimal", "optimal_inaccurate"):
         raise ValueError(f"Infeasible under current limits (status={prob.status})")
@@ -1047,7 +1118,37 @@ def solve_max_return_with_risk_limits(
 
     # ---------- 4. Solve --------------------------------------------------
     prob = cp.Problem(objective, cons)
-    prob.solve(solver=cp.ECOS, qcp=True, verbose=False)
+    # Try multiple solvers in order of preference
+    solvers_to_try = [
+        (cp.CLARABEL, {"verbose": False}),
+        (cp.OSQP, {"verbose": False, "eps_abs": 1e-5, "eps_rel": 1e-5}),
+        (cp.ECOS, {"verbose": False}),
+        (cp.SCS, {"verbose": False, "eps": 1e-4}),
+    ]
+    
+    last_error = None
+    for solver, kwargs in solvers_to_try:
+        try:
+            if solver == cp.ECOS:
+                prob.solve(solver=solver, qcp=True, **kwargs)
+            else:
+                prob.solve(solver=solver, **kwargs)
+            
+            if prob.status in ("optimal", "optimal_inaccurate"):
+                print(f"✅ Solved with {solver}")
+                break
+            else:
+                print(f"⚠️ {solver} returned status: {prob.status}")
+        except Exception as e:
+            print(f"❌ {solver} failed: {str(e)}")
+            last_error = e
+            continue
+    else:
+        # If all solvers failed
+        if last_error:
+            raise ValueError(f"All solvers failed. Last error: {last_error}")
+        else:
+            raise ValueError(f"All solvers failed with status: {prob.status}")
 
     if prob.status not in ("optimal", "optimal_inaccurate"):
         raise ValueError(f"Solver status = {prob.status} (infeasible)")
