@@ -225,6 +225,14 @@ class RiskAnalysisResult:
     gross_exposure: Optional[float] = None
     leverage: Optional[float] = None
     total_value: Optional[float] = None
+    dollar_exposure: Optional[Dict[str, float]] = None
+    
+    @property
+    def portfolio_weights(self) -> Optional[Dict[str, float]]:
+        """Extract just the portfolio weights from the allocations DataFrame"""
+        if self.allocations is None:
+            return None
+        return self.allocations["Portfolio Weight"].to_dict()
     
     def get_summary(self) -> Dict[str, Any]:
         """
@@ -370,51 +378,6 @@ class RiskAnalysisResult:
             "idiosyncratic_pct": self.variance_decomposition.get('idiosyncratic_pct', 0),
             "portfolio_variance": self.variance_decomposition.get('portfolio_variance', 0)
         }
-    
-    def _build_target_allocations_table(self) -> Dict[str, Any]:
-        """
-        Build target allocations comparison table from portfolio allocations DataFrame.
-        
-        This method converts the allocations DataFrame (used by CLI) into a structured
-        format for API consumption. The resulting structure matches exactly what the
-        CLI displays in the "=== Target Allocations ===" section.
-        
-        Returns:
-            Dict[str, Any]: Allocations comparison table containing:
-                - ticker -> allocation data mapping
-                - Portfolio Weight: Current portfolio allocation (0-1)
-                - Equal Weight: Equal-weight allocation target (0-1) 
-                - Eq Diff: Deviation from equal weight
-                - Prop Target: Proportional target allocation (if available)
-                - Prop Diff: Deviation from proportional target (if available)
-                
-        Data Source:
-            - self.allocations: Portfolio allocations DataFrame from compute_target_allocations()
-            
-        CLI Alignment:
-            - Exact match with "=== Target Allocations ===" table output
-            - Same column names and value formatting as CLI displays
-            
-        Example:
-            ```python
-            table = result._build_target_allocations_table()
-            
-            aapl_data = table["AAPL"]
-            current_weight = aapl_data["Portfolio Weight"]    # 0.15 (15% allocation)
-            equal_weight = aapl_data["Equal Weight"]          # 0.045 (4.5% equal weight)
-            deviation = aapl_data["Eq Diff"]                  # 0.105 (10.5% overweight)
-            ```
-        """
-        if self.allocations is None:
-            return {}
-        
-        # Handle both DataFrame and dict formats
-        if hasattr(self.allocations, 'to_dict'):
-            # DataFrame case - convert to match CLI display structure
-            return self.allocations.to_dict('index')
-        else:
-            # Dict case - return as-is
-            return self.allocations
     
     def _get_risk_limit_violations_summary(self) -> List[Dict[str, Any]]:
         """
@@ -866,15 +829,16 @@ class RiskAnalysisResult:
         (no structural changes, no field renames, no pruning).
         """
         return {
-            # Fields ordered to match CLI section sequence
-            "allocations": _convert_to_json_serializable(self.allocations),  # PORTFOLIO ALLOCATIONS & DOLLAR EXPOSURE
+            # Fields ordered to match CLI section sequence  
+            "portfolio_weights": self.portfolio_weights,  # PORTFOLIO ALLOCATIONS (Raw weights)
+            "dollar_exposure": self.dollar_exposure,  # DOLLAR EXPOSURE BY POSITION
+            "target_allocations": _convert_to_json_serializable(self.allocations),  # TARGET ALLOCATIONS TABLE (Portfolio Weight, Equal Weight, Eq Diff)
             "total_value": self.total_value,  # TOTAL PORTFOLIO VALUE
             "net_exposure": self.net_exposure,  # NET EXPOSURE (sum of weights)
             "gross_exposure": self.gross_exposure,  # GROSS EXPOSURE (sum of abs(weights))
             "leverage": self.leverage,  # LEVERAGE (gross / net)
             "expected_returns": self.expected_returns,  # EXPECTED RETURNS
             "stock_factor_proxies": self.factor_proxies,  # Stock Factor Proxies
-            "target_allocations_table": self._build_target_allocations_table(),  # Target Allocations
             "risk_contributions": _convert_to_json_serializable(self.risk_contributions),  # Risk Contributions
             "covariance_matrix": _convert_to_json_serializable(self.covariance_matrix),  # Covariance Matrix
             "correlation_matrix": _convert_to_json_serializable(self.correlation_matrix),  # Correlation Matrix
@@ -894,21 +858,20 @@ class RiskAnalysisResult:
             "beta_checks": _convert_to_json_serializable(self.beta_checks),  # Beta Exposure Checks
             
             # Additional API-only fields
-            "volatility_annual": self.volatility_annual,
-            "volatility_monthly": self.volatility_monthly,
-            "herfindahl": self.herfindahl,
-            "portfolio_returns": _convert_to_json_serializable(self.portfolio_returns),
-            "euler_variance_pct": _convert_to_json_serializable(self.euler_variance_pct),
-            "industry_variance": _convert_to_json_serializable(self.industry_variance),
-            "suggested_limits": _convert_to_json_serializable(self.suggested_limits),
-            "max_betas": _convert_to_json_serializable(self.max_betas),
-            "max_betas_by_proxy": _convert_to_json_serializable(self.max_betas_by_proxy),
-            "analysis_date": self.analysis_date.isoformat(),
-            "portfolio_name": self.portfolio_name,
-            "factor_proxies": self.factor_proxies,
-            "formatted_report": self.to_formatted_report(),
-            "risk_limit_violations_summary": self._get_risk_limit_violations_summary(),
-            "beta_exposure_checks_table": self._get_beta_exposure_checks_table()
+            "volatility_annual": self.volatility_annual,  # Volatility Annual   
+            "volatility_monthly": self.volatility_monthly,  # Volatility Monthly
+            "herfindahl": self.herfindahl,  # Herfindahl Index
+            "portfolio_returns": _convert_to_json_serializable(self.portfolio_returns),  # Portfolio Returns
+            "euler_variance_pct": _convert_to_json_serializable(self.euler_variance_pct),  # Euler Variance Contribution by Stock
+            "industry_variance": _convert_to_json_serializable(self.industry_variance),  # Industry Variance (absolute)
+            "suggested_limits": _convert_to_json_serializable(self.suggested_limits),  # Risk Limit Checks
+            "max_betas": _convert_to_json_serializable(self.max_betas),  # Beta Exposure Checks
+            "max_betas_by_proxy": _convert_to_json_serializable(self.max_betas_by_proxy),  # Beta Exposure Checks
+            "analysis_date": self.analysis_date.isoformat(),  # Analysis Date
+            "portfolio_name": self.portfolio_name,  # Portfolio Name
+            "formatted_report": self.to_formatted_report(),  # Formatted Report
+            "risk_limit_violations_summary": self._get_risk_limit_violations_summary(),  # Risk Limit Violations Summary
+            "beta_exposure_checks_table": self._get_beta_exposure_checks_table()  # Beta Exposure Checks Table
         }
 
     def to_dict(self) -> Dict[str, Any]:
@@ -957,6 +920,7 @@ class RiskAnalysisResult:
         portfolio_view_result.get("gross_exposure")     → self.gross_exposure (defensive)
         portfolio_view_result.get("leverage")           → self.leverage (defensive)
         portfolio_view_result.get("total_value")        → self.total_value (defensive)
+        portfolio_view_result.get("dollar_exposure")    → self.dollar_exposure (defensive)
         risk_checks parameter                            → self.risk_checks
         beta_checks parameter                            → self.beta_checks
         max_betas parameter                              → self.max_betas
@@ -994,6 +958,7 @@ class RiskAnalysisResult:
             gross_exposure=portfolio_view_result.get("gross_exposure"),
             leverage=portfolio_view_result.get("leverage"),
             total_value=portfolio_view_result.get("total_value"),
+            dollar_exposure=portfolio_view_result.get("dollar_exposure"),
             risk_checks=risk_checks or [],
             beta_checks=beta_checks or [],
             max_betas=max_betas or {},

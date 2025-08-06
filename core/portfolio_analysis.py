@@ -78,7 +78,8 @@ def analyze_portfolio(filepath: str) -> Dict[str, Any]:
         "net_exposure": standardized_data["net_exposure"],
         "gross_exposure": standardized_data["gross_exposure"],
         "leverage": standardized_data["leverage"],
-        "total_value": standardized_data["total_value"]
+        "total_value": standardized_data["total_value"],
+        "dollar_exposure": standardized_data["dollar_exposure"]
     })
     
     # ─── 3. Calculate Beta Limits ────────────────────────────
