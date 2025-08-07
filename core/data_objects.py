@@ -21,6 +21,8 @@ import hashlib
 import json
 from datetime import datetime
 import os
+import tempfile
+import time
 
 
 @dataclass
@@ -317,6 +319,9 @@ class PortfolioData:
     # Portfolio name for identification
     portfolio_name: Optional[str] = None
     
+    # User identification for portfolio ownership and collision-safe operations
+    user_id: Optional[int] = None  # None for CLI/tests, int for API calls
+    
     # Caching and metadata
     _cache_key: Optional[str] = None
     _last_updated: Optional[datetime] = None
@@ -467,9 +472,11 @@ class PortfolioData:
         return self._cache_key
     
     def _generate_cache_key(self) -> str:
-        """Generate cache key for this portfolio configuration."""
-        # Create hash of portfolio input, dates, and expected returns
+        """Generate cache key for this portfolio configuration with user isolation."""
+        # Create hash of portfolio input, dates, and expected returns with user context
         key_data = {
+            "user_id": self.user_id,  # Ensures user isolation in cache
+            "portfolio_name": self.portfolio_name,
             "portfolio_input": self.standardized_input,
             "start_date": self.start_date,
             "end_date": self.end_date,
@@ -508,6 +515,7 @@ class PortfolioData:
     def from_holdings(cls, holdings: Dict[str, Union[float, Dict]], 
                      start_date: str, end_date: str,
                      portfolio_name: str,
+                     user_id: Optional[int] = None,
                      expected_returns: Optional[Dict[str, float]] = None,
                      stock_factor_proxies: Optional[Dict[str, str]] = None) -> 'PortfolioData':
         """
@@ -518,6 +526,7 @@ class PortfolioData:
             start_date (str): Analysis start date in YYYY-MM-DD format
             end_date (str): Analysis end date in YYYY-MM-DD format
             portfolio_name (str): Name of the portfolio for database storage
+            user_id (Optional[int]): User ID for multi-user isolation (None for CLI/tests)
             expected_returns (Optional[Dict[str, float]]): Expected return forecasts for optimization
             stock_factor_proxies (Optional[Dict[str, str]]): Factor proxy mappings for analysis
             
@@ -531,7 +540,8 @@ class PortfolioData:
             end_date=end_date,
             expected_returns=expected_returns or {},
             stock_factor_proxies=stock_factor_proxies or {},
-            portfolio_name=portfolio_name
+            portfolio_name=portfolio_name,
+            user_id=user_id
         )
     
     def to_yaml(self, output_path: str) -> None:
@@ -551,6 +561,52 @@ class PortfolioData:
         
         with open(output_path, 'w') as f:
             yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+    
+    def create_temp_file(self, suffix: str = '.yaml') -> str:
+        """
+        Create collision-safe temporary file for portfolio serialization.
+        
+        Uses user_id when available to ensure complete isolation between users,
+        preventing race conditions and data mixing in multi-user environments.
+        
+        Args:
+            suffix (str): File extension for temporary file (default: '.yaml')
+            
+        Returns:
+            str: Path to created temporary file (caller responsible for cleanup)
+            
+        Example:
+            temp_file = portfolio_data.create_temp_file()
+            try:
+                # Use temp_file for analysis
+                result = analyze_function(temp_file)
+            finally:
+                os.unlink(temp_file)  # Clean up
+        """
+        prefix = self._get_safe_prefix()
+        with tempfile.NamedTemporaryFile(mode='w', suffix=suffix, 
+                                       prefix=prefix, delete=False) as temp_file:
+            self.to_yaml(temp_file.name)
+            return temp_file.name
+    
+    def _get_safe_prefix(self) -> str:
+        """
+        Generate collision-safe prefix for temporary files.
+        
+        Creates unique prefixes using user_id, timestamp, and process_id to guarantee
+        no collisions between concurrent users or processes.
+        
+        Returns:
+            str: Unique prefix for temporary file naming
+        """
+        timestamp = int(time.time() * 1000)  # milliseconds for uniqueness
+        process_id = os.getpid()
+        
+        if self.user_id is not None:
+            return f"portfolio_user_{self.user_id}_{timestamp}_{process_id}_"
+        else:
+            # CLI/test mode - still safe but without user separation
+            return f"portfolio_anon_{timestamp}_{process_id}_"
     
     def __hash__(self) -> int:
         """Make PortfolioData hashable for caching."""
