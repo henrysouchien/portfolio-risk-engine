@@ -201,9 +201,6 @@ class RiskAnalysisResult:
     # Industry-level variance analysis
     industry_variance: Dict[str, Dict[str, float]]
     
-    # Suggested risk limits
-    suggested_limits: Dict[str, Dict[str, Union[float, bool]]]
-    
     # Risk compliance checks
     risk_checks: List[Dict[str, Any]]
     beta_checks: List[Dict[str, Any]]
@@ -856,22 +853,19 @@ class RiskAnalysisResult:
             "industry_variance_percentage": self._build_industry_variance_percentage_table(),  # Industry Variance (% of Portfolio)
             "risk_checks": _convert_to_json_serializable(self.risk_checks),  # Portfolio Risk Limit Checks
             "beta_checks": _convert_to_json_serializable(self.beta_checks),  # Beta Exposure Checks
-            
-            # Additional API-only fields
             "volatility_annual": self.volatility_annual,  # Volatility Annual   
             "volatility_monthly": self.volatility_monthly,  # Volatility Monthly
             "herfindahl": self.herfindahl,  # Herfindahl Index
             "portfolio_returns": _convert_to_json_serializable(self.portfolio_returns),  # Portfolio Returns
             "euler_variance_pct": _convert_to_json_serializable(self.euler_variance_pct),  # Euler Variance Contribution by Stock
             "industry_variance": _convert_to_json_serializable(self.industry_variance),  # Industry Variance (absolute)
-            "suggested_limits": _convert_to_json_serializable(self.suggested_limits),  # Risk Limit Checks
-            "max_betas": _convert_to_json_serializable(self.max_betas),  # Beta Exposure Checks
-            "max_betas_by_proxy": _convert_to_json_serializable(self.max_betas_by_proxy),  # Beta Exposure Checks
+            "max_betas": _convert_to_json_serializable(self.max_betas),  # Max Factor Beta
+            "max_betas_by_proxy": _convert_to_json_serializable(self.max_betas_by_proxy),  # Max Sector Betas
             "analysis_date": self.analysis_date.isoformat(),  # Analysis Date
             "portfolio_name": self.portfolio_name,  # Portfolio Name
             "formatted_report": self.to_formatted_report(),  # Formatted Report
             "risk_limit_violations_summary": self._get_risk_limit_violations_summary(),  # Risk Limit Violations Summary
-            "beta_exposure_checks_table": self._get_beta_exposure_checks_table()  # Beta Exposure Checks Table
+            "beta_exposure_checks_table": self._get_beta_exposure_checks_table()  # Beta Exposure Checks Formatted Table
         }
 
     def to_dict(self) -> Dict[str, Any]:
@@ -915,7 +909,6 @@ class RiskAnalysisResult:
         portfolio_view_result.get("portfolio_returns")   → self.portfolio_returns (defensive)
         portfolio_view_result.get("euler_variance_pct")  → self.euler_variance_pct (defensive)
         portfolio_view_result.get("industry_variance")   → self.industry_variance (defensive)
-        portfolio_view_result.get("suggested_limits")    → self.suggested_limits (defensive)
         portfolio_view_result.get("net_exposure")       → self.net_exposure (defensive)
         portfolio_view_result.get("gross_exposure")     → self.gross_exposure (defensive)
         portfolio_view_result.get("leverage")           → self.leverage (defensive)
@@ -953,7 +946,6 @@ class RiskAnalysisResult:
             portfolio_returns=portfolio_view_result.get("portfolio_returns", pd.Series()),
             euler_variance_pct=portfolio_view_result.get("euler_variance_pct", pd.Series()),
             industry_variance=portfolio_view_result.get("industry_variance", {}),
-            suggested_limits=portfolio_view_result.get("suggested_limits", {}),
             net_exposure=portfolio_view_result.get("net_exposure"),
             gross_exposure=portfolio_view_result.get("gross_exposure"),
             leverage=portfolio_view_result.get("leverage"),
