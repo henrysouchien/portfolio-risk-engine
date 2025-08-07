@@ -1,7 +1,7 @@
 # Complete Risk Module Codebase Map
 
 ## Overview
-This document provides a comprehensive map of the entire risk_module codebase, including all directories (even those in .gitignore). Last updated on 2025-08-04 to reflect current codebase state and frontend architecture improvements.
+This document provides a comprehensive map of the entire risk_module codebase, including all directories (even those in .gitignore). Last updated on 2025-08-07 to reflect current codebase state, risk limits manager refactor, and database structure reorganization.
 
 ## Directory Structure with Python File Counts
 
@@ -27,8 +27,6 @@ This document provides a comprehensive map of the entire risk_module codebase, i
 - `settings.py` - Application settings
 - `test_logging.py` - Logging test utilities
 - `check_user_data.py` - Database content verification utility
-- `db_pool.py` - Database connection pooling
-- `db_session.py` - Database session management
 
 ### Core Application Layers (CRITICAL - Gitignored)
 
@@ -81,7 +79,7 @@ Data input and management:
 - `file_manager.py` - File system management
 - `portfolio_manager.py` - Portfolio data management
 - `returns_calculator.py` - Returns calculation
-- `risk_config.py` - Risk configuration management
+- `risk_limits_manager.py` - Risk limits configuration management (renamed from risk_config.py)
 - `exceptions.py` - Custom exception definitions
 
 #### `/core/` (10 Python files) - Core Business Objects
@@ -216,11 +214,27 @@ Development tools:
 - **`/planning/`** - Planning documents
 
 #### `/completed/`
-Completed feature documentation and plans
+Completed feature documentation and plans including:
+- `RISK_LIMITS_MANAGER_REFACTOR_HANDOFF.md` - Risk limits manager refactor documentation
+- Various phase implementation reports and architectural plans
+- Frontend refactoring completion reports
+- Multi-user implementation documentation
 
 #### `/admin/` (2 Python files)
 - `manage_reference_data.py` - Reference data management tool
 - `migrate_reference_data.py` - Reference data migration tool
+
+### Database Infrastructure
+
+#### `/database/`
+Centralized database infrastructure:
+- `__init__.py` - Database module exports and backward compatibility
+- `session.py` - Request-scoped database session management (moved from db_session.py)
+- `pool.py` - Database connection pooling (moved from db_pool.py)
+- `schema.sql` - Database schema definitions
+- **`/migrations/`** - Database migrations:
+  - `20250801_add_subindustry_peers.sql` - Subindustry peers migration
+  - `20250831_cleanup_subindustry_peers.sql` - Subindustry cleanup migration
 
 ### Data & Cache
 
@@ -255,8 +269,6 @@ User-specific data storage
 #### `/temp/`
 Temporary file storage
 
-#### `/database/`
-Database-related files and migrations
 
 ### Configuration Files
 - Various YAML files for:
@@ -276,7 +288,7 @@ Database-related files and migrations
   - `secrets_helper.sh` - Secrets management
   - `update_secrets.sh` - Secret update utility
   - `sync-to-public.sh` - Public repository sync
-- Database schema: `db_schema.sql`
+- Database schema: `database/schema.sql` (moved from root db_schema.sql)
 - Jupyter notebook: `risk_runner.ipynb`
 
 ### Additional Directories
@@ -313,7 +325,7 @@ Legacy source files:
 - Database connection strings and configuration files
 
 ## File Count Summary
-- Total Python files: 558 (as of 2025-08-04)
+- Total Python files: 620 (as of 2025-08-07)
 - Core application: ~71 files (22 root + 17 services + 7 routes + 8 utils + 7 inputs + 10 core)
 - Tests: ~5 files (basic test setup, extensive tests in secrets directory)
 - Archive/Backup: Extensive files across multiple directories
@@ -322,7 +334,21 @@ Legacy source files:
 - Frontend: Full React application (0 Python files, comprehensive TypeScript architecture)
 - Admin tools: 2 files
 
-## Architecture Changes Since Last Update (2025-08-04)
+## Architecture Changes Since Last Update (2025-08-07)
+
+### Risk Limits Manager Refactor (August 2025):
+1. **File Rename**: `risk_config.py` → `risk_limits_manager.py` for better semantic clarity
+2. **Class Rename**: `RiskConfigManager` → `RiskLimitsManager` with enhanced type safety
+3. **Data Objects Integration**: Full integration with `RiskLimitsData` dataclass from `core/data_objects.py`
+4. **Architecture Improvement**: Clean separation between API layer orchestration and service layer business logic
+5. **User Isolation**: Enhanced user-specific risk limits with database-backed storage
+
+### Database Infrastructure Reorganization (August 2025):
+1. **Database Module Creation**: New `/database/` directory with centralized infrastructure
+2. **File Moves**: `db_session.py` → `database/session.py`, `db_pool.py` → `database/pool.py`
+3. **Migration Management**: Structured `/database/migrations/` with SQL migration files
+4. **Import Compatibility**: Backward-compatible imports via `database/__init__.py`
+5. **Schema Centralization**: `database/schema.sql` for centralized schema management
 ### Frontend Architecture Maturation (Recent Changes):
 1. **Chassis Pattern Implementation**: Complete service layer infrastructure with managers and navigation
 2. **Component Architecture**: Well-organized feature-based component structure with apps, auth, dashboard, and shared components

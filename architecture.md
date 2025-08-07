@@ -47,7 +47,9 @@ The system includes robust data quality validation to prevent unstable factor ca
 The Risk Module implements a comprehensive multi-user database system with PostgreSQL backend:
 
 **Database Components:**
-- **Database Session Management** (`db_session.py`): Connection pooling, query execution, transaction management
+- **Database Session Management** (`database/session.py`): Request-scoped session management (moved from db_session.py)
+- **Database Connection Pooling** (`database/pool.py`): PostgreSQL connection pool management (moved from db_pool.py)
+- **Database Schema** (`database/schema.sql`): Centralized database schema definitions (moved from db_schema.sql)
 - **Database Client** (`inputs/database_client.py`): Per-request PostgreSQL helper with no singleton pattern
 - **Multi-Currency Support** (`inputs/database_client.py`): Currency extraction and position mapping
 - **User Management** (`services/auth_service.py`): Authentication, session handling, user isolation
@@ -219,7 +221,8 @@ CREATE TABLE user_sessions (
 - **Fallback Logic**: Automatic currency extraction from ticker format when currency field missing
 
 **Database Architecture Features:**
-- **Connection Pooling** (`db_session.py`): Automatic connection management with 2-5 connections
+- **Connection Pooling** (`database/pool.py`): Database connection pool with 2-5 connections (moved from db_pool.py)
+- **Session Management** (`database/session.py`): Request-scoped session helpers
 - **Per-Request Clients** (`inputs/database_client.py`): No singleton pattern, injection-based design
 - **Transaction Safety**: ACID compliance with rollback on failure
 - **Currency Extraction**: Automatic currency detection from ticker format (CUR:USD → USD)
@@ -456,7 +459,13 @@ risk_module/
 ├── 📄 PROMPTS.md                      # Development prompts and guidelines
 ├── ⚙️ settings.py                     # Default configuration settings
 ├── 🔧 app.py                          # Flask web application (3,156 lines)
-├── 🔧 db_session.py                   # Database session management
+├── 🔧 database/                       # Database infrastructure module
+│   ├── __init__.py                     # Module exports and backward compatibility
+│   ├── session.py                      # Request-scoped database session management
+│   ├── pool.py                         # Database connection pooling
+│   ├── schema.sql                      # Database schema definitions
+│   ├── run_migration.py                # Migration runner
+│   └── migrations/                     # SQL schema migrations
 ├── 🔧 check_user_data.py              # Database inspection utility
 ├── 🔒 update_secrets.sh               # Secrets synchronization script
 ├── 📋 requirements.txt                # Python dependencies
@@ -508,7 +517,8 @@ risk_module/
 │   ├── 📋 risk_summary.py                 # Single-stock risk profiling (4KB)
 │   ├── ⚡ portfolio_optimizer.py           # Portfolio optimization (36KB)
 │   ├── 🔌 data_loader.py                  # Data fetching and caching (8KB)
-│   ├── 🗃️ db_session.py                   # Database session and connection pooling
+│   ├── 🗃️ database/session.py             # Database session and connection pooling
+│   ├── 🗃️ database/pool.py                 # Database connection pooling
 │   ├── 🗃️ inputs/database_client.py       # Per-request PostgreSQL client
 │   ├── 🤖 gpt_helpers.py                  # GPT integration (4KB)
 │   ├── 🔧 proxy_builder.py                # Factor proxy generation (19KB)
@@ -516,11 +526,16 @@ risk_module/
 │   └── 🛠️ risk_helpers.py                 # Risk calculation helpers (8KB)
 │
 ├── 📁 Database & Infrastructure
-│   ├── 🗃️ database/migrations/            # SQL schema migrations
-│   │   ├── 20250831_cleanup_subindustry_peers.sql
-│   │   └── [migration files]              # Database evolution system
+│   ├── 🗃️ database/                       # Centralized database infrastructure
+│   │   ├── __init__.py                     # Database module exports
+│   │   ├── session.py                      # Request-scoped session management
+│   │   ├── pool.py                         # Connection pooling
+│   │   ├── schema.sql                      # Database schema definitions
+│   │   ├── run_migration.py                # Migration runner
+│   │   └── migrations/                     # SQL schema migrations
+│   │       ├── 20250801_add_subindustry_peers.sql
+│   │       └── 20250831_cleanup_subindustry_peers.sql
 │   ├── 📄 templates/dashboard.html        # Web application templates
-│   ├── 🗃️ db_schema.sql                   # Database schema with reference data tables
 │   └── 🛠️ admin/                          # Reference data management and monitoring
 │       ├── manage_reference_data.py       # CLI tool for managing mappings
 │       ├── README.md                      # Reference data management guide
@@ -906,22 +921,24 @@ The inputs layer provides a clean abstraction for all data management operations
 - Scenario generation for what-if analysis
 - Backup and versioning support
 
-#### Risk Configuration Manager (`inputs/risk_config.py`)
-**Risk limits and tolerance management**
+#### Risk Limits Manager (`inputs/risk_limits_manager.py`)
+**Type-safe risk limits management with dual-mode storage**
 
 **Key Functions**:
+- `load_risk_limits()`: Load risk limits as RiskLimitsData objects
+- `save_risk_limits()`: Save validated RiskLimitsData objects
 - `view_current_risk_limits()`: Display current risk tolerance settings
-- `update_risk_limits()`: Modify risk tolerance parameters
-- `reset_risk_limits()`: Reset to default risk settings
-- `validate_risk_limits()`: Risk configuration validation
-- `calculate_risk_metrics()`: Risk calculation utilities
+- `update_risk_limits()`: Modify risk tolerance parameters with change tracking
+- `reset_risk_limits()`: Reset to system default values
+- `create_risk_limits_yaml()`: Create scenario-specific risk limit files
 
 **Features**:
-- Risk limit validation and enforcement
-- Default risk tolerance management
-- Risk metric calculation support
-- Configuration backup and recovery
-- Integration with risk scoring system
+- **Type Safety**: All operations use RiskLimitsData objects from core/data_objects.py
+- **Dual-Mode Storage**: PostgreSQL database + YAML file fallback
+- **User Isolation**: Multi-tenant support with user-specific risk limits
+- **Automatic Fallback**: Database → file → defaults fallback chain
+- **Change Tracking**: Audit trails for all risk limit modifications
+- **Validation**: Built-in validation through RiskLimitsData objects
 
 #### Returns Calculator (`inputs/returns_calculator.py`)
 **Expected returns estimation and management**

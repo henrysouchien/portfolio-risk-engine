@@ -44,6 +44,8 @@ expected_returns:
   STWD: 0.059000000000000004
   TKO: 0.295
   V: 0.134
+  AAPL: 0.15
+  MSFT: 0.12
 stock_factor_proxies:
   SGOV:
     market: SPY
