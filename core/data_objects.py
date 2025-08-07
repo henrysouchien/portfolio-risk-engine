@@ -608,6 +608,41 @@ class PortfolioData:
             # CLI/test mode - still safe but without user separation
             return f"portfolio_anon_{timestamp}_{process_id}_"
     
+    def create_safe_temp_file(self, content: Any, file_type: str = "data", suffix: str = '.yaml') -> str:
+        """
+        Create collision-safe temporary file for any content with user isolation.
+        
+        This method can be used for scenario files, configuration files, or any other
+        temporary content that needs user-safe naming to prevent race conditions.
+        
+        Args:
+            content (Any): Content to write to the temporary file (will be YAML serialized)
+            file_type (str): Type identifier for the temp file (e.g., "scenario", "config")
+            suffix (str): File extension for temporary file (default: '.yaml')
+            
+        Returns:
+            str: Path to created temporary file (caller responsible for cleanup)
+            
+        Example:
+            scenario_content = {'new_weights': {'AAPL': 0.4, 'SGOV': 0.6}}
+            temp_file = portfolio_data.create_safe_temp_file(scenario_content, "scenario")
+            try:
+                # Use temp_file for analysis
+                result = analyze_function(temp_file)
+            finally:
+                os.unlink(temp_file)  # Clean up
+        """
+        import yaml
+        
+        # Create user-safe prefix with file type
+        base_prefix = self._get_safe_prefix()
+        typed_prefix = base_prefix.replace("portfolio_", f"{file_type}_")
+        
+        with tempfile.NamedTemporaryFile(mode='w', suffix=suffix, 
+                                       prefix=typed_prefix, delete=False) as temp_file:
+            yaml.dump(content, temp_file, default_flow_style=False)
+            return temp_file.name
+    
     def __hash__(self) -> int:
         """Make PortfolioData hashable for caching."""
         return hash(self._cache_key)
