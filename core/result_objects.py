@@ -1977,6 +1977,20 @@ class RiskScoreResult:
     - Client risk profiling and suitability analysis
     - Risk management workflow automation and alerting
     
+    Enhanced API Features:
+    =====================
+    The RiskScoreResult provides enhanced API functionality through:
+    
+    - **Structured Interpretation**: risk_score.interpretation contains both
+      actionable guidance (details) and risk assessment context, generated
+      via shared interpretation logic ensuring 100% CLI/API alignment
+    - **Priority Actions**: Auto-generated prioritized action list from 
+      violation analysis, ranked by urgency and impact for optimal execution
+    - **Organized Summaries**: Structured violation summaries and risk factor
+      analysis with priority levels and severity rankings
+    - **Comprehensive Field Coverage**: 100% field mapping between CLI output
+      and API response ensures complete data consistency across interfaces
+    
     API Integration:
     - Use to_api_response() for API endpoints and JSON serialization
     - to_dict() is deprecated, use to_api_response() instead
@@ -1991,7 +2005,7 @@ class RiskScoreResult:
     # Portfolio analysis details
     portfolio_analysis: Dict[str, Any]
     
-    # MISSING FIELDS - Added to capture all data from run_risk_score_analysis
+    # Data from run_risk_score_analysis
     suggested_limits: Dict[str, Any]  # Risk limit suggestions
     portfolio_file: Optional[str]     # Source portfolio file
     risk_limits_file: Optional[str]   # Source risk limits file
@@ -2180,9 +2194,44 @@ class RiskScoreResult:
 
     def _get_priority_actions(self) -> list:
         """
-        Generate prioritized action recommendations based on risk violations.
+        Generate prioritized action recommendations based on risk violations and analysis.
         
-        Returns actions ranked by impact and urgency.
+        This method transforms raw violation-based recommendations and risk factors into a 
+        structured, prioritized action list for portfolio managers. It processes data from
+        the limits analysis and organizes it into three priority tiers for optimal execution.
+        
+        Data Sources:
+        - limits_analysis.recommendations: Violation-specific actions from risk limits analysis
+        - limits_analysis.risk_factors: Identified risk issues requiring attention
+        
+        Priority Algorithm:
+        - **Priority 1 (Critical)**: Top 3 recommendations containing urgent keywords 
+          ("reduce", "limit", "excess") requiring immediate action
+        - **Priority 2 (Monitor)**: Top 2 risk factors to actively monitor, excluding 
+          duplicates already in Priority 1
+        - **Priority 3 (Additional)**: Remaining recommendations (up to 2) for 
+          comprehensive risk management
+        
+        Returns:
+        --------
+        list
+            Prioritized action items with numbered prefixes (1., 2., 3.) indicating
+            execution priority. Typical length: 3-7 actions.
+            
+        Examples:
+        ---------
+        [
+            "1. Reduce market exposure (sell high-beta stocks or add market hedges)",
+            "1. Reduce exposure to REM industry", 
+            "2. Monitor: High market variance contribution",
+            "3. Add more positions to improve diversification"
+        ]
+        
+        Usage Context:
+        --------------
+        Used in to_api_response() to provide structured, actionable guidance for API
+        consumers who need clear prioritization for portfolio risk management decisions.
+        Complements the interpretation fields by providing specific execution priorities.
         """
         actions = []
         recommendations = self.limits_analysis.get("recommendations", [])
@@ -2239,24 +2288,85 @@ class RiskScoreResult:
 
     def to_api_response(self) -> Dict[str, Any]:
         """
-        Schema-compliant version of the old to_dict().
-        For Phase 1.5 this must be a 1-to-1 copy of to_dict()'s output
-        (no structural changes, no field renames, no pruning).
+        Generate comprehensive, schema-compliant API response for risk score analysis.
+        
+        This method transforms raw risk analysis data into a structured, enhanced API response
+        that provides both core risk metrics and actionable insights for portfolio management.
+        The response ensures 100% field coverage alignment with CLI output while adding
+        API-specific enhancements for programmatic consumption.
+        
+        Response Structure:
+        ==================
+        
+        **Core Risk Metrics:**
+        - risk_score: Overall and component scores with structured interpretation
+          └── interpretation: Actionable guidance + risk assessment context
+        - suggested_limits: Backwards-calculated limits from loss tolerance
+        
+        **Violation Analysis:**
+        - limits_analysis: Raw violation data and recommendations from core analysis
+        - violations_summary: Structured violation counts by category and severity
+        - violation_details: Detailed breakdown of specific limit breaches with values
+        
+        **Enhanced Guidance:**
+        - priority_actions: Ranked action list (Priority 1/2/3) for optimal execution
+        - risk_factors_with_priority: Risk factors with severity and priority levels
+        
+        **Metadata & Context:**
+        - portfolio_file/risk_limits_file: Source data file paths
+        - formatted_report: Complete CLI output for display/debugging
+        - analysis_date/portfolio_name: Analysis context and identification
+        
+        Key Features:
+        =============
+        - **CLI Alignment**: 100% field coverage ensures identical content between CLI and API
+        - **Structured Interpretation**: Both actionable details and risk assessment context
+        - **Priority-Based Actions**: Ranked recommendations for optimal portfolio management
+        - **Comprehensive Violations**: Multiple violation analysis views (summary, details, priorities)
+        - **Schema Compliance**: OpenAPI-compatible structure for consistent API integration
+        
+        Returns:
+        --------
+        Dict[str, Any]
+            Complete risk analysis response ready for API serialization, containing
+            all core metrics, violation analysis, actionable recommendations, and
+            enhanced guidance with priority rankings.
+            
+        Usage:
+        ------
+        Used by portfolio service endpoints to provide comprehensive risk analysis
+        data to API consumers, ensuring they receive both quantitative metrics and
+        actionable guidance for portfolio risk management decisions.
         """
         return {
-            "risk_score": _convert_to_json_serializable(self.risk_score),
-            "limits_analysis": _convert_to_json_serializable(self.limits_analysis),
-            "suggested_limits": _convert_to_json_serializable(self.suggested_limits),
-            "portfolio_file": self.portfolio_file,
-            "risk_limits_file": self.risk_limits_file,
-            "formatted_report": self.formatted_report or self.to_formatted_report(),
-            "analysis_date": self.analysis_date.isoformat(),
-            "portfolio_name": self.portfolio_name,
-            "priority_actions": self._get_priority_actions(),
-            "violations_summary": self._get_violations_summary(),
-            "violation_details": self._get_violation_details(),
-            "risk_factors_with_priority": self._get_risk_factors_with_priority(),
-            "portfolio_analysis": _convert_to_json_serializable(self.portfolio_analysis),
+            # Core risk scoring data with score-based interpretation
+            "risk_score": _convert_to_json_serializable(self.risk_score),  # Contains: score, category, component_scores, interpretation{summary, details, risk_assessment}
+            
+            # Violation-based analysis with specific recommendations  
+            "limits_analysis": _convert_to_json_serializable(self.limits_analysis),  # Contains: risk_factors, recommendations (violation-specific), limit_violations
+            
+            # Suggested risk limits (backwards-calculated from max loss tolerance)
+            "suggested_limits": _convert_to_json_serializable(self.suggested_limits),  # Contains: factor_limits, concentration_limit, volatility_limit, sector_limit
+            
+            # File metadata
+            "portfolio_file": self.portfolio_file,  # Source portfolio YAML file path
+            "risk_limits_file": self.risk_limits_file,  # Source risk limits YAML file path
+            
+            # Complete formatted CLI output (for display/debugging)
+            "formatted_report": self.formatted_report or self.to_formatted_report(),  # Full CLI text output
+            
+            # Analysis metadata
+            "analysis_date": self.analysis_date.isoformat(),  # When analysis was performed
+            "portfolio_name": self.portfolio_name,  # Portfolio identifier
+            
+            # Enhanced analysis fields (generated by helper methods)
+            "priority_actions": self._get_priority_actions(),  # Prioritized action list from recommendations
+            "violations_summary": self._get_violations_summary(),  # Summary counts of violations by type
+            "violation_details": self._get_violation_details(),  # Detailed violation breakdown with values
+            "risk_factors_with_priority": self._get_risk_factors_with_priority(),  # Risk factors with priority levels
+            
+            # Complete portfolio analysis data (correlations, allocations, etc.)
+            "portfolio_analysis": _convert_to_json_serializable(self.portfolio_analysis),  # Full portfolio view data
 
         }
 
@@ -2342,6 +2452,10 @@ class RiskScoreResult:
         """
         Create RiskScoreResult from run_risk_score_analysis output.
         
+        This factory method creates a complete RiskScoreResult from the output of 
+        run_risk_score_analysis(), capturing all analysis data and enabling enhanced
+        API responses with prioritized actions and structured interpretations.
+        
         Complete Field Mapping (run_risk_score_analysis → RiskScoreResult):
         ================================================================
         
@@ -2359,6 +2473,7 @@ class RiskScoreResult:
 
         Data Flow: run_risk_score_analysis(return_data=True) → RiskScoreResult
         Completeness: 100% - All fields from core function captured
+        CLI Alignment: 100% - Interpretation content matches CLI display exactly
         """
         return cls(
             risk_score=risk_score_result["risk_score"],

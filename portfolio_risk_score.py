@@ -838,6 +838,94 @@ def display_suggested_risk_limits(suggestions: Dict[str, Any], max_loss: float):
     print(f"\n{'='*60}")
 
 
+def generate_score_interpretation(score: float) -> Dict[str, Any]:
+    """
+    Generate comprehensive score interpretation with both risk assessment and actionable guidance.
+    
+    This function creates interpretation content used by both the CLI display and API response 
+    to ensure consistency across interfaces. Returns both risk-focused context and actionable steps.
+    
+    Parameters
+    ----------
+    score : float
+        Overall risk score (0-100 scale)
+        
+    Returns
+    -------
+    Dict[str, Any]
+        Interpretation with:
+        - 'summary': Action-focused title (for display)
+        - 'details': Actionable steps (for user guidance)  
+        - 'risk_assessment': Risk-focused context (for risk understanding)
+    """
+    if score >= 90:
+        interpretation_summary = "🟢 EXCELLENT: Portfolio structure is well-balanced"
+        interpretation_details = [
+            "Continue current allocation strategy",
+            "Monitor for any concentration drift",
+            "Consider tactical adjustments for market conditions"
+        ]
+        risk_assessment = [
+            "All potential losses are well within acceptable limits",
+            "Strong risk management across all components", 
+            "Suitable for risk-averse investors"
+        ]
+    elif score >= 80:
+        interpretation_summary = "🟡 GOOD: Portfolio needs minor tweaks"
+        interpretation_details = [
+            "Trim positions exceeding target allocations",
+            "Consider adding defensive positions if volatility spikes",
+            "Review factor exposures quarterly"
+        ]
+        risk_assessment = [
+            "Most potential losses are within acceptable limits",
+            "Minor risk management improvements recommended",
+            "Suitable for most investors"
+        ]
+    elif score >= 70:
+        interpretation_summary = "🟠 FAIR: Portfolio requires rebalancing"
+        interpretation_details = [
+            "Reduce largest positions to improve diversification",
+            "Add hedges for concentrated exposures",
+            "Consider lowering systematic risk through position sizing"
+        ]
+        risk_assessment = [
+            "Some potential losses exceed acceptable limits",
+            "Risk management improvements needed",
+            "Monitor positions closely"
+        ]
+    elif score >= 60:
+        interpretation_summary = "🔴 POOR: Portfolio needs significant restructuring"
+        interpretation_details = [
+            "Address high-risk components through hedging or deleveraging",
+            "Reduce concentrated positions exceeding risk limits",
+            "Consider systematic risk reduction strategies"
+        ]
+        risk_assessment = [
+            "Multiple potential losses exceed acceptable limits",
+            "Significant risk management action required",
+            "Consider reducing exposures"
+        ]
+    else:
+        interpretation_summary = "⚫ VERY POOR: Portfolio needs immediate restructuring"
+        interpretation_details = [
+            "Address highest-risk components immediately",
+            "Reduce positions exceeding acceptable loss limits",
+            "Consider temporary risk reduction until rebalanced"
+        ]
+        risk_assessment = [
+            "Very high disruption risk - immediate action required",
+            "Portfolio exceeds acceptable risk limits significantly", 
+            "Requires comprehensive restructuring"
+        ]
+    
+    return {
+        "summary": interpretation_summary,
+        "details": interpretation_details,
+        "risk_assessment": risk_assessment
+    }
+
+
 def calculate_portfolio_risk_score(
     summary: Dict[str, Any],
     portfolio_limits: Dict[str, float],
@@ -943,42 +1031,8 @@ def calculate_portfolio_risk_score(
         risk_factors.append(f"Leverage ({leverage_ratio:.2f}x) amplifies all potential losses")
         recommendations.append("Consider reducing leverage to limit downside risk")
     
-    # Generate interpretation
-    if overall_score >= 90:
-        interpretation_summary = "Portfolio has very low disruption risk"
-        interpretation_details = [
-            "All potential losses are well within acceptable limits",
-            "Strong risk management across all components",
-            "Suitable for risk-averse investors"
-        ]
-    elif overall_score >= 80:
-        interpretation_summary = "Portfolio has acceptable disruption risk"
-        interpretation_details = [
-            "Most potential losses are within acceptable limits",
-            "Minor risk management improvements recommended",
-            "Suitable for most investors"
-        ]
-    elif overall_score >= 70:
-        interpretation_summary = "Portfolio has moderate disruption risk"
-        interpretation_details = [
-            "Some potential losses exceed acceptable limits",
-            "Risk management improvements needed",
-            "Monitor positions closely"
-        ]
-    elif overall_score >= 60:
-        interpretation_summary = "Portfolio has high disruption risk"
-        interpretation_details = [
-            "Multiple potential losses exceed acceptable limits",
-            "Significant risk management action required",
-            "Consider reducing exposures"
-        ]
-    else:
-        interpretation_summary = "Portfolio needs immediate restructuring"
-        interpretation_details = [
-            "Address highest-risk components immediately",
-            "Reduce positions exceeding acceptable loss limits",
-            "Consider temporary risk reduction until rebalanced"
-        ]
+    # Generate interpretation using shared function
+    interpretation = generate_score_interpretation(overall_score)
 
     return {
         "score": round(overall_score, 1),
@@ -986,10 +1040,7 @@ def calculate_portfolio_risk_score(
         "component_scores": {k: round(v, 1) for k, v in component_scores.items()},
         "risk_factors": risk_factors,
         "recommendations": recommendations,
-        "interpretation": {
-            "summary": interpretation_summary,
-            "details": interpretation_details
-        },
+        "interpretation": interpretation,
         "potential_losses": {
             "factor_risk": factor_loss,
             "concentration_risk": concentration_loss,
@@ -1150,31 +1201,16 @@ def display_portfolio_risk_score(risk_score: Dict[str, Any]) -> None:
     # Score interpretation - action-focused
     print(f"\n📋 Score Interpretation:")
     print(f"{'─'*40}")
-    if score >= 90:
-        print("   🟢 EXCELLENT: Portfolio structure is well-balanced")
-        print("      • Continue current allocation strategy")
-        print("      • Monitor for any concentration drift")
-        print("      • Consider tactical adjustments for market conditions")
-    elif score >= 80:
-        print("   🟡 GOOD: Portfolio needs minor tweaks")
-        print("      • Trim positions exceeding target allocations")
-        print("      • Consider adding defensive positions if volatility spikes")
-        print("      • Review factor exposures quarterly")
-    elif score >= 70:
-        print("   🟠 FAIR: Portfolio requires rebalancing")
-        print("      • Reduce largest positions to improve diversification")
-        print("      • Add hedges for concentrated exposures")
-        print("      • Consider lowering systematic risk through position sizing")
-    elif score >= 60:
-        print("   🔴 POOR: Portfolio needs significant restructuring")
-        print("      • Address high-risk components through hedging or deleveraging")
-        print("      • Reduce concentrated positions exceeding risk limits")
-        print("      • Consider systematic risk reduction strategies")
-    else:
-        print("   ⚫ VERY POOR: Portfolio needs immediate restructuring")
-        print("      • Address highest-risk components immediately")
-        print("      • Reduce positions exceeding acceptable loss limits")
-        print("      • Consider temporary risk reduction until rebalanced")
+    interpretation = generate_score_interpretation(score)
+    print(f"   {interpretation['summary']}")
+    for detail in interpretation['details']:
+        print(f"      • {detail}")
+    
+    # Risk assessment - contextual understanding
+    print(f"\n📊 Risk Assessment:")
+    print(f"{'─'*40}")
+    for assessment in interpretation['risk_assessment']:
+        print(f"   • {assessment}")
     
     print(f"\n{'='*60}")
 
