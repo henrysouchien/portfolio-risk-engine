@@ -643,6 +643,41 @@ class PortfolioData:
             yaml.dump(content, temp_file, default_flow_style=False)
             return temp_file.name
     
+    def create_risk_limits_temp_file(self, risk_limits: Union[Dict[str, Any], 'RiskLimitsData']) -> str:
+        """
+        Create collision-safe temporary risk limits file from provided data.
+        
+        Creates a temporary YAML file containing user-specific risk limits configuration
+        using the same collision-safe naming pattern as portfolio temp files.
+        
+        Args:
+            risk_limits (Union[Dict[str, Any], RiskLimitsData]): Risk limits configuration
+                in dictionary format or typed RiskLimitsData object
+                
+        Returns:
+            str: Path to created temporary risk limits file (caller responsible for cleanup)
+            
+        Example:
+            # Using RiskLimitsData object
+            risk_limits_data = RiskLimitsData(
+                portfolio_limits={'max_volatility': 0.20, 'max_loss': -0.15}
+            )
+            temp_risk_file = portfolio_data.create_risk_limits_temp_file(risk_limits_data)
+            
+            # Using dictionary
+            risk_limits_dict = {'portfolio_limits': {'max_volatility': 0.20}}
+            temp_risk_file = portfolio_data.create_risk_limits_temp_file(risk_limits_dict)
+        """
+        # Convert RiskLimitsData to dict if needed
+        if hasattr(risk_limits, 'to_dict'):
+            risk_limits_dict = risk_limits.to_dict()
+        elif risk_limits:
+            risk_limits_dict = risk_limits
+        else:
+            risk_limits_dict = {}
+        
+        return self.create_safe_temp_file(risk_limits_dict, "risk_limits", '.yaml')
+    
     def __hash__(self) -> int:
         """Make PortfolioData hashable for caching."""
         return hash(self._cache_key)
@@ -652,6 +687,237 @@ class PortfolioData:
         if not isinstance(other, PortfolioData):
             return False
         return self._cache_key == other._cache_key
+
+
+@dataclass
+class RiskLimitsData:
+    """
+    Risk limits configuration with validation and serialization support.
+    
+    This data container handles risk limits in the format expected by risk calculations
+    and provides validation, conversion, and standardization for risk limit operations.
+    
+    Structure matches risk_limits.yaml format:
+    - portfolio_limits: Overall portfolio risk constraints
+    - concentration_limits: Position size and concentration rules  
+    - variance_limits: Factor exposure and variance contribution limits
+    - max_single_factor_loss: Maximum loss from any single factor
+    - additional_settings: Flexible JSONB storage for custom limits
+    
+    Example:
+        risk_limits = RiskLimitsData(
+            portfolio_limits={'max_volatility': 0.25, 'max_loss': -0.15},
+            concentration_limits={'max_single_stock_weight': 0.20}
+        )
+        risk_dict = risk_limits.to_dict()
+        risk_limits_from_db = RiskLimitsData.from_dict(db_data)
+    """
+    
+    # Core limit categories (matching risk_limits.yaml structure)
+    portfolio_limits: Optional[Dict[str, float]] = None
+    concentration_limits: Optional[Dict[str, float]] = None  
+    variance_limits: Optional[Dict[str, float]] = None
+    max_single_factor_loss: Optional[float] = None
+    additional_settings: Optional[Dict[str, Any]] = None
+    
+    # Metadata
+    name: Optional[str] = None  # "Conservative", "Aggressive", "Custom_2024", etc.
+    user_id: Optional[int] = None
+    portfolio_id: Optional[int] = None
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        Convert to risk_limits.yaml format for core risk calculations.
+        
+        Returns dictionary structure that matches the expected YAML format
+        used by run_risk_score_analysis and other core functions.
+        
+        Returns:
+            Dict[str, Any]: Risk limits in YAML format, excluding None values
+        """
+        result = {}
+        
+        if self.portfolio_limits:
+            result['portfolio_limits'] = self.portfolio_limits.copy()
+            
+        if self.concentration_limits:
+            result['concentration_limits'] = self.concentration_limits.copy()
+            
+        if self.variance_limits:
+            result['variance_limits'] = self.variance_limits.copy()
+            
+        if self.max_single_factor_loss is not None:
+            result['max_single_factor_loss'] = self.max_single_factor_loss
+            
+        if self.additional_settings:
+            result.update(self.additional_settings)
+            
+        return result
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any], user_id: int = None, portfolio_id: int = None, name: str = None) -> 'RiskLimitsData':
+        """
+        Create RiskLimitsData from dictionary (database or YAML format).
+        
+        Handles both database row format and risk_limits.yaml format,
+        providing flexible construction from various data sources.
+        
+        Args:
+            data (Dict[str, Any]): Risk limits data from database or YAML
+            user_id (int, optional): User ID for metadata
+            portfolio_id (int, optional): Portfolio ID for metadata  
+            name (str, optional): Risk limits profile name
+            
+        Returns:
+            RiskLimitsData: Typed risk limits object
+        """
+        # Prioritize nested structure (YAML format) if present - it's more complete
+        # This handles the case where database returns both flat and nested fields
+        if 'portfolio_limits' in data or 'concentration_limits' in data or 'variance_limits' in data:
+            return cls._from_yaml_format(data, user_id, portfolio_id, name)
+        
+        # Fall back to database row format (flat structure) if no nested fields
+        return cls._from_database_row(data, user_id, portfolio_id, name)
+    
+    @classmethod
+    def _from_database_row(cls, row: Dict[str, Any], user_id: int = None, portfolio_id: int = None, name: str = None) -> 'RiskLimitsData':
+        """Create from database row with flat field structure."""
+        portfolio_limits = {}
+        if row.get('max_volatility') is not None:
+            portfolio_limits['max_volatility'] = float(row['max_volatility'])
+        if row.get('max_loss') is not None:
+            portfolio_limits['max_loss'] = float(row['max_loss'])
+            
+        concentration_limits = {}
+        if row.get('max_single_stock_weight') is not None:
+            concentration_limits['max_single_stock_weight'] = float(row['max_single_stock_weight'])
+            
+        variance_limits = {}
+        if row.get('max_factor_contribution') is not None:
+            variance_limits['max_factor_contribution'] = float(row['max_factor_contribution'])
+        if row.get('max_market_contribution') is not None:
+            variance_limits['max_market_contribution'] = float(row['max_market_contribution'])
+        if row.get('max_industry_contribution') is not None:
+            variance_limits['max_industry_contribution'] = float(row['max_industry_contribution'])
+            
+        return cls(
+            portfolio_limits=portfolio_limits or None,
+            concentration_limits=concentration_limits or None,
+            variance_limits=variance_limits or None,
+            max_single_factor_loss=float(row['max_single_factor_loss']) if row.get('max_single_factor_loss') is not None else None,
+            additional_settings=row.get('additional_settings'),
+            name=name or row.get('name'),
+            user_id=user_id or row.get('user_id'),
+            portfolio_id=portfolio_id or row.get('portfolio_id')
+        )
+    
+    @classmethod  
+    def _from_yaml_format(cls, data: Dict[str, Any], user_id: int = None, portfolio_id: int = None, name: str = None) -> 'RiskLimitsData':
+        """Create from YAML format with nested structure."""
+        return cls(
+            portfolio_limits=data.get('portfolio_limits'),
+            concentration_limits=data.get('concentration_limits'),
+            variance_limits=data.get('variance_limits'),
+            max_single_factor_loss=data.get('max_single_factor_loss'),
+            additional_settings={k: v for k, v in data.items() 
+                               if k not in ['portfolio_limits', 'concentration_limits', 'variance_limits', 'max_single_factor_loss']},
+            name=name,
+            user_id=user_id,
+            portfolio_id=portfolio_id
+        )
+    
+    def validate(self) -> bool:
+        """
+        Validate risk limits for logical consistency.
+        
+        Checks that risk limits make sense (e.g., volatility > 0, 
+        loss limits < 0, concentration limits between 0 and 1).
+        
+        Returns:
+            bool: True if limits are valid, False otherwise
+        """
+        try:
+            # Validate portfolio limits
+            if self.portfolio_limits:
+                if 'max_volatility' in self.portfolio_limits:
+                    if self.portfolio_limits['max_volatility'] <= 0:
+                        return False
+                if 'max_loss' in self.portfolio_limits:
+                    if self.portfolio_limits['max_loss'] >= 0:
+                        return False
+                        
+            # Validate concentration limits
+            if self.concentration_limits:
+                for limit in self.concentration_limits.values():
+                    if not (0 < limit <= 1):
+                        return False
+                        
+            # Validate variance limits  
+            if self.variance_limits:
+                for limit in self.variance_limits.values():
+                    if not (0 < limit <= 1):
+                        return False
+                        
+            # Validate factor loss limit
+            if self.max_single_factor_loss is not None:
+                if self.max_single_factor_loss >= 0:
+                    return False
+                    
+            return True
+            
+        except (TypeError, ValueError):
+            return False
+    
+    def is_empty(self) -> bool:
+        """
+        Check if risk limits are effectively empty.
+        
+        Returns:
+            bool: True if no meaningful limits are set
+        """
+        return (
+            not self.portfolio_limits and
+            not self.concentration_limits and  
+            not self.variance_limits and
+            self.max_single_factor_loss is None and
+            not self.additional_settings
+        )
+    
+    def get_cache_key(self) -> str:
+        """
+        Get cache key for this risk limits configuration.
+        
+        Creates a unique identifier based on risk limits content and metadata
+        for use in caching systems. Ensures different risk configurations
+        get separate cache entries.
+        
+        Returns:
+            str: MD5 hash of risk limits configuration for cache identification
+        """
+        import hashlib
+        import json
+        
+        # Create hash of risk limits data with user context
+        key_data = {
+            "user_id": self.user_id,
+            "portfolio_id": self.portfolio_id,
+            "name": self.name,
+            "portfolio_limits": self.portfolio_limits,
+            "concentration_limits": self.concentration_limits,
+            "variance_limits": self.variance_limits,
+            "max_single_factor_loss": self.max_single_factor_loss,
+            "additional_settings": self.additional_settings
+        }
+        
+        # Convert to JSON string and hash
+        json_str = json.dumps(key_data, sort_keys=True, default=str)
+        return hashlib.md5(json_str.encode()).hexdigest()
+    
+    def __str__(self) -> str:
+        """String representation for debugging."""
+        name_part = f" ({self.name})" if self.name else ""
+        user_part = f" [user:{self.user_id}]" if self.user_id else ""
+        return f"RiskLimitsData{name_part}{user_part}"
 
 
  
