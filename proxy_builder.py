@@ -323,7 +323,7 @@ def load_exchange_proxy_map(path: str = "exchange_etf_proxies.yaml") -> dict:
     try:
         # Try database first
         from inputs.database_client import DatabaseClient
-        from db_session import get_db_session
+        from database import get_db_session
         with get_db_session() as conn:
             db_client = DatabaseClient(conn)
             return db_client.get_exchange_mappings()
@@ -363,7 +363,7 @@ def load_industry_etf_map(path: str = "industry_to_etf.yaml") -> dict:
     try:
         # Try database first
         from inputs.database_client import DatabaseClient
-        from db_session import get_db_session
+        from database import get_db_session
         with get_db_session() as conn:
             db_client = DatabaseClient(conn)
             return db_client.get_industry_mappings()

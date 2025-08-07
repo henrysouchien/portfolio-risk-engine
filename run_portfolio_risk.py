@@ -71,7 +71,7 @@ def get_cash_positions():
     try:
         # Try database first
         from inputs.database_client import DatabaseClient
-        from db_session import get_db_session
+        from database import get_db_session
         with get_db_session() as conn:
             db_client = DatabaseClient(conn)
             cash_map = db_client.get_cash_mappings()
