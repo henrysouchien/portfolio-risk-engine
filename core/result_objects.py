@@ -2902,8 +2902,8 @@ class StockAnalysisResult:
             f""
         ]
         
-        # Add factor analysis if available
-        if self.factor_summary is not None and not self.factor_summary.empty:
+        # Add factor analysis if available (robust to non-DataFrame types)
+        if self.factor_summary is not None and getattr(self.factor_summary, 'empty', False) is False:
             lines.append("=== Factor Analysis ===")
             if "beta" in self.factor_summary:
                 for factor, beta in self.factor_summary["beta"].items():
@@ -2914,15 +2914,33 @@ class StockAnalysisResult:
     
     def to_api_response(self) -> Dict[str, Any]:
         """
-        Schema-compliant version of the old to_dict().
-        For Phase 1.5 this must be a 1-to-1 copy of to_dict()'s output
-        (no structural changes, no field renames, no pruning).
+        Generate schema-compliant JSON response for stock analysis results.
+        
+        Converts internal data structures (including pandas DataFrames) to 
+        JSON-serializable dictionaries for API responses. Handles factor_summary
+        normalization to ensure consistent dict format regardless of internal
+        data type (DataFrame, custom object, etc.).
+        
+        Returns:
+            Dict[str, Any]: JSON-serializable dictionary containing:
+                - ticker: Stock symbol
+                - volatility_metrics: Historical volatility analysis
+                - regression_metrics: Market regression statistics  
+                - factor_summary: Risk factor exposures (normalized to dict)
+                - risk_metrics: Risk characteristics and metrics
+                - analysis_date: ISO-formatted analysis timestamp
         """
+        # Normalize factor_summary for API (expect dict)
+        if self.factor_summary is not None and hasattr(self.factor_summary, 'to_dict'):
+            factor_summary_dict = self.factor_summary.to_dict() if not getattr(self.factor_summary, 'empty', False) else {}
+        else:
+            factor_summary_dict = {}
+
         return {
             "ticker": self.ticker,
             "volatility_metrics": self.volatility_metrics,
             "regression_metrics": self.regression_metrics,
-            "factor_summary": self.factor_summary.to_dict() if self.factor_summary is not None and not self.factor_summary.empty else {},
+            "factor_summary": factor_summary_dict,
             "risk_metrics": self.risk_metrics,
             "analysis_date": self.analysis_date.isoformat()
         }
