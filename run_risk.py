@@ -226,7 +226,7 @@ def interpret_portfolio_output(portfolio_output: Dict[str, Any], *,
 @log_error_handling("high")
 @log_portfolio_operation_decorator("portfolio_analysis")
 @log_performance(5.0)
-def run_portfolio(filepath: str, *, return_data: bool = False):
+def run_portfolio(filepath: str, risk_yaml: str = "risk_limits.yaml", *, return_data: bool = False):
     """
     High-level "one-click" entry-point for a full portfolio risk run.
 
@@ -301,7 +301,7 @@ def run_portfolio(filepath: str, *, return_data: bool = False):
     # LOGGING: Add resource usage monitoring for analysis process here
     
     # ─── BUSINESS LOGIC: Call extracted core function ─────────
-    analysis_result = analyze_portfolio(filepath)
+    analysis_result = analyze_portfolio(filepath, risk_yaml=risk_yaml)
     
     # Extract components for compatibility with dual-mode logic
     summary = analysis_result["portfolio_summary"]
@@ -315,7 +315,7 @@ def run_portfolio(filepath: str, *, return_data: bool = False):
     # Load config for CLI display (needed for return_data mode)
     # LOGGING: Add portfolio config load timing
     config = load_portfolio_config(filepath)
-    with open("risk_limits.yaml", "r") as f:
+    with open(risk_yaml, "r") as f:
         risk_config = yaml.safe_load(f)
 
     # ─── 5. Dual-Mode Logic ─────────────────────────────────

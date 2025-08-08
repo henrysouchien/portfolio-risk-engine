@@ -32,7 +32,7 @@ from utils.logging import (
 @log_error_handling("high")
 @log_portfolio_operation_decorator("portfolio_analysis")
 @log_performance(3.0)
-def analyze_portfolio(filepath: str) -> Dict[str, Any]:
+def analyze_portfolio(filepath: str, risk_yaml: str = "risk_limits.yaml") -> Dict[str, Any]:
     """
     Core portfolio analysis business logic.
     
@@ -43,6 +43,8 @@ def analyze_portfolio(filepath: str) -> Dict[str, Any]:
     ----------
     filepath : str
         Path to the portfolio YAML file.
+    risk_yaml : str, default "risk_limits.yaml"
+        Path to the risk limits YAML file to use for analysis.
         
     Returns
     -------
@@ -57,7 +59,7 @@ def analyze_portfolio(filepath: str) -> Dict[str, Any]:
     # ─── 1. Load YAML Inputs ─────────────────────────────
     config = load_portfolio_config(filepath)
     
-    with open("risk_limits.yaml", "r") as f:
+    with open(risk_yaml, "r") as f:
         risk_config = yaml.safe_load(f)
 
     # Get full standardized portfolio data (including exposure metrics)
@@ -86,7 +88,7 @@ def analyze_portfolio(filepath: str) -> Dict[str, Any]:
     lookback_years = PORTFOLIO_DEFAULTS.get('worst_case_lookback_years', 10)
     max_betas, max_betas_by_proxy = calc_max_factor_betas(
         portfolio_yaml=filepath,
-        risk_yaml="risk_limits.yaml",
+        risk_yaml=risk_yaml,
         lookback_years=lookback_years,
         echo=False  # Don't print helper tables when capturing output
     )
