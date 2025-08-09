@@ -23,6 +23,53 @@ from utils.logging import (
     log_error_handling
 )
 
+def _create_factor_exposures_mapping(factor_summary, factor_proxies):
+    """
+    Create structured factor exposures mapping from raw factor_summary array and factor_proxies dict.
+    
+    Args:
+        factor_summary: List of dicts with beta, r_squared, idio_vol_m (from compute_factor_metrics)
+        factor_proxies: Dict mapping factor names to proxy tickers/lists
+        
+    Returns:
+        Dict mapping factor names to their stats and proxy metadata:
+        {
+            "industry": {"beta": 1.224, "r_squared": 0.658, "idio_vol_m": 0.037, "proxy": "XLK"},
+            "market": {"beta": -1.113, "r_squared": 0.136, "idio_vol_m": 0.059, "proxy": "SPY"},
+            ...
+        }
+    """
+    if factor_proxies is None or (hasattr(factor_summary, 'empty') and factor_summary.empty) or (isinstance(factor_summary, list) and not factor_summary):
+        return {}
+    
+    factor_exposures = {}
+    factor_names = list(factor_proxies.keys())
+    
+    # Handle both DataFrame and list formats
+    if hasattr(factor_summary, 'iterrows'):
+        # DataFrame format from compute_factor_metrics (factor names as index)
+        for factor_name, row in factor_summary.iterrows():
+            if factor_name in factor_proxies:
+                factor_exposures[factor_name] = {
+                    "beta": float(row.get("beta", 0)),
+                    "r_squared": float(row.get("r_squared", 0)),
+                    "idio_vol_m": float(row.get("idio_vol_m", 0)),
+                    "proxy": factor_proxies[factor_name]
+                }
+    elif isinstance(factor_summary, list):
+        # List format (array indices map to factor_names order)
+        for i, factor_stats in enumerate(factor_summary):
+            if i < len(factor_names) and isinstance(factor_stats, dict):
+                factor_name = factor_names[i]
+                factor_exposures[factor_name] = {
+                    "beta": factor_stats.get("beta", 0),
+                    "r_squared": factor_stats.get("r_squared", 0),
+                    "idio_vol_m": factor_stats.get("idio_vol_m", 0),
+                    "proxy": factor_proxies[factor_name]
+                }
+    
+    return factor_exposures
+
 @log_error_handling("high")
 @log_portfolio_operation_decorator("stock_analysis")
 @log_performance(3.0)
@@ -92,6 +139,9 @@ def analyze_stock(
             ticker, start, end, factor_proxies
         )
         
+        # Create structured factor exposures with metadata
+        factor_exposures = _create_factor_exposures_mapping(profile["factor_summary"], factor_proxies)
+        
         # Return structured data for multi-factor analysis
         return make_json_safe({
             "ticker": ticker,
@@ -102,8 +152,9 @@ def analyze_stock(
             "analysis_type": "multi_factor",
             "volatility_metrics": profile["vol_metrics"],
             "regression_metrics": profile["regression_metrics"],
-            "factor_summary": profile["factor_summary"],
-            "factor_proxies": factor_proxies,
+            "factor_summary": profile["factor_summary"],  # Keep for backward compatibility
+            "factor_proxies": factor_proxies,              # Keep for backward compatibility
+            "factor_exposures": factor_exposures,          # NEW: Structured factor metadata
             "analysis_metadata": {
                 "has_factor_analysis": True,
                 "num_factors": len(factor_proxies) if factor_proxies else 0,
