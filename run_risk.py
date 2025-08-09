@@ -502,7 +502,7 @@ def run_what_if(
 # MIN VARIANCE OPTIMIZATION
 # This handles minimum variance portfolio optimization
 # ============================================================================
-def run_min_variance(filepath: str, *, return_data: bool = False):
+def run_min_variance(filepath: str, risk_yaml: str = "risk_limits.yaml", *, return_data: bool = False):
     """
     Run the minimum-variance optimiser under current risk limits.
 
@@ -547,7 +547,7 @@ def run_min_variance(filepath: str, *, return_data: bool = False):
     """
     
     # --- BUSINESS LOGIC: Call extracted core function ---------------------
-    optimization_result = optimize_min_variance(filepath)
+    optimization_result = optimize_min_variance(filepath, risk_yaml=risk_yaml)
     
     # Extract components for compatibility with dual-mode logic
     w = optimization_result["raw_tables"]["weights"]
@@ -577,7 +577,7 @@ def run_min_variance(filepath: str, *, return_data: bool = False):
 # MAX RETURN OPTIMIZATION
 # This handles maximum return portfolio optimization
 # ============================================================================
-def run_max_return(filepath: str, *, return_data: bool = False):
+def run_max_return(filepath: str, risk_yaml: str = "risk_limits.yaml", *, return_data: bool = False):
     """
     Solve for the highest-return portfolio that still passes all
     volatility, concentration, and beta limits.
@@ -623,7 +623,7 @@ def run_max_return(filepath: str, *, return_data: bool = False):
     """
     
     # --- BUSINESS LOGIC: Call extracted core function ---------------------
-    optimization_result = optimize_max_return(filepath)
+    optimization_result = optimize_max_return(filepath, risk_yaml=risk_yaml)
     
     # Extract components for compatibility with dual-mode logic
     w = optimization_result["raw_tables"]["weights"]

@@ -33,7 +33,7 @@ from utils.logging import (
 @log_portfolio_operation_decorator("min_variance_optimization")
 @log_resource_usage_decorator(monitor_memory=True, monitor_cpu=True)
 @log_performance(10.0)
-def optimize_min_variance(filepath: str) -> Dict[str, Any]:
+def optimize_min_variance(filepath: str, risk_yaml: str = "risk_limits.yaml") -> Dict[str, Any]:
     """
     Core minimum variance optimization business logic.
     
@@ -58,7 +58,7 @@ def optimize_min_variance(filepath: str) -> Dict[str, Any]:
     
     # --- load configs ------------------------------------------------------
     config = load_portfolio_config(filepath)
-    with open("risk_limits.yaml", "r") as f:
+    with open(risk_yaml, "r") as f:
         risk_config = yaml.safe_load(f)
 
     weights = standardize_portfolio_input(config["portfolio_input"], latest_price)["weights"]
@@ -114,7 +114,7 @@ def optimize_min_variance(filepath: str) -> Dict[str, Any]:
 @log_portfolio_operation_decorator("max_return_optimization")
 @log_resource_usage_decorator(monitor_memory=True, monitor_cpu=True)
 @log_performance(10.0)
-def optimize_max_return(filepath: str) -> Dict[str, Any]:
+def optimize_max_return(filepath: str, risk_yaml: str = "risk_limits.yaml") -> Dict[str, Any]:
     """
     Core maximum return optimization business logic.
     
@@ -139,7 +139,7 @@ def optimize_max_return(filepath: str) -> Dict[str, Any]:
     
     # --- load configs ------------------------------------------------------
     config = load_portfolio_config(filepath)
-    with open("risk_limits.yaml", "r") as f:
+    with open(risk_yaml, "r") as f:
         risk_config = yaml.safe_load(f)
 
     weights = standardize_portfolio_input(config["portfolio_input"], latest_price)["weights"]
