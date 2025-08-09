@@ -16,7 +16,9 @@ from utils.logging import (
     log_error_handling,
     log_portfolio_operation_decorator,
     log_performance,
-    log_cache_operations
+    log_cache_operations,
+    database_logger,
+    gpt_logger
 )
 
 # ============================================================================
@@ -647,14 +649,15 @@ def get_subindustry_peers_from_ticker(
     end:   pd.Timestamp | None = None,
 ) -> list[str]:
     """
-    Generates a cleaned list of subindustry peer tickers using GPT.
+    Gets subindustry peer tickers with database-first caching, following the same pattern
+    as load_exchange_proxy_map() and load_industry_etf_map().
 
     This function:
-    • Fetches company metadata from FMP using the ticker.
-    • If the ticker is classified as an ETF or fund, returns an empty list immediately.
-    • Otherwise, sends the company name and industry to the GPT API to generate 5–10 peer tickers.
-    • Parses and validates the GPT response.
-    • Filters the result to include only real, currently listed tickers (via `fetch_profile`).
+    • First checks the subindustry_peers database table for cached results
+    • If found, returns the cached peer list immediately
+    • If not found, fetches company metadata from FMP and checks if ticker is ETF/fund
+    • For stocks, generates peers via GPT and caches the result in the database
+    • Filters results to include only real, currently listed tickers
 
     Parameters
     ----------
@@ -673,15 +676,17 @@ def get_subindustry_peers_from_ticker(
 
     Notes
     -----
-    • Skips GPT call entirely for ETFs and mutual funds (via FMP profile check).
-    • Uses `ast.literal_eval()` to safely parse GPT output.
-    • Invalid responses (non-list, parse errors, delisted tickers) are silently skipped.
-    • Calls `filter_valid_tickers()` to enforce only valid symbols from FMP.
+    • Database-first approach prevents duplicate GPT calls across portfolios and users
+    • Skips GPT call entirely for ETFs and mutual funds (via FMP profile check)
+    • Uses `ast.literal_eval()` to safely parse GPT output
+    • Calls `filter_valid_tickers()` to enforce only valid symbols from FMP
+    • Caches all successful results to the global subindustry_peers table
 
     Side Effects
     ------------
-    • Prints raw GPT output and any parse failures to stdout.
-    • Logs skip message for ETFs/funds.
+    • Queries and updates the subindustry_peers database table
+    • Prints database status and any GPT generation messages
+    • Logs skip message for ETFs/funds
     """
     # ─── 0.  Resolve dates (falls back to defaults) ────────────────
     start = pd.to_datetime(start or PORTFOLIO_DEFAULTS["start_date"])
@@ -689,19 +694,40 @@ def get_subindustry_peers_from_ticker(
     
     ticker = ticker.upper()
 
+    # ─── 1. Try database first (same pattern as load_exchange_proxy_map) ────────────────
+    try:
+        from inputs.database_client import DatabaseClient
+        from database import get_db_session
+        with get_db_session() as conn:
+            db_client = DatabaseClient(conn)
+            cached_peers = db_client.get_subindustry_peers(ticker)
+            if cached_peers is not None:
+                database_logger.debug(f"Using cached subindustry peers for {ticker} ({len(cached_peers)} peers)")
+                return cached_peers
+    except Exception as e:
+        database_logger.warning(f"Database unavailable for {ticker} ({e}), generating fresh peers")
+
+    # ─── 2. Generate fresh peers via GPT (original logic) ────────────────
     try:
         profile = fetch_profile(ticker)
 
         # Skip peer generation for ETFs and funds
         if profile.get("isEtf") or profile.get("isFund"):
-            print(f"⏭️ Skipping GPT peers for {ticker} (ETF or fund)")
+            gpt_logger.debug(f"Skipping GPT peers for {ticker} (ETF or fund)")
+            # Cache empty result for ETFs/funds to avoid repeated FMP calls
+            try:
+                with get_db_session() as conn:
+                    db_client = DatabaseClient(conn)
+                    db_client.save_subindustry_peers(ticker, [], source='etf_fund_skip')
+            except Exception:
+                pass  # Continue even if cache save fails
             return []
             
         name = profile.get("companyName") or profile.get("name") or ticker
         industry = profile.get("industry", "Unknown")
 
         raw_peers_text = generate_subindustry_peers(ticker=ticker, name=name, industry=industry)
-        print(f"\nGPT peers for {ticker}:{raw_peers_text}")
+        gpt_logger.debug(f"GPT peers for {ticker}: {raw_peers_text}")
 
         peer_list = ast.literal_eval(raw_peers_text)
 
@@ -709,15 +735,27 @@ def get_subindustry_peers_from_ticker(
             raise ValueError("Parsed object is not a list")
 
         # ▶ pass dates through so peer data screening uses **same window**
-        return filter_valid_tickers(
+        filtered_peers = filter_valid_tickers(
             peer_list, 
             target_ticker=ticker,
             start=start,
             end=end,
         )
 
+        # ─── 3. Cache result for future use (same pattern as factor_proxy_service) ────────────────
+        try:
+            with get_db_session() as conn:
+                db_client = DatabaseClient(conn)
+                db_client.save_subindustry_peers(ticker, filtered_peers, source='gpt')
+            database_logger.debug(f"Cached {len(filtered_peers)} subindustry peers for {ticker}")
+        except Exception as e:
+            database_logger.warning(f"Failed to cache peers for {ticker}: {e}")
+            # Continue even if save fails
+
+        return filtered_peers
+
     except Exception as e:
-        print(f"⚠️ {ticker}: failed to generate peers — {e}")
+        gpt_logger.error(f"{ticker}: failed to generate peers — {e}")
         return []
 
 
