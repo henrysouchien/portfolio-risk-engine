@@ -77,8 +77,7 @@ def analyze_stock(
     ticker: str,
     start: Optional[str] = None,
     end: Optional[str] = None,
-    factor_proxies: Optional[Dict[str, Union[str, List[str]]]] = None,
-    yaml_path: Optional[str] = None
+    factor_proxies: Optional[Dict[str, Union[str, List[str]]]] = None
 ) -> Dict[str, Any]:
     """
     Core stock analysis business logic.
@@ -95,9 +94,7 @@ def analyze_stock(
     end : Optional[str]
         End date in YYYY-MM-DD format. Defaults to today.
     factor_proxies : Optional[Dict[str, Union[str, List[str]]]]
-        Optional factor mapping.
-    yaml_path : Optional[str]
-        Path to YAML file for factor proxy lookup.
+        Optional factor mapping. If None, auto-generates intelligent factor proxies.
         
     Returns
     -------
@@ -122,16 +119,18 @@ def analyze_stock(
     start = pd.to_datetime(start) if start else today - pd.DateOffset(years=5)
     end   = pd.to_datetime(end)   if end   else today
 
-    # ─── 2. Auto-lookup proxy block from YAML (if requested) ────────────
-    if factor_proxies is None and yaml_path:
-        try:
-            cfg = load_portfolio_config(yaml_path)       # already handles safe_load + validation
-            proxies = cfg.get("stock_factor_proxies", {})
-            factor_proxies = proxies.get(ticker.upper())
-        except Exception as e:
-            # Note: In the original, this only printed if not return_data
-            # For the core function, we'll just continue without factor_proxies
-            pass
+    # ─── 2. Auto-generate factor proxies if needed ─────────────────────
+    if factor_proxies is None:
+        # Use intelligent auto-generation of factor proxies
+        from services.factor_proxy_service import get_stock_factor_proxies
+        factor_proxies = get_stock_factor_proxies(ticker)
+    elif factor_proxies:
+        # If user provided partial factor_proxies, fill in missing ones
+        from services.factor_proxy_service import get_stock_factor_proxies
+        full_proxies = get_stock_factor_proxies(ticker)
+        # Update with user-provided proxies, keeping auto-generated ones as fallback
+        full_proxies.update(factor_proxies)
+        factor_proxies = full_proxies
 
     # ─── 3. Diagnostics path A: multi-factor profile ────────────────────
     if factor_proxies:

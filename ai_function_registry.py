@@ -132,13 +132,10 @@ AI_FUNCTIONS = {
                     "type": "string",
                     "description": "Analysis end date in YYYY-MM-DD format. Optional - defaults to current date."
                 },
-                "yaml_path": {
-                    "type": "string",
-                    "description": "Path to portfolio YAML file to lookup factor proxies for comprehensive analysis. Set to null to disable factor proxy lookup and perform simple market regression only."
-                },
+
                 "factor_proxies": {
                     "type": "object",
-                    "description": "Direct factor proxy mapping for custom factor analysis (e.g., {'market': 'SPY', 'momentum': 'MTUM', 'value': 'IWD', 'industry': 'XLF'}). Optional - if provided, overrides yaml_path lookup and enables multi-factor analysis with these specific proxies.",
+                    "description": "Direct factor proxy mapping for custom factor analysis (e.g., {'market': 'SPY', 'momentum': 'MTUM', 'value': 'IWD', 'industry': 'XLF'}). Optional - if omitted, auto-generates intelligent factor proxies for comprehensive analysis.",
                     "additionalProperties": {"type": "string"}
                 }
             },

@@ -45,7 +45,8 @@ from gpt_helpers import (
     interpret_portfolio_risk,
     generate_subindustry_peers,
 )
-from helpers_display import format_stock_metrics
+from helpers_display import display_enhanced_stock_analysis
+# format_stock_metrics is deprecated - use display_enhanced_stock_analysis instead
 from utils.serialization import make_json_safe
 from core.portfolio_analysis import analyze_portfolio
 
@@ -670,22 +671,18 @@ def run_stock(
     start: Optional[str] = None,
     end: Optional[str] = None,
     factor_proxies: Optional[Dict[str, Union[str, List[str]]]] = None,
-    yaml_path: Optional[str] = None, 
     *,
     return_data: bool = False
 ):
     """
     Runs stock risk diagnostics. If factor_proxies are provided, runs detailed multi-factor profile.
-    Otherwise, if ``yaml_path`` is supplied, the function looks for the
-    ticker under ``stock_factor_proxies`` in that YAML.
-    If neither is found, falls back to simple regression vs. market benchmark.
+    If factor_proxies is None, auto-generates intelligent factor proxies for comprehensive analysis.
 
     Args:
         ticker (str): Stock symbol.
         start (Optional[str]): Start date in YYYY-MM-DD format. Defaults to 5 years ago.
         end (Optional[str]): End date in YYYY-MM-DD format. Defaults to today.
         factor_proxies (Optional[Dict[str, Union[str, List[str]]]]): Optional factor mapping.
-        yaml_path (Optional[str]): Path to YAML file for factor proxy lookup.
         return_data (bool): If True, returns structured data instead of printing.
 
     Returns:
@@ -693,17 +690,7 @@ def run_stock(
                                 If return_data=True, returns structured data dictionary.
     """
     # --- BUSINESS LOGIC: Call extracted core function ---------------------
-    analysis_result = analyze_stock(ticker, start, end, factor_proxies, yaml_path)
-    
-    # Handle any YAML loading errors for CLI mode
-    if factor_proxies is None and yaml_path and not return_data:
-        try:
-            cfg = load_portfolio_config(yaml_path)
-            proxies = cfg.get("stock_factor_proxies", {})
-            if not proxies.get(ticker.upper()):
-                print(f"⚠️  Could not load proxies from YAML for {ticker}")
-        except Exception as e:
-            print(f"⚠️  Could not load proxies from YAML: {e}")
+    analysis_result = analyze_stock(ticker, start, end, factor_proxies)
     
     # --- Dual-Mode Logic ---------------------------------------------------
     if return_data:
@@ -730,16 +717,8 @@ def run_stock(
         analysis_result["formatted_report"] = stock_result.to_formatted_report()
         return analysis_result
     else:
-        # CLI MODE: Print formatted output based on analysis type
-        if analysis_result["analysis_type"] == "multi_factor":
-            format_stock_metrics(analysis_result["volatility_metrics"], "Volatility Metrics")
-            format_stock_metrics(analysis_result["regression_metrics"], "Market Regression")
-            
-            print("=== Factor Summary ===")
-            print(analysis_result["factor_summary"])
-        else:
-            format_stock_metrics(analysis_result["volatility_metrics"], "Volatility Metrics")
-            format_stock_metrics(analysis_result["risk_metrics"], "Market Regression (SPY)")
+        # CLI MODE: Use enhanced display format matching API output
+        display_enhanced_stock_analysis(analysis_result, ticker)
 
 # ============================================================================
 # PERFORMANCE ANALYSIS
@@ -843,8 +822,8 @@ if __name__ == "__main__":
     parser.add_argument("--stock", type=str, help="Ticker symbol")
     parser.add_argument("--start", type=str, help="Start date (YYYY-MM-DD)")
     parser.add_argument("--end", type=str, help="End date (YYYY-MM-DD)")
-    parser.add_argument("--yaml-path", type=str, help="Path to YAML file for factor proxy lookup (for detailed stock analysis)")
-    parser.add_argument("--factor-proxies", type=str, help='JSON string of factor proxies, e.g. \'{"market": "SPY", "momentum": "MTUM"}\'')
+
+    parser.add_argument("--factor-proxies", type=str, help='JSON string of factor proxies for multi-factor analysis. Common factors: market, momentum, value, industry, subindustry. Example: \'{"market": "SPY", "momentum": "MTUM", "value": "IWD", "industry": "XLK", "subindustry": ["MSFT", "GOOGL"]}\'')
     parser.add_argument("--whatif", action="store_true", help="Run what-if scenario")
     parser.add_argument("--minvar", action="store_true", help="Run min-variance optimization")
     parser.add_argument("--maxreturn", action="store_true", help="Run max-return optimization")
@@ -887,7 +866,7 @@ if __name__ == "__main__":
                 factor_proxies = json.loads(args.factor_proxies)
             except json.JSONDecodeError as e:
                 print(f"❌ Error parsing factor proxies JSON: {e}")
-                print("   Example format: '{\"market\": \"SPY\", \"momentum\": \"MTUM\", \"value\": \"IWD\"}'")
+                print("   Example format: '{\"market\": \"SPY\", \"momentum\": \"MTUM\", \"value\": \"IWD\", \"industry\": \"XLK\", \"subindustry\": [\"MSFT\", \"GOOGL\"]}'")
                 parser.print_help()
                 exit(1)
         
@@ -896,8 +875,7 @@ if __name__ == "__main__":
             ticker=args.stock,
             start=args.start,
             end=args.end,
-            factor_proxies=factor_proxies,
-            yaml_path=args.yaml_path
+            factor_proxies=factor_proxies
         )
     
     else:

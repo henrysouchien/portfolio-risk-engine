@@ -188,12 +188,23 @@ from typing import Dict, Union
 @log_performance(0.1)
 def format_stock_metrics(metrics_dict: Dict[str, Union[float, int]], title: str) -> None:
     """
-    Format stock analysis metrics dictionary into readable output.
+    DEPRECATED: Format stock analysis metrics dictionary into readable output.
+    
+    This function is deprecated as of [current date] and will be removed in a future version.
+    Use display_enhanced_stock_analysis() instead for comprehensive stock analysis display
+    that matches the API output format with factor exposures, proxy information, and emojis.
     
     Args:
         metrics_dict: Dictionary of metric names to values
         title: Title for the metrics section
+        
+    Note:
+        This function only displays basic metrics and lacks the rich factor analysis
+        capabilities of display_enhanced_stock_analysis().
     """
+    import warnings
+    warnings.warn("format_stock_metrics() is deprecated. Use display_enhanced_stock_analysis() instead.", 
+                  DeprecationWarning, stacklevel=2)
     print(f"=== {title} ===")
     
     # Common formatting mappings
@@ -228,5 +239,132 @@ def format_stock_metrics(metrics_dict: Dict[str, Union[float, int]], title: str)
                 print(f"{key.replace('_', ' ').title():<20} {value}")
     
     print()  # Add blank line after section
+
+
+@log_error_handling("low")
+@log_portfolio_operation_decorator("display_enhanced_stock_analysis")
+@log_performance(0.2)
+def display_enhanced_stock_analysis(analysis_result: Dict[str, Union[str, Dict]], ticker: str) -> None:
+    """
+    Enhanced CLI display for stock analysis results matching the API display format.
+    
+    Args:
+        analysis_result: Complete analysis result from analyze_stock()
+        ticker: Stock ticker symbol
+    """
+    print("=== STOCK ANALYSIS ===")
+    print(f"📈 Stock: {ticker}")
+    
+    # Volatility metrics
+    if "volatility_metrics" in analysis_result:
+        vol_metrics = analysis_result["volatility_metrics"]
+        if "annual_vol" in vol_metrics:
+            vol_annual = vol_metrics["annual_vol"] * 100
+            print(f"📊 Annual Volatility: {vol_annual:.1f}%")
+        if "monthly_vol" in vol_metrics:
+            vol_monthly = vol_metrics["monthly_vol"] * 100
+            print(f"📊 Monthly Volatility: {vol_monthly:.1f}%")
+    
+    # Market regression
+    if "regression_metrics" in analysis_result:
+        risk = analysis_result["regression_metrics"]
+        print(f"\n⚖️  Market Regression:")
+        if "beta" in risk:
+            print(f"  • Beta: {risk['beta']:.3f}")
+        if "alpha" in risk:
+            alpha_monthly = risk["alpha"] * 100
+            print(f"  • Alpha (Monthly): {alpha_monthly:+.2f}%")
+        if "r_squared" in risk:
+            r_sq = risk["r_squared"] * 100
+            print(f"  • R-Squared: {r_sq:.1f}%")
+        if "idio_vol_m" in risk:
+            idio_vol = risk["idio_vol_m"] * 100
+            print(f"  • Idiosyncratic Vol: {idio_vol:.2f}%")
+    elif "risk_metrics" in analysis_result:
+        # Fallback for simple analysis
+        risk = analysis_result["risk_metrics"]
+        print(f"\n⚖️  Market Regression:")
+        if "beta" in risk:
+            print(f"  • Beta: {risk['beta']:.3f}")
+        if "alpha" in risk:
+            alpha_monthly = risk["alpha"] * 100
+            print(f"  • Alpha (Monthly): {alpha_monthly:+.2f}%")
+        if "r_squared" in risk:
+            r_sq = risk["r_squared"] * 100
+            print(f"  • R-Squared: {r_sq:.1f}%")
+        if "idio_vol_m" in risk:
+            idio_vol = risk["idio_vol_m"] * 100
+            print(f"  • Idiosyncratic Vol: {idio_vol:.2f}%")
+    
+    # Factor exposures (enhanced display)
+    if "factor_exposures" in analysis_result and analysis_result["factor_exposures"]:
+        factor_exposures = analysis_result["factor_exposures"]
+        print(f"\n🧬 Factor Exposures:")
+        
+        # Display structured factor data with metadata
+        for factor_name, factor_data in factor_exposures.items():
+            beta = factor_data.get("beta", 0)
+            r_squared = factor_data.get("r_squared", 0) * 100
+            print(f"  • {factor_name.title()}: β={beta:.3f} (R²={r_squared:.1f}%)")
+    elif "factor_summary" in analysis_result and analysis_result["factor_summary"]:
+        # Fallback to legacy factor_summary format
+        factor_summary = analysis_result["factor_summary"]
+        factor_proxies = analysis_result.get("factor_proxies", {})
+        print(f"\n🧬 Factor Exposures:")
+        
+        if isinstance(factor_summary, list) and factor_proxies:
+            # Map list of factor stats to factor names from factor_proxies
+            factor_names = list(factor_proxies.keys())
+            for i, factor_stats in enumerate(factor_summary):
+                if i < len(factor_names) and isinstance(factor_stats, dict):
+                    factor_name = factor_names[i]
+                    beta = factor_stats.get("beta", 0)
+                    r_squared = factor_stats.get("r_squared", 0) * 100
+                    print(f"  • {factor_name.title()}: β={beta:.3f} (R²={r_squared:.1f}%)")
+        else:
+            print(f"  • Raw Factor Summary: {factor_summary}")
+    
+    # Factor proxies used
+    if "factor_exposures" in analysis_result and analysis_result["factor_exposures"]:
+        factor_exposures = analysis_result["factor_exposures"]
+        print(f"\n🎯 Factor Proxies Used:")
+        for factor_name, factor_data in factor_exposures.items():
+            proxy = factor_data.get("proxy", "")
+            if isinstance(proxy, list):
+                proxy_str = ", ".join(proxy[:3])  # Show first 3 if list
+                if len(proxy) > 3:
+                    proxy_str += f" (+{len(proxy)-3} more)"
+                print(f"  • {factor_name.title()}: {proxy_str}")
+            else:
+                print(f"  • {factor_name.title()}: {proxy}")
+    elif "factor_proxies" in analysis_result and analysis_result["factor_proxies"]:
+        # Fallback to legacy factor_proxies field
+        proxies = analysis_result["factor_proxies"]
+        print(f"\n🎯 Factor Proxies Used:")
+        for factor, proxy in proxies.items():
+            if isinstance(proxy, list):
+                proxy_str = ", ".join(proxy[:3])  # Show first 3 if list
+                if len(proxy) > 3:
+                    proxy_str += f" (+{len(proxy)-3} more)"
+                print(f"  • {factor.title()}: {proxy_str}")
+            else:
+                print(f"  • {factor.title()}: {proxy}")
+    
+    # Analysis metadata
+    if "analysis_metadata" in analysis_result:
+        metadata = analysis_result["analysis_metadata"]
+        has_factor = metadata.get("has_factor_analysis", False)
+        num_factors = metadata.get("num_factors", 0)
+        if has_factor:
+            print(f"\n📊 Multi-Factor Analysis: ✅ ({num_factors} factors)")
+        else:
+            print(f"\n📊 Simple Market Analysis: 📈")
+    elif analysis_result.get("analysis_type") == "multi_factor":
+        factor_count = len(analysis_result.get("factor_proxies", {}))
+        print(f"\n📊 Multi-Factor Analysis: ✅ ({factor_count} factors)")
+    else:
+        print(f"\n📊 Simple Market Analysis: 📈")
+    
+    print()  # Add blank line after analysis
 
 

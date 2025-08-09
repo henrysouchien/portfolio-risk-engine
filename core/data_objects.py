@@ -37,11 +37,11 @@ class StockData:
     - ticker: Stock symbol (automatically normalized to uppercase)
     - start_date/end_date: Optional analysis window
     - factor_proxies: Optional factor model configuration
-    - yaml_path: Optional portfolio YAML path for factor proxy lookup
+
     
     Construction methods:
     - from_ticker(): Basic market regression analysis
-    - from_yaml_config(): Inherits factor proxies from portfolio YAML
+
     - from_factor_proxies(): Explicit factor model configuration
     
     Example:
@@ -57,7 +57,6 @@ class StockData:
     
     # Factor analysis configuration
     factor_proxies: Optional[Dict[str, Union[str, List[str]]]] = None
-    yaml_path: Optional[str] = None
     
     # Analysis metadata
     analysis_name: Optional[str] = None
@@ -95,7 +94,7 @@ class StockData:
         Get the cache key for this stock analysis configuration.
         
         Returns:
-            str: MD5 hash of analysis parameters (ticker, dates, factor_proxies, yaml_path)
+            str: MD5 hash of analysis parameters (ticker, dates, factor_proxies)
         """
         return self._cache_key
     
@@ -106,8 +105,7 @@ class StockData:
             "ticker": self.ticker,
             "start_date": self.start_date,
             "end_date": self.end_date,
-            "factor_proxies": self.factor_proxies,
-            "yaml_path": self.yaml_path
+            "factor_proxies": self.factor_proxies
         }
         
         # Convert to JSON string and hash
@@ -148,44 +146,7 @@ class StockData:
             end_date=end_date
         )
     
-    @classmethod
-    def from_yaml_config(cls, ticker: str, yaml_path: str,
-                        start_date: Optional[str] = None,
-                        end_date: Optional[str] = None) -> 'StockData':
-        """
-        Create StockData with factor proxies inherited from portfolio YAML configuration.
-        
-        This method creates stock analysis configuration that inherits factor proxy
-        settings from a portfolio YAML file. It's useful for ensuring consistency
-        between portfolio-level and stock-level factor model configurations.
-        
-        Args:
-            ticker (str): Stock symbol to analyze
-            yaml_path (str): Path to portfolio YAML file containing factor proxies
-            start_date (Optional[str]): Analysis start date (overrides YAML if provided)
-            end_date (Optional[str]): Analysis end date (overrides YAML if provided)
-                
-        Returns:
-            StockData: Configured for multi-factor analysis using portfolio factor proxies
-            
-        Example:
-            ```python
-            # Use portfolio factor configuration
-            stock_data = StockData.from_yaml_config("AAPL", "portfolio.yaml")
-            
-            # Use portfolio factors with custom date range
-            stock_data = StockData.from_yaml_config(
-                "AAPL", "portfolio.yaml", "2021-01-01", "2023-12-31"
-            )
-            ```
-        """
-        return cls(
-            ticker=ticker,
-            start_date=start_date,
-            end_date=end_date,
-            yaml_path=yaml_path
-        )
-    
+
     @classmethod
     def from_factor_proxies(cls, ticker: str, 
                            factor_proxies: Dict[str, Union[str, List[str]]],
@@ -260,7 +221,7 @@ class StockData:
             has_factors = stock_data.has_factor_analysis()  # True
             ```
         """
-        return self.factor_proxies is not None or self.yaml_path is not None
+        return self.factor_proxies is not None
     
     def __hash__(self) -> int:
         """Make StockData hashable for caching."""

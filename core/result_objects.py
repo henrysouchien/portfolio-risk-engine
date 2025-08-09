@@ -2812,6 +2812,11 @@ class StockAnalysisResult:
         self.factor_summary = stock_data.get("factor_summary")
         self.risk_metrics = stock_data.get("risk_metrics", {})
         
+        # Enhanced factor analysis data (from analyze_stock improvements)
+        self.factor_exposures = stock_data.get("factor_exposures", {})
+        self.factor_proxies = stock_data.get("factor_proxies", {})
+        self.analysis_metadata = stock_data.get("analysis_metadata", {})
+        
         # Analysis metadata
         self.analysis_date = datetime.now()
     
@@ -2942,6 +2947,9 @@ class StockAnalysisResult:
             "regression_metrics": self.regression_metrics,
             "factor_summary": factor_summary_dict,
             "risk_metrics": self.risk_metrics,
+            "factor_exposures": self.factor_exposures,  # NEW: Structured factor metadata
+            "factor_proxies": self.factor_proxies,      # NEW: Factor proxy mappings
+            "analysis_metadata": self.analysis_metadata,  # NEW: Analysis configuration
             "analysis_date": self.analysis_date.isoformat()
         }
 
