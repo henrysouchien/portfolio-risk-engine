@@ -67,6 +67,10 @@ def _convert_to_json_serializable(obj):
             return round(value, 8)
         return value
     
+    elif isinstance(obj, (np.bool_, pd.BooleanDtype, bool)):
+        # Handle numpy/pandas booleans by converting to Python bool
+        return bool(obj)
+    
     elif isinstance(obj, dict):
         return {k: _convert_to_json_serializable(v) for k, v in obj.items()}
     
@@ -83,17 +87,21 @@ def _convert_to_json_serializable(obj):
 
 
 def _clean_nan_values(obj):
-    """Recursively convert NaN values to None for JSON serialization."""
+    """Recursively convert NaN values to None and handle boolean serialization for JSON."""
     if isinstance(obj, dict):
         return {k: _clean_nan_values(v) for k, v in obj.items()}
     elif isinstance(obj, list):
         return [_clean_nan_values(item) for item in obj]
     elif isinstance(obj, float) and (np.isnan(obj) or obj != obj):  # NaN check
         return None
+    elif isinstance(obj, (np.bool_, pd.BooleanDtype)):  # Handle pandas/numpy booleans
+        return bool(obj)
     elif hasattr(obj, 'item'):  # numpy scalar
         val = obj.item()
         if isinstance(val, float) and (np.isnan(val) or val != val):
             return None
+        elif isinstance(val, (bool, np.bool_)):  # Handle boolean numpy scalars
+            return bool(val)
         return val
     else:
         return obj
@@ -2531,60 +2539,57 @@ class WhatIfResult:
             current_metrics.variance_decomposition.get('factor_pct', 0)
         )
         
-        # Risk improvement analysis
-        self.risk_improvement = self.volatility_delta < 0  # Lower volatility is better
-        self.concentration_improvement = self.concentration_delta < 0  # Lower concentration is better
+        # Risk improvement analysis (explicitly convert to Python bool to avoid JSON serialization issues)
+        self.risk_improvement = bool(self.volatility_delta < 0)  # Lower volatility is better
+        self.concentration_improvement = bool(self.concentration_delta < 0)  # Lower concentration is better
     
     @classmethod
-    def from_what_if_output(cls, 
-                           current_summary: Dict[str, Any],
-                           scenario_summary: Dict[str, Any],
-                           scenario_name: str = "What-If Scenario",
-                           risk_comparison: Optional[pd.DataFrame] = None,
-                           beta_comparison: Optional[pd.DataFrame] = None) -> 'WhatIfResult':
+    def from_analyze_scenario_output(cls,
+                                   analyze_scenario_result: Dict[str, Any],
+                                   scenario_name: str = "What-If Scenario") -> 'WhatIfResult':
         """
-        Create WhatIfResult from what-if scenario analysis output.
+        Create WhatIfResult from complete analyze_scenario() output.
         
-        Complete Field Mapping (run_what_if_scenario → WhatIfResult):
-        ============================================================
+        This method captures ALL the CLI data available from analyze_scenario(),
+        including comparison tables, new portfolio checks, and position changes.
         
-        Core Function Output                     → Result Object Field
-        ──────────────────────────────────────────────────────────────────
-        current_summary (build_portfolio_view)  → self.current_metrics (as RiskAnalysisResult)
-        scenario_summary (build_portfolio_view) → self.scenario_metrics (as RiskAnalysisResult)
-        scenario_name parameter                  → self.scenario_name
-        risk_comparison DataFrame (optional)     → self.risk_comparison
-        beta_comparison DataFrame (optional)     → self.beta_comparison
-        datetime.now()                          → self.analysis_date
-        
-        Data Flow: 
-        run_what_if_scenario() → current/scenario summaries → WhatIfResult
-        ↳ Each summary processed via RiskAnalysisResult.from_build_portfolio_view()
-        
-        Completeness: 100% - All comparison data and nested portfolio analysis captured
-        
-        Note: This factory method creates nested RiskAnalysisResult objects for both
-        current and scenario portfolios, enabling complete before/after analysis with
-        all portfolio metrics preserved in structured format.
+        Args:
+            analyze_scenario_result: Complete output from analyze_scenario()
+            scenario_name: Name for the scenario
+            
+        Returns:
+            WhatIfResult with all CLI data included
         """
+        # Extract raw tables
+        raw_tables = analyze_scenario_result["raw_tables"]
         
-        # Create RiskAnalysisResult objects from build_portfolio_view outputs
+        # Create RiskAnalysisResult objects
         current_metrics = RiskAnalysisResult.from_build_portfolio_view(
-            current_summary, portfolio_name="Current Portfolio"
+            raw_tables["summary_base"], portfolio_name="Current Portfolio"
         )
-        
         scenario_metrics = RiskAnalysisResult.from_build_portfolio_view(
-            scenario_summary, portfolio_name=scenario_name
+            raw_tables["summary"], portfolio_name=scenario_name
         )
         
-        return cls(
+        # Create enhanced WhatIfResult with all data
+        result = cls(
             current_metrics=current_metrics,
             scenario_metrics=scenario_metrics,
             scenario_name=scenario_name,
-            risk_comparison=risk_comparison,
-            beta_comparison=beta_comparison
+            risk_comparison=raw_tables["cmp_risk"],
+            beta_comparison=raw_tables["cmp_beta"]
         )
-    
+        
+        # Store additional CLI data
+        result._new_portfolio_risk_checks = raw_tables["risk_new"]
+        result._new_portfolio_factor_checks = raw_tables["beta_f_new"] 
+        result._new_portfolio_industry_checks = raw_tables["beta_p_new"]
+        result._scenario_metadata = analyze_scenario_result.get("scenario_metadata", {})
+        result._formatted_report = analyze_scenario_result.get("formatted_report", "")
+        
+        return result
+
+
     def get_summary(self) -> Dict[str, Any]:
         """Get summary of scenario impact using real metrics."""
         return {
@@ -2676,29 +2681,44 @@ class WhatIfResult:
     
     def to_api_response(self) -> Dict[str, Any]:
         """
-        Schema-compliant version of the old to_dict().
-        For Phase 1.5 this must be a 1-to-1 copy of to_dict()'s output
-        (no structural changes, no field renames, no pruning).
+        Convert WhatIfResult to API response format.
+        
+        Returns complete what-if scenario data with all CLI comparison tables:
+        - scenario_name: Scenario identifier
+        - current_metrics: Complete baseline portfolio analysis
+        - scenario_metrics: Complete modified portfolio analysis  
+        - deltas: Numerical changes between portfolios
+        - position_changes: Portfolio weights before/after table
+        - new_portfolio_risk_checks: Risk checks for scenario portfolio
+        - new_portfolio_factor_checks: Factor exposure checks for scenario portfolio
+        - new_portfolio_industry_checks: Industry exposure checks for scenario portfolio
+        - risk_comparison: Before/after risk limits comparison
+        - factor_comparison: Before/after factor betas comparison
+        
+        Returns:
+            Dict[str, Any]: Complete what-if scenario data with all CLI tables
         """
-        return {
+        result_data = {
             "scenario_name": self.scenario_name,
-            "current_metrics": self.current_metrics.to_api_response(),
-            "scenario_metrics": self.scenario_metrics.to_api_response(),
+            #TODO: Add current and scenario metrics back in (if needed)
+            # "current_metrics": self.current_metrics.to_api_response(),
+            # "scenario_metrics": self.scenario_metrics.to_api_response(),
             "deltas": {
                 "volatility_delta": self.volatility_delta,
                 "concentration_delta": self.concentration_delta,
                 "factor_variance_delta": self.factor_variance_delta
             },
-            "analysis": {
-                "risk_improvement": self.risk_improvement,
-                "concentration_improvement": self.concentration_improvement
-            },
-            "factor_exposures_comparison": self.get_factor_exposures_comparison(),
-            "summary": self.get_summary(),
-            # CLI-API alignment fields from audit
-            "scenario_metadata": self._get_scenario_metadata(),
-            "change_summaries": self._generate_change_summaries()
+            # CLI comparison tables
+            "position_changes": self.get_position_changes_table(),
+            "new_portfolio_risk_checks": self.get_new_portfolio_risk_checks_table(),
+            "new_portfolio_factor_checks": self.get_new_portfolio_factor_checks_table(),
+            "new_portfolio_industry_checks": self.get_new_portfolio_industry_checks_table(),
+            "risk_comparison": self.get_risk_comparison_table(),
+            "factor_comparison": self.get_factor_comparison_table()
         }
+        
+        # Ensure all data is JSON serializable (handles nested numpy types)
+        return _convert_to_json_serializable(result_data)
 
     def _get_scenario_metadata(self) -> Dict[str, Any]:
         """Generate scenario metadata and description."""
@@ -2734,6 +2754,152 @@ class WhatIfResult:
                 summaries.append(f"Concentration {direction} by {abs(self.concentration_delta):.2f}%")
         
         return summaries
+
+    def get_position_changes_table(self) -> List[Dict[str, Any]]:
+        """
+        Generate position changes table (Portfolio Weights — Before vs After).
+        
+        Returns list of position changes with before/after weights and deltas.
+        """
+        if not hasattr(self, '_scenario_metadata'):
+            return []
+            
+        base_weights = self._scenario_metadata.get("base_weights", {})
+        scenario_weights = getattr(self.scenario_metrics, 'portfolio_weights', {})
+        
+        position_changes = []
+        all_tickers = set(base_weights.keys()) | set(scenario_weights.keys())
+        
+        for ticker in sorted(all_tickers):
+            before = base_weights.get(ticker, 0.0)
+            after = scenario_weights.get(ticker, 0.0)
+            change = after - before
+            
+            if abs(change) > 0.0001:  # Only include meaningful changes
+                position_changes.append({
+                    "position": ticker,
+                    "before": f"{before:.1%}",
+                    "after": f"{after:.1%}", 
+                    "change": f"{change:+.1%}"
+                })
+        
+        return position_changes
+
+    def get_new_portfolio_risk_checks_table(self) -> List[Dict[str, Any]]:
+        """
+        Generate new portfolio risk checks table (NEW Portfolio – Risk Checks).
+        
+        Returns formatted risk checks for the scenario portfolio.
+        """
+        if not hasattr(self, '_new_portfolio_risk_checks') or self._new_portfolio_risk_checks.empty:
+            return []
+            
+        risk_checks = []
+        df = self._new_portfolio_risk_checks
+        
+        for _, row in df.iterrows():
+            risk_checks.append({
+                "metric": row.get("Metric", ""),
+                "actual": f"{row.get('Actual', 0):.1%}" if 'Actual' in row else "",
+                "limit": f"{row.get('Limit', 0):.1%}" if 'Limit' in row else "",
+                "pass": bool(row.get("Pass", True))
+            })
+            
+        return risk_checks
+
+    def get_new_portfolio_factor_checks_table(self) -> List[Dict[str, Any]]:
+        """
+        Generate new portfolio factor checks table (NEW Aggregate Factor Exposures).
+        
+        Returns formatted factor exposure checks for the scenario portfolio.
+        """
+        if not hasattr(self, '_new_portfolio_factor_checks') or self._new_portfolio_factor_checks.empty:
+            return []
+            
+        factor_checks = []
+        df = self._new_portfolio_factor_checks
+        
+        for _, row in df.iterrows():
+            factor_checks.append({
+                "factor": row.name if hasattr(row, 'name') else "",
+                "portfolio_beta": round(row.get("portfolio_beta", 0), 2),
+                "max_allowed_beta": round(row.get("max_allowed_beta", 0), 2),
+                "pass": row.get("pass", True),
+                "buffer": round(row.get("buffer", 0), 2)
+            })
+            
+        return factor_checks
+
+    def get_new_portfolio_industry_checks_table(self) -> List[Dict[str, Any]]:
+        """
+        Generate new portfolio industry checks table (NEW Industry Exposure Checks).
+        
+        Returns formatted industry exposure checks for the scenario portfolio.
+        """
+        if not hasattr(self, '_new_portfolio_industry_checks') or self._new_portfolio_industry_checks.empty:
+            return []
+            
+        industry_checks = []
+        df = self._new_portfolio_industry_checks
+        
+        for _, row in df.iterrows():
+            industry_checks.append({
+                "industry": row.name if hasattr(row, 'name') else "",
+                "portfolio_beta": round(row.get("portfolio_beta", 0), 2),
+                "max_allowed_beta": round(row.get("max_allowed_beta", 0), 2),
+                "pass": row.get("pass", True),
+                "buffer": round(row.get("buffer", 0), 2)
+            })
+            
+        return industry_checks
+
+    def get_risk_comparison_table(self) -> List[Dict[str, Any]]:
+        """
+        Generate risk comparison table (Risk Limits — Before vs After).
+        
+        Returns formatted before/after risk comparison.
+        """
+        if self.risk_comparison.empty:
+            return []
+            
+        risk_comparison = []
+        
+        for _, row in self.risk_comparison.iterrows():
+            risk_comparison.append({
+                "metric": row.get("Metric", ""),
+                "old": f"{row.get('Old', 0):.1%}" if 'Old' in row else "",
+                "new": f"{row.get('New', 0):.1%}" if 'New' in row else "",
+                "delta": f"{row.get('Δ', 0):+.1%}" if 'Δ' in row else "",
+                "limit": f"{row.get('Limit', 0):.1%}" if 'Limit' in row else "",
+                "old_pass": bool(row.get("Old Pass", True)),
+                "new_pass": bool(row.get("New Pass", True))
+            })
+            
+        return risk_comparison
+
+    def get_factor_comparison_table(self) -> List[Dict[str, Any]]:
+        """
+        Generate factor comparison table (Factor Betas — Before vs After).
+        
+        Returns formatted before/after factor beta comparison.
+        """
+        if self.beta_comparison.empty:
+            return []
+            
+        factor_comparison = []
+        
+        for _, row in self.beta_comparison.iterrows():
+            factor_comparison.append({
+                "factor": row.name if hasattr(row, 'name') else "",
+                "old": round(row.get("Old", 0), 2),
+                "new": round(row.get("New", 0), 2),
+                "delta": round(row.get("Δ", 0), 2),
+                "max_beta": round(row.get("Max Beta", 0), 2),
+                "old_pass": row.get("Old Pass", "PASS"),
+                "new_pass": row.get("New Pass", "PASS")
+            })
+            
+        return factor_comparison
 
     def to_dict(self) -> Dict[str, Any]:
         """DEPRECATED – use to_api_response().  To be removed in Phase 2."""
