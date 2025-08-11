@@ -62,6 +62,29 @@ from typing import Dict, Callable, Union
 @log_portfolio_operation_decorator("cash_positions_detection")
 @log_performance(1.0)
 def get_cash_positions():
+    """
+    Discover the set of tickers that should be treated as cash proxies.
+
+    Resolution order:
+        1) Database: query `cash_mappings` via `DatabaseClient.get_cash_mappings()`
+           and use `proxy_by_currency` values.
+        2) YAML fallback: load `cash_map.yaml` from the project root and use
+           `proxy_by_currency` values.
+        3) Hard-coded defaults: a minimal set {"SGOV", "ESTR", "IB01", "CASH", "USD"}.
+
+    Returns:
+        set[str]: Unique tickers recognized as cash or cash-equivalent proxies.
+
+    Notes:
+        - Exposure filtering: Used to exclude positive cash positions when computing
+          risky exposures and leverage, while still including negative cash balances
+          (margin debt) as risk.
+        - Display labeling: Also used by CLI/report formatting to label tickers via
+          `format_ticker_with_label(...)`, so cash-like tickers render appropriately
+          (e.g., grouping or special casing in displays).
+        - The function is decorated with logging and performance instrumentation
+          and will emit health signals when the database is unreachable.
+    """
     # LOGGING: Add cash position detection logging with data source and timing
     # LOGGING: Add resource usage monitoring for cache initialization here
     # LOGGING: Add critical alert for database connection failures here

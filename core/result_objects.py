@@ -1231,7 +1231,7 @@ class RiskAnalysisResult:
                 sections.append("=== Per-Industry Group Betas ===")
                 try:
                     from utils.etf_mappings import get_etf_to_industry_map, format_ticker_with_label
-                    from inputs.portfolio_input import get_cash_positions
+                    from run_portfolio_risk import get_cash_positions
                     
                     cash_positions = get_cash_positions()
                     industry_map = get_etf_to_industry_map()
