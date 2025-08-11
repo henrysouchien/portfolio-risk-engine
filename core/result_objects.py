@@ -22,7 +22,7 @@ Example Usage:
 
 from typing import Dict, Any, Optional, List, Union
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, UTC
 import json
 import numpy as np
 from dataclasses import dataclass
@@ -163,6 +163,19 @@ class RiskAnalysisResult:
         
     Data Quality: All pandas objects are properly indexed and serializable for caching and API usage.
     Performance: Result creation ~10-50ms, formatted report generation ~5-10ms.
+
+    Raw vs Normalized Checks:
+        - The fields `risk_checks` and `beta_checks` mirror the CLI's internal tables for
+          exact parity. They preserve original key casing and shapes used by the CLI.
+          These are provided for backward compatibility and auditing.
+
+        - For API consumers, prefer the normalized tables:
+            • `risk_limit_violations_summary` – normalized version of risk limit checks
+            • `beta_exposure_checks_table` – normalized version of beta exposure checks
+
+          These normalized tables use consistent field names and are intended to be stable
+          for programmatic consumption. The raw fields will remain during Phase 1.x and may
+          be deprecated in Phase 2.
     """
     
     # Core volatility metrics
@@ -206,11 +219,30 @@ class RiskAnalysisResult:
     # Euler variance percentages (pandas Series)
     euler_variance_pct: pd.Series
     
-    # Industry-level variance analysis
+    # Industry-level variance analysis (RAW / nested)
+    # Note: This preserves the raw nested structure returned by core computation:
+    #   {
+    #     "absolute": {industry -> variance},
+    #     "percent_of_portfolio": {industry -> pct},
+    #     "per_industry_group_beta": {industry -> beta}
+    #   }
+    # For API consumers, prefer the flattened fields produced by to_api_response():
+    #   - industry_variance_absolute
+    #   - industry_variance_percentage
+    #   - industry_group_betas
+    # The raw nested field is kept for parity/backward-compatibility and may be
+    # deprecated in Phase 2 to remove duplication.
     industry_variance: Dict[str, Dict[str, float]]
     
-    # Risk compliance checks
+    # Risk compliance checks (RAW / CLI-aligned)
+    # Note: This preserves the CLI's original structure and key casing (e.g., 'Metric',
+    # 'Actual', 'Limit', 'Pass'). Prefer using `risk_limit_violations_summary` for a
+    # normalized schema in API responses.
     risk_checks: List[Dict[str, Any]]
+    # Beta exposure checks (RAW / CLI-aligned)
+    # Note: This preserves the CLI's original structure and key casing (e.g., 'factor',
+    # 'portfolio_beta', 'max_allowed_beta', 'pass'). Prefer using
+    # `beta_exposure_checks_table` for a normalized schema in API responses.
     beta_checks: List[Dict[str, Any]]
     
     # Beta limits (from calc_max_factor_betas)
@@ -835,6 +867,49 @@ class RiskAnalysisResult:
         Schema-compliant version of the old to_dict().
         For Phase 1.5 this must be a 1-to-1 copy of to_dict()'s output
         (no structural changes, no field renames, no pruning).
+
+        Contract notes:
+            - Timestamps: All timestamps are UTC and serialized via ISO-8601.
+            - Determinism: Where applicable, dictionaries are derived from
+              DataFrame/Series to provide stable key ordering for clients.
+
+        Checks fields:
+            - `risk_checks` and `beta_checks` are RAW/CLI-aligned (preserve original
+              key casing and shapes) for parity and backward compatibility.
+            - Prefer normalized tables: `risk_limit_violations_summary` and
+              `beta_exposure_checks_table` for programmatic consumption.
+
+        Industry variance fields:
+            - `industry_variance` is a RAW nested object from core analysis and is kept
+              for parity/auditing. It duplicates information exposed via:
+                • `industry_variance_absolute` (was `industry_variance["absolute"]`)
+                • `industry_variance_percentage` (was `industry_variance["percent_of_portfolio"]`)
+                • `industry_group_betas` (was `industry_variance["per_industry_group_beta"]`)
+            - API consumers should use the flattened fields above. The RAW field may be
+              removed in a future major version after a deprecation window.
+
+        Response structure (top-level keys):
+            - portfolio_weights: Dict[ticker, weight]
+            - dollar_exposure: Dict[ticker, dollar_amount]
+            - target_allocations: DataFrame → dict (weights table)
+            - total_value, net_exposure, gross_exposure, leverage: float
+            - expected_returns: Optional[Dict[ticker, expected_return]]
+            - stock_factor_proxies: Optional[Dict[str, str]]
+            - risk_contributions: Series → dict (per-position Euler contributions)
+            - covariance_matrix, correlation_matrix: DataFrame → nested dict (large)
+            - stock_betas, portfolio_factor_betas: DataFrame/Series → dict
+            - industry_group_betas: Dict[industry, beta]
+            - asset_vol_summary, factor_vols, weighted_factor_var: DataFrame → dict
+            - variance_decomposition, factor_variance_absolute/percentage: dict
+            - industry_variance_absolute/percentage: dict
+            - risk_checks (RAW), beta_checks (RAW): list[dict]
+            - volatility_annual, volatility_monthly, herfindahl: float
+            - portfolio_returns, euler_variance_pct: Series → dict
+            - max_betas, max_betas_by_proxy: dict
+            - historical_analysis: dict
+            - analysis_date (UTC ISO-8601), portfolio_name: metadata
+            - formatted_report: str (CLI-identical formatted text)
+            - risk_limit_violations_summary, beta_exposure_checks_table: normalized tables
         """
         return {
             # Fields ordered to match CLI section sequence  
@@ -869,7 +944,7 @@ class RiskAnalysisResult:
             "herfindahl": self.herfindahl,  # Herfindahl Index
             "portfolio_returns": _convert_to_json_serializable(self.portfolio_returns),  # Portfolio Returns
             "euler_variance_pct": _convert_to_json_serializable(self.euler_variance_pct),  # Euler Variance Contribution by Stock
-            "industry_variance": _convert_to_json_serializable(self.industry_variance),  # Industry Variance (absolute)
+            "industry_variance": _convert_to_json_serializable(self.industry_variance),  # Industry Variance (absolute, percentage, and group betas) TODO: Figure out how to handle this (duplication)
             "max_betas": _convert_to_json_serializable(self.max_betas),  # Max Factor Beta
             "max_betas_by_proxy": _convert_to_json_serializable(self.max_betas_by_proxy),  # Max Sector Betas
             "historical_analysis": _convert_to_json_serializable(self.historical_analysis),  # Historical Worst-Case Analysis Data
@@ -888,6 +963,7 @@ class RiskAnalysisResult:
                      DeprecationWarning, stacklevel=2)
         return self.to_api_response()
     
+    #TODO: Deprecate this method in next refactor (use from_core_portfolio_analysis factory method)
     @classmethod
     def from_build_portfolio_view(cls, portfolio_view_result: Dict[str, Any],
                                  portfolio_name: Optional[str] = None,
@@ -967,14 +1043,41 @@ class RiskAnalysisResult:
             beta_checks=beta_checks or [],
             max_betas=max_betas or {},
             max_betas_by_proxy=max_betas_by_proxy or {},
-            analysis_date=datetime.now(),
+            analysis_date=datetime.now(UTC),
             portfolio_name=portfolio_name,
             expected_returns=expected_returns,
             factor_proxies=factor_proxies,
         )
     
     def to_cli_report(self) -> str:
-        """Generate complete CLI formatted report - IDENTICAL to current run_risk.py output"""
+        """
+        Generate the human-readable portfolio risk report used by the CLI.
+
+        Purpose:
+            Produce a formatted, plain-text report with the exact section order and
+            formatting used in the CLI workflow in `run_risk.py`. This ensures
+            perfect parity between CLI output and programmatic generation.
+
+        Sections (conditionally included when data is available):
+            1) Target Allocations: Table with Portfolio Weight, Equal Weight, Eq Diff
+            2) Portfolio Risk Summary: Annual/Monthly volatility, Herfindahl index
+            3) Factor Exposures: Portfolio-level betas to market factors
+            4) Variance Decomposition: Factor vs idiosyncratic breakdown
+            5) Top Risk Contributors: Largest position risk contributions
+            6) Portfolio Risk Limit Checks: PASS/FAIL summary of risk limits
+            7) Beta Exposure Checks: PASS/FAIL summary vs max allowed betas
+            8) Industry Analysis: Absolute and percent-of-portfolio variance, and
+               per-industry-group betas
+
+        Returns:
+            str: Complete formatted report suitable for stdout, logs, or AI display.
+
+        Notes:
+            - Performance: Typically 5–10 ms using already-computed fields.
+            - Parity: The same text is exposed via `to_api_response()` under
+              `formatted_report` for API consumers that need CLI-identical text.
+            - Omission: Sections will be omitted when corresponding data is missing.
+        """
         sections = []
         
         # Section 1: Target Allocations (from display_portfolio_summary)
@@ -1314,7 +1417,7 @@ class RiskAnalysisResult:
             max_betas=max_betas,
             max_betas_by_proxy=max_betas_by_proxy,
             historical_analysis=historical_analysis,
-            analysis_date=datetime.now(),
+            analysis_date=datetime.now(UTC),
             portfolio_name=analysis_metadata.get("portfolio_name"),
             expected_returns=analysis_metadata.get("expected_returns"),
             factor_proxies=analysis_metadata.get("factor_proxies")
@@ -1620,7 +1723,7 @@ class OptimizationResult:
         self.proxy_table = proxy_table if proxy_table is not None else pd.DataFrame()
         
         # Analysis timestamp
-        self.analysis_date = datetime.now()
+        self.analysis_date = datetime.now(UTC)
     
     @classmethod
     def from_min_variance_output(cls, 
@@ -2263,7 +2366,7 @@ class PerformanceResult:
             monthly_stats=performance_metrics["monthly_stats"],
             risk_free_rate=performance_metrics["risk_free_rate"],
             monthly_returns=performance_metrics["monthly_returns"],
-            analysis_date=datetime.now(),
+            analysis_date=datetime.now(UTC),
             portfolio_name=portfolio_name,
             portfolio_file=portfolio_file,
             _allocations=allocations
@@ -2842,7 +2945,7 @@ class RiskScoreResult:
             portfolio_analysis=risk_score_result["portfolio_analysis"],
             suggested_limits=risk_score_result.get("suggested_limits", {}),  
             formatted_report=risk_score_result.get("formatted_report", ""), 
-            analysis_date=datetime.fromisoformat(risk_score_result["analysis_date"]) if "analysis_date" in risk_score_result else datetime.now(),  # ← USE ORIGINAL!
+            analysis_date=datetime.fromisoformat(risk_score_result["analysis_date"]) if "analysis_date" in risk_score_result else datetime.now(UTC),  # ← USE ORIGINAL!
             portfolio_name=portfolio_name,
             risk_limits_name=risk_limits_name
         )
@@ -3339,7 +3442,7 @@ class StockAnalysisResult:
         self.analysis_metadata = stock_data.get("analysis_metadata", {})
         
         # Analysis metadata
-        self.analysis_date = datetime.now()
+        self.analysis_date = datetime.now(UTC)
     
     def get_volatility_metrics(self) -> Dict[str, float]:
         """Get stock volatility metrics from run_stock() output."""
@@ -3584,7 +3687,7 @@ class InterpretationResult:
             ai_interpretation=interpretation_output["ai_interpretation"],
             full_diagnostics=interpretation_output["full_diagnostics"],
             analysis_metadata=interpretation_output["analysis_metadata"],
-            analysis_date=datetime.now(),
+            analysis_date=datetime.now(UTC),
             portfolio_name=portfolio_name
         )
     

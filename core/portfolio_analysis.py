@@ -8,7 +8,7 @@ Extracted from run_risk.py as part of the refactoring to create a clean service 
 
 import yaml
 from typing import Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, UTC
 
 from core.result_objects import RiskAnalysisResult
 
@@ -116,7 +116,7 @@ def analyze_portfolio(filepath: str, risk_yaml: str = "risk_limits.yaml") -> Ris
         max_betas_by_proxy=max_betas_by_proxy,
         historical_analysis=historical_analysis,
         analysis_metadata={
-            "analysis_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "analysis_date": datetime.now(UTC).isoformat(),
             "portfolio_file": filepath,
             "lookback_years": lookback_years,
             "weights": weights,
