@@ -302,99 +302,21 @@ def run_portfolio(filepath: str, risk_yaml: str = "risk_limits.yaml", *, return_
     # LOGGING: Add resource usage monitoring for analysis process here
     
     # ─── BUSINESS LOGIC: Call extracted core function ─────────
-    analysis_result = analyze_portfolio(filepath, risk_yaml=risk_yaml)
+    result = analyze_portfolio(filepath, risk_yaml=risk_yaml)
     
-    # Extract components for compatibility with dual-mode logic
-    summary = analysis_result["portfolio_summary"]
-    df_risk = pd.DataFrame(analysis_result["risk_analysis"]["risk_checks"])
-    df_beta = pd.DataFrame(analysis_result["beta_analysis"]["beta_checks"])
-    max_betas = analysis_result["beta_analysis"]["max_betas"]
-    max_betas_by_proxy = analysis_result["beta_analysis"]["max_betas_by_proxy"]
-    weights = analysis_result["analysis_metadata"]["weights"]
-    lookback_years = analysis_result["analysis_metadata"]["lookback_years"]
-    
-    # Load config for CLI display (needed for return_data mode)
-    # LOGGING: Add portfolio config load timing
-    config = load_portfolio_config(filepath)
-    with open(risk_yaml, "r") as f:
-        risk_config = yaml.safe_load(f)
-
     # ─── 5. Dual-Mode Logic ─────────────────────────────────
     if return_data:
-        # API MODE: Capture CLI output and return structured data
-        from io import StringIO
-        import contextlib
-        
-        # Capture the CLI output
-        buf = StringIO()
-        with contextlib.redirect_stdout(buf):
-            display_portfolio_config(config)
-            display_portfolio_summary(summary)
-            
-            # Display Risk Rules
-            print("\n=== Portfolio Risk Limit Checks ===")
-            for _, row in df_risk.iterrows():
-                status = "→ PASS" if row["Pass"] else "→ FAIL"
-                print(f"{row['Metric']:<22} {row['Actual']:.2%}  ≤ {row['Limit']:.2%}  {status}")
-
-            # Display Beta Limits
-            print("\n=== Beta Exposure Checks ===")
-            for _, row in df_beta.iterrows():
-                factor = row['factor']  # Factor names are now in 'factor' column
-                status = "→ PASS" if row["pass"] else "→ FAIL"
-                print(f"{factor:<20} β = {row['portfolio_beta']:+.2f}  ≤ {row['max_allowed_beta']:.2f}  {status}")
-        
-        # Return structured data with captured CLI output
-        return {
-            "portfolio_summary": summary,
-            "risk_analysis": {
-                "risk_checks": df_risk.to_dict('records'),
-                "risk_passes": bool(df_risk['Pass'].all()),
-                "risk_violations": df_risk[~df_risk['Pass']].to_dict('records'),
-                "risk_limits": {
-                    "portfolio_limits": risk_config["portfolio_limits"],
-                    "concentration_limits": risk_config["concentration_limits"],
-                    "variance_limits": risk_config["variance_limits"]
-                }
-            },
-            "beta_analysis": {
-                "beta_checks": df_beta.reset_index().to_dict('records'),
-                "beta_passes": bool(df_beta['pass'].all()),
-                "beta_violations": df_beta[~df_beta['pass']].reset_index().to_dict('records'),
-                "max_betas": max_betas,
-                "max_betas_by_proxy": max_betas_by_proxy
-            },
-            "analysis_metadata": {
-                "analysis_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "portfolio_file": filepath,
-                "lookback_years": lookback_years,
-                "weights": weights,
-                "total_positions": len(weights),
-                "active_positions": len([v for v in weights.values() if abs(v) > 0.001])
-            },
-            "formatted_report": buf.getvalue()
-        }
+        # API MODE: Return result object (service layer will call to_api_response())
+        return result
         # LOGGING: Add portfolio analysis completion logging with execution time
         # LOGGING: Add workflow state logging for risk analysis workflow completion here
         # LOGGING: Add resource usage monitoring for analysis completion here
     else:
-        # CLI MODE: Print formatted output
+        # CLI MODE: Print portfolio config first, then formatted output from result object
+        from run_portfolio_risk import load_portfolio_config, display_portfolio_config
+        config = load_portfolio_config(filepath)
         display_portfolio_config(config)
-        display_portfolio_summary(summary)
-        
-        # Display Risk Rules
-        print("\n=== Portfolio Risk Limit Checks ===")
-        for _, row in df_risk.iterrows():
-            status = "→ PASS" if row["Pass"] else "→ FAIL"
-            print(f"{row['Metric']:<22} {row['Actual']:.2%}  ≤ {row['Limit']:.2%}  {status}")
-
-        # Display Beta Limits
-        print("\n=== Beta Exposure Checks ===")
-        for _, row in df_beta.iterrows():
-            factor = row['factor']  # Factor names are now in 'factor' column
-            status = "→ PASS" if row["pass"] else "→ FAIL"
-            print(f"{factor:<20} β = {row['portfolio_beta']:+.2f}  ≤ {row['max_allowed_beta']:.2f}  {status}")
-
+        print(result.to_cli_report())
         # LOGGING: Add portfolio analysis completion logging with execution time
 
 # ============================================================================

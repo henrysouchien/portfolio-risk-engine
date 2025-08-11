@@ -50,7 +50,7 @@ def analyze_and_interpret(portfolio_yaml: str) -> Dict[str, Any]:
     portfolio_result = run_portfolio(portfolio_yaml, return_data=True)
     
     # Extract the formatted report for GPT interpretation
-    diagnostics = portfolio_result.get("formatted_report", "")
+    diagnostics = portfolio_result.to_cli_report()
     summary_txt = interpret_portfolio_risk(diagnostics)
 
     # Return structured data with raw objects (for service layer)

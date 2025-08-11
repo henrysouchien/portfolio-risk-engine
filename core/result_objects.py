@@ -217,6 +217,9 @@ class RiskAnalysisResult:
     max_betas: Dict[str, float]
     max_betas_by_proxy: Dict[str, float]
     
+    # Historical worst-case analysis data
+    historical_analysis: Dict[str, Any]
+    
     # Metadata
     analysis_date: datetime
     portfolio_name: Optional[str] = None
@@ -823,7 +826,7 @@ class RiskAnalysisResult:
             return {}
         
         # Return the exact data that CLI uses for "Industry Variance (absolute)"
-        return self.industry_variance.get("industry_breakdown_var", {})
+        return self.industry_variance.get("absolute", {})
 
 
     
@@ -869,9 +872,10 @@ class RiskAnalysisResult:
             "industry_variance": _convert_to_json_serializable(self.industry_variance),  # Industry Variance (absolute)
             "max_betas": _convert_to_json_serializable(self.max_betas),  # Max Factor Beta
             "max_betas_by_proxy": _convert_to_json_serializable(self.max_betas_by_proxy),  # Max Sector Betas
+            "historical_analysis": _convert_to_json_serializable(self.historical_analysis),  # Historical Worst-Case Analysis Data
             "analysis_date": self.analysis_date.isoformat(),  # Analysis Date
             "portfolio_name": self.portfolio_name,  # Portfolio Name
-            "formatted_report": self.to_formatted_report(),  # Formatted Report
+            "formatted_report": self.to_cli_report(),  # Formatted Report
             "risk_limit_violations_summary": self._get_risk_limit_violations_summary(),  # Risk Limit Violations Summary
             "beta_exposure_checks_table": self._get_beta_exposure_checks_table()  # Beta Exposure Checks Formatted Table
         }
@@ -967,6 +971,353 @@ class RiskAnalysisResult:
             portfolio_name=portfolio_name,
             expected_returns=expected_returns,
             factor_proxies=factor_proxies,
+        )
+    
+    def to_cli_report(self) -> str:
+        """Generate complete CLI formatted report - IDENTICAL to current run_risk.py output"""
+        sections = []
+        
+        # Section 1: Target Allocations (from display_portfolio_summary)
+        if hasattr(self, 'allocations') and self.allocations is not None and not self.allocations.empty:
+            sections.append("=== Target Allocations ===")
+            sections.append(str(self.allocations))
+        
+        # Section 2: Covariance Matrix 
+        if hasattr(self, 'covariance_matrix') and self.covariance_matrix is not None and not self.covariance_matrix.empty:
+            sections.append("=== Covariance Matrix ===")
+            sections.append(str(self.covariance_matrix))
+        
+        # Section 3: Correlation Matrix
+        if hasattr(self, 'correlation_matrix') and self.correlation_matrix is not None and not self.correlation_matrix.empty:
+            sections.append("=== Correlation Matrix ===")
+            sections.append(str(self.correlation_matrix))
+        
+        # Section 4: Volatility Metrics
+        volatility_lines = []
+        if hasattr(self, 'volatility_monthly'):
+            volatility_lines.append(f"Monthly Volatility:  {self.volatility_monthly:.4%}")
+        if hasattr(self, 'volatility_annual'):
+            volatility_lines.append(f"Annual Volatility:   {self.volatility_annual:.4%}")
+        if volatility_lines:
+            sections.append("\n".join(volatility_lines))
+        
+        # Section 4.5: Portfolio Returns (Monthly Time Series)
+        if hasattr(self, 'portfolio_returns') and self.portfolio_returns is not None and not self.portfolio_returns.empty:
+            sections.append("=== Portfolio Returns (Monthly) ===")
+            returns_lines = []
+            # Show last 12 months or all if less than 12
+            recent_returns = self.portfolio_returns.tail(12)
+            for date, return_val in recent_returns.items():
+                # Format date and return percentage
+                date_str = date.strftime("%Y-%m") if hasattr(date, 'strftime') else str(date)[:7]
+                returns_lines.append(f"{date_str}    {return_val:>8.2%}")
+            
+            if len(returns_lines) > 0:
+                sections.append("\n".join(returns_lines))
+            else:
+                sections.append("(No portfolio returns data available)")
+        
+        # Section 5: Risk Contributions
+        if hasattr(self, 'risk_contributions') and self.risk_contributions is not None and not self.risk_contributions.empty:
+            sections.append("=== Risk Contributions ===")
+            sections.append(str(self.risk_contributions))
+        
+        # Section 6: Herfindahl Index
+        if hasattr(self, 'herfindahl'):
+            sections.append(f"Herfindahl Index: {self.herfindahl}")
+        
+        # Section 7: Per-Stock Factor Betas
+        if hasattr(self, 'stock_betas') and self.stock_betas is not None and not self.stock_betas.empty:
+            sections.append("=== Per-Stock Factor Betas ===")
+            sections.append(str(self.stock_betas))
+        
+        # Section 8: Portfolio-Level Factor Betas
+        if hasattr(self, 'portfolio_factor_betas') and self.portfolio_factor_betas is not None and not self.portfolio_factor_betas.empty:
+            sections.append("=== Portfolio-Level Factor Betas ===")
+            sections.append(str(self.portfolio_factor_betas))
+        
+        # Section 9: Per-Asset Vol & Var
+        if hasattr(self, 'asset_vol_summary') and self.asset_vol_summary is not None and not self.asset_vol_summary.empty:
+            sections.append("=== Per-Asset Vol & Var ===")
+            sections.append(str(self.asset_vol_summary))
+        
+        # Section 10: Factor Annual Volatilities
+        if hasattr(self, 'factor_vols') and self.factor_vols is not None and not self.factor_vols.empty:
+            sections.append("=== Factor Annual Volatilities (σ_i,f) ===")
+            sections.append(str(self.factor_vols.round(4)))
+        
+        # Section 11: Weighted Factor Variance
+        if hasattr(self, 'weighted_factor_var') and self.weighted_factor_var is not None and not self.weighted_factor_var.empty:
+            sections.append("=== Weighted Factor Variance   w_i² · β_i,f² · σ_i,f² ===")
+            sections.append(str(self.weighted_factor_var.round(6)))
+        
+        # Section 12: Portfolio Variance Decomposition
+        if hasattr(self, 'variance_decomposition') and self.variance_decomposition is not None:
+            sections.append("=== Portfolio Variance Decomposition ===")
+            var_dec = self.variance_decomposition
+            decomp_lines = []
+            if 'portfolio_variance' in var_dec:
+                decomp_lines.append(f"Portfolio Variance:          {var_dec['portfolio_variance']:.4f}")
+            if 'idiosyncratic_variance' in var_dec and 'idiosyncratic_pct' in var_dec:
+                decomp_lines.append(f"Idiosyncratic Variance:      {var_dec['idiosyncratic_variance']:.4f}  ({var_dec['idiosyncratic_pct']:.0%})")
+            if 'factor_variance' in var_dec and 'factor_pct' in var_dec:
+                decomp_lines.append(f"Factor Variance:             {var_dec['factor_variance']:.4f}  ({var_dec['factor_pct']:.0%})")
+            sections.append("\n".join(decomp_lines))
+        
+        # Section 13: Factor Variance (absolute)
+        if hasattr(self, 'variance_decomposition') and self.variance_decomposition and 'factor_breakdown_var' in self.variance_decomposition:
+            sections.append("=== Factor Variance (absolute) ===")
+            factor_lines = []
+            for k, v in self.variance_decomposition["factor_breakdown_var"].items():
+                factor_lines.append(f"{k.title():<10} : {v:.5f}")
+            sections.append("\n".join(factor_lines))
+        
+        # Section 14: Top Stock Variance (Euler %)
+        if hasattr(self, 'euler_variance_pct') and self.euler_variance_pct is not None:
+            sections.append("=== Top Stock Variance (Euler %) ===")
+            euler = self.euler_variance_pct
+            if isinstance(euler, dict) and euler:
+                top = dict(sorted(euler.items(), key=lambda kv: -kv[1])[:10])  # top-10
+                euler_lines = []
+                for ticker, pct in top.items():
+                    euler_lines.append(f"{ticker:<10} : {pct:6.1%}")
+                sections.append("\n".join(euler_lines))
+            elif hasattr(euler, 'items'):  # pandas Series
+                top = euler.nlargest(10)
+                euler_lines = []
+                for ticker, pct in top.items():
+                    euler_lines.append(f"{ticker:<10} : {pct:6.1%}")
+                sections.append("\n".join(euler_lines))
+        
+        # Section 15: Factor Variance (% of Portfolio, excluding industry)
+        if hasattr(self, 'variance_decomposition') and self.variance_decomposition is not None:
+            var_dec = self.variance_decomposition
+            if 'factor_breakdown_pct' in var_dec:
+                filtered = {
+                    k: v for k, v in var_dec["factor_breakdown_pct"].items()
+                    if k not in ("industry", "subindustry")
+                }
+                if filtered:
+                    sections.append("=== Factor Variance (% of Portfolio, excluding industry) ===")
+                    factor_lines = []
+                    for k, v in filtered.items():
+                        factor_lines.append(f"{k.title():<10} : {v:.0%}")
+                    sections.append("\n".join(factor_lines))
+        
+        # Section 16: Industry Analysis (if available)
+        if hasattr(self, 'industry_variance') and self.industry_variance is not None:
+            # Industry variance (absolute)
+            if 'absolute' in self.industry_variance:
+                sections.append("=== Industry Variance (absolute) ===")
+                industry_lines = []
+                for k, v in self.industry_variance["absolute"].items():
+                    industry_lines.append(f"{k:<10} : {v:.6f}")
+                sections.append("\n".join(industry_lines))
+            
+            # Industry variance (% of Portfolio)
+            if 'percent_of_portfolio' in self.industry_variance:
+                sections.append("=== Industry Variance (% of Portfolio) ===")
+                industry_pct_lines = []
+                for k, v in self.industry_variance["percent_of_portfolio"].items():
+                    industry_pct_lines.append(f"{k:<10} : {v:.1%}")
+                sections.append("\n".join(industry_pct_lines))
+            
+            # Per-Industry Group Betas
+            per_group = self.industry_variance.get("per_industry_group_beta", {})
+            if per_group:
+                sections.append("=== Per-Industry Group Betas ===")
+                try:
+                    from utils.etf_mappings import get_etf_to_industry_map, format_ticker_with_label
+                    from inputs.portfolio_input import get_cash_positions
+                    
+                    cash_positions = get_cash_positions()
+                    industry_map = get_etf_to_industry_map()
+                    
+                    # Calculate adaptive column width based on labeled ETF tickers
+                    max_etf_width = 12  # minimum width for backwards compatibility
+                    for k, v in per_group.items():
+                        labeled_etf = format_ticker_with_label(k, cash_positions, industry_map)
+                        max_etf_width = max(max_etf_width, len(labeled_etf))
+                    
+                    # Add some padding
+                    max_etf_width += 2
+                    
+                    # Display with labels and adaptive width
+                    group_lines = []
+                    for k, v in sorted(per_group.items(), key=lambda kv: -abs(kv[1])):
+                        labeled_etf = format_ticker_with_label(k, cash_positions, industry_map)
+                        group_lines.append(f"{labeled_etf:<{max_etf_width}} : {v:>+7.4f}")
+                    sections.append("\n".join(group_lines))
+                except ImportError:
+                    # Fallback without labels
+                    group_lines = []
+                    for k, v in sorted(per_group.items(), key=lambda kv: -abs(kv[1])):
+                        group_lines.append(f"{k:<12} : {v:>+7.4f}")
+                    sections.append("\n".join(group_lines))
+        
+        # Section 16: Portfolio Risk Limit Checks (existing)
+        sections.append(self._format_risk_checks())
+        
+        # Section 17: Beta Exposure Checks (existing)
+        sections.append(self._format_beta_checks())
+        
+        # Section 18: Historical Worst-Case Analysis sections
+        if hasattr(self, 'historical_analysis') and self.historical_analysis:
+            sections.append(self._format_historical_analysis())
+        
+        return "\n\n".join(sections)
+    
+    def _format_risk_checks(self) -> str:
+        """Format risk checks as CLI table - EXACT copy of run_risk.py:335-338"""
+        lines = ["=== Portfolio Risk Limit Checks ==="]
+        for check in self.risk_checks:
+            status = "→ PASS" if check["Pass"] else "→ FAIL"
+            lines.append(f"{check['Metric']:<22} {check['Actual']:.2%}  ≤ {check['Limit']:.2%}  {status}")
+        return "\n".join(lines)
+    
+    def _format_beta_checks(self) -> str:
+        """Format beta checks as CLI table - EXACT copy of run_risk.py:342-345"""
+        lines = ["=== Beta Exposure Checks ==="]
+        for check in self.beta_checks:
+            status = "→ PASS" if check["pass"] else "→ FAIL"
+            factor = check['factor']
+            lines.append(f"{factor:<20} β = {check['portfolio_beta']:+.2f}  ≤ {check['max_allowed_beta']:.2f}  {status}")
+        return "\n".join(lines)
+    
+    def _format_historical_analysis(self) -> str:
+        """Format historical worst-case analysis sections - EXACT copy of calc_max_factor_betas output"""
+        if not self.historical_analysis:
+            return ""
+        
+        sections = []
+        
+        # Extract data from historical_analysis
+        worst_per_proxy = self.historical_analysis.get('worst_per_proxy', {})
+        worst_by_factor = self.historical_analysis.get('worst_by_factor', {})
+        analysis_period = self.historical_analysis.get('analysis_period', {})
+        loss_limit = self.historical_analysis.get('loss_limit', -0.10)
+        
+        lookback_years = analysis_period.get('years', 10)
+        start_str = analysis_period.get('start', '')
+        end_str = analysis_period.get('end', '')
+        
+        # Section 1: Historical Worst-Case Analysis header
+        sections.append(f"=== Historical Worst-Case Analysis ({lookback_years}-year lookback) ===")
+        if start_str and end_str:
+            sections.append(f"Analysis Period: {start_str} to {end_str}")
+        
+        # Section 2: Worst Monthly Losses per Proxy
+        if worst_per_proxy:
+            sections.append("\n=== Worst Monthly Losses per Proxy ===")
+            proxy_lines = []
+            for p, v in sorted(worst_per_proxy.items(), key=lambda kv: kv[1]):
+                proxy_lines.append(f"{p:<12} : {v:.2%}")
+            sections.append("\n".join(proxy_lines))
+        
+        # Section 3: Worst Monthly Losses per Factor Type
+        if worst_by_factor:
+            sections.append("\n=== Worst Monthly Losses per Factor Type ===")
+            factor_lines = []
+            for ftype, (p, v) in worst_by_factor.items():
+                factor_lines.append(f"{ftype:<10} → {p:<12} : {v:.2%}")
+            sections.append("\n".join(factor_lines))
+        
+        # Section 4: Max Allowable Beta per Factor
+        if hasattr(self, 'max_betas') and self.max_betas:
+            sections.append(f"\n=== Max Allowable Beta per Factor (Loss Limit = {loss_limit:.0%}) ===")
+            beta_lines = []
+            for ftype, beta in self.max_betas.items():
+                beta_lines.append(f"{ftype:<10} → β ≤ {beta:.2f}")
+            sections.append("\n".join(beta_lines))
+        
+        # Section 5: Max Beta per Industry Proxy
+        if hasattr(self, 'max_betas_by_proxy') and self.max_betas_by_proxy:
+            sections.append("\n=== Max Beta per Industry Proxy ===")
+            proxy_beta_lines = []
+            for p, b in sorted(self.max_betas_by_proxy.items()):
+                proxy_beta_lines.append(f"{p:<12} → β ≤ {b:.2f}")
+            sections.append("\n".join(proxy_beta_lines))
+        
+        return "\n".join(sections)
+
+    @classmethod
+    def _build_allocations_dataframe(cls, portfolio_summary: Dict[str, Any], analysis_metadata: Dict[str, Any]) -> pd.DataFrame:
+        """
+        Build allocations DataFrame ensuring Portfolio Weight column exists.
+        
+        This fixes the root cause where empty allocations DataFrame causes
+        portfolio_weights property to return None, leading to len(None) errors
+        in to_api_response() method.
+        """
+        # Try to get allocations from portfolio_summary first
+        allocations_df = portfolio_summary.get("allocations", pd.DataFrame())
+        
+        # If allocations are empty or missing Portfolio Weight column, build from weights
+        if allocations_df.empty or "Portfolio Weight" not in allocations_df.columns:
+            weights = analysis_metadata.get("weights", {})
+            if weights:
+                allocations_df = pd.DataFrame({'Portfolio Weight': pd.Series(weights)})
+            else:
+                # Create empty DataFrame with proper structure
+                allocations_df = pd.DataFrame(columns=['Portfolio Weight'])
+        
+        return allocations_df
+    
+    @classmethod
+    def from_core_analysis(cls, 
+                          portfolio_summary: Dict[str, Any],
+                          risk_checks: List[Dict[str, Any]], 
+                          beta_checks: List[Dict[str, Any]],
+                          max_betas: Dict[str, float],
+                          max_betas_by_proxy: Dict[str, float],
+                          historical_analysis: Dict[str, Any],
+                          analysis_metadata: Dict[str, Any]) -> 'RiskAnalysisResult':
+        """
+        Create RiskAnalysisResult from core analysis function data.
+        
+        This replaces from_build_portfolio_view() with a cleaner interface
+        designed for core business logic functions, not service layer.
+        
+        🔒 CONSTRAINT: Must preserve exact same field mappings as current factory.
+        The existing to_api_response() method expects these fields to be populated:
+        - portfolio_weights, dollar_exposure, allocations, total_value
+        - volatility_annual, herfindahl, risk_contributions, etc.
+        
+        This builder MUST populate ALL fields that to_api_response() uses.
+        """
+        return cls(
+            # Core field mappings from existing from_build_portfolio_view()
+            volatility_annual=portfolio_summary["volatility_annual"],
+            volatility_monthly=portfolio_summary["volatility_monthly"],
+            herfindahl=portfolio_summary["herfindahl"],
+            portfolio_factor_betas=portfolio_summary["portfolio_factor_betas"],
+            variance_decomposition=portfolio_summary["variance_decomposition"],
+            risk_contributions=portfolio_summary["risk_contributions"],
+            stock_betas=portfolio_summary["df_stock_betas"],
+            covariance_matrix=portfolio_summary.get("covariance_matrix", pd.DataFrame()),
+            correlation_matrix=portfolio_summary.get("correlation_matrix", pd.DataFrame()),
+            allocations=cls._build_allocations_dataframe(portfolio_summary, analysis_metadata),  # Used by to_api_response()
+            factor_vols=portfolio_summary.get("factor_vols", pd.DataFrame()),
+            weighted_factor_var=portfolio_summary.get("weighted_factor_var", pd.DataFrame()),
+            asset_vol_summary=portfolio_summary.get("asset_vol_summary", pd.DataFrame()),
+            portfolio_returns=portfolio_summary.get("portfolio_returns", pd.Series()),
+            euler_variance_pct=portfolio_summary.get("euler_variance_pct", pd.Series()),
+            industry_variance=portfolio_summary.get("industry_variance", {}),
+            net_exposure=portfolio_summary.get("net_exposure"),
+            gross_exposure=portfolio_summary.get("gross_exposure"),
+            leverage=portfolio_summary.get("leverage"),
+            total_value=portfolio_summary.get("total_value"),  # Used by to_api_response()
+            dollar_exposure=portfolio_summary.get("dollar_exposure"),  # Used by to_api_response()
+            # New structured fields from parameters
+            risk_checks=risk_checks,
+            beta_checks=beta_checks, 
+            max_betas=max_betas,
+            max_betas_by_proxy=max_betas_by_proxy,
+            historical_analysis=historical_analysis,
+            analysis_date=datetime.now(),
+            portfolio_name=analysis_metadata.get("portfolio_name"),
+            expected_returns=analysis_metadata.get("expected_returns"),
+            factor_proxies=analysis_metadata.get("factor_proxies")
         )
     
     def to_formatted_report(self) -> str:

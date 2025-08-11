@@ -168,7 +168,7 @@ def compute_max_betas(
 
 # ─── risk_helpers.py ─────────────────────────────────────────────────────────
 
-from typing import Dict, Tuple, List
+from typing import Dict, Tuple, List, Any
 from datetime import datetime
 import yaml
 import pandas as pd
@@ -179,7 +179,7 @@ def calc_max_factor_betas(
     risk_yaml: str = "risk_limits.yaml",
     lookback_years: int = None,
     echo: bool = True,
-) -> Tuple[Dict[str, float], Dict[str, float]]:
+) -> Tuple[Dict[str, float], Dict[str, float], Dict[str, Any]]:
     """
     Derive max-allowable portfolio betas for each factor type and industry
     from historical worst 1-month factor proxy returns.
@@ -198,9 +198,15 @@ def calc_max_factor_betas(
 
     Returns
     -------
-    Tuple[Dict[str, float], Dict[str, float]]
+    Tuple[Dict[str, float], Dict[str, float], Dict[str, Any]]
         - max_betas:         {factor_type: max_beta}
         - max_betas_by_proxy: {industry_proxy: max_beta}
+        - historical_analysis: {
+            'worst_per_proxy': {proxy: worst_monthly_loss},
+            'worst_by_factor': {factor_type: (proxy_name, worst_loss)},
+            'analysis_period': {'start': start_date, 'end': end_date, 'years': lookback_years},
+            'loss_limit': loss_limit_pct
+          }
     """
     # 1. --- load configs -----------------------------------------------------
     with open(portfolio_yaml, "r") as f:
@@ -275,5 +281,17 @@ def calc_max_factor_betas(
         for p, b in sorted(max_betas_by_proxy.items()):
             print(f"{p:<12} → β ≤ {b:.2f}")
 
-    return max_betas, max_betas_by_proxy
+    # Package historical analysis data for CLI and API reporting
+    historical_analysis = {
+        'worst_per_proxy': worst_per_proxy,
+        'worst_by_factor': worst_by_factor,
+        'analysis_period': {
+            'start': start_str,
+            'end': end_str,
+            'years': lookback_years
+        },
+        'loss_limit': loss_limit
+    }
+    
+    return max_betas, max_betas_by_proxy, historical_analysis
 

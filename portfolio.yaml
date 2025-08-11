@@ -64,49 +64,122 @@ stock_factor_proxies:
     momentum: MTUM
     value: IWD
     industry: XOP
-    subindustry: []
+    subindustry:
+    - AR
+    - RRC
+    - CNX
+    - CTRA
+    - MTDR
+    - SM
+    - MUR
+    - DVN
   IGIC:
     market: SPY
     momentum: MTUM
     value: IWD
     industry: KIE
-    subindustry: []
+    subindustry:
+    - AIG
+    - LNC
+    - PRU
+    - MET
+    - GL
+    - UNM
+    - VOYA
+    - CNO
+    - HIG
+    - AFL
   IT:
     market: SPY
     momentum: MTUM
     value: IWD
     industry: XLK
-    subindustry: []
+    subindustry:
+    - ACN
+    - IBM
+    - CTSH
+    - DXC
+    - GLOB
+    - EPAM
+    - INFY
+    - WIT
+    - DOX
+    - LDOS
   KINS:
     market: SPY
     momentum: MTUM
     value: IWD
     industry: KIE
-    subindustry: []
+    subindustry:
+    - HRTG
+    - UFCS
+    - SIGI
+    - MCY
+    - KMPR
+    - THG
+    - SAFT
+    - RLI
+    - CNA
+    - WRB
   MSCI:
     market: SPY
     momentum: MTUM
     value: IWD
     industry: KCE
-    subindustry: []
+    subindustry:
+    - SPGI
+    - ICE
+    - MCO
+    - CBOE
+    - NDAQ
+    - MKTX
+    - CME
+    - BR
+    - FDS
+    - SSNC
   NVDA:
     market: SPY
     momentum: MTUM
     value: IWD
     industry: SOXX
-    subindustry: []
+    subindustry:
+    - AMD
+    - INTC
+    - AVGO
+    - QCOM
+    - TSM
+    - MRVL
+    - TXN
   RNMBY:
     market: SPY
     momentum: MTUM
     value: IWD
     industry: ITA
-    subindustry: []
+    subindustry:
+    - LMT
+    - NOC
+    - GD
+    - BA
+    - RTX
+    - HII
+    - TXT
+    - LHX
+    - CW
+    - TDG
   SFM:
     market: SPY
     momentum: MTUM
     value: IWD
     industry: XLP
-    subindustry: []
+    subindustry:
+    - KR
+    - IMKTA
+    - CASY
+    - WMK
+    - SYY
+    - UNFI
+    - TGT
+    - WMT
   SLV:
     market: SPY
     momentum: MTUM
@@ -118,16 +191,38 @@ stock_factor_proxies:
     momentum: MTUM
     value: IWD
     industry: REM
-    subindustry: []
+    subindustry:
+    - BXMT
+    - LADR
+    - ARI
+    - KREF
+    - RC
+    - PMT
+    - TRTX
+    - MFA
+    - RITM
   TKO:
     market: SPY
     momentum: MTUM
     value: IWD
     industry: XLC
-    subindustry: []
+    subindustry:
+    - LYV
+    - FWONA
+    - PLNT
+    - FUN
+    - CZR
   V:
     market: SPY
     momentum: MTUM
     value: IWD
     industry: KCE
-    subindustry: []
+    subindustry:
+    - MA
+    - AXP
+    - COF
+    - SYF
+    - ALLY
+    - FIS
+    - GPN
+    - WU

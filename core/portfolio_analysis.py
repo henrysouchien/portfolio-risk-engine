@@ -10,6 +10,8 @@ import yaml
 from typing import Dict, Any, Optional
 from datetime import datetime
 
+from core.result_objects import RiskAnalysisResult
+
 from run_portfolio_risk import (
     load_portfolio_config,
     standardize_portfolio_input,
@@ -32,7 +34,7 @@ from utils.logging import (
 @log_error_handling("high")
 @log_portfolio_operation_decorator("portfolio_analysis")
 @log_performance(3.0)
-def analyze_portfolio(filepath: str, risk_yaml: str = "risk_limits.yaml") -> Dict[str, Any]:
+def analyze_portfolio(filepath: str, risk_yaml: str = "risk_limits.yaml") -> RiskAnalysisResult:
     """
     Core portfolio analysis business logic.
     
@@ -48,12 +50,9 @@ def analyze_portfolio(filepath: str, risk_yaml: str = "risk_limits.yaml") -> Dic
         
     Returns
     -------
-    Dict[str, Any]
-        Structured portfolio analysis results containing:
-        - portfolio_summary: Complete portfolio view from build_portfolio_view
-        - risk_analysis: Risk limit checks and violations
-        - beta_analysis: Factor beta checks and violations
-        - analysis_metadata: Analysis configuration and timestamps
+    RiskAnalysisResult
+        Complete risk analysis result object containing all portfolio metrics,
+        factor exposures, risk checks, and formatted reporting capabilities.
     """
     
     # ─── 1. Load YAML Inputs ─────────────────────────────
@@ -86,7 +85,7 @@ def analyze_portfolio(filepath: str, risk_yaml: str = "risk_limits.yaml") -> Dic
     
     # ─── 3. Calculate Beta Limits ────────────────────────────
     lookback_years = PORTFOLIO_DEFAULTS.get('worst_case_lookback_years', 10)
-    max_betas, max_betas_by_proxy = calc_max_factor_betas(
+    max_betas, max_betas_by_proxy, historical_analysis = calc_max_factor_betas(
         portfolio_yaml=filepath,
         risk_yaml=risk_yaml,
         lookback_years=lookback_years,
@@ -108,32 +107,23 @@ def analyze_portfolio(filepath: str, risk_yaml: str = "risk_limits.yaml") -> Dic
         max_proxy_betas=max_betas_by_proxy
     )
     
-    # ─── 5. Return Structured Results ────────────────────────
-    return {
-        "portfolio_summary": summary,
-        "risk_analysis": {
-            "risk_checks": df_risk.to_dict('records'),
-            "risk_passes": bool(df_risk['Pass'].all()),
-            "risk_violations": df_risk[~df_risk['Pass']].to_dict('records'),
-            "risk_limits": {
-                "portfolio_limits": risk_config["portfolio_limits"],
-                "concentration_limits": risk_config["concentration_limits"],
-                "variance_limits": risk_config["variance_limits"]
-            }
-        },
-        "beta_analysis": {
-            "beta_checks": df_beta.reset_index().to_dict('records'),
-            "beta_passes": bool(df_beta['pass'].all()),
-            "beta_violations": df_beta[~df_beta['pass']].reset_index().to_dict('records'),
-            "max_betas": max_betas,
-            "max_betas_by_proxy": max_betas_by_proxy
-        },
-        "analysis_metadata": {
+    # ─── 5. Return Result Object ────────────────────────
+    return RiskAnalysisResult.from_core_analysis(
+        portfolio_summary=summary,
+        risk_checks=df_risk.to_dict('records'), 
+        beta_checks=df_beta.reset_index().to_dict('records'),
+        max_betas=max_betas,
+        max_betas_by_proxy=max_betas_by_proxy,
+        historical_analysis=historical_analysis,
+        analysis_metadata={
             "analysis_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "portfolio_file": filepath,
             "lookback_years": lookback_years,
             "weights": weights,
             "total_positions": len(weights),
-            "active_positions": len([v for v in weights.values() if abs(v) > 0.001])
+            "active_positions": len([v for v in weights.values() if abs(v) > 0.001]),
+            "portfolio_name": config.get("name", "Portfolio"),
+            "expected_returns": config.get("expected_returns"),
+            "factor_proxies": config.get("stock_factor_proxies")
         }
-    } 
+    ) 
