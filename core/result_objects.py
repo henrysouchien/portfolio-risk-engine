@@ -2491,6 +2491,43 @@ class RiskScoreResult:
     # Risk limits metadata (from RiskLimitsData object)
     risk_limits_name: Optional[str] = None        # Risk limits profile name
     
+    # Analysis metadata (for CLI report generation)
+    analysis_metadata: Optional[Dict[str, Any]] = None
+    
+    @classmethod  
+    def from_risk_score_analysis(cls, 
+                               risk_score: Dict[str, Any],
+                               limits_analysis: Dict[str, Any], 
+                               portfolio_analysis: Dict[str, Any],
+                               suggested_limits: Dict[str, Any],
+                               analysis_metadata: Dict[str, Any]) -> 'RiskScoreResult':
+        """
+        🔒 CRITICAL: This must preserve exact same field mappings as current usage
+        AND ensure to_api_response() produces identical output to current API responses.
+        
+        Create RiskScoreResult from the components returned by run_risk_score_analysis.
+        This builder method ensures consistent field mapping and preserves API compatibility.
+        """
+        from datetime import datetime, timezone
+        
+        # Create the result object first
+        result = cls(
+            risk_score=risk_score,
+            limits_analysis=limits_analysis,
+            portfolio_analysis=portfolio_analysis,
+            suggested_limits=suggested_limits,
+            formatted_report="",  # Will be populated below
+            analysis_date=datetime.now(timezone.utc),
+            portfolio_name=analysis_metadata.get("portfolio_name", "portfolio"),
+            risk_limits_name=analysis_metadata.get("risk_limits_name"),
+            analysis_metadata=analysis_metadata
+        )
+        
+        # Generate and attach the formatted report
+        result.formatted_report = result.to_cli_report()
+        
+        return result
+    
     def get_summary(self) -> Dict[str, Any]:
         """Get risk score summary."""
         # Handle the actual data structure from run_risk_score_analysis
@@ -2553,120 +2590,7 @@ class RiskScoreResult:
         """Get risk category classification (display format)."""
         return self.risk_score.get("category", "Unknown")
     
-    def to_formatted_report(self) -> str:
-        """
-        Generate comprehensive human-readable portfolio risk score report.
-        
-        Creates a detailed risk assessment report with overall scoring, component
-        breakdown, risk factor analysis, and actionable recommendations. Format
-        includes professional presentation with emoji indicators and clear sections.
-        
-        Report Sections:
-        1. **Risk Score Summary**: Overall score and risk category with visual indicators
-        2. **Component Scores**: Detailed breakdown by risk dimension with status indicators
-        3. **Risk Factors**: Specific risk issues requiring attention
-        4. **Recommendations**: Actionable risk management suggestions
-        5. **Compliance Status**: Overall assessment and next steps
-        
-        Format: Professional risk assessment report with emoji indicators, clear
-        section breaks, and structured presentation suitable for client communication.
-        
-        Returns:
-            str: Complete formatted risk score report (typically 800-1500 characters)
-            
-        Example:
-            ```python
-            report = result.to_formatted_report()
-            
-            # Display for client review
-            print(report)
-            
-            # Send to Claude for risk analysis
-            claude_prompt = f"Review this portfolio risk assessment:\\n{report}"
-            
-            # Include in client communication
-            client_email = f"Portfolio Risk Assessment:\\n\\n{report}"
-            
-            # Risk management documentation
-            risk_file = f"risk_assessment_{datetime.now().strftime('%Y%m%d')}.txt"
-            with open(risk_file, "w") as f:
-                f.write(report)
-            ```
-            
-        Sample Output:
-            ```
-            ============================================================
-            📊 PORTFOLIO RISK SCORE (Scale: 0-100, higher = better)
-            ============================================================
-            🟡 Overall Score: 75/100 (Moderate Risk)
-            
-            📈 Component Scores:
-            ────────────────────────────────────────
-            🔴 Concentration                      52/100
-            🟢 Volatility                         82/100
-            🟡 Factor Exposure                    71/100
-            🟢 Liquidity                          88/100
-            
-            ⚠️  KEY RISK FACTORS:
-               • Portfolio concentration exceeds 30% limit
-               • Technology sector allocation above 40% limit
-               • Single position weight above 25% threshold
-            
-            💡 KEY RECOMMENDATIONS:
-               • Reduce AAPL position from 28% to below 25%
-               • Add defensive positions to reduce volatility
-               • Diversify sector concentration
-            
-            ============================================================
-            ```
-        """
-        # Use stored formatted report if available (from dual-mode function)
-        if hasattr(self, '_formatted_report') and self._formatted_report:
-            return self._formatted_report
-        
-        # Fallback to manual reconstruction (basic version)
-        sections = []
-        
-        # Risk Score Summary
-        sections.append("=" * 60)
-        sections.append("📊 PORTFOLIO RISK SCORE (Scale: 0-100, higher = better)")
-        sections.append("=" * 60)
-        
-        overall_score = self.risk_score.get("score", 0)
-        risk_category = self.risk_score.get("category", "Unknown")
-        sections.append(f"🟢 Overall Score: {overall_score}/100 ({risk_category})")
-        sections.append("")
-        
-        # Component Scores
-        component_scores = self.risk_score.get("component_scores", {})
-        if component_scores:
-            sections.append("📈 Component Scores:")
-            sections.append("─" * 40)
-            for component, score in component_scores.items():
-                icon = "🟢" if score >= 80 else "🟡" if score >= 60 else "🔴"
-                component_name = component.replace("_", " ").title()
-                sections.append(f"{icon} {component_name:<30} {score}/100")
-            sections.append("")
-        
-        # Risk Factors
-        risk_factors = self.get_risk_factors()
-        if risk_factors:
-            sections.append("⚠️  KEY RISK FACTORS:")
-            for factor in risk_factors:
-                sections.append(f"   • {factor}")
-            sections.append("")
-        
-        # Recommendations
-        recommendations = self.get_recommendations()
-        if recommendations:
-            sections.append("💡 KEY RECOMMENDATIONS:")
-            for rec in recommendations:
-                sections.append(f"   • {rec}")
-            sections.append("")
-        
-        sections.append("=" * 60)
-        
-        return "\n".join(sections)
+    
 
     def _get_priority_actions(self) -> list:
         """
@@ -2825,12 +2749,7 @@ class RiskScoreResult:
             "suggested_limits": _convert_to_json_serializable(self.suggested_limits),  # Contains: factor_limits, concentration_limit, volatility_limit, sector_limit
             
             # Complete formatted CLI output (for display/debugging)
-            "formatted_report": self.formatted_report or self.to_formatted_report(),  # Full CLI text output
-            
-            # Analysis metadata
-            "analysis_date": self.analysis_date.isoformat(),  # When analysis was performed
-            "portfolio_name": self.portfolio_name,  # Portfolio identifier
-            "risk_limits_name": self.risk_limits_name,  # Risk limits profile name (e.g., "Conservative", "Aggressive")
+            "formatted_report": self.formatted_report or self.to_cli_report(),  # Full CLI text output
             
             # Enhanced analysis fields (generated by helper methods)
             "priority_actions": self._get_priority_actions(),  # Prioritized action list from recommendations
@@ -2840,6 +2759,15 @@ class RiskScoreResult:
             
             # Complete portfolio analysis data (correlations, allocations, etc.)
             "portfolio_analysis": _convert_to_json_serializable(self.portfolio_analysis),  # Full portfolio view data
+            
+            # Analysis metadata (grouped for cleaner API structure)
+            "analysis_metadata": {
+                "analysis_date": self.analysis_date.isoformat(),  # When analysis was performed
+                "portfolio_name": self.portfolio_name,  # Portfolio identifier
+                "risk_limits_name": self.risk_limits_name,  # Risk limits profile name (e.g., "Conservative", "Aggressive")
+                "max_loss": self.analysis_metadata.get('max_loss') if self.analysis_metadata else None,  # Maximum loss tolerance used
+                "analysis_type": self.analysis_metadata.get('analysis_type', 'risk_score') if self.analysis_metadata else 'risk_score'  # Type of analysis performed
+            }
 
         }
 
@@ -2892,6 +2820,302 @@ class RiskScoreResult:
         
         return details
     
+    def to_cli_report(self) -> str:
+        """
+        Generate complete CLI formatted report - IDENTICAL to current output.
+        
+        This method produces the exact same CLI output as the current portfolio_risk_score.py
+        implementation, ensuring byte-for-byte compatibility during the refactoring process.
+        """
+        sections = []
+        sections.append(self._format_risk_score_display())
+        sections.append("")  # Add blank line
+        sections.append(self._format_detailed_risk_analysis())  
+        sections.append("")  # Add blank line
+        sections.append(self._format_suggested_risk_limits())
+        return "\n".join(sections)
+    
+    def _format_risk_score_display(self) -> str:
+        """Format risk score display - EXACT copy of display_portfolio_risk_score()"""
+        # Import generate_score_interpretation from portfolio_risk_score module
+        from portfolio_risk_score import generate_score_interpretation
+        
+        score = self.risk_score["score"]
+        category = self.risk_score["category"]
+        component_scores = self.risk_score["component_scores"]
+        risk_factors = self.risk_score["risk_factors"]
+        recommendations = self.risk_score["recommendations"]
+        
+        lines = []
+        lines.append("")  # Add initial blank line
+        
+        # Color coding based on score
+        if score >= 90:
+            color = "🟢"  # Green
+        elif score >= 80:
+            color = "🟡"  # Yellow
+        elif score >= 70:
+            color = "🟠"  # Orange
+        elif score >= 60:
+            color = "🔴"  # Red
+        else:
+            color = "⚫"  # Black
+        
+        lines.append("=" * 60)
+        lines.append("📊 PORTFOLIO RISK SCORE (Scale: 0-100, higher = better)")
+        lines.append("=" * 60)
+        lines.append(f"{color} Overall Score: {score}/100 ({category})")
+        
+        # Show max loss context if available
+        max_loss_limit = self.risk_score.get("details", {}).get("max_loss_limit", None)
+        if max_loss_limit:
+            lines.append(f"Based on your {abs(max_loss_limit):.0%} maximum loss tolerance")
+        
+        lines.append("=" * 60)
+        lines.append("")  # Add blank line
+        
+        # Component breakdown with explanations
+        lines.append("📈 Component Scores: (Risk of exceeding loss tolerance)")
+        lines.append(f"{'─'*40}")
+        component_explanations = {
+            "factor_risk": "Market/Value/Momentum exposure",
+            "concentration_risk": "Position sizes & diversification", 
+            "volatility_risk": "Portfolio volatility level",
+            "sector_risk": "Sector concentration"
+        }
+        
+        for component, comp_score in component_scores.items():
+            comp_color = "🟢" if comp_score >= 80 else "🟡" if comp_score >= 60 else "🔴"
+            explanation = component_explanations.get(component, "")
+            component_name = component.replace('_', ' ').title()
+            lines.append(f"{comp_color} {component_name:<15} ({explanation}) {comp_score:>5.1f}/100")
+        
+        lines.append("")  # Add blank line after component scores
+        
+        # Risk factors with simplified language
+        if risk_factors:
+            lines.append(f"⚠️  Risk Factors Identified:")
+            lines.append(f"{'─'*40}")
+            for factor in risk_factors:
+                # Simplify technical language
+                simplified_factor = factor.replace("Factor exposure", "Market exposure")
+                simplified_factor = simplified_factor.replace("systematic factor exposure", "market exposure")
+                lines.append(f"   • {simplified_factor}")
+        
+        # Recommendations with implementation guidance
+        if recommendations:
+            lines.append(f"💡 Recommendations:")
+            lines.append(f"{'─'*40}")
+            for rec in recommendations:
+                simplified_rec = rec.replace("systematic factor exposure", "market exposure")
+                simplified_rec = simplified_rec.replace("through hedging or position sizing", "(sell high-beta stocks or add hedges)")
+                lines.append(f"   • {simplified_rec}")
+            
+            # Add detailed implementation guidance
+            lines.append(f"🔧 How to Implement:")
+            lines.append(f"{'─'*40}")
+            
+            # Market/Factor exposure guidance
+            if any("market exposure" in rec.lower() or "market factor" in rec.lower() for rec in recommendations):
+                lines.append("   • Reduce market exposure: Sell high-beta stocks, add market hedges (SPY puts), or increase cash")
+            
+            # Specific factor guidance
+            if any("momentum" in rec.lower() for rec in recommendations):
+                lines.append("   • Reduce momentum exposure: Trim momentum-oriented positions or add momentum shorts")
+            if any("value" in rec.lower() for rec in recommendations):
+                lines.append("   • Reduce value exposure: Trim value-oriented positions or add growth positions")
+            
+            # Sector-specific guidance
+            sector_recs = [rec for rec in recommendations if any(sector in rec for sector in ["REM", "DSU", "XOP", "KIE", "XLK", "KCE", "SOXX", "ITA", "XLP", "SLV", "XLC"])]
+            if sector_recs:
+                lines.append("   • Reduce sector concentration: Trim specific sector ETF positions or add offsetting sectors")
+            
+            # Concentration/diversification guidance
+            if any("concentration" in rec.lower() or "position size" in rec.lower() for rec in recommendations):
+                lines.append("   • Reduce concentration: Trim largest positions, spread allocation across more stocks")
+            if any("diversification" in rec.lower() for rec in recommendations):
+                lines.append("   • Improve diversification: Add more positions across different sectors and factors")
+            
+            # Volatility guidance
+            if any("volatility" in rec.lower() for rec in recommendations):
+                lines.append("   • Reduce volatility: Add defensive stocks, increase cash, or add volatility hedges")
+            
+            # Systematic risk guidance
+            if any("systematic" in rec.lower() for rec in recommendations):
+                lines.append("   • Reduce systematic risk: Lower factor exposures, add uncorrelated assets")
+            
+            # Leverage guidance
+            if any("leverage" in rec.lower() for rec in recommendations):
+                lines.append("   • Reduce leverage: Increase cash position, pay down margin, or reduce position sizes")
+        
+        # Score interpretation - action-focused
+        lines.append(f"📋 Score Interpretation:")
+        lines.append(f"{'─'*40}")
+        interpretation = generate_score_interpretation(score)
+        lines.append(f"   {interpretation['summary']}")
+        for detail in interpretation['details']:
+            lines.append(f"      • {detail}")
+        
+        lines.append("")  # Add blank line after score interpretation
+        
+        # Risk assessment - contextual understanding
+        lines.append(f"📊 Risk Assessment:")
+        lines.append(f"{'─'*40}")
+        for assessment in interpretation['risk_assessment']:
+            lines.append(f"   • {assessment}")
+        
+        lines.append("")  # Add blank line after risk assessment
+        
+        lines.append("=" * 60)
+        
+        return "\n".join(lines)
+    
+    def _format_detailed_risk_analysis(self) -> str:
+        """Format detailed risk limits analysis - EXACT copy of lines 1511-1553"""
+        lines = []
+        
+        # Display detailed risk limits analysis
+        lines.append("═" * 80)
+        lines.append("📋 DETAILED RISK LIMITS ANALYSIS")
+        lines.append("═" * 80)
+        lines.append("")  # Add blank line after header
+        
+        # Display limit violations summary
+        violations = self.limits_analysis["limit_violations"]
+        total_violations = sum(violations.values())
+        
+        lines.append("📊 LIMIT VIOLATIONS SUMMARY:")
+        lines.append(f"   Total violations: {total_violations}")
+        lines.append(f"   Factor betas: {violations['factor_betas']}")
+        lines.append(f"   Concentration: {violations['concentration']}")
+        lines.append(f"   Volatility: {violations['volatility']}")
+        lines.append(f"   Variance contributions: {violations['variance_contributions']}")
+        lines.append(f"   Leverage: {violations['leverage']}")
+        lines.append("")  # Add blank line after violations summary
+        
+        # Display detailed risk factors
+        if self.limits_analysis["risk_factors"]:
+            lines.append("⚠️  KEY RISK FACTORS:")
+            for factor in self.limits_analysis["risk_factors"]:
+                lines.append(f"   • {factor}")
+            lines.append("")  # Add blank line after risk factors
+        
+        # Display detailed recommendations
+        if self.limits_analysis["recommendations"]:
+            lines.append("💡 KEY RECOMMENDATIONS:")
+            
+            # Filter recommendations to show only beta-based ones (more intuitive for users)
+            # Keep variance calculations but don't show variance-based recommendations in output
+            beta_recommendations = []
+            for rec in self.limits_analysis["recommendations"]:
+                # Skip variance-based recommendations (they're duplicative of beta-based ones)
+                if "factor exposure (contributing" in rec.lower():
+                    continue  # Skip "Reduce X factor exposure (contributing Y% to variance)"
+                if "industry (contributing" in rec.lower():
+                    continue  # Skip "Reduce X industry (contributing Y% to variance)"
+                if "reduce market factor exposure" in rec.lower():
+                    continue  # Skip generic market factor exposure
+                
+                # Keep all other recommendations (beta-based, concentration, volatility, leverage, etc.)
+                beta_recommendations.append(rec)
+            
+            for rec in beta_recommendations:
+                lines.append(f"   • {rec}")
+        
+        return "\n".join(lines)
+    
+    def _format_suggested_risk_limits(self) -> str:
+        """Format suggested limits - EXACT copy of display_suggested_risk_limits()"""
+        # Get max loss from analysis metadata or default
+        analysis_metadata = getattr(self, 'analysis_metadata', {})
+        max_loss = analysis_metadata.get('max_loss', 0.25)  # Default 25%
+        
+        lines = []
+        
+        # Get current leverage for display
+        current_leverage = self.suggested_limits.get("leverage_limit", {}).get("current_leverage", 1.0)
+        
+        lines.append("=" * 60)
+        lines.append(f"📋 SUGGESTED RISK LIMITS (to stay within {max_loss:.0%} max loss)")
+        lines.append(f"Working backwards from your risk tolerance to show exactly what needs to change")
+        if current_leverage > 1.01:
+            lines.append(f"Adjusted for your current {current_leverage:.2f}x leverage - limits are tighter")
+        lines.append("=" * 60)
+        lines.append("")  # Add blank line after header
+        
+        # Factor limits
+        factor_limits = self.suggested_limits["factor_limits"]
+        if factor_limits:
+            lines.append(f"🎯 Factor Beta Limits: (Beta = sensitivity to market moves)")
+            lines.append(f"{'─'*40}")
+            for factor, data in factor_limits.items():
+                status = "🔴 REDUCE" if data["needs_reduction"] else "🟢 OK"
+                factor_name = factor.replace('_', ' ').title().replace('Beta', 'Exposure')
+                current_val = data['current']
+                suggested_val = data['suggested_max']
+                
+                # Add note for negative values (hedges)
+                note = ""
+                if current_val < 0:
+                    note = " (hedge position)"
+                
+                lines.append(f"{status} {factor_name:<15} Current: {current_val:>6.2f}{note}  →  Max: {suggested_val:>6.2f}")
+        
+        lines.append("")  # Add blank line after factor limits
+        
+        # Concentration limit
+        conc = self.suggested_limits["concentration_limit"]
+        conc_status = "🔴 REDUCE" if conc["needs_reduction"] else "🟢 OK"
+        lines.append(f"🎯 Position Size Limit:")
+        lines.append(f"{'─'*40}")
+        lines.append(f"{conc_status} Max Position Size     Current: {conc['current_max_position']:>6.1%}  →  Max: {conc['suggested_max_position']:>6.1%}")
+        
+        lines.append("")  # Add blank line after concentration limit
+        
+        # Volatility limit
+        vol = self.suggested_limits["volatility_limit"]
+        vol_status = "🔴 REDUCE" if vol["needs_reduction"] else "🟢 OK"
+        lines.append(f"🎯 Volatility Limit:")
+        lines.append(f"{'─'*40}")
+        lines.append(f"{vol_status} Portfolio Volatility  Current: {vol['current_volatility']:>6.1%}  →  Max: {vol['suggested_max_volatility']:>6.1%}")
+        
+        lines.append("")  # Add blank line after volatility limit
+        
+        # Sector limit
+        sector = self.suggested_limits["sector_limit"]
+        sector_status = "🔴 REDUCE" if sector["needs_reduction"] else "🟢 OK"
+        lines.append(f"🎯 Sector Concentration Limit:")
+        lines.append(f"{'─'*40}")
+        lines.append(f"{sector_status} Max Sector Exposure   Current: {sector['current_max_sector']:>6.1%}  →  Max: {sector['suggested_max_sector']:>6.1%}")
+        
+        lines.append("")  # Add blank line after sector limit
+        
+        lines.append("💡 Priority Actions:")
+        lines.append(f"{'─'*40}")
+        
+        # Identify biggest issues
+        issues = []
+        if any(data["needs_reduction"] for data in factor_limits.values()):
+            issues.append("Reduce systematic factor exposures")
+        if conc["needs_reduction"]:
+            issues.append("Reduce largest position sizes")
+        if vol["needs_reduction"]:
+            issues.append("Reduce portfolio volatility")
+        if sector["needs_reduction"]:
+            issues.append("Reduce sector concentration")
+        
+        if not issues:
+            lines.append("   🟢 Portfolio structure is within suggested limits!")
+        else:
+            for i, issue in enumerate(issues, 1):
+                lines.append(f"   {i}. {issue}")
+        
+        lines.append("")  # Add blank line after priority actions
+        
+        lines.append("=" * 60)
+        
+        return "\n".join(lines)
+
     def _get_risk_factors_with_priority(self) -> List[Dict[str, Any]]:
         """Generate risk factors with priority levels and severity."""
         risk_factors = []
@@ -2919,45 +3143,7 @@ class RiskScoreResult:
                      DeprecationWarning, stacklevel=2)
         return self.to_api_response()
     
-    @classmethod
-    def from_risk_score_analysis(cls, risk_score_result: Dict[str, Any],
-                                 portfolio_name: Optional[str] = None,
-                                 risk_limits_name: Optional[str] = None) -> 'RiskScoreResult':
-        """
-        Create RiskScoreResult from run_risk_score_analysis output.
-        
-        This factory method creates a complete RiskScoreResult from the output of 
-        run_risk_score_analysis(), capturing all analysis data and enabling enhanced
-        API responses with prioritized actions and structured interpretations.
-        
-        Complete Field Mapping (run_risk_score_analysis → RiskScoreResult):
-        ================================================================
-        
-        Core Function Output                     → Result Object Field
-        ──────────────────────────────────────────────────────────────────
-        risk_score_result["risk_score"]         → self.risk_score
-        risk_score_result["limits_analysis"]    → self.limits_analysis  
-        risk_score_result["suggested_limits"]   → self.suggested_limits
-        risk_score_result["formatted_report"]   → self.formatted_report
-        risk_score_result["analysis_date"]      → self.analysis_date (parsed)
-        portfolio_name parameter                → self.portfolio_name
-        risk_score_result["portfolio_analysis"] → self.portfolio_analysis
-        risk_limits_name parameter             → self.risk_limits_name
 
-        Data Flow: run_risk_score_analysis(return_data=True) → RiskScoreResult
-        Completeness: 100% - All fields from core function captured
-        CLI Alignment: 100% - Interpretation content matches CLI display exactly
-        """
-        return cls(
-            risk_score=risk_score_result["risk_score"],
-            limits_analysis=risk_score_result["limits_analysis"],
-            portfolio_analysis=risk_score_result["portfolio_analysis"],
-            suggested_limits=risk_score_result.get("suggested_limits", {}),  
-            formatted_report=risk_score_result.get("formatted_report", ""), 
-            analysis_date=datetime.fromisoformat(risk_score_result["analysis_date"]) if "analysis_date" in risk_score_result else datetime.now(UTC),  # ← USE ORIGINAL!
-            portfolio_name=portfolio_name,
-            risk_limits_name=risk_limits_name
-        )
     
     def __hash__(self) -> int:
         """Make RiskScoreResult hashable for caching."""

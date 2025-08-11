@@ -738,6 +738,45 @@ def run_portfolio_performance(filepath: str, *, return_data: bool = False):
         # Display the results
         display_portfolio_performance_metrics(performance_metrics)
 
+
+def run_risk_score(portfolio_yaml: str = "portfolio.yaml", risk_yaml: str = "risk_limits.yaml", *, return_data: bool = False):
+    """
+    CLI wrapper for portfolio risk score analysis with dual-mode support.
+    
+    This function provides a consistent interface for risk score analysis that matches
+    the pattern of other CLI functions in this module, with support for both CLI
+    display and programmatic data return.
+    
+    Args:
+        portfolio_yaml: Path to portfolio configuration file
+        risk_yaml: Path to risk limits configuration file  
+        return_data: If True, return RiskScoreResult object instead of printing
+        
+    Returns:
+        RiskScoreResult when return_data=True, None when printing to CLI
+        
+    Example:
+        # CLI mode (default)
+        run_risk_score("my_portfolio.yaml", "conservative_limits.yaml")
+        
+        # API/programmatic mode
+        result = run_risk_score("portfolio.yaml", return_data=True)
+        api_response = result.to_api_response()
+    """
+    from portfolio_risk_score import run_risk_score_analysis
+    
+    # Call the core analysis function
+    result = run_risk_score_analysis(portfolio_yaml, risk_yaml, return_data=True)
+    
+    if return_data:
+        # API/Data mode - return the result object for programmatic use
+        return result
+    else:
+        # CLI mode - print formatted output and return None
+        print(result.to_cli_report())
+        return None
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--portfolio", type=str, help="Path to YAML portfolio file")
@@ -750,6 +789,7 @@ if __name__ == "__main__":
     parser.add_argument("--minvar", action="store_true", help="Run min-variance optimization")
     parser.add_argument("--maxreturn", action="store_true", help="Run max-return optimization")
     parser.add_argument("--performance", action="store_true", help="Run portfolio performance analysis")
+    parser.add_argument("--risk-score", action="store_true", help="Run portfolio risk score analysis")
     parser.add_argument("--scenario", type=str, help="Path to what-if scenario YAML file")
     parser.add_argument("--delta", type=str, help='Inline weight shifts, e.g. "TW:+500bp,PCTY:-200bp"')
     parser.add_argument("--inject_proxies", action="store_true", help="Inject market, industry, and optional subindustry proxies")
@@ -772,6 +812,9 @@ if __name__ == "__main__":
 
     elif args.portfolio and args.performance:
         run_portfolio_performance(args.portfolio)
+    
+    elif args.portfolio and getattr(args, 'risk_score', False):
+        run_risk_score(args.portfolio)
         
     elif args.portfolio and args.gpt:
         run_and_interpret(args.portfolio)

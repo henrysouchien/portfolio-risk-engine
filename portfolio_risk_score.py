@@ -13,29 +13,35 @@ import pandas as pd
 import numpy as np
 import yaml
 from typing import Dict, Any, Optional, List, Tuple
-from datetime import datetime
+from datetime import datetime, UTC
+import os
+
+# Import settings for risk analysis thresholds and scenarios
+from settings import RISK_ANALYSIS_THRESHOLDS, WORST_CASE_SCENARIOS, MAX_SINGLE_FACTOR_LOSS
 
 # Import existing modules without modifying them
 try:
     from portfolio_risk import build_portfolio_view
     from risk_helpers import calc_max_factor_betas
     from run_portfolio_risk import standardize_portfolio_input, latest_price
+    from core.result_objects import RiskScoreResult
 except ImportError:
     print("Warning: Could not import existing modules. Make sure you're in the risk_module directory.")
     build_portfolio_view = None
     calc_max_factor_betas = None
     standardize_portfolio_input = None
     latest_price = None
+    RiskScoreResult = None
 
 
 # =====================================================================
-# WORST-CASE SCENARIO DEFINITIONS (Module-level constants)
+# WORST-CASE SCENARIO DEFINITIONS
 # =====================================================================
 # These scenarios define the stress tests used for risk calculations
 # 
 # DATA SOURCE HIERARCHY:
 # 1. Historical Data: Preferred when available (via max_betas parameters)
-# 2. Configured Scenarios: Fallback values defined below
+# 2. Configured Scenarios: Fallback values from settings.WORST_CASE_SCENARIOS
 # 
 # USAGE BY FUNCTION:
 # - calculate_factor_risk_loss: Historical → Fallback to configured
@@ -44,25 +50,130 @@ except ImportError:
 # - calculate_volatility_risk_loss: Always uses configured scenarios
 # - calculate_suggested_risk_limits: Historical → Fallback to configured
 #
-# Update these values as new historical data becomes available
+# CONFIGURATION:
+# All scenario values are now centralized in settings.py:
+# - settings.WORST_CASE_SCENARIOS: Market crash, factor crashes, concentration scenarios
+# - settings.MAX_SINGLE_FACTOR_LOSS: Default loss limits for factor exposures
+#
+# Update these values in settings.py as new historical data becomes available
 
-WORST_CASE_SCENARIOS = {
-    # Market crash scenario - based on major historical crashes
-    # 2008: -37%, 2000-2002: -49%, 2020: -34%, 1987: -22%
-    "market_crash": 0.35,
-    
-    # Factor-specific scenarios - for momentum/value tilts
-    # These use individual factor loss limits since they're specific bets
-    "momentum_crash": 0.50,  # Momentum factor reversal
-    "value_crash": 0.40,     # Value factor underperformance
-    
-    # Concentration scenarios
-    "single_stock_crash": 0.80,  # Individual stock failure
-    "sector_crash": 0.50,        # Sector-wide crisis
-    
-    # Volatility scenarios
-    "max_reasonable_volatility": 0.40,  # Maximum reasonable portfolio volatility
-}
+# =====================================================================
+# RISK ANALYSIS THRESHOLDS
+# =====================================================================
+# These constants define the hardcoded limits and thresholds used throughout 
+# the risk analysis system. All values are centralized in settings.RISK_ANALYSIS_THRESHOLDS
+#
+# THRESHOLD CATEGORIES:
+#
+# 1. LEVERAGE ANALYSIS:
+#    - leverage_warning_threshold (1.1): Leverage ratio above which warnings are triggered
+#
+# 2. RISK SCORE CALCULATION:
+#    - risk_score_safe_threshold (0.8): Below this excess ratio = 100 points (safe)
+#    - risk_score_caution_threshold (1.0): At limit = 75 points (caution)
+#    - risk_score_danger_threshold (1.5): 50% over limit = 50 points (danger)
+#
+# 3. BETA EXPOSURE ANALYSIS:
+#    - beta_warning_ratio (0.75): Flag beta exposures above 75% of limit
+#    - beta_violation_ratio (1.0): Beta exposures above 100% of limit
+#
+# 4. DIVERSIFICATION ANALYSIS:
+#    - herfindahl_warning_threshold (0.15): HHI above this indicates low diversification
+#    - concentration_warning_ratio (0.8): Position size above 80% of limit triggers warning
+#
+# 5. VOLATILITY ANALYSIS:
+#    - volatility_warning_ratio (0.8): Portfolio volatility above 80% of limit
+#
+# 6. VARIANCE CONTRIBUTION ANALYSIS:
+#    - factor_variance_warning_ratio (0.8): Factor variance above 80% of limit
+#    - market_variance_warning_ratio (0.8): Market variance above 80% of limit
+#    - variance_contribution_threshold (0.05): 5% - minimum contribution to recommend reduction
+#    - industry_concentration_warning_ratio (0.5): Industry concentration above 50% of limit
+#
+# 7. DISPLAY THRESHOLDS:
+#    - leverage_display_threshold (1.01): Show leverage adjustments above this ratio
+#
+# USAGE PATTERN:
+# These thresholds are imported and used throughout portfolio_risk_score.py functions:
+# - analyze_portfolio_risk_limits(): Uses leverage, beta, diversification, volatility thresholds
+# - score_excess_ratio(): Uses risk score calculation thresholds
+# - Various display functions: Use display thresholds
+#
+# Update these values in settings.py to adjust risk sensitivity across the system
+
+# =====================================================================
+# RISK LIMITS USAGE DOCUMENTATION
+# =====================================================================
+# This section documents how user-provided risk limits from risk_limits.yaml
+# are used throughout the risk analysis system.
+#
+# RISK LIMITS FILE STRUCTURE (risk_limits.yaml):
+# portfolio_limits:
+#   max_volatility: 0.4          # Maximum portfolio volatility (40%)
+#   max_loss: -0.25              # Maximum acceptable portfolio loss (25%)
+# concentration_limits:
+#   max_single_stock_weight: 0.4  # Maximum position size (40%)
+# variance_limits:
+#   max_factor_contribution: 0.3   # Maximum factor variance contribution (30%)
+#   max_market_contribution: 0.5   # Maximum market variance contribution (50%)
+#   max_industry_contribution: 0.3 # Maximum industry variance contribution (30%)
+# max_single_factor_loss: -0.1    # Maximum single factor loss limit (10%)
+#
+# FUNCTIONS THAT USE RISK LIMITS:
+#
+# 1. ANALYZE_PORTFOLIO_RISK_LIMITS (Lines 358-556):
+#    ✅ Uses ALL user risk limits from YAML file
+#    - portfolio_limits["max_volatility"] → Volatility limit checking
+#    - concentration_limits["max_single_stock_weight"] → Position size checking
+#    - variance_limits["max_factor_contribution"] → Factor variance checking
+#    - variance_limits["max_market_contribution"] → Market variance checking  
+#    - variance_limits["max_industry_contribution"] → Industry concentration checking
+#    - max_betas (from historical analysis) → Beta exposure checking
+#    - max_proxy_betas (from historical analysis) → Sector beta checking
+#    - Leverage checking uses RISK_ANALYSIS_THRESHOLDS (not user-configurable)
+#
+# 2. CALCULATE_PORTFOLIO_RISK_SCORE (Lines 1000-1100):
+#    ✅ Uses ALL user risk limits from YAML file  
+#    - Same risk limits as analyze_portfolio_risk_limits
+#    - Calculates 0-100 risk score based on limit violations
+#    - Uses portfolio_limits["max_loss"] for risk score calculation
+#
+# 3. CALCULATE_SUGGESTED_RISK_LIMITS (Lines 563-798):
+#    ✅ Uses user max_loss to suggest optimal limits
+#    - portfolio_limits["max_loss"] → Works backward to suggest limits
+#    - max_single_factor_loss → Factor loss tolerance for suggestions
+#    - Does NOT directly use other limits (generates new suggestions)
+#
+# 4. CALCULATE_FACTOR_RISK_LOSS (Lines 137-217):
+#    ✅ Uses user-configured factor loss limit
+#    - max_single_factor_loss → Maximum acceptable factor loss
+#    - Does NOT use other risk limits (only calculates potential loss)
+#
+# 5. CALCULATE_SECTOR_RISK_LOSS (Lines 285-356):
+#    ✅ Uses user-configured factor loss limit  
+#    - max_single_factor_loss → Maximum acceptable sector loss
+#    - Does NOT use other risk limits (only calculates potential loss)
+#
+# 6. CALCULATE_CONCENTRATION_RISK_LOSS (Lines 218-242):
+#    ❌ Does NOT use user risk limits
+#    - Uses hardcoded WORST_CASE_SCENARIOS["single_stock_crash"] (80%)
+#    - Should potentially use concentration_limits for consistency
+#
+# 7. CALCULATE_VOLATILITY_RISK_LOSS (Lines 243-283):
+#    ❌ Does NOT use user risk limits
+#    - Uses hardcoded WORST_CASE_SCENARIOS["max_reasonable_volatility"] (40%)  
+#    - Should potentially use portfolio_limits["max_volatility"] for consistency
+#
+# SUMMARY:
+# ✅ MAIN ANALYSIS FUNCTIONS: Use ALL user risk limits correctly
+# ✅ RISK SCORE CALCULATION: Uses ALL user risk limits correctly  
+# ✅ SUGGESTED LIMITS: Uses user max_loss correctly
+# ✅ FACTOR/SECTOR LOSS: Uses user factor loss limits correctly
+# ❌ CONCENTRATION/VOLATILITY LOSS: Use hardcoded scenarios (design choice)
+#
+# The core risk analysis (functions 1-2) correctly uses ALL user-provided risk limits.
+# Loss calculation functions (6-7) use hardcoded scenarios by design for worst-case analysis.
+# This ensures user limits control the risk assessment while maintaining consistent stress testing.
 
 
 def score_excess_ratio(excess_ratio: float) -> float:
@@ -83,17 +194,21 @@ def score_excess_ratio(excess_ratio: float) -> float:
         - 50: Moderately over limit
         - 0: Significantly over limit (≥150%)
     """
-    if excess_ratio <= 0.8:        # 20% buffer below limit
+    safe_threshold = RISK_ANALYSIS_THRESHOLDS["risk_score_safe_threshold"]
+    caution_threshold = RISK_ANALYSIS_THRESHOLDS["risk_score_caution_threshold"] 
+    danger_threshold = RISK_ANALYSIS_THRESHOLDS["risk_score_danger_threshold"]
+    
+    if excess_ratio <= safe_threshold:        # 20% buffer below limit
         return 100  # Safe - Very low disruption risk
-    elif excess_ratio <= 1.0:      # At limit
+    elif excess_ratio <= caution_threshold:  # At limit
         return 75   # Caution - Some disruption risk
-    elif excess_ratio <= 1.5:      # 50% over limit
+    elif excess_ratio <= danger_threshold:   # 50% over limit
         return 50   # Danger - High disruption risk
     else:                          # Way over limit
         return 0    # Critical - Certain disruption
 
 
-def calculate_factor_risk_loss(summary: Dict[str, Any], leverage_ratio: float, max_betas: Dict[str, float] = None, max_single_factor_loss: float = -0.10) -> float:
+def calculate_factor_risk_loss(summary: Dict[str, Any], leverage_ratio: float, max_betas: Dict[str, float] = None, max_single_factor_loss: float = None) -> float:
     """
     Calculate potential loss from factor exposure.
     
@@ -125,6 +240,10 @@ def calculate_factor_risk_loss(summary: Dict[str, Any], leverage_ratio: float, m
     - Uses actual portfolio factor betas from summary["portfolio_factor_betas"]
     - For each factor: loss = |portfolio_beta × worst_case_move × leverage_ratio|
     """
+    # Use default from settings if not provided
+    if max_single_factor_loss is None:
+        max_single_factor_loss = MAX_SINGLE_FACTOR_LOSS["default"]
+        
     portfolio_betas = summary["portfolio_factor_betas"]
     
     # For PORTFOLIO RISK SCORE: Use historical data for ALL factors when available
@@ -135,7 +254,9 @@ def calculate_factor_risk_loss(summary: Dict[str, Any], leverage_ratio: float, m
         loss_limit = max_single_factor_loss
         
         for factor in ["market", "momentum", "value"]:
-            max_beta = max_betas.get(factor, 0.77)  # Default fallback
+            if factor not in max_betas:
+                continue  # Skip factors without historical data
+            max_beta = max_betas[factor]
             if max_beta != 0 and max_beta != float('inf'):
                 # Use historical data: max_beta = loss_limit / worst_loss, so worst_loss = loss_limit / max_beta
                 worst_case_scenarios[factor] = loss_limit / max_beta
@@ -145,7 +266,7 @@ def calculate_factor_risk_loss(summary: Dict[str, Any], leverage_ratio: float, m
                     "market": WORST_CASE_SCENARIOS["market_crash"],
                     "momentum": WORST_CASE_SCENARIOS["momentum_crash"],
                     "value": WORST_CASE_SCENARIOS["value_crash"]
-                }.get(factor, 0.30)
+                }[factor]  # Remove fallback - factor should be in WORST_CASE_SCENARIOS
     else:
         # Use configured scenarios when no historical data available
         worst_case_scenarios = {
@@ -235,7 +356,7 @@ def calculate_volatility_risk_loss(summary: Dict[str, Any], leverage_ratio: floa
     return volatility_loss
 
 
-def calculate_sector_risk_loss(summary: Dict[str, Any], leverage_ratio: float, max_betas_by_proxy: Dict[str, float] = None, max_single_factor_loss: float = -0.08) -> float:
+def calculate_sector_risk_loss(summary: Dict[str, Any], leverage_ratio: float, max_betas_by_proxy: Dict[str, float] = None, max_single_factor_loss: float = None) -> float:
     """
     Calculate potential loss from sector exposure.
     
@@ -267,6 +388,10 @@ def calculate_sector_risk_loss(summary: Dict[str, Any], leverage_ratio: float, m
     - Only counts negative sector impacts as risk
     - For each sector: loss = |portfolio_beta × worst_sector_loss × leverage_ratio|
     """
+    # Use default from settings if not provided
+    if max_single_factor_loss is None:
+        max_single_factor_loss = MAX_SINGLE_FACTOR_LOSS["sector"]
+        
     # Get portfolio's beta exposure to each industry proxy
     industry_betas = summary["industry_variance"].get("per_industry_group_beta", {})
     
@@ -358,13 +483,16 @@ def analyze_portfolio_risk_limits(
             max_beta = max_betas[factor]
             beta_ratio = abs(actual_beta) / max_beta if max_beta > 0 else 0
             
-            if beta_ratio > 1.0:  # Exceeds limit
+            beta_violation_ratio = RISK_ANALYSIS_THRESHOLDS["beta_violation_ratio"]
+            beta_warning_ratio = RISK_ANALYSIS_THRESHOLDS["beta_warning_ratio"]
+            
+            if beta_ratio > beta_violation_ratio:  # Exceeds limit
                 risk_factors.append(f"High {factor} exposure: β={actual_beta:.2f} vs {max_beta:.2f} limit")
                 if factor == "market":
                     recommendations.append("Reduce market exposure (sell high-beta stocks or add market hedges)")
                 else:
                     recommendations.append(f"Reduce {factor} factor exposure")
-            elif beta_ratio > 0.75:  # Approaching limit  
+            elif beta_ratio > beta_warning_ratio:  # Approaching limit  
                 risk_factors.append(f"High {factor} exposure: β={actual_beta:.2f} vs {max_beta:.2f} limit")
                 if factor == "market":
                     recommendations.append("Reduce market exposure (sell high-beta stocks or add market hedges)")
@@ -379,7 +507,8 @@ def analyze_portfolio_risk_limits(
                 max_beta = max_proxy_betas[proxy]
                 beta_ratio = abs(actual_beta) / max_beta if max_beta > 0 else 0
                 
-                if beta_ratio > 0.75:  # Flag if >75% of limit
+                beta_warning_ratio = RISK_ANALYSIS_THRESHOLDS["beta_warning_ratio"]
+                if beta_ratio > beta_warning_ratio:  # Flag if >warning ratio of limit
                     risk_factors.append(f"High {proxy} exposure: β={actual_beta:.2f} vs {max_beta:.2f} limit")
                     recommendations.append(f"Reduce exposure to {proxy} sector")
     
@@ -390,15 +519,17 @@ def analyze_portfolio_risk_limits(
     weight_limit = concentration_limits["max_single_stock_weight"]
     
     # Check position concentration
+    concentration_warning_ratio = RISK_ANALYSIS_THRESHOLDS["concentration_warning_ratio"]
     if max_weight > weight_limit:
         risk_factors.append(f"High concentration: {max_weight:.1%} vs {weight_limit:.1%} limit")
         recommendations.append("Reduce position size in largest holdings")
-    elif max_weight > weight_limit * 0.8:  # Approaching limit
+    elif max_weight > weight_limit * concentration_warning_ratio:  # Approaching limit
         risk_factors.append(f"High concentration: {max_weight:.1%} in single position")
         recommendations.append("Reduce position size in largest holdings")
     
     # Check diversification
-    if herfindahl > 0.15:
+    hhi_threshold = RISK_ANALYSIS_THRESHOLDS["herfindahl_warning_threshold"]
+    if herfindahl > hhi_threshold:
         risk_factors.append(f"Low diversification (HHI: {herfindahl:.3f})")
         recommendations.append("Add more positions to improve diversification")
     
@@ -406,10 +537,11 @@ def analyze_portfolio_risk_limits(
     actual_vol = summary["volatility_annual"]
     vol_limit = portfolio_limits["max_volatility"]
     
+    volatility_warning_ratio = RISK_ANALYSIS_THRESHOLDS["volatility_warning_ratio"]
     if actual_vol > vol_limit:
         risk_factors.append(f"High volatility: {actual_vol:.1%} vs {vol_limit:.1%} limit")
         recommendations.append("Reduce portfolio volatility through diversification or defensive positions")
-    elif actual_vol > vol_limit * 0.8:  # Approaching limit
+    elif actual_vol > vol_limit * volatility_warning_ratio:  # Approaching limit
         risk_factors.append(f"High portfolio volatility ({actual_vol:.1%})")
         recommendations.append("Reduce volatility through diversification or defensive positions")
     
@@ -420,6 +552,8 @@ def analyze_portfolio_risk_limits(
     
     # Check factor variance contribution
     factor_limit = variance_limits["max_factor_contribution"]
+    factor_variance_warning_ratio = RISK_ANALYSIS_THRESHOLDS["factor_variance_warning_ratio"]
+    
     if factor_pct > factor_limit:
         risk_factors.append(f"High systematic risk: {factor_pct:.1%} vs {factor_limit:.1%} limit")
         
@@ -430,10 +564,11 @@ def analyze_portfolio_risk_limits(
         
         # Generate specific recommendations for the top contributors
         for factor, contribution in sorted_factors:
-            if contribution > 5.0:  # Only recommend for factors contributing >5%
+            variance_contribution_threshold = RISK_ANALYSIS_THRESHOLDS["variance_contribution_threshold"] * 100  # Convert to percentage
+            if contribution > variance_contribution_threshold:  # Only recommend for factors contributing >threshold%
                 recommendations.append(f"Reduce {factor} factor exposure (contributing {contribution:.1%} to variance)")
                 
-    elif factor_pct > factor_limit * 0.8:  # Approaching limit
+    elif factor_pct > factor_limit * factor_variance_warning_ratio:  # Approaching limit
         risk_factors.append(f"High systematic risk: {factor_pct:.1%} variance from factors")
         
         # Identify which specific factors are contributing most to variance
@@ -443,15 +578,17 @@ def analyze_portfolio_risk_limits(
         
         # Generate specific recommendations for the top contributors
         for factor, contribution in sorted_factors:
-            if contribution > 5.0:  # Only recommend for factors contributing >5%
+            variance_contribution_threshold = RISK_ANALYSIS_THRESHOLDS["variance_contribution_threshold"] * 100  # Convert to percentage
+            if contribution > variance_contribution_threshold:  # Only recommend for factors contributing >threshold%
                 recommendations.append(f"Reduce {factor} factor exposure (contributing {contribution:.1%} to variance)")
     
     # Check market variance contribution
     market_limit = variance_limits["max_market_contribution"]
+    market_variance_warning_ratio = RISK_ANALYSIS_THRESHOLDS["market_variance_warning_ratio"]
     if market_pct > market_limit:
         risk_factors.append(f"High market variance contribution: {market_pct:.1%} vs {market_limit:.1%} limit")
         recommendations.append("Reduce market factor exposure")
-    elif market_pct > market_limit * 0.8:  # Approaching limit
+    elif market_pct > market_limit * market_variance_warning_ratio:  # Approaching limit
         risk_factors.append(f"High market variance contribution: {market_pct:.1%}")
         recommendations.append("Reduce market factor exposure")
     
@@ -473,13 +610,15 @@ def analyze_portfolio_risk_limits(
             recommendations.append(f"Reduce exposure to {top_industry} industry (contributing {top_contribution:.1%} to variance)")
             
             # Also suggest general diversification if there are multiple concentrated industries
-            if len([ind for ind, pct in sorted_industries if pct > industry_limit * 0.5]) > 1:
+            industry_concentration_warning_ratio = RISK_ANALYSIS_THRESHOLDS["industry_concentration_warning_ratio"]
+            if len([ind for ind, pct in sorted_industries if pct > industry_limit * industry_concentration_warning_ratio]) > 1:
                 recommendations.append("Add diversification across multiple industries")
         else:
             recommendations.append("Reduce industry concentration through diversification")
     
     # ─── 6. Leverage Analysis ─────────────────────────────────────────────────
-    if leverage_ratio > 1.1:
+    leverage_threshold = RISK_ANALYSIS_THRESHOLDS["leverage_warning_threshold"]
+    if leverage_ratio > leverage_threshold:
         risk_factors.append(f"Leverage ({leverage_ratio:.2f}x) amplifies all potential losses")
         recommendations.append("Consider reducing leverage to limit downside risk")
     
@@ -496,7 +635,7 @@ def analyze_portfolio_risk_limits(
     }
 
 
-def calculate_suggested_risk_limits(summary: Dict[str, Any], max_loss: float, current_leverage: float, max_single_factor_loss: float = -0.10, stock_factor_proxies: Dict = None, start_date: str = None, end_date: str = None) -> Dict[str, Any]:
+def calculate_suggested_risk_limits(summary: Dict[str, Any], max_loss: float, current_leverage: float, max_single_factor_loss: float = None, stock_factor_proxies: Dict = None, start_date: str = None, end_date: str = None) -> Dict[str, Any]:
     """
     Work backwards from max loss tolerance to suggest risk limits that would
     keep the current portfolio structure within acceptable risk levels.
@@ -552,6 +691,10 @@ def calculate_suggested_risk_limits(summary: Dict[str, Any], max_loss: float, cu
     If historical calculation fails, automatically falls back to configured scenarios
     with warning message to user.
     """
+    # Use default from settings if not provided
+    if max_single_factor_loss is None:
+        max_single_factor_loss = MAX_SINGLE_FACTOR_LOSS["default"]
+        
     # =====================================================================
     # SCENARIO CONFIGURATION - Using module-level constants
     # =====================================================================
@@ -694,7 +837,7 @@ def calculate_suggested_risk_limits(summary: Dict[str, Any], max_loss: float, cu
     # (same logic as risk scoring function)
     for factor in ["momentum", "value"]:
         factor_beta = portfolio_betas.get(factor, 0.0)
-        worst_loss = historical_worst_losses.get(factor, WORST_CASE_SCENARIOS.get(f"{factor}_crash", 0.30))
+        worst_loss = historical_worst_losses.get(factor, WORST_CASE_SCENARIOS[f"{factor}_crash"])
         factor_impact = factor_beta * -worst_loss
         # Only count negative impacts (losses) as risk
         if factor_impact < 0:  # Loss
@@ -772,7 +915,8 @@ def display_suggested_risk_limits(suggestions: Dict[str, Any], max_loss: float):
     print(f"\n{'='*60}")
     print(f"📋 SUGGESTED RISK LIMITS (to stay within {max_loss:.0%} max loss)")
     print(f"Working backwards from your risk tolerance to show exactly what needs to change")
-    if current_leverage > 1.01:
+    leverage_display_threshold = RISK_ANALYSIS_THRESHOLDS["leverage_display_threshold"]
+    if current_leverage > leverage_display_threshold:
         print(f"Adjusted for your current {current_leverage:.2f}x leverage - limits are tighter")
     print(f"{'='*60}")
     
@@ -934,7 +1078,7 @@ def calculate_portfolio_risk_score(
     max_betas: Dict[str, float],
     max_proxy_betas: Optional[Dict[str, float]] = None,
     leverage_ratio: float = 1.0,
-    max_single_factor_loss: float = -0.08
+    max_single_factor_loss: float = None
 ) -> Dict[str, Any]:
     """
     Calculate a comprehensive risk score (0-100) for a portfolio based on 
@@ -973,6 +1117,9 @@ def calculate_portfolio_risk_score(
         - 'recommendations': Suggested improvements
         - 'potential_losses': Calculated loss potentials for each component
     """
+    # Use default from settings if not provided
+    if max_single_factor_loss is None:
+        max_single_factor_loss = MAX_SINGLE_FACTOR_LOSS["portfolio"]
     
     # Get max loss limit from user preferences
     max_loss = abs(portfolio_limits["max_loss"])
@@ -1027,7 +1174,8 @@ def calculate_portfolio_risk_score(
         risk_factors.append(f"Market exposure could cause {factor_loss:.1%} loss (exceeds limit by {excess_pct:.0f}%)")
         recommendations.append("Reduce market exposure (sell high-beta stocks or add hedges)")
     
-    if leverage_ratio > 1.1:
+    leverage_threshold = RISK_ANALYSIS_THRESHOLDS["leverage_warning_threshold"]
+    if leverage_ratio > leverage_threshold:
         risk_factors.append(f"Leverage ({leverage_ratio:.2f}x) amplifies all potential losses")
         recommendations.append("Consider reducing leverage to limit downside risk")
     
@@ -1434,7 +1582,7 @@ def run_risk_score_analysis(portfolio_yaml: str = "portfolio.yaml", risk_yaml: s
         # Calculate max betas
         from settings import PORTFOLIO_DEFAULTS
         lookback_years = PORTFOLIO_DEFAULTS.get('worst_case_lookback_years', 10)
-        max_betas, max_betas_by_proxy = calc_max_factor_betas(
+        max_betas, max_betas_by_proxy, historical_analysis = calc_max_factor_betas(
             portfolio_yaml=portfolio_yaml,
             risk_yaml=risk_yaml,
             lookback_years=lookback_years,
@@ -1442,13 +1590,13 @@ def run_risk_score_analysis(portfolio_yaml: str = "portfolio.yaml", risk_yaml: s
         )
         
         # Calculate leverage ratio
-        leverage_ratio = standardized.get("leverage", 1.0)
+        # standardize_portfolio_input always returns leverage, no fallback needed
+        leverage_ratio = standardized["leverage"]
         
-        # When using raw weights (normalize_weights = False), the weights already represent 
-        # the true economic exposure, so we shouldn't apply leverage adjustment to risk calculations
-        from settings import PORTFOLIO_DEFAULTS
-        normalize_weights = PORTFOLIO_DEFAULTS.get("normalize_weights", True)
-        risk_leverage_ratio = leverage_ratio if normalize_weights else 1.0
+        # IMPORTANT: Always use actual leverage for risk calculations
+        # Leverage amplifies risk regardless of how portfolio weights are calculated
+        # The normalize_weights setting affects weight calculation, not risk amplification
+        risk_leverage_ratio = leverage_ratio
         
         # ═══════════════════════════════════════════════════════════════════════════
         # DISRUPTION RISK SCORING (High-level 0-100 score)
@@ -1485,83 +1633,29 @@ def run_risk_score_analysis(portfolio_yaml: str = "portfolio.yaml", risk_yaml: s
             leverage_ratio=risk_leverage_ratio
         )
         
-        if return_data:
-            # API/Data mode - return structured data
-            from run_risk import make_json_safe
-            return make_json_safe({
-                "risk_score": risk_score,
-                "limits_analysis": limits_analysis,
-                "portfolio_analysis": summary,
-                "suggested_limits": suggestions,
-                "analysis_date": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
+        # Build result object using new builder method
+        result = RiskScoreResult.from_risk_score_analysis(
+            risk_score=risk_score,
+            limits_analysis=limits_analysis,
+            portfolio_analysis=summary,
+            suggested_limits=suggestions,
+            analysis_metadata={
+                "analysis_date": datetime.now(UTC).isoformat(),
                 "portfolio_file": portfolio_yaml,
                 "risk_limits_file": risk_yaml,
-                "formatted_report": _format_risk_score_output(risk_score, limits_analysis, suggestions, max_loss)
-            })
+                "portfolio_name": os.path.basename(portfolio_yaml).replace('.yaml', ''),
+                "max_loss": max_loss,
+                "analysis_type": "risk_score"
+            }
+        )
+
+        if return_data:
+            # API/Data mode - return result object for API conversion
+            return result
         else:
             # CLI mode - print formatted output
-            # Display comprehensive disruption risk score with explanations
-            display_portfolio_risk_score(risk_score)
-            
-            # ═══════════════════════════════════════════════════════════════════════════
-            # DETAILED RISK LIMITS ANALYSIS
-            # ═══════════════════════════════════════════════════════════════════════════
-            
-            # Display detailed risk limits analysis
-            print("\n" + "═" * 80)
-            print("📋 DETAILED RISK LIMITS ANALYSIS")
-            print("═" * 80)
-            
-            # Display limit violations summary
-            violations = limits_analysis["limit_violations"]
-            total_violations = sum(violations.values())
-            
-            print(f"\n📊 LIMIT VIOLATIONS SUMMARY:")
-            print(f"   Total violations: {total_violations}")
-            print(f"   Factor betas: {violations['factor_betas']}")
-            print(f"   Concentration: {violations['concentration']}")
-            print(f"   Volatility: {violations['volatility']}")
-            print(f"   Variance contributions: {violations['variance_contributions']}")
-            print(f"   Leverage: {violations['leverage']}")
-            
-            # Display detailed risk factors
-            if limits_analysis["risk_factors"]:
-                print(f"\n⚠️  KEY RISK FACTORS:")
-                for factor in limits_analysis["risk_factors"]:
-                    print(f"   • {factor}")
-            
-            # Display detailed recommendations
-            if limits_analysis["recommendations"]:
-                print(f"\n💡 KEY RECOMMENDATIONS:")
-                
-                # Filter recommendations to show only beta-based ones (more intuitive for users)
-                # Keep variance calculations but don't show variance-based recommendations in output
-                beta_recommendations = []
-                for rec in limits_analysis["recommendations"]:
-                    # Skip variance-based recommendations (they're duplicative of beta-based ones)
-                    if "factor exposure (contributing" in rec.lower():
-                        continue  # Skip "Reduce X factor exposure (contributing Y% to variance)"
-                    if "industry (contributing" in rec.lower():
-                        continue  # Skip "Reduce X industry (contributing Y% to variance)"
-                    if "reduce market factor exposure" in rec.lower():
-                        continue  # Skip generic market factor exposure
-                    
-                    # Keep all other recommendations (beta-based, concentration, volatility, leverage, etc.)
-                    beta_recommendations.append(rec)
-                
-                for rec in beta_recommendations:
-                    print(f"   • {rec}")
-            
-            # Display suggested risk limits
-            display_suggested_risk_limits(suggestions, max_loss)
-        
-        # Return comprehensive results
-        return {
-            "risk_score": risk_score,
-            "limits_analysis": limits_analysis,
-            "portfolio_analysis": summary,
-            "suggested_limits": suggestions
-        }
+            print(result.to_cli_report())
+            return result  # For programmatic access
         
     except Exception as e:
         print(f"Error running risk score analysis: {e}")
@@ -1576,7 +1670,7 @@ if __name__ == "__main__":
     
     if risk_score:
         print(f"\n✅ Risk score analysis completed successfully!")
-        print(f"   Score: {risk_score['risk_score']['score']}/100")
-        print(f"   Category: {risk_score['risk_score']['category']}")
+        print(f"   Score: {risk_score.risk_score['score']}/100")
+        print(f"   Category: {risk_score.risk_score['category']}")
     else:
         print("\n❌ Risk score analysis failed. Check your configuration files.") 

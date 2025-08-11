@@ -8,7 +8,7 @@ Extracted from run_risk.py as part of the refactoring to create a clean service 
 
 import yaml
 from typing import Dict, Any, Optional, Tuple, Union
-from datetime import datetime
+from datetime import datetime, UTC
 
 from run_portfolio_risk import (
     load_portfolio_config,
@@ -92,7 +92,7 @@ def optimize_min_variance(filepath: str, risk_yaml: str = "risk_limits.yaml") ->
         },
         "optimization_metadata": {
             "optimization_type": "minimum_variance",
-            "analysis_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "analysis_date": datetime.now(UTC).isoformat(),
             "portfolio_file": filepath,
             "original_weights": weights,
             "total_positions": len(w),
@@ -176,7 +176,7 @@ def optimize_max_return(filepath: str, risk_yaml: str = "risk_limits.yaml") -> D
         },
         "optimization_metadata": {
             "optimization_type": "maximum_return",
-            "analysis_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "analysis_date": datetime.now(UTC).isoformat(),
             "portfolio_file": filepath,
             "original_weights": weights,
             "total_positions": len(w),

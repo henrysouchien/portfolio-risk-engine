@@ -7,7 +7,7 @@ Extracted from run_risk.py as part of the refactoring to create a clean service 
 """
 
 from typing import Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, UTC
 
 from gpt_helpers import interpret_portfolio_risk
 
@@ -58,7 +58,7 @@ def analyze_and_interpret(portfolio_yaml: str) -> Dict[str, Any]:
         "ai_interpretation": summary_txt,
         "full_diagnostics": diagnostics,
         "analysis_metadata": {
-            "analysis_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "analysis_date": datetime.now(UTC).isoformat(),
             "portfolio_file": portfolio_yaml,
             "interpretation_service": "gpt",
             "diagnostics_length": len(diagnostics),
@@ -108,7 +108,7 @@ def interpret_portfolio_data(
         "ai_interpretation": summary_txt,
         "full_diagnostics": diagnostics,
         "analysis_metadata": {
-            "analysis_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "analysis_date": datetime.now(UTC).isoformat(),
             "portfolio_file": portfolio_name or "portfolio_output",
             "interpretation_service": "gpt",
             "diagnostics_length": len(diagnostics),

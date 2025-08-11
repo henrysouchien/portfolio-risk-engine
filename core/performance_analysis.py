@@ -8,6 +8,7 @@ Extracted from run_risk.py as part of the refactoring to create a clean service 
 
 import pandas as pd
 from typing import Dict, Any, Optional
+from datetime import datetime, UTC
 
 from run_portfolio_risk import (
     load_portfolio_config,
@@ -82,7 +83,7 @@ def analyze_performance(filepath: str) -> Dict[str, Any]:
                     "end_date": config["end_date"]
                 },
                 "portfolio_file": filepath,
-                "analysis_date": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
+                "analysis_date": datetime.now(UTC).isoformat()
             })
         
         # Return structured performance analysis results
@@ -99,7 +100,7 @@ def analyze_performance(filepath: str) -> Dict[str, Any]:
                 "benchmark": "SPY"
             },
             "analysis_metadata": {
-                "analysis_date": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "analysis_date": datetime.now(UTC).isoformat(),
                 "calculation_successful": True
             },
             "raw_data": {
@@ -114,12 +115,12 @@ def analyze_performance(filepath: str) -> Dict[str, Any]:
         return make_json_safe({
             "error": f"Portfolio file '{filepath}' not found",
             "portfolio_file": filepath,
-            "analysis_date": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
+            "analysis_date": pd.datetime.now(UTC).isoformat()
         })
     except Exception as e:
         # Return error in structured format
         return make_json_safe({
             "error": f"Error during performance analysis: {str(e)}",
             "portfolio_file": filepath,
-            "analysis_date": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
+            "analysis_date": pd.datetime.now(UTC).isoformat()
         }) 

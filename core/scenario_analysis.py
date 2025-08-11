@@ -9,7 +9,7 @@ Extracted from run_risk.py as part of the refactoring to create a clean service 
 import yaml
 import pandas as pd
 from typing import Dict, Any, Optional, Tuple
-from datetime import datetime
+from datetime import datetime, UTC
 
 from run_portfolio_risk import (
     load_portfolio_config,
@@ -188,7 +188,7 @@ def analyze_scenario(
             "scenario_yaml": scenario_yaml,
             "delta_string": delta,
             "shift_dict": shift_dict,
-            "analysis_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "analysis_date": datetime.now(UTC).isoformat(),
             "portfolio_file": filepath,
             "base_weights": weights
         }

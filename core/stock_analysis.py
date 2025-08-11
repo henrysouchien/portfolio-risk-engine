@@ -8,6 +8,7 @@ Extracted from run_risk.py as part of the refactoring to create a clean service 
 
 import pandas as pd
 from typing import Dict, Any, Optional, Union, List
+from datetime import datetime, UTC
 
 from run_portfolio_risk import load_portfolio_config
 from risk_summary import (
@@ -157,7 +158,7 @@ def analyze_stock(
             "analysis_metadata": {
                 "has_factor_analysis": True,
                 "num_factors": len(factor_proxies) if factor_proxies else 0,
-                "analysis_date": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
+                "analysis_date": datetime.now(UTC).isoformat()
             },
             "raw_data": {
                 "profile": profile
@@ -187,7 +188,7 @@ def analyze_stock(
             "analysis_metadata": {
                 "has_factor_analysis": False,
                 "num_factors": 0,
-                "analysis_date": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
+                "analysis_date": datetime.now(UTC).isoformat()
             },
             "raw_data": {
                 "result": result
