@@ -46,7 +46,6 @@ from gpt_helpers import (
     generate_subindustry_peers,
 )
 from helpers_display import display_enhanced_stock_analysis
-# format_stock_metrics is deprecated - use display_enhanced_stock_analysis instead
 from utils.serialization import make_json_safe
 from core.portfolio_analysis import analyze_portfolio
 
@@ -649,94 +648,51 @@ def run_stock(
 @log_error_handling("high")
 @log_portfolio_operation_decorator("portfolio_performance")
 @log_performance(5.0)
-def run_portfolio_performance(filepath: str, *, return_data: bool = False):
+def run_portfolio_performance(filepath: str, *, return_data: bool = False, benchmark_ticker: str = "SPY"):
     """
     Calculate and display comprehensive portfolio performance metrics.
-
-    Workflow
-    --------
-    * Parse the portfolio YAML file.
-    * Standardise the raw positions → weights.
-    * Call :func:`portfolio_risk.calculate_portfolio_performance_metrics` to
-      compute returns, volatility, Sharpe ratio, alpha, beta, max drawdown,
-      and other risk-adjusted performance metrics vs benchmark.
-    * Display results using :func:`run_portfolio_risk.display_portfolio_performance_metrics`.
+    
+    Simplified dual-mode wrapper around core analyze_performance() function.
+    Uses PerformanceResult object's built-in formatting for consistent output.
 
     Parameters
     ----------
     filepath : str
         Path to the portfolio YAML file.
     return_data : bool, optional
-        If True, return structured data for API usage. If False, print formatted output.
+        If True, return PerformanceResult object for programmatic usage. If False, print formatted output.
+    benchmark_ticker : str, optional
+        Benchmark ticker symbol for comparison (default: "SPY").
 
     Returns
     -------
-    dict or None
-        If return_data=True, returns structured performance metrics and metadata.
-        If return_data=False, prints results and returns None.
+    PerformanceResult or None
+        If return_data=True, returns PerformanceResult object.
+        If return_data=False, prints CLI-formatted output and returns None.
 
     Notes
     -----
-    * Uses the **start_date** and **end_date** from the portfolio YAML for
-      the performance analysis window.
-    * Defaults to SPY as benchmark but can be customized.
-    * Uses 3-month Treasury rates from FMP API as risk-free rate.
+    * Delegates to core.performance_analysis.analyze_performance()
+    * Uses PerformanceResult.to_api_response() for API mode
+    * Uses PerformanceResult.to_cli_report() for CLI mode
+    * Error cases return/print error information directly
     """
-    # --- BUSINESS LOGIC: Call extracted core function ---------------------
-    performance_result = analyze_performance(filepath)
+    # Get performance analysis result
+    performance_result = analyze_performance(filepath, benchmark_ticker)
     
-    # Check for errors in the analysis result
-    if "error" in performance_result:
+    # Handle error case (returns dict on error, PerformanceResult on success)
+    if isinstance(performance_result, dict) and "error" in performance_result:
         if return_data:
-            # API MODE: Return error from extracted function
-            return performance_result
+            return performance_result  # Return error dict for API
         else:
-            # CLI MODE: Print error and return
             print(f"❌ Performance calculation failed: {performance_result['error']}")
             return
     
-    # --- Dual-Mode Logic ---------------------------------------------------
+    # Handle success case - use PerformanceResult's built-in formatting
     if return_data:
-        # API MODE: Return structured data from extracted function
-        from run_portfolio_risk import display_portfolio_performance_metrics
-        import io
-        import sys
-        
-        # Capture CLI-style formatted output as string
-        original_stdout = sys.stdout
-        sys.stdout = captured_output = io.StringIO()
-        
-        try:
-            # Generate the formatted CLI output
-            display_portfolio_performance_metrics(performance_result["raw_data"]["performance_metrics"])
-            formatted_report_string = captured_output.getvalue()
-        finally:
-            sys.stdout = original_stdout
-        
-        # Add formatted report to performance result and return
-        performance_result["formatted_report"] = formatted_report_string
-        return performance_result
+        return performance_result  # Return PerformanceResult object for programmatic use
     else:
-        # CLI MODE: Print formatted output (original behavior)
-        from run_portfolio_risk import display_portfolio_performance_metrics
-        
-        config = performance_result["raw_data"]["config"]
-        weights = performance_result["raw_data"]["weights"]
-        performance_metrics = performance_result["raw_data"]["performance_metrics"]
-        
-        print("📊 Portfolio Performance Analysis")
-        print("=" * 50)
-        
-        print(f"📁 Portfolio file: {filepath}")
-        print(f"📅 Analysis period: {config['start_date']} to {config['end_date']}")
-        print(f"📊 Positions: {len(weights)}")
-        print()
-        
-        print("🔄 Calculating performance metrics...")
-        print("✅ Performance calculation successful!")
-        
-        # Display the results
-        display_portfolio_performance_metrics(performance_metrics)
+        print(performance_result.to_cli_report())
 
 
 def run_risk_score(portfolio_yaml: str = "portfolio.yaml", risk_yaml: str = "risk_limits.yaml", *, return_data: bool = False):

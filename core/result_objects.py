@@ -1975,7 +1975,7 @@ class PerformanceResult:
     3. **Risk Analysis**: Use get_risk_metrics() for risk-specific measures
     4. **API Serialization**: Use to_api_response() for JSON export and API responses
     5. **Legacy Serialization**: to_dict() is deprecated, use to_api_response() instead
-    6. **Formatted Reporting**: Use to_formatted_report() for human-readable display
+    6. **Formatted Reporting**: Use to_cli_report() for human-readable display
     
     Architecture Role:
         Core Functions → Service Layer → PerformanceResult → Consumer (API/Claude/UI)
@@ -2006,8 +2006,8 @@ class PerformanceResult:
         # {"analysis_period": {...}, "returns": {...}, "risk_metrics": {...}, ...}
         
         # Get formatted report for display
-        report = result.to_formatted_report()
-        # "Performance Analysis - Portfolio\nAnnualized Return: 12.40%\n..."
+        report = result.to_cli_report()
+        # "📊 Portfolio Performance Analysis\n==================================================\n..."
         ```
         
     Data Quality: All time series data is properly handled and JSON-serializable for API usage.
@@ -2048,6 +2048,70 @@ class PerformanceResult:
     
     # Additional fields for CLI-API parity
     _allocations: Optional[Dict[str, Any]] = None
+    
+    @classmethod  
+    def from_core_analysis(cls,
+                          performance_metrics: Dict[str, Any],
+                          analysis_period: Dict[str, Any], 
+                          portfolio_summary: Dict[str, Any],
+                          analysis_metadata: Dict[str, Any],
+                          allocations: Optional[Dict[str, Any]] = None) -> 'PerformanceResult':
+        """
+        Create PerformanceResult from core analysis function data.
+        
+        🔒 CRITICAL: This must preserve exact same field mappings that 
+        to_api_response() expects. All existing API fields must be preserved.
+        
+        The existing to_api_response() method expects these top-level fields:
+        - analysis_period, returns, risk_metrics, risk_adjusted_returns
+        - benchmark_analysis, benchmark_comparison, monthly_stats
+        - monthly_returns, risk_free_rate, analysis_date, portfolio_name
+        
+        Args:
+            performance_metrics: Dict containing core performance calculation results
+            analysis_period: Dict with start_date, end_date, years info
+            portfolio_summary: Dict with file, positions, benchmark info
+            analysis_metadata: Dict with analysis_date, calculation_successful
+            allocations: Optional[Dict] with allocation data for position counting
+            
+        Returns:
+            PerformanceResult: Fully populated result object ready for API/CLI use
+        """
+        from datetime import datetime
+        
+        # Parse analysis_date from metadata
+        analysis_date_str = analysis_metadata.get("analysis_date")
+        if isinstance(analysis_date_str, str):
+            analysis_date = datetime.fromisoformat(analysis_date_str.replace('Z', '+00:00'))
+        else:
+            analysis_date = datetime.now()
+        
+        # Build complete analysis_period with all required fields
+        complete_analysis_period = analysis_period.copy()
+        if 'positions' not in complete_analysis_period:
+            complete_analysis_period['positions'] = portfolio_summary.get('positions', 0)
+        
+        # Ensure total_months is present for CLI formatting compatibility
+        if 'total_months' not in complete_analysis_period and 'years' in complete_analysis_period:
+            complete_analysis_period['total_months'] = int(complete_analysis_period['years'] * 12)
+        
+        return cls(
+            # Map from core analysis structure to PerformanceResult fields
+            analysis_period=complete_analysis_period,
+            returns=performance_metrics.get("returns", {}),
+            risk_metrics=performance_metrics.get("risk_metrics", {}), 
+            risk_adjusted_returns=performance_metrics.get("risk_adjusted_returns", {}),
+            benchmark_analysis=performance_metrics.get("benchmark_analysis", {}),
+            benchmark_comparison=performance_metrics.get("benchmark_comparison", {}),
+            monthly_stats=performance_metrics.get("monthly_stats", {}),
+            risk_free_rate=performance_metrics.get("risk_free_rate", 0.0),
+            monthly_returns=performance_metrics.get("monthly_returns", {}),
+            analysis_date=analysis_date,
+            portfolio_name=portfolio_summary.get("name"),
+            portfolio_file=portfolio_summary.get("file"),
+            # Additional fields for position counting and API compatibility
+            _allocations=allocations
+        )
     
     def get_summary(self) -> Dict[str, Any]:
         """Get key performance metrics summary."""
@@ -2161,24 +2225,6 @@ class PerformanceResult:
         # Fallback: estimate from portfolio name or return unknown
         return 0  # Will be updated when allocations data is available
     
-    def to_formatted_report(self) -> str:
-        """
-        Generate formatted text report matching the CLI output style.
-        
-        Returns the stored formatted report if available, otherwise returns
-        a basic formatted summary.
-        """
-        # Use stored formatted report if available (from service layer)
-        if hasattr(self, '_formatted_report') and self._formatted_report:
-            return self._formatted_report
-        
-        # Fallback to basic summary
-        return f"Performance Analysis - {self.portfolio_name or 'Portfolio'}\n" \
-               f"Annualized Return: {self.returns.get('annualized_return', 0):.2f}%\n" \
-               f"Volatility: {self.risk_metrics.get('volatility', 0):.2f}%\n" \
-               f"Sharpe Ratio: {self.risk_adjusted_returns.get('sharpe_ratio', 0):.3f}\n" \
-               f"Max Drawdown: {self.risk_metrics.get('maximum_drawdown', 0):.2f}%"
-
     def to_api_response(self) -> Dict[str, Any]:
         """
         Convert PerformanceResult to OpenAPI-compliant dictionary for API responses.
@@ -2206,6 +2252,7 @@ class PerformanceResult:
                 - monthly_returns: Dict with time-series monthly return data
                 - analysis_date: String in ISO format (YYYY-MM-DDTHH:MM:SS)
                 - portfolio_name: Optional string portfolio identifier
+                - allocations: Optional Dict with ticker → weight mappings
                 - formatted_report: String containing human-readable report
                 
         Usage:
@@ -2241,14 +2288,14 @@ class PerformanceResult:
             "monthly_returns": self.monthly_returns,
             "analysis_date": self.analysis_date.isoformat(),
             "portfolio_name": self.portfolio_name,
-            "formatted_report": self.to_formatted_report(),
-            "portfolio_file": self.portfolio_file,
+            "formatted_report": self.to_cli_report(),
             "analysis_period_text": self._format_analysis_period(),
             "position_count": self.get_position_count(),
             "performance_category": self._categorize_performance(),
             "key_insights": self._generate_key_insights(),
             "display_formatting": self._get_display_formatting_metadata(),
-            "enhanced_key_insights": self._generate_enhanced_key_insights()
+            "enhanced_key_insights": self._generate_enhanced_key_insights(),
+            "allocations": _convert_to_json_serializable(self._allocations) if self._allocations else None
         }
 
     def _get_display_formatting_metadata(self) -> Dict[str, Any]:
@@ -2285,6 +2332,57 @@ class PerformanceResult:
             }
         }
     
+    def to_cli_report(self) -> str:
+        """Generate complete CLI formatted report - IDENTICAL to current output"""
+        sections = []
+        sections.append(self._format_performance_header())
+        sections.append(self._format_performance_metrics())
+        return "\n".join(sections)
+    
+    def _format_performance_header(self) -> str:
+        """Format portfolio info header - EXACT copy of run_risk.py:727-733"""
+        # CRITICAL: Must produce identical output to current implementation
+        lines = ["📊 Portfolio Performance Analysis"]
+        lines.append("=" * 50)
+        lines.append(f"📁 Portfolio file: {self.portfolio_file}")
+        lines.append(f"📅 Analysis period: {self.analysis_period['start_date']} to {self.analysis_period['end_date']}")
+        # Get positions count from position_count method or analysis_period
+        positions = self.get_position_count() or self.analysis_period.get('positions', 'N/A')
+        lines.append(f"📊 Positions: {positions}")
+        lines.append("")
+        lines.append("🔄 Calculating performance metrics...")
+        lines.append("✅ Performance calculation successful!")
+        return "\n".join(lines)
+    
+    def _format_performance_metrics(self) -> str:
+        """Format performance metrics - delegates to display_portfolio_performance_metrics"""
+        # CRITICAL: Must use existing display function to preserve exact formatting
+        from run_portfolio_risk import display_portfolio_performance_metrics
+        import io
+        import sys
+        
+        original_stdout = sys.stdout
+        sys.stdout = captured = io.StringIO()
+        try:
+            # Build performance_metrics dict compatible with existing function
+            # Use analysis_period directly since total_months is already calculated in from_core_analysis()
+            
+            performance_metrics = {
+                "returns": self.returns,
+                "risk_metrics": self.risk_metrics,
+                "risk_adjusted_returns": self.risk_adjusted_returns,
+                "benchmark_analysis": self.benchmark_analysis,
+                "benchmark_comparison": self.benchmark_comparison,
+                "monthly_stats": self.monthly_stats,
+                "monthly_returns": self.monthly_returns,
+                "risk_free_rate": self.risk_free_rate,
+                "analysis_period": self.analysis_period
+            }
+            display_portfolio_performance_metrics(performance_metrics)
+            return captured.getvalue()
+        finally:
+            sys.stdout = original_stdout
+
     def _generate_enhanced_key_insights(self) -> List[str]:
         """Generate enhanced key insights with detailed bullet points."""
         insights = []
@@ -2336,50 +2434,6 @@ class PerformanceResult:
                      "use to_api_response() instead.",
                      DeprecationWarning, stacklevel=2)
         return self.to_api_response()
-    
-    @classmethod
-    def from_performance_metrics(cls, performance_metrics: Dict[str, Any],
-                                portfolio_name: Optional[str] = None,
-                                portfolio_file: Optional[str] = None,
-                                allocations: Optional[Dict[str, Any]] = None) -> 'PerformanceResult':
-        """
-        Create PerformanceResult from calculate_portfolio_performance_metrics output.
-        
-        Complete Field Mapping (calculate_portfolio_performance_metrics → PerformanceResult):
-        ==================================================================================
-        
-        Core Function Output                               → Result Object Field
-        ────────────────────────────────────────────────────────────────────────────────
-        performance_metrics["analysis_period"]            → self.analysis_period
-        performance_metrics["returns"]                    → self.returns  
-        performance_metrics["risk_metrics"]               → self.risk_metrics
-        performance_metrics["risk_adjusted_returns"]      → self.risk_adjusted_returns
-        performance_metrics["benchmark_analysis"]         → self.benchmark_analysis
-        performance_metrics["benchmark_comparison"]       → self.benchmark_comparison
-        performance_metrics["monthly_stats"]              → self.monthly_stats
-        performance_metrics["risk_free_rate"]             → self.risk_free_rate
-        performance_metrics["monthly_returns"]            → self.monthly_returns
-        datetime.now()                                     → self.analysis_date
-        portfolio_name parameter                           → self.portfolio_name
-        
-        Data Flow: calculate_portfolio_performance_metrics() → PerformanceResult
-        Completeness: 100% - All fields from core function captured via direct mapping
-        """
-        return cls(
-            analysis_period=performance_metrics["analysis_period"],
-            returns=performance_metrics["returns"],
-            risk_metrics=performance_metrics["risk_metrics"],
-            risk_adjusted_returns=performance_metrics["risk_adjusted_returns"],
-            benchmark_analysis=performance_metrics["benchmark_analysis"],
-            benchmark_comparison=performance_metrics["benchmark_comparison"],
-            monthly_stats=performance_metrics["monthly_stats"],
-            risk_free_rate=performance_metrics["risk_free_rate"],
-            monthly_returns=performance_metrics["monthly_returns"],
-            analysis_date=datetime.now(UTC),
-            portfolio_name=portfolio_name,
-            portfolio_file=portfolio_file,
-            _allocations=allocations
-        )
     
     def __hash__(self) -> int:
         """Make PerformanceResult hashable for caching."""
