@@ -18,6 +18,7 @@ from run_portfolio_risk import (
     latest_price,
     evaluate_portfolio_risk_limits,
     evaluate_portfolio_beta_limits,
+    get_cash_positions,
 )
 from portfolio_risk import build_portfolio_view
 from risk_helpers import calc_max_factor_betas
@@ -124,6 +125,7 @@ def analyze_portfolio(filepath: str, risk_yaml: str = "risk_limits.yaml") -> Ris
             "active_positions": len([v for v in weights.values() if abs(v) > 0.001]),
             "portfolio_name": config.get("name", "Portfolio"),
             "expected_returns": config.get("expected_returns"),
-            "factor_proxies": config.get("stock_factor_proxies")
+            "factor_proxies": config.get("stock_factor_proxies"),
+            "cash_positions": list(get_cash_positions()),
         }
     ) 

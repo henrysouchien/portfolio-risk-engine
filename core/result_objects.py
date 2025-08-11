@@ -257,6 +257,8 @@ class RiskAnalysisResult:
     portfolio_name: Optional[str] = None
     
     # Additional fields for CLI-API parity
+    # Analysis metadata and auxiliary context (optional; used by formatters)
+    analysis_metadata: Optional[Dict[str, Any]] = None
     expected_returns: Optional[Dict[str, float]] = None
     factor_proxies: Optional[Dict[str, str]] = None
     
@@ -920,8 +922,6 @@ class RiskAnalysisResult:
             "net_exposure": self.net_exposure,  # NET EXPOSURE (sum of weights)
             "gross_exposure": self.gross_exposure,  # GROSS EXPOSURE (sum of abs(weights))
             "leverage": self.leverage,  # LEVERAGE (gross / net)
-            "expected_returns": self.expected_returns,  # EXPECTED RETURNS
-            "stock_factor_proxies": self.factor_proxies,  # Stock Factor Proxies
             "risk_contributions": _convert_to_json_serializable(self.risk_contributions),  # Risk Contributions
             "covariance_matrix": _convert_to_json_serializable(self.covariance_matrix),  # Covariance Matrix
             "correlation_matrix": _convert_to_json_serializable(self.correlation_matrix),  # Correlation Matrix
@@ -948,8 +948,16 @@ class RiskAnalysisResult:
             "max_betas": _convert_to_json_serializable(self.max_betas),  # Max Factor Beta
             "max_betas_by_proxy": _convert_to_json_serializable(self.max_betas_by_proxy),  # Max Sector Betas
             "historical_analysis": _convert_to_json_serializable(self.historical_analysis),  # Historical Worst-Case Analysis Data
-            "analysis_date": self.analysis_date.isoformat(),  # Analysis Date
-            "portfolio_name": self.portfolio_name,  # Portfolio Name
+            "analysis_metadata": {
+                "analysis_date": self.analysis_date.isoformat(),  # Analysis Date
+                "portfolio_name": self.portfolio_name,  # Portfolio Name
+                "stock_factor_proxies": self.factor_proxies,  # Stock Factor Proxies
+                "cash_positions": (self.analysis_metadata or {}).get("cash_positions"), # Cash Positions    
+                "lookback_years": (self.analysis_metadata or {}).get("lookback_years"), # Lookback Years
+                "total_positions": (self.analysis_metadata or {}).get("total_positions"), # Total Positions
+                "active_positions": (self.analysis_metadata or {}).get("active_positions"), # Active Positions
+                "expected_returns": self.expected_returns,  # EXPECTED RETURNS
+            },
             "formatted_report": self.to_cli_report(),  # Formatted Report
             "risk_limit_violations_summary": self._get_risk_limit_violations_summary(),  # Risk Limit Violations Summary
             "beta_exposure_checks_table": self._get_beta_exposure_checks_table()  # Beta Exposure Checks Formatted Table
@@ -1231,9 +1239,9 @@ class RiskAnalysisResult:
                 sections.append("=== Per-Industry Group Betas ===")
                 try:
                     from utils.etf_mappings import get_etf_to_industry_map, format_ticker_with_label
-                    from run_portfolio_risk import get_cash_positions
                     
-                    cash_positions = get_cash_positions()
+                    # Use cash positions passed via analysis_metadata to avoid core calls
+                    cash_positions = set((self.analysis_metadata or {}).get("cash_positions", []))
                     industry_map = get_etf_to_industry_map()
                     
                     # Calculate adaptive column width based on labeled ETF tickers
@@ -1418,6 +1426,7 @@ class RiskAnalysisResult:
             max_betas_by_proxy=max_betas_by_proxy,
             historical_analysis=historical_analysis,
             analysis_date=datetime.now(UTC),
+            analysis_metadata=analysis_metadata,
             portfolio_name=analysis_metadata.get("portfolio_name"),
             expected_returns=analysis_metadata.get("expected_returns"),
             factor_proxies=analysis_metadata.get("factor_proxies")
