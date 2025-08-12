@@ -74,6 +74,7 @@ def optimize_min_variance(filepath: str, risk_yaml: str = "risk_limits.yaml") ->
         proxies      = config["stock_factor_proxies"],
     )
     # LOGGING: Add min variance calculation performance timing here
+    # TODO: Could add proxy table and summary like max return
     
     # --- Return OptimizationResult object ----------------------------------
     from core.result_objects import OptimizationResult
