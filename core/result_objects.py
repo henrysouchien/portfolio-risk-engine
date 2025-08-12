@@ -1541,61 +1541,24 @@ class OptimizationResult:
         # Optimization metadata (for storing additional context like risk limits)
         self.optimization_metadata = {}
     
-    @classmethod
-    def from_min_variance_output(cls, 
-                                optimized_weights: Dict[str, float],
-                                risk_table: pd.DataFrame,
-                                beta_table: pd.DataFrame) -> 'OptimizationResult':
-        """
-        Create OptimizationResult from run_min_variance() output.
-        
-        Complete Field Mapping (run_min_var → OptimizationResult):
-        =========================================================
-        
-        Core Function Output (3-tuple)          → Result Object Field
-        ──────────────────────────────────────────────────────────────────
-        optimized_weights (Dict[str, float])    → self.optimized_weights
-        risk_table (pd.DataFrame)               → self.risk_table
-        beta_table (pd.DataFrame)               → self.beta_table
-        None (not provided by min variance)     → self.portfolio_summary (None)
-        None (not provided by min variance)     → self.proxy_table (None)
-        "Minimum Variance" (default)            → self.optimization_type
-        datetime.now()                          → self.analysis_date
-        
-        Data Flow: run_min_var() → (weights, risk_table, beta_table) → OptimizationResult
-        Completeness: 100% - All min variance optimization outputs captured
-        
-        Note: Min variance optimization returns a simpler structure than max return,
-        with only weights and compliance tables (no portfolio summary or proxy analysis).
-        """
-        instance = cls(
-            optimized_weights=optimized_weights,
-            optimization_type="min_variance",
-            risk_table=risk_table,
-            beta_table=beta_table
-        )
-        
-        # Set analysis timestamp
-        instance.analysis_date = datetime.now(UTC)
-        
-        return instance
-        
+
     
     @classmethod  
     def from_core_optimization(cls,
                               optimized_weights: Dict[str, float],
-                              portfolio_summary: Dict[str, Any], 
                               risk_table: pd.DataFrame,
                               factor_table: pd.DataFrame,
-                              proxy_table: pd.DataFrame,
-                              optimization_metadata: Dict[str, Any]) -> 'OptimizationResult':
+                              optimization_metadata: Dict[str, Any],
+                              portfolio_summary: Optional[Dict[str, Any]] = None,
+                              proxy_table: Optional[pd.DataFrame] = None) -> 'OptimizationResult':
         """
         Create OptimizationResult from core optimization function data.
         
-        This replaces from_max_return_output() with a cleaner interface
-        designed for core business logic functions, not service layer.
+        Unified interface for both min variance and max return optimization.
         
-        🔒 CONSTRAINT: Must preserve exact same field mappings as current factory.
+        🔒 CONSTRAINT: Must preserve exact same field mappings as current implementation.
+        Max return optimization continues to work unchanged by passing all parameters.
+        Min variance optimization can now use this method by omitting optional parameters.
         """
         from datetime import datetime, timezone
         
@@ -1604,9 +1567,9 @@ class OptimizationResult:
             optimization_type=optimization_metadata.get("optimization_type", "max_return"),
             risk_table=risk_table,
             beta_table=factor_table,  # Use factor_table as beta_table for consistency
-            portfolio_summary=portfolio_summary,
+            portfolio_summary=portfolio_summary or {},  # Default to empty dict for min variance
             factor_table=factor_table,
-            proxy_table=proxy_table
+            proxy_table=proxy_table if proxy_table is not None else pd.DataFrame()  # Default to empty DataFrame for min variance
         )
         
         # Set analysis_date from metadata (when optimization was actually performed)
@@ -1695,12 +1658,12 @@ class OptimizationResult:
         # Compute summary statuses for quick API consumption
         risk_passes = bool(self.risk_table['Pass'].all())
         factor_passes = bool(self.beta_table['pass'].all()) 
-        proxy_passes = bool(self.proxy_table['pass'].all())
+        proxy_passes = bool(self.proxy_table['pass'].all()) if not self.proxy_table.empty else True
         
         # Extract violations only (failed checks for error handling)
         risk_violations = _convert_to_json_serializable(self.risk_table[~self.risk_table['Pass']])
         factor_violations = _convert_to_json_serializable(self.beta_table[~self.beta_table['pass']])
-        proxy_violations = _convert_to_json_serializable(self.proxy_table[~self.proxy_table['pass']])
+        proxy_violations = _convert_to_json_serializable(self.proxy_table[~self.proxy_table['pass']]) if not self.proxy_table.empty else []
         
         # Build comprehensive response with both structured and original formats
         result = {
@@ -1773,7 +1736,29 @@ class OptimizationResult:
 
 
     def to_cli_report(self) -> str:
-        """Generate complete CLI formatted report - IDENTICAL to print_max_return_report() output"""
+        """Generate complete CLI formatted report - IDENTICAL to current CLI output"""
+        if self.optimization_type in ["min_variance", "minimum_variance"]:
+            return self._format_min_variance_report()
+        else:
+            return self._format_max_return_report()
+
+    def _format_min_variance_report(self) -> str:
+        """Generate minimum variance CLI report - IDENTICAL to print_min_var_report() output"""
+        sections = []
+        
+        # Add weights section
+        sections.append(self._format_min_variance_weights())
+        
+        # Add risk checks section
+        sections.append(self._format_min_variance_risk_checks())
+        
+        # Add factor exposures section
+        sections.append(self._format_min_variance_factor_checks())
+        
+        return "\n".join(sections)
+
+    def _format_max_return_report(self) -> str:
+        """Generate max return CLI report - IDENTICAL to print_max_return_report() output"""
         sections = []
         
         # Add weights section
@@ -1832,6 +1817,35 @@ class OptimizationResult:
             lines.append(self.proxy_table.to_string(index_names=False, formatters=fmt))
             return "\n".join(lines)
         return ""
+
+    def _format_min_variance_weights(self) -> str:
+        """Format minimum variance weights - EXACT copy from print_min_var_report"""
+        lines = ["\n🎯  Target minimum-variance weights\n"]
+        for t, w in sorted(self.optimized_weights.items(), key=lambda kv: -abs(kv[1])):
+            if abs(w) >= 0.0001:
+                lines.append(f"{t:<10} : {w:.2%}")
+        return "\n".join(lines)
+
+    def _format_min_variance_risk_checks(self) -> str:
+        """Format minimum variance risk checks - EXACT copy from print_min_var_report"""
+        lines = ["\n📐  Optimised Portfolio – Risk Checks\n"]
+        pct = lambda x: f"{x:.2%}"
+        lines.append(self.risk_table.to_string(index=False, formatters={"Actual": pct, "Limit": pct}))
+        return "\n".join(lines)
+
+    def _format_min_variance_factor_checks(self) -> str:
+        """Format minimum variance factor checks - EXACT copy from print_min_var_report"""
+        from helpers_display import _drop_factors
+        
+        lines = ["\n📊  Optimised Portfolio – Factor Betas\n"]
+        beta_tbl = _drop_factors(self.beta_table)
+        lines.append(beta_tbl.to_string(formatters={
+            "Beta":      "{:.2f}".format,
+            "Max Beta":  "{:.2f}".format,
+            "Buffer":    "{:.2f}".format,
+            "pass":      lambda x: "PASS" if x else "FAIL",  # Use lowercase 'pass' to match actual column name
+        }))
+        return "\n".join(lines)
 
 
 @dataclass

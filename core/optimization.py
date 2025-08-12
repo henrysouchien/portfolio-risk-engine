@@ -35,7 +35,7 @@ from utils.logging import (
 @log_portfolio_operation_decorator("min_variance_optimization")
 @log_resource_usage_decorator(monitor_memory=True, monitor_cpu=True)
 @log_performance(10.0)
-def optimize_min_variance(filepath: str, risk_yaml: str = "risk_limits.yaml") -> Dict[str, Any]:
+def optimize_min_variance(filepath: str, risk_yaml: str = "risk_limits.yaml") -> 'OptimizationResult':
     """
     Core minimum variance optimization business logic.
     
@@ -49,12 +49,13 @@ def optimize_min_variance(filepath: str, risk_yaml: str = "risk_limits.yaml") ->
         
     Returns
     -------
-    Dict[str, Any]
-        Structured optimization results containing:
+    OptimizationResult
+        Complete optimization result object with:
         - optimized_weights: Optimized portfolio weights
-        - risk_analysis: Risk checks for optimized portfolio
-        - beta_analysis: Beta checks for optimized portfolio
+        - risk_table: Risk checks for optimized portfolio  
+        - beta_table: Beta checks for optimized portfolio
         - optimization_metadata: Optimization configuration and results
+        - CLI and API formatting methods
     """
     # LOGGING: Add min variance optimization start logging and timing here
     
@@ -74,25 +75,14 @@ def optimize_min_variance(filepath: str, risk_yaml: str = "risk_limits.yaml") ->
     )
     # LOGGING: Add min variance calculation performance timing here
     
-    # --- Return structured results ----------------------------------------
-    result = make_json_safe({
-        "optimized_weights": w,
-        "risk_analysis": {
-            "risk_checks": r.to_dict('records'),
-            "risk_passes": bool(r['Pass'].all()),
-            "risk_violations": r[~r['Pass']].to_dict('records'),
-            "risk_limits": {
-                "portfolio_limits": risk_config["portfolio_limits"],
-                "concentration_limits": risk_config["concentration_limits"],
-                "variance_limits": risk_config["variance_limits"]
-            }
-        },
-        "beta_analysis": {
-            "beta_checks": b.to_dict('records'),
-            "beta_passes": bool(b['pass'].all()),
-            "beta_violations": b[~b['pass']].to_dict('records'),
-        },
-        "optimization_metadata": {
+    # --- Return OptimizationResult object ----------------------------------
+    from core.result_objects import OptimizationResult
+
+    return OptimizationResult.from_core_optimization(
+        optimized_weights=w,
+        risk_table=r,
+        factor_table=b,  # Use as factor_table (same as beta_table)
+        optimization_metadata={
             "optimization_type": "minimum_variance",
             "analysis_date": datetime.now(UTC).isoformat(),
             "portfolio_file": filepath,
@@ -100,16 +90,8 @@ def optimize_min_variance(filepath: str, risk_yaml: str = "risk_limits.yaml") ->
             "total_positions": len(w),
             "active_positions": len([v for v in w.values() if abs(v) > 0.001])
         }
-    })
-    
-    # Add raw objects for dual-mode compatibility
-    result["raw_tables"] = {
-        "weights": w,
-        "risk_table": r,
-        "beta_table": b
-    }
-    
-    return result
+        # portfolio_summary and proxy_table omitted - will use defaults (empty dict/DataFrame)
+    )
 
 
 @log_error_handling("high")

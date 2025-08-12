@@ -33,7 +33,6 @@ from portfolio_optimizer import (
     run_what_if_scenario,
     print_what_if_report,
     run_min_var,
-    print_min_var_report,
     run_max_return_portfolio,
     print_max_return_report,
 )  
@@ -395,7 +394,7 @@ def run_what_if(
 # MIN VARIANCE OPTIMIZATION
 # This handles minimum variance portfolio optimization
 # ============================================================================
-def run_min_variance(filepath: str, risk_yaml: str = "risk_limits.yaml", *, return_data: bool = False):
+def run_min_variance(filepath: str, risk_yaml: str = "risk_limits.yaml", *, return_data: bool = False) -> Union[None, OptimizationResult]:
     """
     Run the minimum-variance optimiser under current risk limits.
 
@@ -406,8 +405,8 @@ def run_min_variance(filepath: str, risk_yaml: str = "risk_limits.yaml", *, retu
     3. Call :pyfunc:`portfolio_optimizer.run_min_var` to solve for the
        lowest-variance weight vector that satisfies **all** firm-wide
        constraints.
-    4. Pretty-print the resulting weights plus risk & beta check tables
-       via :pyfunc:`portfolio_optimizer.print_min_var_report`.
+    4. Display the resulting weights plus risk & beta check tables
+       via OptimizationResult CLI formatting.
 
     Parameters
     ----------
@@ -420,13 +419,14 @@ def run_min_variance(filepath: str, risk_yaml: str = "risk_limits.yaml", *, retu
 
     Returns
     -------
-    None or Dict[str, Any]
+    None or OptimizationResult
         If return_data=False: Returns None, prints formatted output (existing behavior)
-        If return_data=True: Returns structured data dictionary with:
+        If return_data=True: Returns OptimizationResult object with:
             - optimized_weights: Optimized portfolio weights
-            - risk_analysis: Risk checks for optimized portfolio
-            - beta_analysis: Beta checks for optimized portfolio
-            - optimization_metadata: Optimization configuration and results
+            - risk_table: Risk checks for optimized portfolio
+            - beta_table: Beta checks for optimized portfolio
+            - to_api_response(): Convert to API dictionary format
+            - to_cli_report(): Generate CLI formatted report
 
     Raises
     ------
@@ -439,32 +439,16 @@ def run_min_variance(filepath: str, risk_yaml: str = "risk_limits.yaml", *, retu
     stdout; nothing is returned.
     """
     
-    # --- BUSINESS LOGIC: Call extracted core function ---------------------
-    optimization_result = optimize_min_variance(filepath, risk_yaml=risk_yaml)
-    
-    # Extract components for compatibility with dual-mode logic
-    w = optimization_result["raw_tables"]["weights"]
-    r = optimization_result["raw_tables"]["risk_table"]
-    b = optimization_result["raw_tables"]["beta_table"]
+    # --- BUSINESS LOGIC: Call core function that returns OptimizationResult ---
+    result = optimize_min_variance(filepath, risk_yaml)  # Returns OptimizationResult
     
     # ─── Dual-Mode Logic ─────────────────────────────────────
     if return_data:
-        # API MODE: Return structured data from extracted function
-        from core.result_objects import OptimizationResult
-        
-        # Create OptimizationResult object for formatted report
-        optimization_obj = OptimizationResult.from_min_variance_output(
-            optimized_weights=w,
-            risk_table=r,
-            beta_table=b
-        )
-        
-        # Add formatted report to optimization result and return
-        optimization_result["formatted_report"] = optimization_obj.to_formatted_report()
-        return optimization_result
+        # API MODE: Return OptimizationResult object
+        return result
     else:
-        # CLI MODE: Print formatted output
-        print_min_var_report(weights=w, risk_tbl=r, beta_tbl=b)
+        # CLI MODE: Print formatted output  
+        print(result.to_cli_report())
 
 # ============================================================================
 # MAX RETURN OPTIMIZATION
