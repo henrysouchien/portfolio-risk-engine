@@ -628,6 +628,8 @@ def run_what_if_scenario(
     proxies: Dict[str, Any],
     shift_dict: Optional[Dict[str, str]] = None,
     scenario_yaml: Optional[str] = None,
+    portfolio_yaml_path: str,
+    risk_yaml_path: str,
 ):
     """
     Runs a portfolio what-if scenario and returns the full risk report.
@@ -707,9 +709,9 @@ def run_what_if_scenario(
     # get proxy-level beta caps
     from settings import PORTFOLIO_DEFAULTS
     lookback_years = PORTFOLIO_DEFAULTS.get('worst_case_lookback_years', 10)
-    _, max_betas_by_proxy = calc_max_factor_betas(
-        portfolio_yaml="portfolio.yaml",
-        risk_yaml="risk_limits.yaml",
+    max_betas, max_betas_by_proxy, historical_analysis = calc_max_factor_betas(
+        portfolio_yaml=portfolio_yaml_path,
+        risk_yaml=risk_yaml_path,
         lookback_years=lookback_years,
         echo=False
     )

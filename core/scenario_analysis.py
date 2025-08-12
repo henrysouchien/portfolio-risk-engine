@@ -18,6 +18,7 @@ from run_portfolio_risk import (
 )
 from portfolio_risk import build_portfolio_view
 from portfolio_optimizer import run_what_if_scenario
+from core.result_objects import WhatIfResult
 
 # Import logging decorators for scenario analysis
 from utils.logging import (
@@ -31,9 +32,10 @@ from utils.logging import (
 @log_performance(5.0)
 def analyze_scenario(
     filepath: str,
+    risk_limits_yaml: str,
     scenario_yaml: Optional[str] = None,
     delta: Optional[str] = None
-) -> Dict[str, Any]:
+) -> WhatIfResult:
     """
     Core scenario analysis business logic.
     
@@ -71,16 +73,17 @@ def analyze_scenario(
         - Basis points: "+500bp", "-200bps" 
         - Percentages: "+2%", "-1.5%"
         - Decimals: "+0.02", "-0.015"
+    risk_limits_yaml : str, optional
+        Path to the risk limits YAML file. Defaults to "risk_limits.yaml".
         
     Returns
     -------
-    Dict[str, Any]
-        Structured scenario analysis results containing:
-        - scenario_summary: Portfolio view after scenario changes
-        - risk_analysis: Risk checks for scenario portfolio
-        - beta_analysis: Beta checks for scenario portfolio
-        - comparison_analysis: Before/after comparison data
-        - scenario_metadata: Scenario configuration and metadata
+    WhatIfResult
+        Complete what-if scenario analysis result object containing:
+        - Current and scenario portfolio metrics
+        - Risk and beta comparison tables
+        - CLI formatting capabilities via to_cli_report()
+        - API response data via to_api_response()
         
     Notes
     -----
@@ -100,7 +103,7 @@ def analyze_scenario(
     # LOGGING: Add config loading performance timing here
     # LOGGING: Add workflow state logging for scenario analysis workflow here
     # LOGGING: Add resource usage monitoring for scenario analysis here
-    with open("risk_limits.yaml", "r") as f:
+    with open(risk_limits_yaml, "r") as f:
         risk_config = yaml.safe_load(f)
 
     weights = standardize_portfolio_input(config["portfolio_input"], latest_price)["weights"]
@@ -128,6 +131,8 @@ def analyze_scenario(
         proxies      = config["stock_factor_proxies"],
         scenario_yaml = scenario_yaml,
         shift_dict   = shift_dict,
+        portfolio_yaml_path = filepath,
+        risk_yaml_path = risk_limits_yaml,
     )
     
     # split beta table between factors and industry
@@ -148,9 +153,9 @@ def analyze_scenario(
             beta_f_new = beta_new.copy()
             beta_p_new = pd.DataFrame()
     
-    # --- Return structured results -----------------------------------------
-    # Match portfolio analysis pattern: preserve raw pandas objects, only convert specific tables
-    result = {
+    # --- Build result object using new builder method ---------------------
+    # Create structured data for the builder method
+    scenario_result_data = {
         # Raw scenario_summary with pandas objects (for service layer)
         "scenario_summary": summary,
         
@@ -178,12 +183,6 @@ def analyze_scenario(
             "beta_comparison": cmp_beta.to_dict('records'),
         },
         
-        "delta_change": {
-            "volatility_delta": summary_base["volatility_annual"] - summary["volatility_annual"],
-            "base_volatility": summary_base["volatility_annual"],
-            "scenario_volatility": summary["volatility_annual"]
-        },
-        
         "scenario_metadata": {
             "scenario_yaml": scenario_yaml,
             "delta_string": delta,
@@ -191,20 +190,25 @@ def analyze_scenario(
             "analysis_date": datetime.now(UTC).isoformat(),
             "portfolio_file": filepath,
             "base_weights": weights
+        },
+        
+        # Store raw objects for dual-mode compatibility
+        "raw_tables": {
+            "summary": summary,
+            "summary_base": summary_base,  # Add original portfolio for before/after comparison
+            "risk_new": risk_new,
+            "beta_f_new": beta_f_new,
+            "beta_p_new": beta_p_new,
+            "cmp_risk": cmp_risk,
+            "cmp_beta": cmp_beta
         }
-    }
-    
-    # Store raw objects for dual-mode compatibility
-    result["raw_tables"] = {
-        "summary": summary,
-        "summary_base": summary_base,  # Add original portfolio for before/after comparison
-        "risk_new": risk_new,
-        "beta_f_new": beta_f_new,
-        "beta_p_new": beta_p_new,
-        "cmp_risk": cmp_risk,
-        "cmp_beta": cmp_beta
     }
     
     # LOGGING: Add scenario analysis completion logging with timing here
     # LOGGING: Add workflow state logging for scenario analysis workflow completion here
-    return result 
+    
+    # Use new builder method to create WhatIfResult
+    return WhatIfResult.from_core_scenario(
+        scenario_result=scenario_result_data,
+        scenario_name="What-If Scenario"
+    ) 

@@ -60,6 +60,7 @@ from core.optimization import optimize_min_variance, optimize_max_return
 from core.stock_analysis import analyze_stock
 from core.performance_analysis import analyze_performance
 from core.interpretation import analyze_and_interpret, interpret_portfolio_data
+from core.result_objects import WhatIfResult
 
 """
 Risk Analysis CLI & API Interface Module
@@ -327,8 +328,9 @@ def run_what_if(
     scenario_yaml: Optional[str] = None, 
     delta: Optional[str] = None,
     *,
-    return_data: bool = False
-):
+    return_data: bool = False,
+    risk_limits_yaml: str = "risk_limits.yaml"
+) -> Union[None, Dict[str, Any]]:
     """
     Execute a single *what-if* scenario on an existing portfolio.
 
@@ -352,6 +354,8 @@ def run_what_if(
     return_data : bool, default False
         If True, returns structured data instead of printing.
         If False, prints formatted output to stdout (existing behavior).
+    risk_limits_yaml : str, default "risk_limits.yaml"
+        Path to the risk limits YAML file.
 
     Returns
     -------
@@ -373,51 +377,18 @@ def run_what_if(
     """
     
     # --- BUSINESS LOGIC: Call extracted core function ----------------------
-    scenario_result = analyze_scenario(filepath, scenario_yaml, delta)
-    
-    # Extract components for compatibility with dual-mode logic
-    summary = scenario_result["raw_tables"]["summary"]
-    summary_base = scenario_result["raw_tables"]["summary_base"]  # Extract original portfolio
-    risk_new = scenario_result["raw_tables"]["risk_new"]
-    beta_f_new = scenario_result["raw_tables"]["beta_f_new"]
-    beta_p_new = scenario_result["raw_tables"]["beta_p_new"]
-    cmp_risk = scenario_result["raw_tables"]["cmp_risk"]
-    cmp_beta = scenario_result["raw_tables"]["cmp_beta"]
-    
-    # ─── Dual-Mode Logic ─────────────────────────────────────
+    result = analyze_scenario(filepath, risk_limits_yaml, scenario_yaml, delta)  # Returns WhatIfResult
+
+    # ─── Simplified Dual-Mode Logic ─────────────────────────────────────
     if return_data:
-        # API MODE: Return structured data from extracted function
-        from io import StringIO
-        from contextlib import redirect_stdout
-        
-        # Create formatted report by capturing print output
-        report_buffer = StringIO()
-        with redirect_stdout(report_buffer):
-            print_what_if_report(
-                summary_new=summary,
-                summary_old=summary_base,  # Add original portfolio for before/after comparison
-                risk_new=risk_new,
-                beta_f_new=beta_f_new,
-                beta_p_new=beta_p_new,
-                cmp_risk=cmp_risk,
-                cmp_beta=cmp_beta,
-            )
-        formatted_report = report_buffer.getvalue()
-        
-        # Add formatted report to scenario result and return
-        scenario_result["formatted_report"] = formatted_report
-        return scenario_result
+        # API MODE: Return dict structure for backward compatibility
+        api_dict = result.to_api_response()
+        # Add formatted_report for backward compatibility
+        api_dict["formatted_report"] = result.to_cli_report()
+        return api_dict
     else:
         # CLI MODE: Print formatted output
-        print_what_if_report(
-            summary_new=summary,
-            summary_old=summary_base,  # Add original portfolio for before/after comparison
-            risk_new=risk_new,
-            beta_f_new=beta_f_new,
-            beta_p_new=beta_p_new,
-            cmp_risk=cmp_risk,
-            cmp_beta=cmp_beta,
-        )
+        print(result.to_cli_report())
 
 # ============================================================================
 # MIN VARIANCE OPTIMIZATION

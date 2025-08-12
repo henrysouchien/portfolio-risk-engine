@@ -1051,6 +1051,7 @@ class RiskAnalysisResult:
             beta_checks=beta_checks or [],
             max_betas=max_betas or {},
             max_betas_by_proxy=max_betas_by_proxy or {},
+            historical_analysis={},  # Default empty dict for from_build_portfolio_view
             analysis_date=datetime.now(UTC),
             portfolio_name=portfolio_name,
             expected_returns=expected_returns,
@@ -3247,34 +3248,67 @@ class WhatIfResult:
         self.concentration_improvement = bool(self.concentration_delta < 0)  # Lower concentration is better
     
     @classmethod
-    def from_analyze_scenario_output(cls,
-                                   analyze_scenario_result: Dict[str, Any],
-                                   scenario_name: str = "What-If Scenario") -> 'WhatIfResult':
+    def from_core_scenario(cls,
+                          scenario_result: Dict[str, Any],
+                          scenario_name: str = "What-If Scenario") -> 'WhatIfResult':
         """
-        Create WhatIfResult from complete analyze_scenario() output.
+        Create WhatIfResult from core analyze_scenario() output.
         
-        This method captures ALL the CLI data available from analyze_scenario(),
-        including comparison tables, new portfolio checks, and position changes.
+        🔒 CRITICAL: This must preserve exact same field mappings as 
+        from_analyze_scenario_output() AND ensure to_api_response() produces 
+        identical output to current API responses.
+        
+        The existing to_api_response() method expects these fields:
+        - current_metrics, scenario_metrics (RiskAnalysisResult objects)
+        - risk_comparison, beta_comparison (DataFrames)
+        - All CLI tables via get_*_table() methods
         
         Args:
-            analyze_scenario_result: Complete output from analyze_scenario()
+            scenario_result: Output from analyze_scenario() core function
             scenario_name: Name for the scenario
             
         Returns:
-            WhatIfResult with all CLI data included
+            WhatIfResult with all data needed for identical API responses
         """
-        # Extract raw tables
-        raw_tables = analyze_scenario_result["raw_tables"]
+        # Extract components from analyze_scenario result
+        raw_tables = scenario_result["raw_tables"]
         
-        # Create RiskAnalysisResult objects
-        current_metrics = RiskAnalysisResult.from_build_portfolio_view(
-            raw_tables["summary_base"], portfolio_name="Current Portfolio"
-        )
-        scenario_metrics = RiskAnalysisResult.from_build_portfolio_view(
-            raw_tables["summary"], portfolio_name=scenario_name
+        # Create RiskAnalysisResult objects using from_core_analysis
+        # Map build_portfolio_view data to from_core_analysis parameters
+        
+        # For current portfolio
+        current_risk_checks = []  # Will be populated if available
+        current_beta_checks = []  # Will be populated if available
+        current_historical_analysis = raw_tables["summary_base"].get("historical_analysis", {})
+        current_metadata = {"portfolio_name": "Current Portfolio", "analysis_date": scenario_result.get("scenario_metadata", {}).get("analysis_date")}
+        
+        current_metrics = RiskAnalysisResult.from_core_analysis(
+            portfolio_summary=raw_tables["summary_base"],
+            risk_checks=current_risk_checks,
+            beta_checks=current_beta_checks,
+            max_betas=raw_tables["summary_base"].get("max_betas", {}),
+            max_betas_by_proxy=raw_tables["summary_base"].get("max_betas_by_proxy", {}),
+            historical_analysis=current_historical_analysis,
+            analysis_metadata=current_metadata
         )
         
-        # Create enhanced WhatIfResult with all data
+        # For scenario portfolio  
+        scenario_risk_checks = raw_tables["risk_new"].to_dict('records') if not raw_tables["risk_new"].empty else []
+        scenario_beta_checks = raw_tables["beta_f_new"].to_dict('records') if not raw_tables["beta_f_new"].empty else []
+        scenario_historical_analysis = raw_tables["summary"].get("historical_analysis", {})
+        scenario_metadata = {"portfolio_name": scenario_name, "analysis_date": scenario_result.get("scenario_metadata", {}).get("analysis_date")}
+        
+        scenario_metrics = RiskAnalysisResult.from_core_analysis(
+            portfolio_summary=raw_tables["summary"],
+            risk_checks=scenario_risk_checks,
+            beta_checks=scenario_beta_checks,
+            max_betas=raw_tables["summary"].get("max_betas", {}),
+            max_betas_by_proxy=raw_tables["summary"].get("max_betas_by_proxy", {}),
+            historical_analysis=scenario_historical_analysis,
+            analysis_metadata=scenario_metadata
+        )
+        
+        # Create WhatIfResult with identical data structure
         result = cls(
             current_metrics=current_metrics,
             scenario_metrics=scenario_metrics,
@@ -3283,14 +3317,15 @@ class WhatIfResult:
             beta_comparison=raw_tables["cmp_beta"]
         )
         
-        # Store additional CLI data
+        # Store CLI data exactly as factory method does
         result._new_portfolio_risk_checks = raw_tables["risk_new"]
-        result._new_portfolio_factor_checks = raw_tables["beta_f_new"] 
+        result._new_portfolio_factor_checks = raw_tables["beta_f_new"]
         result._new_portfolio_industry_checks = raw_tables["beta_p_new"]
-        result._scenario_metadata = analyze_scenario_result.get("scenario_metadata", {})
-        result._formatted_report = analyze_scenario_result.get("formatted_report", "")
+        result._scenario_metadata = scenario_result.get("scenario_metadata", {})
+        result._formatted_report = scenario_result.get("formatted_report", "")
         
         return result
+
 
 
     def get_summary(self) -> Dict[str, Any]:
@@ -3335,52 +3370,204 @@ class WhatIfResult:
         
         return comparison
     
-    def to_formatted_report(self) -> str:
-        """Format before/after comparison for display using real metrics."""
-        # If we have a stored formatted report (from print_what_if_report), use that
+    def to_cli_report(self) -> str:
+        """
+        Generate complete CLI formatted report - IDENTICAL to current print_what_if_report() output.
+        
+        🔒 CONSTRAINT: CLI output must be IDENTICAL to current run_what_if() output.
+        This method replicates the exact formatting from print_what_if_report().
+        """
+        # If we have stored formatted report from print_what_if_report, use it
         if hasattr(self, '_formatted_report') and self._formatted_report:
             return self._formatted_report
+            
+        # Otherwise generate equivalent report sections
+        sections = []
+        sections.append(self._format_scenario_header())
+        sections.append(self._format_position_changes())
+        sections.append(self._format_new_portfolio_risk_checks())
+        sections.append(self._format_new_portfolio_factor_checks())
+        sections.append(self._format_new_portfolio_industry_checks())
+        sections.append(self._format_risk_comparison())
+        sections.append(self._format_factor_comparison())
+        return "\n".join(sections)
+    
+    def _format_scenario_header(self) -> str:
+        """Format scenario header - EXACT copy of print_what_if_report logic"""
+        return f"=== What-If Scenario Analysis: {self.scenario_name} ==="
+    
+    def _format_position_changes(self) -> str:
+        """Format position changes table - EXACT copy of CLI output"""
+        lines = ["\n📊 Portfolio Weights — Before vs After\n"]
         
-        # Otherwise, fall back to generating our own report
-        lines = [
-            f"What-If Scenario Analysis: {self.scenario_name}",
-            f"{'='*50}",
-            f"",
-            f"Portfolio Risk Comparison:",
-            f"  Annual Volatility:",
-            f"    Current:  {self.current_metrics.volatility_annual:.2%}",
-            f"    Scenario: {self.scenario_metrics.volatility_annual:.2%}",
-            f"    Change:   {self.volatility_delta:+.2%}",
-            f"",
-            f"  Concentration (Herfindahl):",
-            f"    Current:  {self.current_metrics.herfindahl:.3f}",
-            f"    Scenario: {self.scenario_metrics.herfindahl:.3f}",
-            f"    Change:   {self.concentration_delta:+.3f}",
-            f"",
-            f"  Factor Variance Share:",
-            f"    Current:  {self.current_metrics.variance_decomposition.get('factor_pct', 0):.1%}",
-            f"    Scenario: {self.scenario_metrics.variance_decomposition.get('factor_pct', 0):.1%}",
-            f"    Change:   {self.factor_variance_delta:+.1%}",
-            f""
-        ]
+        # Get reference data for position labeling
+        try:
+            from run_portfolio_risk import get_cash_positions
+            from utils.etf_mappings import get_etf_to_industry_map, format_ticker_with_label
+            cash_positions = get_cash_positions()
+            industry_map = get_etf_to_industry_map()
+        except ImportError:
+            cash_positions = set()
+            industry_map = {}
         
-        # Add factor exposures comparison
-        factor_comparison = self.get_factor_exposures_comparison()
-        if factor_comparison:
-            lines.append("Factor Exposures Comparison:")
-            for factor, values in factor_comparison.items():
-                lines.append(f"  {factor.capitalize()}:")
-                lines.append(f"    Current:  {values['current']:+.2f}")
-                lines.append(f"    Scenario: {values['scenario']:+.2f}")
-                lines.append(f"    Change:   {values['delta']:+.2f}")
-            lines.append("")
+        # Get weights from both portfolios - use stored metadata
+        if not hasattr(self, '_scenario_metadata'):
+            return "\n📊 Portfolio Weights — Before vs After\n\n(No position changes data available)\n"
+            
+        base_weights = self._scenario_metadata.get("base_weights", {})
+        scenario_weights = getattr(self.scenario_metrics, 'portfolio_weights', {})
         
-        # Add improvement summary
-        lines.append("Improvement Summary:")
-        lines.append(f"  Risk (Volatility): {'✅ Improved' if self.risk_improvement else '❌ Increased'}")
-        lines.append(f"  Concentration:     {'✅ Improved' if self.concentration_improvement else '❌ Increased'}")
+        # If scenario_weights is empty, try to get from allocations
+        if not scenario_weights and hasattr(self.scenario_metrics, 'allocations'):
+            if hasattr(self.scenario_metrics.allocations, 'to_dict'):
+                scenario_weights = self.scenario_metrics.allocations.to_dict().get('Portfolio Weight', {})
         
+        # Combine all tickers and calculate changes
+        all_tickers = set(base_weights.keys()) | set(scenario_weights.keys())
+        
+        # Calculate adaptive column width
+        max_width = 12  # minimum width
+        changes_data = []
+        
+        for ticker in all_tickers:
+            old_weight = base_weights.get(ticker, 0.0)
+            new_weight = scenario_weights.get(ticker, 0.0)
+            change = new_weight - old_weight
+            
+            # Only show positions that exist in at least one portfolio
+            if abs(old_weight) > 0.001 or abs(new_weight) > 0.001:
+                try:
+                    labeled_ticker = format_ticker_with_label(ticker, cash_positions, industry_map)
+                except:
+                    labeled_ticker = ticker
+                max_width = max(max_width, len(labeled_ticker))
+                changes_data.append((ticker, labeled_ticker, old_weight, new_weight, change))
+        
+        # Add padding
+        max_width += 2
+        
+        # Print header
+        lines.append(f"{'Position':<{max_width}} {'Before':<8} {'After':<8} {'Change':<8}")
+        lines.append("─" * (max_width + 26))
+        
+        # Sort by absolute change (largest changes first)
+        changes_data.sort(key=lambda x: abs(x[4]), reverse=True)
+        
+        # Print changes
+        for ticker, labeled_ticker, old_weight, new_weight, change in changes_data:
+            if abs(change) > 0.001:  # Only show meaningful changes
+                change_str = f"{change:+.1%}" if abs(change) >= 0.001 else ""
+                lines.append(f"{labeled_ticker:<{max_width}} {old_weight:.1%}    {new_weight:.1%}    {change_str}")
+        
+        lines.append("")  # Add spacing
         return "\n".join(lines)
+    
+    def _format_new_portfolio_risk_checks(self) -> str:
+        """Format new portfolio risk checks - EXACT copy of CLI output"""
+        lines = ["\n📐  NEW Portfolio – Risk Checks\n"]
+        
+        if not hasattr(self, '_new_portfolio_risk_checks') or self._new_portfolio_risk_checks.empty:
+            lines.append("(No risk checks data available)")
+            return "\n".join(lines)
+        
+        # Format using pandas to_string with exact formatters from print_what_if_report
+        formatted_table = self._new_portfolio_risk_checks.to_string(
+            index=False, 
+            formatters={
+                "Actual": lambda x: f"{x:.1%}",
+                "Limit":  lambda x: f"{x:.1%}",
+            }
+        )
+        lines.append(formatted_table)
+        return "\n".join(lines)
+    
+    def _format_new_portfolio_factor_checks(self) -> str:
+        """Format new portfolio factor checks - EXACT copy of CLI output"""
+        lines = ["\n📊  NEW Aggregate Factor Exposures\n"]
+        
+        if not hasattr(self, '_new_portfolio_factor_checks') or self._new_portfolio_factor_checks.empty:
+            lines.append("(No factor checks data available)")
+            return "\n".join(lines)
+        
+        # Format using pandas to_string with exact formatters from print_what_if_report
+        formatted_table = self._new_portfolio_factor_checks.to_string(
+            index_names=False, 
+            formatters={
+                "portfolio_beta":   "{:.2f}".format,
+                "max_allowed_beta": "{:.2f}".format,
+                "buffer":           "{:.2f}".format,
+                "pass":             lambda x: "PASS" if x else "FAIL",
+            }
+        )
+        lines.append(formatted_table)
+        return "\n".join(lines)
+    
+    def _format_new_portfolio_industry_checks(self) -> str:
+        """Format new portfolio industry checks - EXACT copy of CLI output"""
+        lines = ["\n📊  NEW Industry Exposure Checks\n"]
+        
+        if not hasattr(self, '_new_portfolio_industry_checks') or self._new_portfolio_industry_checks.empty:
+            lines.append("(No industry checks data available)")
+            return "\n".join(lines)
+        
+        # Format using pandas to_string with exact formatters from print_what_if_report
+        formatted_table = self._new_portfolio_industry_checks.to_string(
+            index_names=False, 
+            formatters={
+                "portfolio_beta":   "{:.2f}".format,
+                "max_allowed_beta": "{:.2f}".format,
+                "buffer":           "{:.2f}".format,
+                "pass":             lambda x: "PASS" if x else "FAIL",
+            }
+        )
+        lines.append(formatted_table)
+        return "\n".join(lines)
+    
+    def _format_risk_comparison(self) -> str:
+        """Format risk comparison table - EXACT copy of CLI output"""
+        lines = ["\n📐  Risk Limits — Before vs After\n"]
+        
+        if self.risk_comparison.empty:
+            lines.append("(No risk comparison data available)")
+            return "\n".join(lines)
+        
+        # Format using pandas to_string with exact formatters from print_what_if_report
+        formatted_table = self.risk_comparison.to_string(
+            index=False, 
+            formatters={
+                "Old":   lambda x: f"{x:.1%}",
+                "New":   lambda x: f"{x:.1%}",
+                "Δ":     lambda x: f"{x:.1%}",
+                "Limit": lambda x: f"{x:.1%}",
+            }
+        )
+        lines.append(formatted_table)
+        return "\n".join(lines)
+    
+    def _format_factor_comparison(self) -> str:
+        """Format factor comparison table - EXACT copy of CLI output"""
+        lines = ["\n📊  Factor Betas — Before vs After\n"]
+        
+        if self.beta_comparison.empty:
+            lines.append("(No factor comparison data available)")
+            return "\n".join(lines)
+        
+        # Format using pandas to_string with exact formatters from print_what_if_report
+        formatted_table = self.beta_comparison.to_string(
+            index_names=False, 
+            formatters={
+                "Old":       "{:.2f}".format,
+                "New":       "{:.2f}".format,
+                "Δ":         "{:.2f}".format,
+                "Max Beta":  "{:.2f}".format,
+                "Old Pass":  lambda x: "PASS" if x else "FAIL",
+                "New Pass":  lambda x: "PASS" if x else "FAIL",
+            }
+        )
+        lines.append(formatted_table)
+        return "\n".join(lines)
+
+
     
     def to_api_response(self) -> Dict[str, Any]:
         """
