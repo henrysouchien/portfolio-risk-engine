@@ -60,6 +60,7 @@ from core.optimization import optimize_min_variance, optimize_max_return
 from core.stock_analysis import analyze_stock
 from core.performance_analysis import analyze_performance
 from core.interpretation import analyze_and_interpret, interpret_portfolio_data
+from core.result_objects import InterpretationResult
 from core.result_objects import WhatIfResult
 
 """
@@ -122,7 +123,7 @@ For detailed architecture documentation, see: architecture.md
 # ============================================================================
 # This handles AI interpretation of portfolio analysis
 # ============================================================================
-def run_and_interpret(portfolio_yaml: str, *, return_data: bool = False):
+def run_and_interpret(portfolio_yaml: str, *, return_data: bool = False) -> Union[str, InterpretationResult]:
     """
     Convenience wrapper:
 
@@ -142,9 +143,9 @@ def run_and_interpret(portfolio_yaml: str, *, return_data: bool = False):
 
     Returns
     -------
-    str or Dict[str, Any]
+    Union[str, InterpretationResult]
         If return_data=False: Returns GPT interpretation string (existing behavior)
-        If return_data=True: Returns structured data dictionary with:
+        If return_data=True: Returns InterpretationResult object with:
             - ai_interpretation: GPT interpretation of the analysis
             - full_diagnostics: Complete analysis output text
             - analysis_metadata: Analysis configuration and timestamps
@@ -154,16 +155,13 @@ def run_and_interpret(portfolio_yaml: str, *, return_data: bool = False):
     
     # --- Dual-Mode Logic ---------------------------------------------------
     if return_data:
-        # Return structured data from extracted function
+        # Return InterpretationResult object
         return interpretation_result
     else:
-        # CLI MODE: Print formatted output (existing behavior)
-        print("\n=== GPT Portfolio Interpretation ===\n")
-        print(interpretation_result["ai_interpretation"])
-        print("\n=== Full Diagnostics ===\n")
-        print(interpretation_result["full_diagnostics"])
+        # CLI MODE: Print formatted output using Result Object method
+        print(interpretation_result.to_cli_report())
         
-        return interpretation_result["ai_interpretation"]  # Return GPT summary text (existing behavior)
+        return interpretation_result.ai_interpretation  # Return GPT summary text (existing behavior)
 
 # ============================================================================
 # This handles AI interpretation of structured portfolio output

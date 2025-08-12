@@ -1434,206 +1434,8 @@ class RiskAnalysisResult:
         )
     
     def to_formatted_report(self) -> str:
-        """
-        Generate comprehensive human-readable portfolio risk analysis report.
-        
-        This method returns the same formatted text report that appears in the CLI,
-        making it perfect for Claude AI responses, email reports, logging, and
-        any situation requiring human-readable risk analysis.
-        
-        Report Sections:
-        1. **Portfolio Risk Summary**: Core volatility and concentration metrics
-        2. **Factor Exposures**: Beta coefficients for all systematic risk factors
-        3. **Variance Decomposition**: Factor vs. idiosyncratic risk breakdown
-        4. **Top Risk Contributors**: Largest individual position risk contributors
-        5. **Risk Limit Checks**: Compliance status with portfolio risk limits
-        6. **Beta Exposure Checks**: Factor exposure compliance with limits
-        
-        Format: Professional financial analysis report with clear section headers,
-        aligned columns, and percentage formatting following industry standards.
-        
-        Performance: Uses cached formatted report if available (from service layer),
-        otherwise reconstructs from structured data in ~5-10ms.
-        
-        Returns:
-            str: Complete formatted risk analysis report (typically 500-2000 characters)
-            
-        Example:
-            ```python
-            report = result.to_formatted_report()
-            
-            # Display to user
-            print(report)
-            
-            # Send to Claude AI
-            claude_response = claude_client.send_message(
-                f"Analyze this portfolio risk report:\\n{report}"
-            )
-            
-            # Save to file
-            with open("portfolio_analysis.txt", "w") as f:
-                f.write(report)
-                
-            # Include in email
-            email_body = f"Portfolio Analysis Results:\\n\\n{report}"
-            ```
-            
-        Sample Output:
-            ```
-            === PORTFOLIO RISK SUMMARY ===
-            Annual Volatility:        18.50%
-            Monthly Volatility:       5.34%
-            Herfindahl Index:         0.142
-            
-            === FACTOR EXPOSURES ===
-            Market             1.02
-            Growth             0.85
-            Value             -0.12
-            
-            === VARIANCE DECOMPOSITION ===
-            Factor Variance:          68.2%
-            Idiosyncratic Variance:   31.8%
-            
-            === TOP RISK CONTRIBUTORS ===
-            AAPL     0.2847
-            TSLA     0.1982
-            MSFT     0.1473
-            ```
-        """
-        # Use stored formatted report if available (from service layer)
-        if hasattr(self, '_formatted_report') and self._formatted_report:
-            return self._formatted_report
-        
-        # Fallback to manual reconstruction
-        sections = []
-        
-        # Portfolio Risk Summary
-        sections.append("=== PORTFOLIO RISK SUMMARY ===")
-        sections.append(f"Annual Volatility:        {self.volatility_annual:.2%}")
-        sections.append(f"Monthly Volatility:       {self.volatility_monthly:.2%}")
-        sections.append(f"Herfindahl Index:         {self.herfindahl:.3f}")
-        sections.append("")
-        
-        # Factor Exposures
-        sections.append("=== FACTOR EXPOSURES ===")
-        for factor, beta in self.portfolio_factor_betas.items():
-            sections.append(f"{factor.capitalize():<15} {beta:>8.2f}")
-        sections.append("")
-        
-        # Variance Decomposition
-        sections.append("=== VARIANCE DECOMPOSITION ===")
-        factor_pct = self.variance_decomposition.get('factor_pct', 0)
-        idio_pct = self.variance_decomposition.get('idiosyncratic_pct', 0)
-        sections.append(f"Factor Variance:          {factor_pct:.1%}")
-        sections.append(f"Idiosyncratic Variance:   {idio_pct:.1%}")
-        sections.append("")
-        
-        # Top Risk Contributors
-        sections.append("=== TOP RISK CONTRIBUTORS ===")
-        
-        # Get reference data for position labeling
-        try:
-            from run_portfolio_risk import get_cash_positions
-            from utils.etf_mappings import get_etf_to_industry_map, format_ticker_with_label
-            cash_positions = get_cash_positions()
-            industry_map = get_etf_to_industry_map()
-        except ImportError:
-            # Fallback if imports fail
-            cash_positions = set()
-            industry_map = {}
-        
-        # Handle both pandas Series and dict formats defensively
-        if hasattr(self.risk_contributions, 'nlargest'):
-            top_contributors = self.risk_contributions.nlargest(5)
-            
-            # Calculate adaptive width based on labeled tickers
-            max_ticker_width = 8  # minimum for backward compatibility
-            for ticker, contribution in top_contributors.items():
-                labeled_ticker = format_ticker_with_label(ticker, cash_positions, industry_map)
-                max_ticker_width = max(max_ticker_width, len(labeled_ticker))
-            
-            for ticker, contribution in top_contributors.items():
-                labeled_ticker = format_ticker_with_label(ticker, cash_positions, industry_map)
-                sections.append(f"{labeled_ticker:<{max_ticker_width}} {contribution:>8.4f}")
-        else:
-            # It's a dict, sort by value
-            sorted_items = sorted(self.risk_contributions.items(), key=lambda x: x[1], reverse=True)
-            top_items = sorted_items[:5]
-            
-            # Calculate adaptive width based on labeled tickers  
-            max_ticker_width = 8  # minimum for backward compatibility
-            for ticker, contribution in top_items:
-                labeled_ticker = format_ticker_with_label(ticker, cash_positions, industry_map)
-                max_ticker_width = max(max_ticker_width, len(labeled_ticker))
-            
-            for ticker, contribution in top_items:
-                labeled_ticker = format_ticker_with_label(ticker, cash_positions, industry_map)
-                sections.append(f"{labeled_ticker:<{max_ticker_width}} {contribution:>8.4f}")
-        sections.append("")
-        
-        # Factor Breakdown (if available)
-        if hasattr(self, 'variance_decomposition') and 'factor_breakdown_pct' in self.variance_decomposition:
-            sections.append("=== FACTOR VARIANCE BREAKDOWN ===")
-            factor_breakdown = self.variance_decomposition.get('factor_breakdown_pct', {})
-            for factor, pct in factor_breakdown.items():
-                sections.append(f"{factor.capitalize():<15} {pct:.1%}")
-            sections.append("")
-        
-        # Industry Analysis (if available)
-        if hasattr(self, 'industry_variance') and self.industry_variance:
-            sections.append("=== INDUSTRY VARIANCE CONTRIBUTIONS ===")
-            industry_data = self.industry_variance.get('percent_of_portfolio', {})
-            
-            # Get reference data for ETF labeling (reuse from above if available)
-            try:
-                # Try to reuse from above if already imported
-                if 'cash_positions' not in locals() or 'industry_map' not in locals():
-                    from run_portfolio_risk import get_cash_positions
-                    from utils.etf_mappings import get_etf_to_industry_map, format_ticker_with_label
-                    cash_positions = get_cash_positions()
-                    industry_map = get_etf_to_industry_map()
-            except ImportError:
-                # Fallback if imports fail
-                cash_positions = set()
-                industry_map = {}
-            
-            # Calculate adaptive width based on labeled ETFs
-            max_etf_width = 15  # minimum for backward compatibility
-            sorted_industry_items = sorted(industry_data.items(), key=lambda x: x[1], reverse=True)
-            for etf, pct in sorted_industry_items:
-                labeled_etf = format_ticker_with_label(etf, cash_positions, industry_map)
-                max_etf_width = max(max_etf_width, len(labeled_etf))
-            
-            for etf, pct in sorted_industry_items:
-                labeled_etf = format_ticker_with_label(etf, cash_positions, industry_map)
-                sections.append(f"{labeled_etf:<{max_etf_width}} {pct:.1%}")
-            sections.append("")
-        
-        # Risk Limit Checks (if available)
-        if hasattr(self, 'risk_checks') and self.risk_checks:
-            sections.append("=== Portfolio Risk Limit Checks ===")
-            for check in self.risk_checks:
-                metric = check.get('Metric', 'Unknown')
-                actual = check.get('Actual', 0)
-                limit = check.get('Limit', 0)
-                passed = check.get('Pass', False)
-                status = "→ PASS" if passed else "→ FAIL"
-                sections.append(f"{metric:<22} {actual:.2%}  ≤ {limit:.2%}  {status}")
-            sections.append("")
-        
-        # Beta Exposure Checks (if available)
-        if hasattr(self, 'beta_checks') and self.beta_checks:
-            sections.append("=== Beta Exposure Checks ===")
-            for check in self.beta_checks:
-                factor = check.get('factor', 'Unknown')
-                portfolio_beta = check.get('portfolio_beta', 0)
-                max_allowed_beta = check.get('max_allowed_beta', 0)
-                passed = check.get('pass', False)
-                status = "→ PASS" if passed else "→ FAIL"
-                sections.append(f"{factor:<20} β = {portfolio_beta:+.2f}  ≤ {max_allowed_beta:.2f}  {status}")
-            sections.append("")
-        
-        return "\n".join(sections)
+        """Format interpretation results for display (identical to to_cli_report())."""
+        return self.to_cli_report()
     
     def __hash__(self) -> int:
         """Make RiskAnalysisResult hashable for caching."""
@@ -4057,63 +3859,72 @@ class InterpretationResult:
     portfolio_name: Optional[str] = None
     
     def get_summary(self) -> Dict[str, Any]:
-        """Get interpretation summary."""
+        """Get interpretation summary with calculated metrics."""
         return {
             "interpretation_length": len(self.ai_interpretation),
-            "diagnostics_length": len(self.full_diagnostics),
-            "portfolio_file": self.analysis_metadata.get("portfolio_file", ""),
-            "interpretation_service": self.analysis_metadata.get("interpretation_service", ""),
-            "analysis_date": self.analysis_metadata.get("analysis_date", "")
+            "diagnostics_length": len(self.full_diagnostics)
         }
     
-    def get_interpretation_preview(self, max_chars: int = 200) -> str:
-        """Get preview of AI interpretation."""
-        if len(self.ai_interpretation) <= max_chars:
-            return self.ai_interpretation
-        return self.ai_interpretation[:max_chars] + "..."
-    
-    def get_diagnostics_preview(self, max_chars: int = 500) -> str:
-        """Get preview of diagnostic output."""
-        if len(self.full_diagnostics) <= max_chars:
-            return self.full_diagnostics
-        return self.full_diagnostics[:max_chars] + "..."
-    
-    def to_formatted_report(self) -> str:
-        """Format interpretation results for display."""
+    def to_cli_report(self) -> str:
+        """Generate complete CLI formatted report - IDENTICAL to current output"""
         sections = []
-        
-        sections.append("=== GPT PORTFOLIO INTERPRETATION ===")
+        sections.append("=== GPT Portfolio Interpretation ===")
         sections.append("")
         sections.append(self.ai_interpretation)
         sections.append("")
-        sections.append("=== FULL DIAGNOSTICS ===")
+        sections.append("=== Full Diagnostics ===")
         sections.append("")
         sections.append(self.full_diagnostics)
-        
         return "\n".join(sections)
     
     def to_api_response(self) -> Dict[str, Any]:
         """
-        Schema-compliant version of the old to_dict().
-        For Phase 1.5 this must be a 1-to-1 copy of to_dict()'s output
-        (no structural changes, no field renames, no pruning).
+        Convert InterpretationResult to API-compliant dictionary format.
+        
+        Returns structured data suitable for JSON serialization and API responses.
+        This method provides complete interpretation results including both the AI
+        analysis and the underlying portfolio diagnostics that were analyzed.
+        
+        Returns
+        -------
+        Dict[str, Any]
+            Dictionary containing all interpretation data with the following fields:
+            
+            - ai_interpretation: GPT-generated interpretation and insights
+            - full_diagnostics: Complete formatted portfolio analysis report
+            - analysis_metadata: Configuration and metadata about the analysis process
+            - analysis_date: ISO timestamp when the interpretation was generated
+            - portfolio_name: Name/identifier of the analyzed portfolio
+            - summary: Calculated metrics (content lengths)
+        
+        Example
+        -------
+        ```python
+        result = service.interpret_with_portfolio_service(portfolio_data)
+        api_data = result.to_api_response()
+        
+        # Access AI insights
+        insights = api_data["ai_interpretation"]
+        
+        # Access full analysis details
+        diagnostics = api_data["full_diagnostics"]
+        
+        # Access metadata
+        analysis_info = api_data["analysis_metadata"]
+        portfolio_file = analysis_info["portfolio_file"]
+        service_used = analysis_info["interpretation_service"]
+        ```
         """
         return {
-            "ai_interpretation": self.ai_interpretation,
-            "full_diagnostics": self.full_diagnostics,
-            "analysis_metadata": _convert_to_json_serializable(self.analysis_metadata),
-            "analysis_date": self.analysis_date.isoformat(),
-            "portfolio_name": self.portfolio_name,
-            "summary": self.get_summary()
+            "ai_interpretation": self.ai_interpretation,      # STR: GPT-generated interpretation and insights
+            "full_diagnostics": self.full_diagnostics,        # STR: Complete formatted portfolio analysis report
+            "analysis_metadata": _convert_to_json_serializable(self.analysis_metadata),  # DICT: Analysis configuration and process metadata
+            "analysis_date": self.analysis_date.isoformat(),  # STR: ISO timestamp of interpretation generation
+            "portfolio_name": self.portfolio_name,            # STR|NULL: Portfolio identifier/name
+            "summary": self.get_summary()                     # DICT: Calculated metrics (interpretation_length, diagnostics_length)
         }
 
-    def to_dict(self) -> Dict[str, Any]:
-        """DEPRECATED – use to_api_response().  To be removed in Phase 2."""
-        import warnings
-        warnings.warn("InterpretationResult.to_dict() is deprecated; "
-                     "use to_api_response() instead.",
-                     DeprecationWarning, stacklevel=2)
-        return self.to_api_response()
+
     
     @classmethod
     def from_interpretation_output(cls, interpretation_output: Dict[str, Any],

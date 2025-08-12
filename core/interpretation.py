@@ -10,6 +10,7 @@ from typing import Optional, Dict, Any
 from datetime import datetime, UTC
 
 from gpt_helpers import interpret_portfolio_risk
+from core.result_objects import InterpretationResult
 
 # Import logging decorators for AI interpretation
 from utils.logging import (
@@ -22,7 +23,7 @@ from utils.logging import (
 @log_error_handling("high")
 @log_portfolio_operation_decorator("ai_interpretation")
 @log_performance(8.0)
-def analyze_and_interpret(portfolio_yaml: str) -> Dict[str, Any]:
+def analyze_and_interpret(portfolio_yaml: str) -> InterpretationResult:
     """
     Core AI interpretation business logic for portfolio analysis.
     
@@ -36,7 +37,7 @@ def analyze_and_interpret(portfolio_yaml: str) -> Dict[str, Any]:
         
     Returns
     -------
-    Dict[str, Any]
+    InterpretationResult
         Structured interpretation results containing:
         - ai_interpretation: GPT interpretation of the analysis
         - full_diagnostics: Complete analysis output text
@@ -53,24 +54,25 @@ def analyze_and_interpret(portfolio_yaml: str) -> Dict[str, Any]:
     diagnostics = portfolio_result.to_cli_report()
     summary_txt = interpret_portfolio_risk(diagnostics)
 
-    # Return structured data with raw objects (for service layer)
-    return {
-        "ai_interpretation": summary_txt,
-        "full_diagnostics": diagnostics,
-        "analysis_metadata": {
+    # Return InterpretationResult object
+    return InterpretationResult(
+        ai_interpretation=summary_txt,
+        full_diagnostics=diagnostics,
+        analysis_metadata={
             "analysis_date": datetime.now(UTC).isoformat(),
             "portfolio_file": portfolio_yaml,
             "interpretation_service": "gpt",
             "diagnostics_length": len(diagnostics),
             "interpretation_length": len(summary_txt)
-        }
-    }
+        },
+        analysis_date=datetime.now(UTC)
+    )
 
 
 def interpret_portfolio_data(
     portfolio_output: Dict[str, Any], 
     portfolio_name: Optional[str] = None
-) -> Dict[str, Any]:
+) -> InterpretationResult:
     """
     Core AI interpretation business logic for existing portfolio data.
     
@@ -90,7 +92,7 @@ def interpret_portfolio_data(
         
     Returns
     -------
-    Dict[str, Any]
+    InterpretationResult
         Structured interpretation results containing:
         - ai_interpretation: GPT interpretation of the analysis
         - full_diagnostics: Complete analysis output text
@@ -103,15 +105,16 @@ def interpret_portfolio_data(
     # Get AI interpretation
     summary_txt = interpret_portfolio_risk(diagnostics)
     
-    # Return structured data with raw objects (for service layer)
-    return {
-        "ai_interpretation": summary_txt,
-        "full_diagnostics": diagnostics,
-        "analysis_metadata": {
+    # Return InterpretationResult object
+    return InterpretationResult(
+        ai_interpretation=summary_txt,
+        full_diagnostics=diagnostics,
+        analysis_metadata={
             "analysis_date": datetime.now(UTC).isoformat(),
             "portfolio_file": portfolio_name or "portfolio_output",
             "interpretation_service": "gpt",
             "diagnostics_length": len(diagnostics),
             "interpretation_length": len(summary_txt)
-        }
-    } 
+        },
+        analysis_date=datetime.now(UTC)
+    ) 
