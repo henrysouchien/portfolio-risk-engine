@@ -367,6 +367,7 @@ def run_what_if(
             - beta_analysis: Beta checks for scenario portfolio
             - comparison_analysis: Before/after comparison data
             - scenario_metadata: Scenario configuration and metadata
+            - formatted_report: CLI-formatted report text
 
     Notes
     -----
@@ -379,7 +380,7 @@ def run_what_if(
     # --- BUSINESS LOGIC: Call extracted core function ----------------------
     result = analyze_scenario(filepath, risk_limits_yaml, scenario_yaml, delta)  # Returns WhatIfResult
 
-    # ─── Simplified Dual-Mode Logic ─────────────────────────────────────
+    # ─── Dual-Mode Logic ─────────────────────────────────────
     if return_data:
         # API MODE: Return dict structure for backward compatibility
         api_dict = result.to_api_response()
