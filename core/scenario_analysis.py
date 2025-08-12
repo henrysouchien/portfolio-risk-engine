@@ -155,6 +155,7 @@ def analyze_scenario(
     
     # --- Build result object using new builder method ---------------------
     # Create structured data for the builder method
+    #TODO: Need to consolidate all this data stuff with the result_objects.py builder method or API response
     scenario_result_data = {
         # Raw scenario_summary with pandas objects (for service layer)
         "scenario_summary": summary,
