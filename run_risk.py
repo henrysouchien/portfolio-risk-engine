@@ -197,6 +197,8 @@ def interpret_portfolio_output(portfolio_output: Dict[str, Any], *,
             - ai_interpretation: GPT interpretation of the analysis
             - full_diagnostics: Complete analysis output text
             - analysis_metadata: Analysis configuration and timestamps
+
+            TODO: Deprecate this function (current usage is in api.py)
     """
     # --- BUSINESS LOGIC: Call extracted core function ---------------------
     interpretation_result = interpret_portfolio_data(portfolio_output, portfolio_name)
