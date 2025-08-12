@@ -56,12 +56,18 @@ from utils.logging import (
 )
 from core.scenario_analysis import analyze_scenario
 from core.optimization import optimize_min_variance, optimize_max_return
-from core.result_objects import OptimizationResult
+from core.result_objects import (
+    OptimizationResult, 
+    StockAnalysisResult, 
+    InterpretationResult, 
+    WhatIfResult, 
+    PerformanceResult, 
+    RiskScoreResult, 
+    RiskAnalysisResult
+)
 from core.stock_analysis import analyze_stock
 from core.performance_analysis import analyze_performance
 from core.interpretation import analyze_and_interpret, interpret_portfolio_data
-from core.result_objects import InterpretationResult
-from core.result_objects import WhatIfResult
 
 """
 Risk Analysis CLI & API Interface Module
@@ -171,7 +177,7 @@ def run_and_interpret(portfolio_yaml: str, *, return_data: bool = False) -> Unio
 @log_performance(3.0)
 def interpret_portfolio_output(portfolio_output: Dict[str, Any], *, 
                               portfolio_name: Optional[str] = None,
-                              return_data: bool = False):
+                              return_data: bool = False) -> Union[str, InterpretationResult]:
     """
     Add AI interpretation to existing portfolio analysis output.
     
@@ -227,7 +233,7 @@ def interpret_portfolio_output(portfolio_output: Dict[str, Any], *,
 @log_error_handling("high")
 @log_portfolio_operation_decorator("portfolio_analysis")
 @log_performance(5.0)
-def run_portfolio(filepath: str, risk_yaml: str = "risk_limits.yaml", *, return_data: bool = False):
+def run_portfolio(filepath: str, risk_yaml: str = "risk_limits.yaml", *, return_data: bool = False) -> Union[None, RiskAnalysisResult]:
     """
     High-level "one-click" entry-point for a full portfolio risk run.
 
@@ -330,7 +336,7 @@ def run_what_if(
     *,
     return_data: bool = False,
     risk_limits_yaml: str = "risk_limits.yaml"
-) -> Union[None, Dict[str, Any]]:
+) -> Union[None, WhatIfResult]:
     """
     Execute a single *what-if* scenario on an existing portfolio.
 
@@ -359,15 +365,16 @@ def run_what_if(
 
     Returns
     -------
-    None or Dict[str, Any]
+    None or WhatIfResult
         If return_data=False: Returns None, prints formatted output (existing behavior)
-        If return_data=True: Returns structured data dictionary with:
-            - scenario_summary: Portfolio view after scenario changes
-            - risk_analysis: Risk checks for scenario portfolio
-            - beta_analysis: Beta checks for scenario portfolio
-            - comparison_analysis: Before/after comparison data
-            - scenario_metadata: Scenario configuration and metadata
-            - formatted_report: CLI-formatted report text
+        If return_data=True: Returns WhatIfResult object with:
+            - current_metrics: RiskAnalysisResult for current portfolio
+            - scenario_metrics: RiskAnalysisResult for scenario portfolio  
+            - scenario_name: Name of the scenario
+            - risk_comparison: Before/after risk comparison data
+            - beta_comparison: Before/after beta comparison data
+            - to_api_response(): Convert to API dictionary format
+            - to_cli_report(): Generate CLI formatted report
 
     Notes
     -----
@@ -382,13 +389,10 @@ def run_what_if(
 
     # ─── Dual-Mode Logic ─────────────────────────────────────
     if return_data:
-        # API MODE: Return dict structure for backward compatibility
-        api_dict = result.to_api_response()
-        # Add formatted_report for backward compatibility
-        api_dict["formatted_report"] = result.to_cli_report()
-        return api_dict
+        # API MODE: Return WhatIfResult object directly
+        return result
     else:
-        # CLI MODE: Print formatted output
+        # CLI MODE: Print formatted output  
         print(result.to_cli_report())
 
 # ============================================================================
@@ -522,7 +526,7 @@ def run_stock(
     factor_proxies: Optional[Dict[str, Union[str, List[str]]]] = None,
     *,
     return_data: bool = False
-):
+) -> Union[None, StockAnalysisResult]:
     """
     Runs stock risk diagnostics. If factor_proxies are provided, runs detailed multi-factor profile.
     If factor_proxies is None, auto-generates intelligent factor proxies for comprehensive analysis.
@@ -535,16 +539,22 @@ def run_stock(
         return_data (bool): If True, returns structured data instead of printing.
 
     Returns:
-        None or Dict[str, Any]: If return_data=False, returns None and prints formatted output.
-                                If return_data=True, returns structured data dictionary.
+        None or StockAnalysisResult: If return_data=False, returns None and prints formatted output.
+                                    If return_data=True, returns StockAnalysisResult object with:
+                                        - ticker: Stock symbol analyzed
+                                        - volatility_metrics: Historical volatility statistics  
+                                        - regression_metrics: Market beta analysis
+                                        - factor_summary: Multi-factor exposure analysis
+                                        - to_api_response(): Convert to API dictionary format
+                                        - to_cli_report(): Generate CLI formatted report
     """
     # --- BUSINESS LOGIC: Call core function (now returns StockAnalysisResult) -----
     result = analyze_stock(ticker, start, end, factor_proxies)  # Returns StockAnalysisResult directly
     
-    # ─── Simplified Dual-Mode Logic ─────────────────────────────────────
+    # ─── Dual-Mode Logic ─────────────────────────────────────
     if return_data:
-        # API MODE: Return API response from result object
-        return result.to_api_response()
+        # API MODE: Return StockAnalysisResult object directly
+        return result
     else:
         # CLI MODE: Print formatted output  
         print(result.to_cli_report())
@@ -556,7 +566,7 @@ def run_stock(
 @log_error_handling("high")
 @log_portfolio_operation_decorator("portfolio_performance")
 @log_performance(5.0)
-def run_portfolio_performance(filepath: str, *, return_data: bool = False, benchmark_ticker: str = "SPY"):
+def run_portfolio_performance(filepath: str, *, return_data: bool = False, benchmark_ticker: str = "SPY") -> Union[None, PerformanceResult, Dict[str, Any]]:
     """
     Calculate and display comprehensive portfolio performance metrics.
     
@@ -603,7 +613,7 @@ def run_portfolio_performance(filepath: str, *, return_data: bool = False, bench
         print(performance_result.to_cli_report())
 
 
-def run_risk_score(portfolio_yaml: str = "portfolio.yaml", risk_yaml: str = "risk_limits.yaml", *, return_data: bool = False):
+def run_risk_score(portfolio_yaml: str = "portfolio.yaml", risk_yaml: str = "risk_limits.yaml", *, return_data: bool = False) -> Union[None, RiskScoreResult]:
     """
     CLI wrapper for portfolio risk score analysis with dual-mode support.
     

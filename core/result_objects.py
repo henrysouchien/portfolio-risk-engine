@@ -3381,7 +3381,8 @@ class WhatIfResult:
             "new_portfolio_factor_checks": self.get_new_portfolio_factor_checks_table(),
             "new_portfolio_industry_checks": self.get_new_portfolio_industry_checks_table(),
             "risk_comparison": self.get_risk_comparison_table(),
-            "factor_comparison": self.get_factor_comparison_table()
+            "factor_comparison": self.get_factor_comparison_table(),
+            "formatted_report": self.to_formatted_report()  # Human-readable CLI-style report
         }
         
         # Ensure all data is JSON serializable (handles nested numpy types)
