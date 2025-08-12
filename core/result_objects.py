@@ -26,6 +26,7 @@ from datetime import datetime, UTC
 import json
 import numpy as np
 from dataclasses import dataclass
+from utils.serialization import make_json_safe
 
 
 def _convert_to_json_serializable(obj):
@@ -1534,8 +1535,11 @@ class OptimizationResult:
         self.factor_table = factor_table if factor_table is not None else pd.DataFrame()
         self.proxy_table = proxy_table if proxy_table is not None else pd.DataFrame()
         
-        # Analysis timestamp
-        self.analysis_date = datetime.now(UTC)
+        # Analysis timestamp (will be set by builder methods)
+        self.analysis_date = None  # Must be set by builder methods
+        
+        # Optimization metadata (for storing additional context like risk limits)
+        self.optimization_metadata = {}
     
     @classmethod
     def from_min_variance_output(cls, 
@@ -1564,58 +1568,56 @@ class OptimizationResult:
         Note: Min variance optimization returns a simpler structure than max return,
         with only weights and compliance tables (no portfolio summary or proxy analysis).
         """
-        return cls(
+        instance = cls(
             optimized_weights=optimized_weights,
             optimization_type="min_variance",
             risk_table=risk_table,
             beta_table=beta_table
         )
+        
+        # Set analysis timestamp
+        instance.analysis_date = datetime.now(UTC)
+        
+        return instance
+        
     
-    @classmethod
-    def from_max_return_output(cls,
+    @classmethod  
+    def from_core_optimization(cls,
                               optimized_weights: Dict[str, float],
-                              portfolio_summary: Dict[str, Any],
+                              portfolio_summary: Dict[str, Any], 
                               risk_table: pd.DataFrame,
                               factor_table: pd.DataFrame,
-                              proxy_table: pd.DataFrame) -> 'OptimizationResult':
+                              proxy_table: pd.DataFrame,
+                              optimization_metadata: Dict[str, Any]) -> 'OptimizationResult':
         """
-        Create OptimizationResult from run_max_return_portfolio() output.
+        Create OptimizationResult from core optimization function data.
         
-        Complete Field Mapping (run_max_return_portfolio → OptimizationResult):
-        =====================================================================
+        This replaces from_max_return_output() with a cleaner interface
+        designed for core business logic functions, not service layer.
         
-        Core Function Output (5-tuple)          → Result Object Field
-        ──────────────────────────────────────────────────────────────────
-        optimized_weights (Dict[str, float])    → self.optimized_weights
-        portfolio_summary (Dict[str, Any])      → self.portfolio_summary
-        risk_table (pd.DataFrame)               → self.risk_table
-        factor_table (pd.DataFrame)             → self.beta_table (factor exposures)
-        proxy_table (pd.DataFrame)              → self.proxy_table (industry exposures)
-        "Maximum Return" (default)              → self.optimization_type
-        datetime.now()                          → self.analysis_date
-        
-        Data Flow: 
-        run_max_return_portfolio() → (weights, summary, risk_table, factor_table, proxy_table)
-        ↓
-        OptimizationResult with complete portfolio analysis and compliance tables
-        
-        Completeness: 100% - All max return optimization outputs captured
-        
-        Note: Max return optimization provides richer output than min variance, including
-        complete portfolio summary (from build_portfolio_view) and separate factor/proxy
-        compliance tables for comprehensive risk analysis.
-        
-        Original function signature: w, summary, r, f_b, p_b = run_max_return_portfolio(...)
+        🔒 CONSTRAINT: Must preserve exact same field mappings as current factory.
         """
-        return cls(
+        from datetime import datetime, timezone
+        
+        instance = cls(
             optimized_weights=optimized_weights,
-            optimization_type="max_return",
+            optimization_type=optimization_metadata.get("optimization_type", "max_return"),
             risk_table=risk_table,
             beta_table=factor_table,  # Use factor_table as beta_table for consistency
             portfolio_summary=portfolio_summary,
             factor_table=factor_table,
             proxy_table=proxy_table
         )
+        
+        # Set analysis_date from metadata (when optimization was actually performed)
+        instance.analysis_date = datetime.fromisoformat(optimization_metadata["analysis_date"])
+        
+        # Store optimization metadata for risk limits and other context
+        instance.optimization_metadata = optimization_metadata
+        
+        return instance
+    
+
     
     def get_weight_changes(self, original_weights: Dict[str, float], limit: int = 5) -> List[Dict[str, Any]]:
         """Get the largest weight changes from optimization."""
@@ -1669,90 +1671,167 @@ class OptimizationResult:
         return dict(sorted_weights[:n])
     
     def to_formatted_report(self) -> str:
-        """
-        Generate comprehensive human-readable portfolio optimization report.
-        
-        Creates a formatted report showing optimization results, allocation changes,
-        risk compliance, and performance metrics. Report format matches CLI output
-        and includes professional presentation suitable for client communication.
-        
-        Report Sections:
-        1. **Optimization Summary**: Method, positions, and key metrics
-        2. **Optimal Allocation**: Top positions with weight percentages
-        3. **Risk Compliance**: Portfolio risk limits and validation status
-        4. **Beta Exposure**: Factor exposure limits and compliance checks
-        5. **Performance Metrics**: Risk-adjusted returns and efficiency measures
-        6. **Factor Analysis**: Systematic risk exposure breakdown
-        
-        Format: Professional optimization report with clear headers, aligned columns,
-        and percentage formatting following industry standards.
-        
-        Returns:
-            str: Complete formatted optimization report for review and implementation
-            
-        Example:
-            ```python
-            report = result.to_formatted_report()
-            
-            # Display optimization results
-            print(report)
-            
-            # Send to Claude for analysis
-            claude_prompt = f"Review this portfolio optimization:\\n{report}"
-            
-            # Include in optimization summary email
-            email_content = f"Optimization Results:\\n\\n{report}"
-            ```
-            
-        Sample Output:
-            ```
-            === PORTFOLIO OPTIMIZATION RESULTS ===
-            Optimization Type: Minimum Variance
-            Total Positions: 8
-            
-            === OPTIMAL ALLOCATION ===
-            SGOV     25.0%
-            MSFT     22.0% 
-            TLT      20.0%
-            AAPL     18.0%
-            GOOGL    15.0%
-            
-            === RISK COMPLIANCE ===
-            Portfolio Volatility  12.5%  ≤ 15.0%  → PASS
-            Concentration Limit   25.0%  ≤ 30.0%  → PASS
-            ```
-        """
-        return f"Optimization Results: {self.optimization_type} - {len(self.optimized_weights)} positions"
+        """Format optimization results for display (identical to to_cli_report())."""
+        return self.to_cli_report()
     
     def to_api_response(self) -> Dict[str, Any]:
         """
-        Schema-compliant version of the old to_dict().
-        For Phase 1.5 this must be a 1-to-1 copy of to_dict()'s output
-        (no structural changes, no field renames, no pruning).
+        Generate structured, API-friendly response with computed summaries and serialized data.
+        
+        This method creates a rich, structured response that provides:
+        - Row-oriented data (easier for frontends to consume)
+        - Computed summary statuses (overall pass/fail)
+        - Filtered violation lists (failed checks only)
+        - Contextual metadata (risk limits configuration)
+        
+        Returns structured format matching the original pre-refactor API design
+        but generated from the Result Object's centralized data.
         """
+        # Use standard serialization (consistent with rest of codebase)
+        risk_checks = _convert_to_json_serializable(self.risk_table)
+        factor_checks = _convert_to_json_serializable(self.beta_table) 
+        proxy_checks = _convert_to_json_serializable(self.proxy_table)
+        
+        # Compute summary statuses for quick API consumption
+        risk_passes = bool(self.risk_table['Pass'].all())
+        factor_passes = bool(self.beta_table['pass'].all()) 
+        proxy_passes = bool(self.proxy_table['pass'].all())
+        
+        # Extract violations only (failed checks for error handling)
+        risk_violations = _convert_to_json_serializable(self.risk_table[~self.risk_table['Pass']])
+        factor_violations = _convert_to_json_serializable(self.beta_table[~self.beta_table['pass']])
+        proxy_violations = _convert_to_json_serializable(self.proxy_table[~self.proxy_table['pass']])
+        
+        # Build comprehensive response with both structured and original formats
         result = {
             "optimized_weights": self.optimized_weights,  # Dict[str, float]: Optimal portfolio allocation weights per ticker
             "optimization_type": self.optimization_type,  # str: Type of optimization performed ("min_variance" or "max_return")
-            "risk_table": self.risk_table.to_dict(),      # Dict: Risk limit compliance checks (volatility, max weight, factor variance)
-            "beta_table": self.beta_table.to_dict(),      # Dict: Factor exposure analysis (market, momentum, value, industry betas)
             "analysis_date": self.analysis_date.isoformat(),  # str: ISO timestamp when optimization was performed
-            "summary": self.get_summary()                 # STR: Optimization summary of positions
+            "summary": self.get_summary(),  # str: Optimization summary of positions
+            "formatted_report": self.to_formatted_report(),  # str: Complete CLI-style formatted report
+            
+            # NEW: Structured risk analysis with computed summaries (easy API consumption)
+            "risk_analysis": {
+                "risk_checks": risk_checks,              # List[Dict]: All risk checks in row format
+                "risk_passes": risk_passes,              # bool: True if all risk checks pass
+                "risk_violations": risk_violations,      # List[Dict]: Only failed risk checks
+                "risk_limits": self._get_risk_limits_config()  # Dict: Risk limits configuration applied
+            },
+            
+            # NEW: Structured beta analysis with computed summaries (easy API consumption)
+            "beta_analysis": {
+                "factor_beta_checks": factor_checks,     # List[Dict]: Factor beta checks in row format
+                "proxy_beta_checks": proxy_checks,       # List[Dict]: Industry proxy beta checks in row format
+                "factor_beta_passes": factor_passes,     # bool: True if all factor checks pass
+                "proxy_beta_passes": proxy_passes,       # bool: True if all proxy checks pass
+                "factor_beta_violations": factor_violations,  # List[Dict]: Only failed factor checks
+                "proxy_beta_violations": proxy_violations      # List[Dict]: Only failed proxy checks
+            },
+            
+            # LEGACY: Original flat table format (backward compatibility & detailed analysis)
+            "risk_table": _convert_to_json_serializable(self.risk_table),      # Dict: Risk limit compliance checks (column-oriented)
+            "beta_table": _convert_to_json_serializable(self.beta_table),      # Dict: Factor exposure analysis (column-oriented)
+            "factor_table": _convert_to_json_serializable(self.factor_table),  # Dict: Factor beta checks for optimization (column-oriented)
+            "proxy_table": _convert_to_json_serializable(self.proxy_table),    # Dict: Proxy/industry beta checks for optimization (column-oriented)
         }
         
-        # Only include portfolio_summary if it's not None (for max-return optimization only)
-        # portfolio_summary contains volatility, returns, sharpe ratio, etc. from build_portfolio_view()
+        # Include portfolio_summary for max-return optimization
         if self.portfolio_summary is not None:
             result["portfolio_summary"] = self.portfolio_summary  # Dict: Portfolio performance metrics
             
-        return result
+        # Apply JSON serialization for any remaining complex objects
+        return _convert_to_json_serializable(result)
 
-    def to_dict(self) -> Dict[str, Any]:
-        """DEPRECATED – use to_api_response().  To be removed in Phase 2."""
-        import warnings
-        warnings.warn("OptimizationResult.to_dict() is deprecated; "
-                     "use to_api_response() instead.",
-                     DeprecationWarning, stacklevel=2)
-        return self.to_api_response()
+    def _get_risk_limits_config(self) -> Dict[str, Any]:
+        """
+        Extract risk limits configuration that was applied during optimization.
+        
+        Returns the risk limits configuration from optimization metadata,
+        providing context about what limits were enforced during the optimization.
+        
+        Returns:
+            Dict[str, Any]: Risk limits configuration containing:
+                - portfolio_limits: Overall portfolio constraints
+                - concentration_limits: Position size limits  
+                - variance_limits: Factor variance constraints
+                
+        Example:
+            {
+                "portfolio_limits": {"max_volatility": 0.4, "max_loss": -0.25},
+                "concentration_limits": {"max_single_stock_weight": 0.4},
+                "variance_limits": {"max_factor_contribution": 0.3, "max_market_contribution": 0.5}
+            }
+        """
+        # Extract from optimization metadata if available
+        if hasattr(self, 'optimization_metadata') and self.optimization_metadata:
+            return self.optimization_metadata.get('risk_limits', {})
+        
+        # Fallback: return empty dict if no metadata available
+        # In a future enhancement, this could be passed during construction
+        return {}
+
+
+
+    def to_cli_report(self) -> str:
+        """Generate complete CLI formatted report - IDENTICAL to print_max_return_report() output"""
+        sections = []
+        
+        # Add weights section
+        sections.append(self._format_optimized_weights())
+        
+        # Add risk checks section
+        sections.append(self._format_risk_compliance())
+        
+        # Add factor exposures section
+        sections.append(self._format_factor_exposures())
+        
+        # Add proxy analysis section if available
+        proxy_section = self._format_proxy_analysis()
+        if proxy_section:
+            sections.append(proxy_section)
+        
+        return "\n".join(sections)
+
+    def _format_optimized_weights(self) -> str:
+        """Format optimized weights table - EXACT copy from print_max_return_report"""
+        lines = ["\n🎯  Target max-return, risk-constrained weights\n"]
+        for k, v in sorted(self.optimized_weights.items(), key=lambda kv: -abs(kv[1])):
+            if abs(v) > 1e-4:
+                lines.append(f"{k:<10} : {v:.2%}")
+        return "\n".join(lines)
+
+    def _format_risk_compliance(self) -> str:
+        """Format risk compliance checks - EXACT copy from print_max_return_report"""
+        lines = ["\n📐  Max-return Portfolio – Risk Checks\n"]
+        pct = lambda x: f"{x:.2%}"
+        lines.append(self.risk_table.to_string(index=False, formatters={"Actual": pct, "Limit": pct}))
+        return "\n".join(lines)
+
+    def _format_factor_exposures(self) -> str:
+        """Format factor exposures - EXACT copy from print_max_return_report"""
+        lines = ["\n📊  Aggregate Factor Exposures\n"]
+        fmt = {
+            "portfolio_beta":   "{:.2f}".format,
+            "max_allowed_beta": "{:.2f}".format,
+            "buffer":           "{:.2f}".format,
+            "pass":             lambda x: "PASS" if x else "FAIL",
+        }
+        lines.append(self.factor_table.to_string(index_names=False, formatters=fmt))
+        return "\n".join(lines)
+
+    def _format_proxy_analysis(self) -> str:
+        """Format proxy analysis - EXACT copy from print_max_return_report"""
+        if self.proxy_table is not None and not self.proxy_table.empty:
+            lines = ["\n📊  Industry Exposure Checks\n"]
+            fmt = {
+                "portfolio_beta":   "{:.2f}".format,
+                "max_allowed_beta": "{:.2f}".format,
+                "buffer":           "{:.2f}".format,
+                "pass":             lambda x: "PASS" if x else "FAIL",
+            }
+            lines.append(self.proxy_table.to_string(index_names=False, formatters=fmt))
+            return "\n".join(lines)
+        return ""
 
 
 @dataclass

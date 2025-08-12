@@ -57,6 +57,7 @@ from utils.logging import (
 )
 from core.scenario_analysis import analyze_scenario
 from core.optimization import optimize_min_variance, optimize_max_return
+from core.result_objects import OptimizationResult
 from core.stock_analysis import analyze_stock
 from core.performance_analysis import analyze_performance
 from core.interpretation import analyze_and_interpret, interpret_portfolio_data
@@ -469,7 +470,7 @@ def run_min_variance(filepath: str, risk_yaml: str = "risk_limits.yaml", *, retu
 # MAX RETURN OPTIMIZATION
 # This handles maximum return portfolio optimization
 # ============================================================================
-def run_max_return(filepath: str, risk_yaml: str = "risk_limits.yaml", *, return_data: bool = False):
+def run_max_return(filepath: str, risk_yaml: str = "risk_limits.yaml", *, return_data: bool = False) -> Union[None, OptimizationResult]:
     """
     Solve for the highest-return portfolio that still passes all
     volatility, concentration, and beta limits.
@@ -514,45 +515,16 @@ def run_max_return(filepath: str, risk_yaml: str = "risk_limits.yaml", *, return
       anything.
     """
     
-    # --- BUSINESS LOGIC: Call extracted core function ---------------------
-    optimization_result = optimize_max_return(filepath, risk_yaml=risk_yaml)
+    # --- BUSINESS LOGIC: Call core function (now returns OptimizationResult) -----
+    result = optimize_max_return(filepath, risk_yaml)  # Returns OptimizationResult directly
     
-    # Extract components for compatibility with dual-mode logic
-    w = optimization_result["raw_tables"]["weights"]
-    summary = optimization_result["raw_tables"]["summary"]
-    r = optimization_result["raw_tables"]["risk_table"]
-    f_b = optimization_result["raw_tables"]["factor_table"]
-    p_b = optimization_result["raw_tables"]["proxy_table"]
-    
-    # ─── Dual-Mode Logic ─────────────────────────────────────
+    # ─── Simplified Dual-Mode Logic ─────────────────────────────────────
     if return_data:
-        # API MODE: Return structured data from extracted function
-        from core.result_objects import OptimizationResult
-        from io import StringIO
-        import contextlib
-        
-        # Create result object for structured data
-        optimization_obj = OptimizationResult.from_max_return_output(
-            optimized_weights=w,
-            portfolio_summary=summary,
-            risk_table=r,
-            factor_table=f_b,
-            proxy_table=p_b
-        )
-        
-        # Capture the formatted report by running the CLI logic
-        report_buffer = StringIO()
-        with contextlib.redirect_stdout(report_buffer):
-            print_max_return_report(weights=w, risk_tbl=r, df_factors=f_b, df_proxies=p_b)
-        
-        formatted_report = report_buffer.getvalue()
-        
-        # Add formatted report to optimization result and return
-        optimization_result["formatted_report"] = formatted_report
-        return optimization_result
+        # API MODE: Return OptimizationResult object
+        return result
     else:
-        # CLI MODE: Print formatted output
-        print_max_return_report(weights=w, risk_tbl=r, df_factors=f_b, df_proxies=p_b)
+        # CLI MODE: Print formatted output  
+        print(result.to_cli_report())
 
 # ============================================================================
 # STOCK ANALYSIS

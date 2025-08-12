@@ -1224,7 +1224,7 @@ def run_max_return_portfolio(
     )
     from settings import PORTFOLIO_DEFAULTS
     lookback_years = PORTFOLIO_DEFAULTS.get('worst_case_lookback_years', 10)
-    _, max_betas_by_proxy = calc_max_factor_betas(
+    _, max_betas_by_proxy, _ = calc_max_factor_betas(
         portfolio_yaml = "portfolio.yaml",
         risk_yaml      = "risk_limits.yaml",
         lookback_years = lookback_years,

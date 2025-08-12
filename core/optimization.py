@@ -10,6 +10,8 @@ import yaml
 from typing import Dict, Any, Optional, Tuple, Union
 from datetime import datetime, UTC
 
+from core.result_objects import OptimizationResult
+
 from run_portfolio_risk import (
     load_portfolio_config,
     standardize_portfolio_input,
@@ -114,7 +116,7 @@ def optimize_min_variance(filepath: str, risk_yaml: str = "risk_limits.yaml") ->
 @log_portfolio_operation_decorator("max_return_optimization")
 @log_resource_usage_decorator(monitor_memory=True, monitor_cpu=True)
 @log_performance(10.0)
-def optimize_max_return(filepath: str, risk_yaml: str = "risk_limits.yaml") -> Dict[str, Any]:
+def optimize_max_return(filepath: str, risk_yaml: str = "risk_limits.yaml") -> OptimizationResult:
     """
     Core maximum return optimization business logic.
     
@@ -128,17 +130,23 @@ def optimize_max_return(filepath: str, risk_yaml: str = "risk_limits.yaml") -> D
         
     Returns
     -------
-    Dict[str, Any]
-        Structured optimization results containing:
+    OptimizationResult
+        Complete optimization result object containing:
         - optimized_weights: Optimized portfolio weights
         - portfolio_summary: Portfolio view of optimized weights
-        - risk_analysis: Risk checks for optimized portfolio
-        - beta_analysis: Factor and proxy beta checks for optimized portfolio
-        - optimization_metadata: Optimization configuration and results
+        - risk_table: Risk checks for optimized portfolio
+        - factor_table: Factor beta checks for optimized portfolio
+        - proxy_table: Proxy beta checks for optimized portfolio
+        - optimization metadata and analysis date
     """
     
     # --- load configs ------------------------------------------------------
     config = load_portfolio_config(filepath)
+    
+    # Handle case where risk_yaml is None (use default)
+    if risk_yaml is None:
+        risk_yaml = "risk_limits.yaml"
+    
     with open(risk_yaml, "r") as f:
         risk_config = yaml.safe_load(f)
 
@@ -152,47 +160,18 @@ def optimize_max_return(filepath: str, risk_yaml: str = "risk_limits.yaml") -> D
         proxies     = config["stock_factor_proxies"],
     )
     
-    # --- Return structured results ----------------------------------------
-    result = make_json_safe({
-        "optimized_weights": w,
-        "portfolio_summary": summary,
-        "risk_analysis": {
-            "risk_checks": r.to_dict('records'),
-            "risk_passes": bool(r['Pass'].all()),
-            "risk_violations": r[~r['Pass']].to_dict('records'),
-            "risk_limits": {
-                "portfolio_limits": risk_config["portfolio_limits"],
-                "concentration_limits": risk_config["concentration_limits"],
-                "variance_limits": risk_config["variance_limits"]
-            }
-        },
-        "beta_analysis": {
-            "factor_beta_checks": f_b.to_dict('records'),
-            "proxy_beta_checks": p_b.to_dict('records'),
-            "factor_beta_passes": bool(f_b['pass'].all()),
-            "proxy_beta_passes": bool(p_b['pass'].all()),
-            "factor_beta_violations": f_b[~f_b['pass']].to_dict('records'),
-            "proxy_beta_violations": p_b[~p_b['pass']].to_dict('records'),
-        },
-        "optimization_metadata": {
-            "optimization_type": "maximum_return",
+    # --- Return OptimizationResult object --------------------------------
+    return OptimizationResult.from_core_optimization(
+        optimized_weights=w,
+        portfolio_summary=summary,
+        risk_table=r,
+        factor_table=f_b,
+        proxy_table=p_b,
+        optimization_metadata={
+            "optimization_type": "max_return",
             "analysis_date": datetime.now(UTC).isoformat(),
             "portfolio_file": filepath,
-            "original_weights": weights,
-            "total_positions": len(w),
-            "active_positions": len([v for v in w.values() if abs(v) > 0.001]),
-            "expected_returns_used": config.get("expected_returns", {})
+            "risk_limits_file": risk_yaml,
+            "risk_limits": risk_config  # Pass the actual risk limits configuration
         }
-    })
-    
-    # Add raw objects for dual-mode compatibility
-    result["raw_tables"] = {
-        "weights": w,
-        "summary": summary,
-        "risk_table": r,
-        "factor_table": f_b,
-        "proxy_table": p_b
-    }
-    
-    # LOGGING: Add optimization completion logging with timing here
-    return result 
+    ) 
