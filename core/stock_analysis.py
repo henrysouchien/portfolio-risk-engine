@@ -16,6 +16,7 @@ from risk_summary import (
     get_stock_risk_profile
 )
 from utils.serialization import make_json_safe
+from core.result_objects import StockAnalysisResult
 
 # Import logging decorators for stock analysis
 from utils.logging import (
@@ -79,7 +80,7 @@ def analyze_stock(
     start: Optional[str] = None,
     end: Optional[str] = None,
     factor_proxies: Optional[Dict[str, Union[str, List[str]]]] = None
-) -> Dict[str, Any]:
+) -> 'StockAnalysisResult':
     """
     Core stock analysis business logic.
     
@@ -99,15 +100,18 @@ def analyze_stock(
         
     Returns
     -------
-    Dict[str, Any]
-        Structured stock analysis results containing:
+    StockAnalysisResult
+        Structured stock analysis result object containing:
         - ticker: Stock symbol
         - analysis_period: Start and end dates
         - analysis_type: Type of analysis performed
         - volatility_metrics: Volatility analysis results
         - regression_metrics or risk_metrics: Market regression analysis
         - factor_summary: Factor analysis summary (if applicable)
+        - factor_exposures: Structured factor metadata (if applicable)
         - analysis_metadata: Analysis configuration and timestamps
+        
+        Use .to_cli_report() for CLI output or .to_api_response() for API serialization.
     """
     # LOGGING: Add stock analysis start logging and timing here
     # LOGGING: Add workflow state logging for stock analysis workflow here
@@ -142,28 +146,25 @@ def analyze_stock(
         # Create structured factor exposures with metadata
         factor_exposures = _create_factor_exposures_mapping(profile["factor_summary"], factor_proxies)
         
-        # Return structured data for multi-factor analysis
-        return make_json_safe({
-            "ticker": ticker,
-            "analysis_period": {
+        # Return StockAnalysisResult object for multi-factor analysis
+        return StockAnalysisResult.from_core_analysis(
+            ticker=ticker,
+            analysis_period={
                 "start_date": start.strftime("%Y-%m-%d"),
                 "end_date": end.strftime("%Y-%m-%d")
             },
-            "analysis_type": "multi_factor",
-            "volatility_metrics": profile["vol_metrics"],
-            "regression_metrics": profile["regression_metrics"],
-            "factor_summary": profile["factor_summary"],  # Keep for backward compatibility
-            "factor_proxies": factor_proxies,              # Keep for backward compatibility
-            "factor_exposures": factor_exposures,          # NEW: Structured factor metadata
-            "analysis_metadata": {
+            analysis_type="multi_factor",
+            volatility_metrics=profile["vol_metrics"],
+            regression_metrics=profile["regression_metrics"],
+            factor_summary=profile["factor_summary"],
+            factor_exposures=factor_exposures,
+            factor_proxies=factor_proxies,
+            analysis_metadata={
                 "has_factor_analysis": True,
                 "num_factors": len(factor_proxies) if factor_proxies else 0,
                 "analysis_date": datetime.now(UTC).isoformat()
-            },
-            "raw_data": {
-                "profile": profile
             }
-        })
+        )
         
     # ─── 4. Diagnostics path B: simple market regression ────────────────
     else:
@@ -174,25 +175,22 @@ def analyze_stock(
             benchmark="SPY"
         )
         
-        # Return structured data for simple regression analysis
-        return make_json_safe({
-            "ticker": ticker,
-            "analysis_period": {
+        # Return StockAnalysisResult object for simple regression analysis
+        return StockAnalysisResult.from_core_analysis(
+            ticker=ticker,
+            analysis_period={
                 "start_date": start.strftime("%Y-%m-%d"),
                 "end_date": end.strftime("%Y-%m-%d")
             },
-            "analysis_type": "simple_market_regression",
-            "volatility_metrics": result["vol_metrics"],
-            "risk_metrics": result["risk_metrics"],
-            "benchmark": "SPY",
-            "analysis_metadata": {
+            analysis_type="simple_market_regression",
+            volatility_metrics=result["vol_metrics"],
+            risk_metrics=result["risk_metrics"],
+            analysis_metadata={
                 "has_factor_analysis": False,
                 "num_factors": 0,
-                "analysis_date": datetime.now(UTC).isoformat()
-            },
-            "raw_data": {
-                "result": result
+                "analysis_date": datetime.now(UTC).isoformat(),
+                "benchmark": "SPY"
             }
-        })
+        )
     # LOGGING: Add stock analysis completion logging with timing here
     # LOGGING: Add workflow state logging for stock analysis workflow completion here 

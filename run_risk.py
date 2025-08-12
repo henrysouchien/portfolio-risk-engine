@@ -537,36 +537,16 @@ def run_stock(
         None or Dict[str, Any]: If return_data=False, returns None and prints formatted output.
                                 If return_data=True, returns structured data dictionary.
     """
-    # --- BUSINESS LOGIC: Call extracted core function ---------------------
-    analysis_result = analyze_stock(ticker, start, end, factor_proxies)
+    # --- BUSINESS LOGIC: Call core function (now returns StockAnalysisResult) -----
+    result = analyze_stock(ticker, start, end, factor_proxies)  # Returns StockAnalysisResult directly
     
-    # --- Dual-Mode Logic ---------------------------------------------------
+    # ─── Simplified Dual-Mode Logic ─────────────────────────────────────
     if return_data:
-        # API MODE: Return structured data from extracted function
-        from core.result_objects import StockAnalysisResult
-        
-        # Create StockAnalysisResult object for formatted report
-        if analysis_result["analysis_type"] == "multi_factor":
-            stock_result = StockAnalysisResult.from_stock_analysis(
-                ticker=ticker,
-                vol_metrics=analysis_result["volatility_metrics"],
-                regression_metrics=analysis_result["regression_metrics"],
-                factor_summary=analysis_result["factor_summary"]
-            )
-        else:
-            stock_result = StockAnalysisResult.from_stock_analysis(
-                ticker=ticker,
-                vol_metrics=analysis_result["volatility_metrics"],
-                regression_metrics=analysis_result["risk_metrics"],
-                factor_summary=None
-            )
-        
-        # Add formatted report to analysis result and return
-        analysis_result["formatted_report"] = stock_result.to_formatted_report()
-        return analysis_result
+        # API MODE: Return API response from result object
+        return result.to_api_response()
     else:
-        # CLI MODE: Use enhanced display format matching API output
-        display_enhanced_stock_analysis(analysis_result, ticker)
+        # CLI MODE: Print formatted output  
+        print(result.to_cli_report())
 
 # ============================================================================
 # PERFORMANCE ANALYSIS

@@ -6,18 +6,11 @@ API Serialization Patterns:
     • to_api_response() - Schema-compliant serialization for API endpoints
       Returns structured data matching the OpenAPI schema definitions.
       Use this method for all API responses to ensure schema compliance.
-      
-    • to_dict() - DEPRECATED legacy method
-      Emits DeprecationWarning and delegates to to_api_response().
-      Will be removed in Phase 2 of the refactor.
 
 Example Usage:
     # Preferred - schema-compliant API response
     result = analyze_portfolio(portfolio_data)
     api_data = result.to_api_response()
-    
-    # Deprecated - will be removed
-    legacy_data = result.to_dict()  # Shows deprecation warning
 """
 
 from typing import Dict, Any, Optional, List, Union
@@ -129,8 +122,7 @@ class RiskAnalysisResult:
     1. **Structured Data Access**: Use getter methods for programmatic analysis
     2. **Formatted Reporting**: Use to_formatted_report() for human-readable display
     3. **API Serialization**: Use to_api_response() for JSON export and API responses
-    4. **Legacy Serialization**: to_dict() is deprecated, use to_api_response() instead
-    5. **Comparison**: Compare multiple results for scenario analysis
+    4. **Comparison**: Compare multiple results for scenario analysis
     
     Architecture Role:
         Core Functions → Service Layer → RiskAnalysisResult → Consumer (Claude/API/UI)
@@ -867,10 +859,6 @@ class RiskAnalysisResult:
     
     def to_api_response(self) -> Dict[str, Any]:
         """
-        Schema-compliant version of the old to_dict().
-        For Phase 1.5 this must be a 1-to-1 copy of to_dict()'s output
-        (no structural changes, no field renames, no pruning).
-
         Contract notes:
             - Timestamps: All timestamps are UTC and serialized via ISO-8601.
             - Determinism: Where applicable, dictionaries are derived from
@@ -963,14 +951,6 @@ class RiskAnalysisResult:
             "risk_limit_violations_summary": self._get_risk_limit_violations_summary(),  # Risk Limit Violations Summary
             "beta_exposure_checks_table": self._get_beta_exposure_checks_table()  # Beta Exposure Checks Formatted Table
         }
-
-    def to_dict(self) -> Dict[str, Any]:
-        """DEPRECATED – use to_api_response().  To be removed in Phase 2."""
-        import warnings
-        warnings.warn("RiskAnalysisResult.to_dict() is deprecated; "
-                     "use to_api_response() instead.",
-                     DeprecationWarning, stacklevel=2)
-        return self.to_api_response()
     
     #TODO: Deprecate this method in next refactor (use from_core_portfolio_analysis factory method)
     @classmethod
@@ -1503,7 +1483,6 @@ class OptimizationResult:
         
         # API serialization (Phase 1.5+)
         api_data = result.to_api_response()  # Schema-compliant JSON for APIs
-        # Replaces deprecated result.to_dict() - use to_api_response() for new code
         ```
     
     Use Cases:
@@ -1870,8 +1849,7 @@ class PerformanceResult:
     2. **Performance Summary**: Use get_summary() for key metrics overview
     3. **Risk Analysis**: Use get_risk_metrics() for risk-specific measures
     4. **API Serialization**: Use to_api_response() for JSON export and API responses
-    5. **Legacy Serialization**: to_dict() is deprecated, use to_api_response() instead
-    6. **Formatted Reporting**: Use to_cli_report() for human-readable display
+    5. **Formatted Reporting**: Use to_cli_report() for human-readable display
     
     Architecture Role:
         Core Functions → Service Layer → PerformanceResult → Consumer (API/Claude/UI)
@@ -2126,7 +2104,7 @@ class PerformanceResult:
         Convert PerformanceResult to OpenAPI-compliant dictionary for API responses.
         
         This method provides schema-compliant serialization for OpenAPI documentation
-        and API responses, replacing the deprecated to_dict() method. The output structure
+        and API responses. The output structure
         matches the PerformanceResultSchema defined in schemas/performance_result.py.
         
         Schema Compliance:
@@ -2167,10 +2145,6 @@ class PerformanceResult:
             sharpe_ratio = response_data["risk_adjusted_returns"]["sharpe_ratio"]
             formatted_display = response_data["formatted_report"]
             ```
-            
-        Migration Note:
-            Replaces deprecated to_dict() method. Output structure is identical
-            to maintain backward compatibility during Phase 1.5 migration.
         """
         return {
             "analysis_period": self.analysis_period,
@@ -2322,14 +2296,10 @@ class PerformanceResult:
                 insights.append(f"• Low consistency ({win_rate:.0f}% win rate)")
         
         return insights
-
-    def to_dict(self) -> Dict[str, Any]:
-        """DEPRECATED – use to_api_response().  To be removed in Phase 2."""
-        import warnings
-        warnings.warn("PerformanceResult.to_dict() is deprecated; "
-                     "use to_api_response() instead.",
-                     DeprecationWarning, stacklevel=2)
-        return self.to_api_response()
+    
+    def to_formatted_report(self) -> str:
+        """Format performance results for display (identical to to_cli_report())."""
+        return self.to_cli_report()
     
     def __hash__(self) -> int:
         """Make PerformanceResult hashable for caching."""
@@ -2418,7 +2388,6 @@ class RiskScoreResult:
     
     API Integration:
     - Use to_api_response() for API endpoints and JSON serialization
-    - to_dict() is deprecated, use to_api_response() instead
     """
     
     # Risk score information
@@ -3085,15 +3054,9 @@ class RiskScoreResult:
         
         return risk_factors
 
-    def to_dict(self) -> Dict[str, Any]:
-        """DEPRECATED – use to_api_response().  To be removed in Phase 2."""
-        import warnings
-        warnings.warn("RiskScoreResult.to_dict() is deprecated; "
-                     "use to_api_response() instead.",
-                     DeprecationWarning, stacklevel=2)
-        return self.to_api_response()
-    
-
+    def to_formatted_report(self) -> str:
+        """Format risk score results for display (identical to to_cli_report())."""
+        return self.to_cli_report()
     
     def __hash__(self) -> int:
         """Make RiskScoreResult hashable for caching."""
@@ -3286,6 +3249,10 @@ class WhatIfResult:
         sections.append(self._format_risk_comparison())
         sections.append(self._format_factor_comparison())
         return "\n".join(sections)
+    
+    def to_formatted_report(self) -> str:
+        """Format what-if scenario results for display (identical to to_cli_report())."""
+        return self.to_cli_report()
     
     def _format_scenario_header(self) -> str:
         """Format scenario header - EXACT copy of print_what_if_report logic"""
@@ -3686,14 +3653,6 @@ class WhatIfResult:
             
         return factor_comparison
 
-    def to_dict(self) -> Dict[str, Any]:
-        """DEPRECATED – use to_api_response().  To be removed in Phase 2."""
-        import warnings
-        warnings.warn("WhatIfResult.to_dict() is deprecated; "
-                     "use to_api_response() instead.",
-                     DeprecationWarning, stacklevel=2)
-        return self.to_api_response()
-
 
 class StockAnalysisResult:
     """
@@ -3806,116 +3765,215 @@ class StockAnalysisResult:
             "idiosyncratic_risk": self.regression_metrics.get("idio_vol_m", 0)
         }
     
-    @classmethod
-    def from_stock_analysis(cls, ticker: str, vol_metrics: Dict[str, float], 
-                           regression_metrics: Dict[str, float], 
-                           factor_summary: Optional[pd.DataFrame] = None) -> 'StockAnalysisResult':
+    @classmethod  
+    def from_core_analysis(cls, 
+                          ticker: str,
+                          analysis_period: Dict[str, str],
+                          analysis_type: str,
+                          volatility_metrics: Dict[str, Any],
+                          regression_metrics: Optional[Dict[str, Any]] = None,
+                          risk_metrics: Optional[Dict[str, Any]] = None,
+                          factor_summary: Optional[Any] = None,
+                          factor_exposures: Optional[Dict[str, Any]] = None,
+                          factor_proxies: Optional[Dict[str, Any]] = None,
+                          analysis_metadata: Dict[str, Any] = None) -> 'StockAnalysisResult':
         """
-        Create StockAnalysisResult from run_stock() underlying function outputs.
+        🔒 CRITICAL: This must preserve exact same field mappings as current
+        service layer conversion AND ensure to_api_response() produces 
+        identical output to current API responses.
         
-        Complete Field Mapping (run_stock components → StockAnalysisResult):
-        ================================================================
-        
-        Input Parameters                         → Result Object Field
-        ──────────────────────────────────────────────────────────────────
-        ticker parameter                         → self.ticker
-        vol_metrics["volatility_annual"]         → self.volatility_annual
-        vol_metrics["sharpe_ratio"]              → self.sharpe_ratio
-        vol_metrics["max_drawdown"]              → self.max_drawdown
-        regression_metrics["beta"]               → self.beta
-        regression_metrics["alpha"]              → self.alpha
-        regression_metrics["r_squared"]          → self.r_squared
-        regression_metrics["correlation"]        → self.market_correlation
-        factor_summary DataFrame                 → self.factor_exposures (optional)
-        datetime.now()                          → self.analysis_date
-        
-        Data Flow: run_stock() component outputs → StockAnalysisResult
-        Completeness: 100% - All provided metrics captured
-        
-        Note: This factory method assembles data from multiple analysis components
-        (volatility calculations, regression analysis, factor modeling) into a 
-        unified stock analysis result.
+        This builder creates StockAnalysisResult from core analyze_stock() output.
+        All fields used by to_api_response() must be preserved.
         """
+        # Create the stock_data dict that the constructor expects
         stock_data = {
-            "ticker": ticker,
-            "vol_metrics": vol_metrics,
+            "vol_metrics": volatility_metrics,
+            "regression_metrics": regression_metrics or {},
+            "risk_metrics": risk_metrics or {},
+            "factor_summary": factor_summary,
+            "factor_exposures": factor_exposures or {},
+            "factor_proxies": factor_proxies or {},
+            "analysis_metadata": analysis_metadata or {}
+        }
+        
+        # Create the result object
+        result = cls(stock_data=stock_data, ticker=ticker)
+        
+        # Set additional fields that CLI formatting expects
+        result.analysis_period = analysis_period
+        result.analysis_type = analysis_type
+        
+        # Preserve any additional fields that to_api_response() expects
+        result.raw_data = {
+            "analysis_period": analysis_period,
+            "volatility_metrics": volatility_metrics,
             "regression_metrics": regression_metrics,
+            "risk_metrics": risk_metrics,
             "factor_summary": factor_summary
         }
-        return cls(stock_data=stock_data, ticker=ticker)
+        
+        return result
     
+    def to_cli_report(self) -> str:
+        """Generate complete CLI formatted report - IDENTICAL to current output"""
+        sections = []
+        sections.append(self._format_stock_summary())        # Stock ticker and period
+        sections.append(self._format_volatility_metrics())   # Volatility analysis  
+        sections.append(self._format_factor_analysis())      # Factor exposures (if applicable)
+        sections.append(self._format_regression_metrics())   # Market regression
+        sections.append(self._format_risk_decomposition())   # Risk breakdown
+        return "\n\n".join(sections)
+    
+    def _format_stock_summary(self) -> str:
+        """Format stock header - EXACT copy of run_stock lines ~580-585"""
+        lines = [f"=== Stock Analysis: {self.ticker} ==="]
+        analysis_period = getattr(self, 'analysis_period', {})
+        if analysis_period:
+            lines.append(f"Analysis Period: {analysis_period.get('start_date', 'N/A')} to {analysis_period.get('end_date', 'N/A')}")
+        analysis_type = getattr(self, 'analysis_type', 'multi_factor')
+        lines.append(f"Analysis Type: {analysis_type}")
+        return "\n".join(lines)
+    
+    def _format_volatility_metrics(self) -> str:
+        """Format volatility section - EXACT copy of run_stock lines ~590-600"""
+        vol = self.volatility_metrics
+        lines = ["=== Volatility Metrics ==="]
+        lines.append(f"Annual Volatility:    {vol.get('volatility_annual', vol.get('annual_vol', 0)):.1%}")
+        lines.append(f"Monthly Volatility:   {vol.get('volatility_monthly', vol.get('monthly_vol', 0)):.1%}") 
+        lines.append(f"Sharpe Ratio:         {vol.get('sharpe_ratio', 0):.2f}")
+        lines.append(f"Maximum Drawdown:     {vol.get('max_drawdown', 0):.1%}")
+        return "\n".join(lines)
+        
+    def _format_factor_analysis(self) -> str:
+        """Format factor exposures - EXACT copy of run_stock lines ~605-625"""
+        if not self.factor_exposures:
+            return ""
+        lines = ["=== Factor Exposures ==="]
+        for factor_name, exposure in self.factor_exposures.items():
+            beta = exposure.get('beta', 0)
+            r_sq = exposure.get('r_squared', 0)
+            proxy = exposure.get('proxy', 'N/A')
+            lines.append(f"{factor_name:<12} β = {beta:+.2f}  R² = {r_sq:.3f}  Proxy: {proxy}")
+        return "\n".join(lines)
+        
+    def _format_regression_metrics(self) -> str:
+        """Format market regression - EXACT copy of run_stock lines ~630-640"""
+        if hasattr(self, 'regression_metrics') and self.regression_metrics:
+            reg = self.regression_metrics
+            lines = ["=== Market Regression ==="]
+            lines.append(f"Market Beta:          {reg.get('beta', 0):.2f}")
+            lines.append(f"Alpha (Annual):       {reg.get('alpha', 0):.1%}")
+            lines.append(f"R-Squared:            {reg.get('r_squared', 0):.3f}")
+            lines.append(f"Correlation:          {reg.get('correlation', 0):.3f}")
+            return "\n".join(lines)
+        elif hasattr(self, 'risk_metrics') and self.risk_metrics:
+            risk = self.risk_metrics
+            lines = ["=== Market Risk Profile ==="]
+            lines.append(f"Market Beta:          {risk.get('beta', 0):.2f}")
+            lines.append(f"Alpha (Annual):       {risk.get('alpha', 0):.1%}")
+            lines.append(f"R-Squared:            {risk.get('r_squared', 0):.3f}")
+            return "\n".join(lines)
+        return ""
+    
+    def _format_risk_decomposition(self) -> str:
+        """Format risk decomposition section"""
+        if hasattr(self, 'regression_metrics') and self.regression_metrics:
+            reg = self.regression_metrics
+            idio_vol = reg.get('idio_vol_m', 0)
+            if idio_vol > 0:
+                lines = ["=== Risk Decomposition ==="]
+                lines.append(f"Idiosyncratic Vol:    {idio_vol:.1%}")
+                return "\n".join(lines)
+        return ""
+
     def to_formatted_report(self) -> str:
-        """Format stock analysis results to match run_stock() output style."""
-        lines = [
-            f"Stock Analysis Report: {self.ticker}",
-            f"{'='*40}",
-            f"",
-            f"=== Volatility Metrics ===",
-            f"Monthly Volatility:      {self.volatility_metrics.get('monthly_vol', 0):.2%}",
-            f"Annual Volatility:       {self.volatility_metrics.get('annual_vol', 0):.2%}",
-            f"",
-            f"=== Market Regression ===",
-            f"Beta:                   {self.regression_metrics.get('beta', 0):.3f}",
-            f"Alpha (Monthly):        {self.regression_metrics.get('alpha', 0):.4f}",
-            f"R-Squared:              {self.regression_metrics.get('r_squared', 0):.3f}",
-            f"Idiosyncratic Vol:      {self.regression_metrics.get('idio_vol_m', 0):.2%}",
-            f""
-        ]
-        
-        # Add factor analysis if available (robust to non-DataFrame types)
-        if self.factor_summary is not None and getattr(self.factor_summary, 'empty', False) is False:
-            lines.append("=== Factor Analysis ===")
-            if "beta" in self.factor_summary:
-                for factor, beta in self.factor_summary["beta"].items():
-                    lines.append(f"{factor.capitalize():<15} {beta:>8.3f}")
-            lines.append("")
-        
-        return "\n".join(lines) 
+        """Format stock analysis results for display (identical to to_cli_report())."""
+        return self.to_cli_report() 
     
     def to_api_response(self) -> Dict[str, Any]:
         """
         Generate schema-compliant JSON response for stock analysis results.
         
         Converts internal data structures (including pandas DataFrames) to 
-        JSON-serializable dictionaries for API responses. Handles factor_summary
-        normalization to ensure consistent dict format regardless of internal
-        data type (DataFrame, custom object, etc.).
+        JSON-serializable dictionaries for API responses. Provides comprehensive
+        multi-factor risk analysis data for programmatic consumption.
         
         Returns:
             Dict[str, Any]: JSON-serializable dictionary containing:
-                - ticker: Stock symbol
-                - volatility_metrics: Historical volatility analysis
-                - regression_metrics: Market regression statistics  
-                - factor_summary: Risk factor exposures (normalized to dict)
-                - risk_metrics: Risk characteristics and metrics
+            
+                📊 CORE IDENTIFIERS:
+                - ticker: Stock symbol (e.g., "AAPL")
                 - analysis_date: ISO-formatted analysis timestamp
+                
+                📈 VOLATILITY ANALYSIS:
+                - volatility_metrics: Historical volatility statistics
+                  • annual_vol: Annualized volatility (e.g., 0.22 = 22%)
+                  • monthly_vol: Monthly volatility (e.g., 0.063 = 6.3%)
+                  • sharpe_ratio: Risk-adjusted return ratio
+                  • max_drawdown: Maximum peak-to-trough decline
+                
+                📉 MARKET REGRESSION:
+                - regression_metrics: Market beta analysis (vs SPY)
+                  • beta: Market sensitivity coefficient (e.g., 1.22 = 22% more volatile than market)
+                  • alpha: Risk-adjusted excess return (monthly)
+                  • r_squared: Proportion of variance explained by market (e.g., 0.658 = 65.8%)
+                  • correlation: Linear correlation with market
+                  • idio_vol: Stock-specific volatility not explained by market
+                
+                🎯 MULTI-FACTOR ANALYSIS:
+                - factor_summary: Comprehensive factor exposure analysis (pandas DataFrame → dict)
+                  Structure: {"beta": {...}, "r_squared": {...}, "idio_vol_m": {...}}
+                  Each contains factor exposures for:
+                  • market: Market factor (SPY proxy)
+                  • momentum: Momentum factor (MTUM proxy)  
+                  • value: Value factor (IWD proxy)
+                  • industry: Industry sector factor (e.g., XLK for tech)
+                  • subindustry: Sub-industry peer group factor
+                  
+                  Metrics per factor:
+                  • beta: Factor exposure coefficient (how much stock moves with factor)
+                  • r_squared: Variance explained by this factor (0-1 scale)
+                  • idio_vol_m: Unexplained monthly volatility after factor
+                
+                🔍 ENHANCED METADATA:
+                - factor_exposures: Structured factor metadata with proxy info
+                - factor_proxies: ETF/ticker mappings used for each factor
+                - analysis_metadata: Analysis configuration and timestamps
+                - risk_metrics: Additional risk characteristics (if available)
         """
-        # Normalize factor_summary for API (expect dict)
+        # 🔄 Convert factor_summary from pandas DataFrame to JSON-serializable dict
+        # factor_summary is generated by compute_factor_metrics() and contains:
+        # - Rows: factors (market, momentum, value, industry, subindustry)  
+        # - Columns: beta, r_squared, idio_vol_m
+        # Result: {"beta": {"market": 1.22, ...}, "r_squared": {"market": 0.658, ...}, "idio_vol_m": {"market": 0.037, ...}}
         if self.factor_summary is not None and hasattr(self.factor_summary, 'to_dict'):
             factor_summary_dict = self.factor_summary.to_dict() if not getattr(self.factor_summary, 'empty', False) else {}
         else:
             factor_summary_dict = {}
 
         return {
-            "ticker": self.ticker,
-            "volatility_metrics": self.volatility_metrics,
-            "regression_metrics": self.regression_metrics,
-            "factor_summary": factor_summary_dict,
-            "risk_metrics": self.risk_metrics,
-            "factor_exposures": self.factor_exposures,  # NEW: Structured factor metadata
-            "factor_proxies": self.factor_proxies,      # NEW: Factor proxy mappings
-            "analysis_metadata": self.analysis_metadata,  # NEW: Analysis configuration
-            "analysis_date": self.analysis_date.isoformat()
+            # 📊 Core identifiers
+            "ticker": self.ticker,                                    # Stock symbol (str)
+            "analysis_date": self.analysis_date.isoformat(),          # Timestamp (ISO format)
+            
+            # 📈 Volatility analysis  
+            "volatility_metrics": self.volatility_metrics,            # Dict: annual_vol, monthly_vol, sharpe_ratio, max_drawdown
+            
+            # 📉 Market regression analysis
+            "regression_metrics": self.regression_metrics,            # Dict: beta, alpha, r_squared, correlation, idio_vol
+            
+            # 🎯 Multi-factor analysis (CORE FEATURE)
+            "factor_summary": factor_summary_dict,                    # Dict: {"beta": {factors...}, "r_squared": {factors...}, "idio_vol_m": {factors...}}
+                                                                      # Contains exposures for: market, momentum, value, industry, subindustry
+            
+            # 🔍 Enhanced metadata and context
+            "factor_exposures": self.factor_exposures,                # Dict: Structured factor metadata with proxy info
+            "factor_proxies": self.factor_proxies,                    # Dict: ETF/ticker mappings used for each factor (e.g., {"market": "SPY", "momentum": "MTUM"})
+            "analysis_metadata": self.analysis_metadata,              # Dict: Analysis configuration, timestamps, and settings
+            "risk_metrics": self.risk_metrics,                        # Dict: Additional risk characteristics (if available)
         }
 
-    def to_dict(self) -> Dict[str, Any]:
-        """DEPRECATED – use to_api_response().  To be removed in Phase 2."""
-        import warnings
-        warnings.warn("StockAnalysisResult.to_dict() is deprecated; "
-                     "use to_api_response() instead.",
-                     DeprecationWarning, stacklevel=2)
-        return self.to_api_response()
-    
+
     def __hash__(self) -> int:
         """Make StockAnalysisResult hashable for caching."""
         key_data = (
