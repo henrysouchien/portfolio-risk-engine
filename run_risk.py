@@ -9,7 +9,7 @@
 import argparse
 import yaml
 from contextlib import redirect_stdout 
-from typing import Optional, Dict, Union, List, Any
+from typing import Optional, Dict, Union, List, Any, overload
 import pandas as pd
 from io import StringIO
 import numpy as np
@@ -130,21 +130,21 @@ def run_and_interpret(portfolio_yaml: str, *, return_data: bool = False) -> Unio
         1. runs `run_portfolio(portfolio_yaml)`
         2. captures everything it prints
         3. feeds that text to GPT for a summary
-        4. prints **both** the GPT summary *and* the raw diagnostics
-        5. returns the GPT summary string
+        4. prints **both** the GPT summary *and* the raw diagnostics (CLI mode)
+        5. returns GPT summary string (CLI mode) or InterpretationResult object (data mode)
 
     Parameters
     ----------
     portfolio_yaml : str
         Path to the portfolio configuration YAML.
     return_data : bool, default False
-        If True, returns structured data instead of printing.
-        If False, prints formatted output to stdout (existing behavior).
+        If True, returns InterpretationResult object for programmatic use.
+        If False, prints formatted output to stdout and returns AI interpretation string.
 
     Returns
     -------
     Union[str, InterpretationResult]
-        If return_data=False: Returns GPT interpretation string (existing behavior)
+        If return_data=False: Returns str (AI interpretation text only - existing CLI behavior)
         If return_data=True: Returns InterpretationResult object with:
             - ai_interpretation: GPT interpretation of the analysis
             - full_diagnostics: Complete analysis output text
