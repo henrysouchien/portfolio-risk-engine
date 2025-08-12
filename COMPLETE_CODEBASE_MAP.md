@@ -1,11 +1,12 @@
 # Complete Risk Module Codebase Map
 
 ## Overview
-This document provides a comprehensive map of the entire risk_module codebase, including all directories (even those in .gitignore). Last updated on 2025-08-07 to reflect current codebase state, risk limits manager refactor, and database structure reorganization.
+This document provides a comprehensive map of the entire risk_module codebase, including all directories (even those in .gitignore). Last updated on 2025-08-12 to reflect current codebase state, risk limits manager refactor, database structure reorganization, and recent API refactoring initiatives.
 
 ## Directory Structure with Python File Counts
 
-### Root Level Files (22 Python files)
+### Root Level Files (26 Python files)
+Core application files and utilities:
 - `ai_function_registry.py` - Registry for AI/Claude function definitions
 - `app.py` - Main Flask application entry point
 - `data_loader.py` - Data loading utilities
@@ -23,10 +24,17 @@ This document provides a comprehensive map of the entire risk_module codebase, i
 - `risk_summary.py` - Risk summary generation
 - `run_portfolio_risk.py` - Portfolio risk runner script
 - `run_risk.py` - Main risk calculation runner
-- `run_migration.py` - Database migration runner
 - `settings.py` - Application settings
-- `test_logging.py` - Logging test utilities
-- `check_user_data.py` - Database content verification utility
+
+**Schema and Testing Files:**
+- `EXAMPLE_SCHEMAS.py` - Example schema definitions
+- `PHASE_1_6A_SCHEMA_STUBS.py` - Phase 1.6A schema stubs
+- `SCHEMA_STUBS.py` - Schema stub definitions
+- `compare_cli_api.py` - CLI vs API comparison utilities
+- `comprehensive_alignment_test.py` - Comprehensive alignment testing
+- `field_coverage_test.py` - Field coverage testing
+- `proper_field_mapping_test.py` - Field mapping validation
+- `risk_score_field_mapping_test.py` - Risk score field mapping tests
 
 ### Core Application Layers (CRITICAL - Gitignored)
 
@@ -231,6 +239,7 @@ Centralized database infrastructure:
 - `__init__.py` - Database module exports and backward compatibility
 - `session.py` - Request-scoped database session management (moved from db_session.py)
 - `pool.py` - Database connection pooling (moved from db_pool.py)
+- `run_migration.py` - Database migration execution script
 - `schema.sql` - Database schema definitions
 - **`/migrations/`** - Database migrations:
   - `20250801_add_subindustry_peers.sql` - Subindustry peers migration
@@ -280,6 +289,7 @@ Temporary file storage
 - `package.json` - Node.js dependencies for frontend
 - `package.json.backup` - Backup of frontend dependencies
 - `requirements.txt` - Python dependencies
+- `requirements-dev.txt` - Development Python dependencies
 - `playwright.config.js` - E2E testing configuration
 - `jest.config.js` - Jest testing configuration
 - `tsconfig.json` - TypeScript configuration (frontend)
@@ -288,8 +298,33 @@ Temporary file storage
   - `secrets_helper.sh` - Secrets management
   - `update_secrets.sh` - Secret update utility
   - `sync-to-public.sh` - Public repository sync
+  - `run-e2e-tests.sh` - E2E test execution
+  - `run-e2e-tests-ai.sh` - AI-enhanced E2E tests
 - Database schema: `database/schema.sql` (moved from root db_schema.sql)
 - Jupyter notebook: `risk_runner.ipynb`
+
+### Root Level Documentation & Planning
+Recent planning and refactor documentation:
+- `API_DIRECT_INTERPRET_REFACTOR_PLAN.md` - API direct interpret endpoint refactor plan
+- `API_DIRECT_PERFORMANCE_REFACTOR_PLAN.md` - API direct performance endpoint refactor plan  
+- `API_DIRECT_WHAT_IF_REFACTOR_PLAN.md` - API direct what-if endpoint refactor plan
+- `API_PERFORMANCE_ANALYSIS_REFACTOR_PLAN.md` - API performance analysis refactor plan
+- `API_RISK_SCORE_REFACTORING_PLAN.md` - API risk score refactor plan
+- `CLAUDE_RISK_LIMITS_MODERNIZATION_PLAN.md` - Risk limits modernization plan
+- `CLI_API_ALIGNMENT_WORKFLOW.md` - CLI and API alignment workflow
+- `COMPLETE_CODEBASE_MAP.md` - This comprehensive codebase map
+- `DIRECT_API_REFACTOR_TEMPLATE.md` - Template for direct API refactoring
+- `E2E_TESTING_GUIDE.md` - End-to-end testing guide
+- `GAPS_AND_RECOMMENDATIONS.md` - Architecture gaps and recommendations
+- `MIN_VARIANCE_REFACTORING_PLAN.md` - Minimum variance optimization refactor plan
+- `PROMPTS_DEV.md` - Development prompts
+- `PROMPTS_INTERFACE.md` - Interface prompts
+- `PROMPTS_WORKING.md` - Working prompts
+- `REFACTORING_TOOLKIT.md` - Refactoring toolkit documentation
+- `RESULT_OBJECTS_ARCHITECTURE.md` - Result objects architecture guide
+- `SCHEMA_INVENTORY.md` - Schema inventory documentation
+- `STOCK_ANALYSIS_REFACTOR_PLAN.md` - Stock analysis refactor plan
+- `api_direct_max_return_refactor_plan.md` - Maximum return optimization refactor plan
 
 ### Additional Directories
 
@@ -325,8 +360,8 @@ Legacy source files:
 - Database connection strings and configuration files
 
 ## File Count Summary
-- Total Python files: 620 (as of 2025-08-07)
-- Core application: ~71 files (22 root + 17 services + 7 routes + 8 utils + 7 inputs + 10 core)
+- Total Python files: 661 (as of 2025-08-12)
+- Core application: ~75 files (26 root + 17 services + 7 routes + 8 utils + 7 inputs + 10 core)
 - Tests: ~5 files (basic test setup, extensive tests in secrets directory)
 - Archive/Backup: Extensive files across multiple directories
 - Prototype: 17+ files (Python + Jupyter notebooks)
@@ -334,7 +369,7 @@ Legacy source files:
 - Frontend: Full React application (0 Python files, comprehensive TypeScript architecture)
 - Admin tools: 2 files
 
-## Architecture Changes Since Last Update (2025-08-07)
+## Architecture Changes Since Last Update (2025-08-12)
 
 ### Risk Limits Manager Refactor (August 2025):
 1. **File Rename**: `risk_config.py` → `risk_limits_manager.py` for better semantic clarity
@@ -362,11 +397,19 @@ Legacy source files:
 3. **Cache Management**: Stable `cache_mixin.py` for service-level caching utilities
 4. **Function Registry**: Enhanced `ai_function_registry.py` for AI/Claude function definitions
 
+### API Refactoring Initiative (August 2025):
+1. **Direct API Refactoring**: Comprehensive refactoring plans for direct API endpoints
+2. **Result Objects Architecture**: Unified result objects architecture across CLI and API
+3. **Schema Management**: Enhanced schema inventory and validation systems
+4. **Template-Based Refactoring**: Standardized refactoring templates for consistency
+
 ### Documentation and Development Tools:
 1. **Security Audit**: New comprehensive security audit report (SECURITY_AUDIT_REPORT.md)
 2. **Prompts Documentation**: Multiple prompt files including PROMPTS_INTERFACE.md, PROMPTS_DEV.md, and PROMPTS_WORKING.md
 3. **E2E Testing**: New E2E_TESTING_GUIDE.md for comprehensive testing documentation
 4. **Living Code Map**: Dynamic code mapping tools for real-time codebase analysis
+5. **API Refactor Documentation**: Extensive planning documents for API modernization
+6. **Schema Testing**: Enhanced schema validation and field mapping test files
 
 ## Key Integration Points
 1. Database: PostgreSQL via `database_client.py`

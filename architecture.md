@@ -233,8 +233,8 @@ CREATE TABLE user_sessions (
 
 For web interface, REST API, and Claude AI chat integration, see:
 - **[API Reference](docs/API_REFERENCE.md)** - REST API documentation and endpoints
-- **[Frontend Backend Connection Map](docs/interfaces/FRONTEND_BACKEND_CONNECTION_MAP.md)** - Interface connection mapping
-- **[Interface Alignment Table](docs/interfaces/alignment_table.md)** - Function alignment across interfaces
+- **[Frontend Backend Connection Map](docs/FRONTEND_BACKEND_CONNECTION_MAP.md)** - Interface connection mapping
+- **[Interface Alignment Table](docs/interface_alignment_table.md)** - Function alignment across interfaces
 
 ## 🔄 Dual-Mode Interface Pattern
 
@@ -310,14 +310,16 @@ result = portfolio_service.analyze_portfolio(portfolio_data)
 claude_sees = result.to_formatted_report()  # Same text as CLI
 ```
 
-### Dual-Mode Functions
+### Result Objects Functions
 
-All major analysis functions follow this pattern:
-- `run_portfolio()` - Portfolio risk analysis
-- `run_what_if()` - Scenario analysis  
-- `run_min_variance()` / `run_max_return()` - Portfolio optimization
-- `run_stock()` - Individual stock analysis
-- `run_portfolio_performance()` - Performance metrics
+All major analysis functions return Result Objects with dual-mode support:
+- `run_portfolio()` → `RiskAnalysisResult` - Portfolio risk analysis
+- `run_what_if()` → `WhatIfResult` - Scenario analysis  
+- `run_min_variance()` / `run_max_return()` → `OptimizationResult` - Portfolio optimization
+- `run_stock()` → `StockAnalysisResult` - Individual stock analysis
+- `run_portfolio_performance()` → `PerformanceResult` - Performance metrics
+- `run_and_interpret()` → `InterpretationResult` - AI interpretation services
+- `run_risk_score()` → `RiskScoreResult` - Risk scoring analysis
 
 ## 🏗️ Architecture Layers
 
@@ -378,6 +380,89 @@ The system follows a **clean 3-layer architecture** with clear separation of con
 └─────────────────────────────────────────────────────────────┘
 ```
 
+## 🎯 Result Objects Architecture
+
+### Architecture Evolution: From Raw Dicts to Result Objects
+
+The system has undergone a major refactoring to implement **Result Objects as the Single Source of Truth**. This addresses previous issues with data duplication, inconsistent outputs, and complex dual-mode logic.
+
+#### Before: Factory Method Pattern (Deprecated)
+```python
+# Old pattern - factory methods create result objects from raw data
+raw_data = build_portfolio_view(filepath)
+result = RiskAnalysisResult.from_build_portfolio_view(raw_data, metadata)
+```
+
+#### After: Direct Result Object Creation
+```python
+# New pattern - core functions create and return result objects directly
+def analyze_portfolio(filepath) -> RiskAnalysisResult:
+    # Load data using data layer
+    portfolio_data = build_portfolio_view(filepath)
+    
+    # Perform analysis
+    risk_analysis = calculate_risk_metrics(portfolio_data)
+    
+    # Create and return Result Object with all data
+    return RiskAnalysisResult(
+        portfolio_summary=portfolio_data,
+        risk_analysis=risk_analysis,
+        formatted_output=generate_cli_report(...)
+    )
+```
+
+### Result Objects Features
+
+Each Result Object provides multiple output formats:
+
+```python
+class RiskAnalysisResult:
+    """Structured result object for portfolio risk analysis."""
+    
+    def to_api_response(self) -> Dict[str, Any]:
+        """Return JSON-safe dictionary for API responses."""
+        return {
+            "portfolio_summary": self.portfolio_summary,
+            "risk_analysis": self.risk_analysis,
+            "metadata": self.analysis_metadata
+        }
+    
+    def to_cli_report(self) -> str:
+        """Return formatted text report for CLI display."""
+        return self.formatted_output
+    
+    def get_summary(self) -> Dict[str, str]:
+        """Return key metrics as simple dictionary."""
+        return {
+            "total_value": f"${self.portfolio_summary['total_value']:,.2f}",
+            "volatility": f"{self.risk_analysis['volatility_annual']:.2%}",
+            "risk_score": str(self.risk_analysis['risk_score'])
+        }
+```
+
+### Available Result Objects
+
+All analysis functions return typed Result Objects:
+
+| Result Object | Source Module | Purpose |
+|---------------|---------------|---------|
+| `RiskAnalysisResult` | `core.result_objects` | Portfolio risk analysis results |
+| `WhatIfResult` | `core.result_objects` | Scenario analysis results |
+| `OptimizationResult` | `core.result_objects` | Portfolio optimization results |
+| `StockAnalysisResult` | `core.result_objects` | Individual stock analysis results |
+| `PerformanceResult` | `core.result_objects` | Performance metrics and benchmarking |
+| `InterpretationResult` | `core.result_objects` | AI interpretation and insights |
+| `RiskScoreResult` | `core.result_objects` | Risk scoring and assessment |
+
+### Benefits of Result Objects Architecture
+
+1. **Single Source of Truth**: All output formats derive from the same data
+2. **Guaranteed Consistency**: CLI and API cannot show different results
+3. **Simplified Dual-Mode**: Reduced from ~100 lines to ~10 lines per function
+4. **Rich Business Logic**: Computed properties, validation, and formatting
+5. **Type Safety**: Structured objects with clear interfaces
+6. **Easy Maintenance**: Add field once, works across all outputs
+
 ### Key Architectural Benefits
 
 1. **Single Source of Truth**: All interfaces call the same core business logic
@@ -388,62 +473,80 @@ The system follows a **clean 3-layer architecture** with clear separation of con
 
 ## 🔄 Data Flow Architecture
 
-### User Request Flow
+### Current Direct API Architecture
+
+The system implements **Direct API Endpoints** that bypass database operations and call CLI functions directly with Result Objects:
+
+#### Available Direct API Endpoints
+```
+POST /api/direct/portfolio           # Portfolio risk analysis
+POST /api/direct/stock              # Individual stock analysis  
+POST /api/direct/what-if            # Scenario analysis
+POST /api/direct/optimize/min-variance   # Minimum variance optimization
+POST /api/direct/optimize/max-return     # Maximum return optimization
+POST /api/direct/performance        # Performance analysis
+POST /api/direct/interpret          # AI interpretation
+```
+
+### User Request Flow with Result Objects
 ```
 1. User Input
    ├── CLI: "python run_risk.py --portfolio portfolio.yaml"
-   ├── API: "POST /api/analyze"
+   ├── Direct API: "POST /api/direct/portfolio"
    └── AI: "Analyze my portfolio risk"
    
-2. Routes Layer
-   ├── run_portfolio() in run_risk.py
-   ├── api_analyze_portfolio() in routes/api.py
-   └── claude_chat() in routes/claude.py
+2. Routes Layer (Returns Result Objects)
+   ├── run_portfolio() → RiskAnalysisResult in run_risk.py
+   ├── api_direct_portfolio() → calls run_portfolio(return_data=True) in routes/api.py
+   └── claude_chat() → calls service layer in routes/claude.py
    
-3. Core Layer (Business Logic)
-   ├── analyze_portfolio() in core/portfolio_analysis.py
-   ├── analyze_scenario() in core/scenario_analysis.py
-   └── analyze_stock() in core/stock_analysis.py
+3. Core Layer (Business Logic - Creates Result Objects)
+   ├── analyze_portfolio() → RiskAnalysisResult in core/portfolio_analysis.py
+   ├── analyze_scenario() → WhatIfResult in core/scenario_analysis.py
+   ├── analyze_stock() → StockAnalysisResult in core/stock_analysis.py
+   ├── analyze_performance() → PerformanceResult in core/performance_analysis.py
+   └── analyze_and_interpret() → InterpretationResult in core/interpretation.py
    
-4. Data Layer
+4. Data Layer (Supporting Functions)
    ├── build_portfolio_view() in portfolio_risk.py
    ├── run_what_if_scenario() in portfolio_optimizer.py
    └── get_stock_risk_profile() in risk_summary.py
    
-5. Response
-   ├── CLI: Formatted console output
-   ├── API: JSON structured data
-   └── AI: Natural language interpretation
+5. Response (Result Object Methods)
+   ├── CLI: result.to_cli_report() → Formatted console output
+   ├── API: result.to_api_response() → JSON structured data
+   └── AI: result.to_cli_report() → Natural language interpretation
 ```
 
-### Dual-Mode Architecture Pattern
+### Direct API Pattern
 
-Every function in the system supports both CLI and API modes:
+Direct API endpoints follow a consistent pattern:
 
 ```python
-def run_portfolio(filepath: str, *, return_data: bool = False):
-    """
-    Dual-mode portfolio analysis function.
+@openapi_bp.route("/direct/portfolio", methods=["POST"])
+def api_direct_portfolio():
+    """Direct portfolio analysis bypassing database operations."""
     
-    CLI Mode (return_data=False):
-    - Prints formatted output to console
-    - Returns simple values for CLI use
+    # Extract portfolio data from request
+    portfolio_data = request.json.get("portfolio", {})
     
-    API Mode (return_data=True):
-    - Returns structured JSON-serializable data
-    - Suitable for API consumption
-    """
-    # Call extracted core business logic
-    analysis_result = analyze_portfolio(filepath)
+    # Create temporary YAML files
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+        yaml.dump(portfolio_data, f)
+        temp_portfolio_path = f.name
     
-    # Dual-mode response handling
-    if return_data:
-        # API Mode: Return structured data
-        return analysis_result
-    else:
-        # CLI Mode: Print formatted output
-        print_portfolio_summary(analysis_result)
-        return None
+    try:
+        # Call CLI function with return_data=True to get Result Object
+        result = run_portfolio(temp_portfolio_path, return_data=True)
+        
+        # Return Result Object's API response
+        return jsonify({
+            "success": True,
+            "data": result.to_api_response()
+        })
+    finally:
+        # Clean up temporary files
+        os.unlink(temp_portfolio_path)
 ```
 
 ## 📂 File Structure
@@ -553,13 +656,14 @@ risk_module/
 │   └── 🔧 package.json                   # Frontend dependencies and scripts
 │
 ├── 📁 docs/ (Documentation)
-│   ├── interfaces/
-│   │   ├── FRONTEND_BACKEND_CONNECTION_MAP.md  # Interface connection mapping
-│   │   └── alignment_table.md                  # Function alignment across interfaces
-│   ├── API_REFERENCE.md                   # API documentation
-│   ├── DATABASE_REFERENCE.md              # Database documentation
-│   ├── ideas/                             # Architecture ideas and concepts
-│   └── planning/                          # Development planning documents
+│   ├── FRONTEND_BACKEND_CONNECTION_MAP.md      # Interface connection mapping
+│   ├── interface_alignment_table.md            # Function alignment across interfaces
+│   ├── API_REFERENCE.md                        # API documentation
+│   ├── DATABASE_REFERENCE.md                   # Database documentation
+│   ├── RESULT_OBJECT_AUDIT_REPORT.md           # Result Objects refactoring audit
+│   ├── ideas/                                  # Architecture ideas and concepts
+│   ├── planning/                               # Development planning documents
+│   └── schema_samples/                         # API and CLI output samples
 │
 ├── 📁 tests/ (Comprehensive Testing Suite)
 │   ├── test_comprehensive_migration.py    # Master test runner
@@ -593,29 +697,32 @@ def run_portfolio(filepath):
     # Handle dual-mode (10 lines)
 ```
 
-### After: Clean Layered Structure
+### After: Result Objects Architecture
 ```python
 # run_risk.py (Routes Layer)
-def run_portfolio(filepath, *, return_data=False):
-    # Call extracted core business logic
-    analysis_result = analyze_portfolio(filepath)
+def run_portfolio(filepath, *, return_data=False) -> Union[None, RiskAnalysisResult]:
+    # Call core business logic that returns Result Object
+    result = analyze_portfolio(filepath)  # Returns RiskAnalysisResult
     
-    # Dual-mode response handling
+    # Dual-mode response handling using Result Object methods
     if return_data:
-        return analysis_result  # API mode
+        return result  # API mode - return Result Object
     else:
-        print_portfolio_summary(analysis_result)  # CLI mode
+        print(result.to_cli_report())  # CLI mode - use Result Object formatter
         return None
 
 # core/portfolio_analysis.py (Core Layer)
-def analyze_portfolio(filepath):
+def analyze_portfolio(filepath) -> RiskAnalysisResult:
     # Pure business logic - no UI concerns
     # 1. Load configuration
-    # 2. Build portfolio view
+    # 2. Build portfolio view using data layer
+    portfolio_data = build_portfolio_view(filepath)
     # 3. Calculate risk metrics
     # 4. Check limits
-    # 5. Return structured data
-    return structured_results
+    # 5. Return Result Object with all data and formatting methods
+    return RiskAnalysisResult.from_portfolio_analysis(
+        portfolio_data, risk_metrics, limit_checks
+    )
 ```
 
 ## 🔄 Technical Implementation Details
@@ -625,34 +732,36 @@ def analyze_portfolio(filepath):
 Every function maintains dual-mode behavior:
 
 ```python
-def run_portfolio(filepath: str, *, return_data: bool = False):
+def run_portfolio(filepath: str, risk_yaml: str = "risk_limits.yaml", *, return_data: bool = False) -> Union[None, RiskAnalysisResult]:
     """
-    Dual-mode portfolio analysis function.
+    Dual-mode portfolio analysis function using Result Objects architecture.
     
     Parameters
     ----------
     filepath : str
         Path to portfolio YAML file
+    risk_yaml : str, default "risk_limits.yaml"
+        Path to risk limits YAML file
     return_data : bool, default False
-        If True, returns structured data instead of printing
+        If True, returns RiskAnalysisResult object
         If False, prints formatted output to stdout
     
     Returns
     -------
-    None or Dict[str, Any]
-        If return_data=False: Returns None, prints formatted output
-        If return_data=True: Returns structured data dictionary
+    None or RiskAnalysisResult
+        If return_data=False: Returns None, prints formatted CLI output
+        If return_data=True: Returns RiskAnalysisResult object with to_api_response() method
     """
-    # Business logic: Call extracted core function
-    analysis_result = analyze_portfolio(filepath)
+    # Business logic: Call core function that returns Result Object
+    result = analyze_portfolio(filepath, risk_yaml)
     
-    # Dual-mode logic
+    # Dual-mode logic using Result Object methods
     if return_data:
-        # API Mode: Return structured data
-        return analysis_result
+        # API Mode: Return Result Object
+        return result
     else:
-        # CLI Mode: Print formatted output
-        print_portfolio_summary(analysis_result)
+        # CLI Mode: Use Result Object's CLI formatter
+        print(result.to_cli_report())
         return None
 ```
 
@@ -666,15 +775,16 @@ def run_portfolio(filepath: str, *, return_data: bool = False):
 
 All core business logic has been extracted to dedicated modules:
 
-| Original Function | Extracted Module | Purpose |
-|-------------------|------------------|---------|
-| `run_portfolio()` | `core/portfolio_analysis.py` | Portfolio risk analysis |
-| `run_what_if()` | `core/scenario_analysis.py` | What-if scenario analysis |
-| `run_min_variance()` | `core/optimization.py` | Minimum variance optimization |
-| `run_max_return()` | `core/optimization.py` | Maximum return optimization |
-| `run_stock()` | `core/stock_analysis.py` | Individual stock analysis |
-| `run_portfolio_performance()` | `core/performance_analysis.py` | Performance metrics |
-| `run_and_interpret()` | `core/interpretation.py` | AI interpretation services |
+| CLI Function | Core Function | Result Object | Purpose |
+|---------------|---------------|---------------|---------|
+| `run_portfolio()` | `analyze_portfolio()` | `RiskAnalysisResult` | Portfolio risk analysis |
+| `run_what_if()` | `analyze_scenario()` | `WhatIfResult` | What-if scenario analysis |
+| `run_min_variance()` | `optimize_min_variance()` | `OptimizationResult` | Minimum variance optimization |
+| `run_max_return()` | `optimize_max_return()` | `OptimizationResult` | Maximum return optimization |
+| `run_stock()` | `analyze_stock()` | `StockAnalysisResult` | Individual stock analysis |
+| `run_portfolio_performance()` | `analyze_performance()` | `PerformanceResult` | Performance metrics |
+| `run_and_interpret()` | `analyze_and_interpret()` | `InterpretationResult` | AI interpretation services |
+| `run_risk_score()` | `analyze_risk_score()` | `RiskScoreResult` | Risk scoring analysis |
 
 ## 🔧 Component Details
 
@@ -1943,7 +2053,7 @@ The system includes sophisticated tools for managing the complexity of the 4-int
 
 #### Alignment Tools
 
-**1. Interface Alignment Table (`docs/interfaces/alignment_table.md`)**
+**1. Interface Alignment Table (`docs/interface_alignment_table.md`)**
 - **Purpose**: Complete mapping of 39 functions across 4 interfaces
 - **Categories**: 9 functional categories (Core Analysis, Portfolio Management, etc.)
 - **Status Tracking**: Alignment percentages and gap identification
