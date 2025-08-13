@@ -573,6 +573,68 @@ class PortfolioData:
             # CLI/test mode - still safe but without user separation
             return f"portfolio_anon_{timestamp}_{process_id}_"
     
+    def add_ticker(self, ticker: str, position_data: Dict[str, float]) -> None:
+        """
+        Add a new ticker to the portfolio with proper standardization.
+        
+        This method safely adds a new ticker to both the raw portfolio_input and 
+        the standardized_input, ensuring both representations remain synchronized.
+        It also updates the cache key to reflect the portfolio change.
+        
+        Args:
+            ticker (str): Stock symbol to add (will be normalized to uppercase)
+            position_data (Dict[str, float]): Position details in any supported format:
+                - Shares: {"shares": 100}
+                - Dollars: {"dollars": 5000}  
+                - Weight: {"weight": 0.25}
+                - Mixed: {"shares": 50, "dollars": 1000}
+        
+        Example:
+            portfolio_data.add_ticker("AAPL", {"shares": 100})
+            portfolio_data.add_ticker("SPY", {"dollars": 5000})
+            portfolio_data.add_ticker("TSLA", {"weight": 0.15})
+        
+        Raises:
+            ValueError: If position_data format is invalid
+        """
+        ticker = ticker.upper()
+        
+        # Add to raw portfolio input
+        self.portfolio_input[ticker] = position_data.copy()
+        
+        # Convert to standardized format and add to standardized input
+        standardized_position = self._convert_single_position_to_standardized(position_data)
+        self.standardized_input[ticker] = standardized_position
+        
+        # Update cache metadata since portfolio has changed
+        self._cache_key = self._generate_cache_key()
+        self._last_updated = datetime.now()
+    
+    def _convert_single_position_to_standardized(self, position_data: Dict[str, float]) -> Dict[str, float]:
+        """
+        Convert a single position to standardized format.
+        
+        Args:
+            position_data: Single position in any supported format
+            
+        Returns:
+            Standardized position with explicit shares/dollars/weight keys
+        """
+        # If already in standardized format, return copy
+        if any(key in position_data for key in ["shares", "dollars", "value"]):
+            standardized = position_data.copy()
+            # Normalize 'value' to 'dollars' for consistency
+            if "value" in standardized:
+                standardized["dollars"] = standardized.pop("value")
+            return standardized
+        
+        # Handle weight format
+        elif "weight" in position_data:
+            return position_data.copy()
+        
+        else:
+            raise ValueError(f"Invalid position format: {position_data}. Must contain 'shares', 'dollars', 'value', or 'weight'.")
+    
     def create_safe_temp_file(self, content: Any, file_type: str = "data", suffix: str = '.yaml') -> str:
         """
         Create collision-safe temporary file for any content with user isolation.

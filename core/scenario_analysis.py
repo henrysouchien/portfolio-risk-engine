@@ -108,10 +108,15 @@ def analyze_scenario(
 
     weights = standardize_portfolio_input(config["portfolio_input"], latest_price)["weights"]
 
-    # parse CLI delta string
+    # parse CLI delta string OR accept dict directly
     shift_dict = None
     if delta:
-        shift_dict = {k.strip(): v.strip() for k, v in (pair.split(":") for pair in delta.split(","))}
+        if isinstance(delta, dict):
+            # Already a dict from service layer - use directly
+            shift_dict = delta
+        else:
+            # String from CLI - parse it
+            shift_dict = {k.strip(): v.strip() for k, v in (pair.split(":") for pair in delta.split(","))}
 
     # --- run the engine ----------------------------------------------------
     # First, create base portfolio summary for comparison

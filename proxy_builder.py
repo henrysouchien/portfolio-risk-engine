@@ -18,7 +18,8 @@ from utils.logging import (
     log_performance,
     log_cache_operations,
     database_logger,
-    gpt_logger
+    gpt_logger,
+    portfolio_logger
 )
 
 # ============================================================================
@@ -331,7 +332,7 @@ def load_exchange_proxy_map(path: str = "exchange_etf_proxies.yaml") -> dict:
             return db_client.get_exchange_mappings()
     except Exception as e:
         # Fallback to YAML
-        print(f"⚠️ Database unavailable ({e}), using {path} fallback")
+        database_logger.warning(f"Database unavailable ({e}), using {path} fallback")
         with open(path, "r") as f:
             return yaml.safe_load(f)
 
@@ -371,7 +372,7 @@ def load_industry_etf_map(path: str = "industry_to_etf.yaml") -> dict:
             return db_client.get_industry_mappings()
     except Exception as e:
         # Fallback to YAML
-        print(f"⚠️ Database unavailable ({e}), using {path} fallback")
+        database_logger.warning(f"Database unavailable ({e}), using {path} fallback")
         with open(path, "r") as f:
             return yaml.safe_load(f)
 
@@ -461,7 +462,7 @@ def build_proxy_for_ticker(
     except Exception as e:
         # LOGGING: Add profile fetch error logging with ticker and error details
         log_critical_alert("profile_fetch_failure", "medium", f"Profile fetch failed for {ticker}", "Check ticker validity and API connectivity", details={"ticker": ticker, "error": str(e)})
-        print(f"⚠️ {ticker}: profile fetch failed — {e}")
+        gpt_logger.warning(f"⚠️ {ticker}: profile fetch failed — {e}")
         return None
 
     proxies = {}
@@ -555,14 +556,14 @@ def inject_proxies_into_portfolio_yaml(path: str = "portfolio.yaml") -> None:
         if proxy:
             stock_proxies[t] = proxy
         else:
-            print(f"⚠️ Skipping {t} due to missing profile")
+            portfolio_logger.warning(f"⚠️ Skipping {t} due to missing profile")
 
     # Update and write back
     cfg["stock_factor_proxies"] = stock_proxies
     with open(p, "w") as f:
         yaml.dump(cfg, f, sort_keys=False)
 
-    print(f"✅ Updated stock_factor_proxies for {len(stock_proxies)} tickers in {path}")
+    portfolio_logger.info(f"✅ Updated stock_factor_proxies for {len(stock_proxies)} tickers in {path}")
 
 
 # In[ ]:
@@ -628,7 +629,7 @@ def filter_valid_tickers(
                 
         except Exception as e:
             # Any fetch failure (network, malformed payload, etc.) → skip
-            print(f"⚠️  Failed to validate ticker {sym}: {type(e).__name__}: {e}")
+            gpt_logger.warning(f"⚠️  Failed to validate ticker {sym}: {type(e).__name__}: {e}")
             continue
 
     return good
@@ -814,14 +815,14 @@ def inject_subindustry_peers_into_yaml(
         if tkr not in stock_proxies:
             stock_proxies[tkr] = {}
         stock_proxies[tkr]["subindustry"] = peers
-        print(f"✅ {tkr} → {len(peers)} peers")
+        gpt_logger.info(f"✅ {tkr} → {len(peers)} peers")
 
     config["stock_factor_proxies"] = stock_proxies
 
     with open(path, "w") as f:
         yaml.dump(config, f, sort_keys=False)
 
-    print(f"\n✅ Finished writing subindustry peers to {yaml_path}")
+    gpt_logger.info(f"\n✅ Finished writing subindustry peers to {yaml_path}")
 
 
 # In[1]:
@@ -899,7 +900,7 @@ def inject_all_proxies(
         if proxy:
             stock_proxies[tkr] = proxy
         else:
-            print(f"⚠️ Skipping {tkr} due to profile error.")
+            portfolio_logger.warning(f"⚠️ Skipping {tkr} due to profile error.")
 
     config["stock_factor_proxies"] = stock_proxies
 
@@ -917,7 +918,7 @@ def inject_all_proxies(
                 end=end_date,
             )
             stock_proxies[tkr]["subindustry"] = peers
-            print(f"✅ {tkr} → {len(peers)} GPT peers")
+            gpt_logger.info(f"✅ {tkr} → {len(peers)} GPT peers")
 
     # Save updated YAML
     with open(path, "w") as f:
@@ -928,7 +929,7 @@ def inject_all_proxies(
         saved_config = yaml.safe_load(f)
     portfolio_logger.debug(f"🔍 After YAML write: expected_returns = {saved_config.get('expected_returns')} (type: {type(saved_config.get('expected_returns'))})")
 
-    print(f"\n✅ All proxies injected into {yaml_path}")
+    portfolio_logger.info(f"\n✅ All proxies injected into {yaml_path}")
 
 
 # In[ ]:

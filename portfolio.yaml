@@ -32,7 +32,7 @@ portfolio_input:
 start_date: '2019-01-31'
 end_date: '2025-06-27'
 expected_returns:
-  SGOV: 0.001
+  SGOV: 0.04
   DSU: 0.015
   EQT: 0.29100000000000004
   IGIC: 0.299
@@ -46,8 +46,8 @@ expected_returns:
   STWD: 0.059000000000000004
   TKO: 0.295
   V: 0.134
-  AAPL: 0.15
-  MSFT: 0.12
+  AAPL: 0.125
+  MSFT: 0.1
 stock_factor_proxies:
   SGOV:
     market: SPY
