@@ -1,11 +1,11 @@
 # Complete Risk Module Codebase Map
 
 ## Overview
-This document provides a comprehensive map of the entire risk_module codebase, including all directories (even those in .gitignore). Last updated on 2025-08-12 to reflect current codebase state, risk limits manager refactor, database structure reorganization, and recent API refactoring initiatives.
+This document provides a comprehensive map of the entire risk_module codebase, including all directories (even those in .gitignore). Last updated on 2025-08-13 to reflect current codebase state, risk limits manager refactor, database structure reorganization, and recent API refactoring initiatives.
 
 ## Directory Structure with Python File Counts
 
-### Root Level Files (26 Python files)
+### Root Level Files (25 Python files)
 Core application files and utilities:
 - `ai_function_registry.py` - Registry for AI/Claude function definitions
 - `app.py` - Main Flask application entry point
@@ -221,8 +221,17 @@ Development tools:
 - **`/interfaces/`** - Interface documentation
 - **`/planning/`** - Planning documents
 
-#### `/completed/`
+#### `/completed/` 
 Completed feature documentation and plans including:
+- `API_DIRECT_INTERPRET_REFACTOR_PLAN.md` - API direct interpret endpoint refactor plan
+- `API_DIRECT_PERFORMANCE_REFACTOR_PLAN.md` - API direct performance endpoint refactor plan  
+- `API_DIRECT_WHAT_IF_REFACTOR_PLAN.md` - API direct what-if endpoint refactor plan
+- `API_PERFORMANCE_ANALYSIS_REFACTOR_PLAN.md` - API performance analysis refactor plan
+- `API_RISK_SCORE_REFACTORING_PLAN.md` - API risk score refactor plan
+- `DIRECT_API_REFACTOR_TEMPLATE.md` - Template for direct API refactoring
+- `MIN_VARIANCE_REFACTORING_PLAN.md` - Minimum variance optimization refactor plan
+- `STOCK_ANALYSIS_REFACTOR_PLAN.md` - Stock analysis refactor plan
+- `api_direct_max_return_refactor_plan.md` - Maximum return optimization refactor plan
 - `RISK_LIMITS_MANAGER_REFACTOR_HANDOFF.md` - Risk limits manager refactor documentation
 - Various phase implementation reports and architectural plans
 - Frontend refactoring completion reports
@@ -304,27 +313,19 @@ Temporary file storage
 - Jupyter notebook: `risk_runner.ipynb`
 
 ### Root Level Documentation & Planning
-Recent planning and refactor documentation:
-- `API_DIRECT_INTERPRET_REFACTOR_PLAN.md` - API direct interpret endpoint refactor plan
-- `API_DIRECT_PERFORMANCE_REFACTOR_PLAN.md` - API direct performance endpoint refactor plan  
-- `API_DIRECT_WHAT_IF_REFACTOR_PLAN.md` - API direct what-if endpoint refactor plan
-- `API_PERFORMANCE_ANALYSIS_REFACTOR_PLAN.md` - API performance analysis refactor plan
-- `API_RISK_SCORE_REFACTORING_PLAN.md` - API risk score refactor plan
-- `CLAUDE_RISK_LIMITS_MODERNIZATION_PLAN.md` - Risk limits modernization plan
+Active planning and development documentation:
+- `CLAUDE_RISK_LIMITS_MODERNIZATION_PLAN.md` - Risk limits modernization plan (moved from /completed/)
 - `CLI_API_ALIGNMENT_WORKFLOW.md` - CLI and API alignment workflow
 - `COMPLETE_CODEBASE_MAP.md` - This comprehensive codebase map
-- `DIRECT_API_REFACTOR_TEMPLATE.md` - Template for direct API refactoring
 - `E2E_TESTING_GUIDE.md` - End-to-end testing guide
 - `GAPS_AND_RECOMMENDATIONS.md` - Architecture gaps and recommendations
-- `MIN_VARIANCE_REFACTORING_PLAN.md` - Minimum variance optimization refactor plan
 - `PROMPTS_DEV.md` - Development prompts
 - `PROMPTS_INTERFACE.md` - Interface prompts
 - `PROMPTS_WORKING.md` - Working prompts
 - `REFACTORING_TOOLKIT.md` - Refactoring toolkit documentation
 - `RESULT_OBJECTS_ARCHITECTURE.md` - Result objects architecture guide
+- `SCENARIO_ANALYSIS_CLEANUP_PLAN.md` - Scenario analysis cleanup plan
 - `SCHEMA_INVENTORY.md` - Schema inventory documentation
-- `STOCK_ANALYSIS_REFACTOR_PLAN.md` - Stock analysis refactor plan
-- `api_direct_max_return_refactor_plan.md` - Maximum return optimization refactor plan
 
 ### Additional Directories
 
@@ -360,8 +361,8 @@ Legacy source files:
 - Database connection strings and configuration files
 
 ## File Count Summary
-- Total Python files: 661 (as of 2025-08-12)
-- Core application: ~75 files (26 root + 17 services + 7 routes + 8 utils + 7 inputs + 10 core)
+- Total Python files: 662 (as of 2025-08-13)
+- Core application: ~74 files (25 root + 17 services + 7 routes + 8 utils + 7 inputs + 10 core)
 - Tests: ~5 files (basic test setup, extensive tests in secrets directory)
 - Archive/Backup: Extensive files across multiple directories
 - Prototype: 17+ files (Python + Jupyter notebooks)
@@ -369,7 +370,7 @@ Legacy source files:
 - Frontend: Full React application (0 Python files, comprehensive TypeScript architecture)
 - Admin tools: 2 files
 
-## Architecture Changes Since Last Update (2025-08-12)
+## Architecture Changes Since Last Update (2025-08-13)
 
 ### Risk Limits Manager Refactor (August 2025):
 1. **File Rename**: `risk_config.py` → `risk_limits_manager.py` for better semantic clarity
@@ -404,12 +405,11 @@ Legacy source files:
 4. **Template-Based Refactoring**: Standardized refactoring templates for consistency
 
 ### Documentation and Development Tools:
-1. **Security Audit**: New comprehensive security audit report (SECURITY_AUDIT_REPORT.md)
-2. **Prompts Documentation**: Multiple prompt files including PROMPTS_INTERFACE.md, PROMPTS_DEV.md, and PROMPTS_WORKING.md
-3. **E2E Testing**: New E2E_TESTING_GUIDE.md for comprehensive testing documentation
-4. **Living Code Map**: Dynamic code mapping tools for real-time codebase analysis
-5. **API Refactor Documentation**: Extensive planning documents for API modernization
-6. **Schema Testing**: Enhanced schema validation and field mapping test files
+1. **Prompts Documentation**: Multiple prompt files including PROMPTS_INTERFACE.md, PROMPTS_DEV.md, and PROMPTS_WORKING.md
+2. **E2E Testing**: New E2E_TESTING_GUIDE.md for comprehensive testing documentation
+3. **Living Code Map**: Dynamic code mapping tools for real-time codebase analysis
+4. **API Refactor Documentation**: Extensive planning documents for API modernization
+5. **Schema Testing**: Enhanced schema validation and field mapping test files
 
 ## Key Integration Points
 1. Database: PostgreSQL via `database_client.py`

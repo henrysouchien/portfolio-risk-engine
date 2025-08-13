@@ -19,12 +19,12 @@ This document provides a comprehensive overview of the Risk Module's architectur
 
 ## 🎯 System Overview
 
-The Risk Module is a comprehensive full-stack application combining a modular Python backend with a production-ready React frontend. It provides multi-factor regression diagnostics, risk decomposition, and portfolio optimization capabilities through a **clean 3-layer architecture** with **multi-user database support** and **integrated dashboard interface** that promotes maintainability, testability, and extensibility.
+The Risk Module is a comprehensive full-stack application combining a modular Python backend with a production-ready React frontend. It provides multi-factor regression diagnostics, risk decomposition, and portfolio optimization capabilities through a **clean 3-layer architecture** with **multi-user database support**, **Result Objects architecture**, and **integrated dashboard interface** that promotes maintainability, testability, and extensibility.
 
 ### Architecture Evolution
 
 **BEFORE**: Monolithic `run_risk.py` (1217 lines) mixing CLI, business logic, and formatting
-**AFTER**: Enterprise-grade multi-user system with production-ready React dashboard, comprehensive database architecture, and sophisticated testing infrastructure
+**AFTER**: Enterprise-grade multi-user system with production-ready React dashboard, Result Objects architecture for complete CLI/API alignment, comprehensive database architecture, and sophisticated testing infrastructure
 
 ### Data Quality Assurance
 
@@ -34,7 +34,8 @@ The system includes robust data quality validation to prevent unstable factor ca
 
 ### Core Design Principles
 
-- **Single Source of Truth**: All interfaces (CLI, API, AI) use the same core business logic
+- **Single Source of Truth**: All interfaces (CLI, API, AI) use the same core business logic with Result Objects
+- **Result Objects Architecture**: Unified data structures ensuring perfect CLI/API alignment
 - **Dual-Mode Architecture**: Every function supports both CLI and API modes seamlessly
 - **Dual-Storage Architecture**: Seamless switching between file-based and database storage
 - **Clean Separation**: Routes handle UI, Core handles business logic, Data handles persistence
@@ -312,7 +313,7 @@ claude_sees = result.to_formatted_report()  # Same text as CLI
 
 ### Result Objects Functions
 
-All major analysis functions return Result Objects with dual-mode support:
+All major analysis functions now return Result Objects with complete CLI/API alignment:
 - `run_portfolio()` → `RiskAnalysisResult` - Portfolio risk analysis
 - `run_what_if()` → `WhatIfResult` - Scenario analysis  
 - `run_min_variance()` / `run_max_return()` → `OptimizationResult` - Portfolio optimization
@@ -320,6 +321,8 @@ All major analysis functions return Result Objects with dual-mode support:
 - `run_portfolio_performance()` → `PerformanceResult` - Performance metrics
 - `run_and_interpret()` → `InterpretationResult` - AI interpretation services
 - `run_risk_score()` → `RiskScoreResult` - Risk scoring analysis
+
+**Result Objects Architecture Complete**: All functions use the single source of truth pattern with dual serialization methods (`to_cli_report()` and `to_api_response()`)
 
 ## 🏗️ Architecture Layers
 
@@ -478,14 +481,17 @@ All analysis functions return typed Result Objects:
 The system implements **Direct API Endpoints** that bypass database operations and call CLI functions directly with Result Objects:
 
 #### Available Direct API Endpoints
+
+All endpoints use Result Objects architecture for consistent CLI/API alignment:
+
 ```
-POST /api/direct/portfolio           # Portfolio risk analysis
-POST /api/direct/stock              # Individual stock analysis  
-POST /api/direct/what-if            # Scenario analysis
-POST /api/direct/optimize/min-variance   # Minimum variance optimization
-POST /api/direct/optimize/max-return     # Maximum return optimization
-POST /api/direct/performance        # Performance analysis
-POST /api/direct/interpret          # AI interpretation
+POST /api/direct/portfolio           # Portfolio risk analysis → RiskAnalysisResult
+POST /api/direct/stock              # Individual stock analysis → StockAnalysisResult
+POST /api/direct/what-if            # Scenario analysis → WhatIfResult
+POST /api/direct/optimize/min-variance   # Minimum variance optimization → OptimizationResult
+POST /api/direct/optimize/max-return     # Maximum return optimization → OptimizationResult
+POST /api/direct/performance        # Performance analysis → PerformanceResult
+POST /api/direct/interpret          # AI interpretation → InterpretationResult
 ```
 
 ### User Request Flow with Result Objects
@@ -505,6 +511,7 @@ POST /api/direct/interpret          # AI interpretation
    ├── analyze_scenario() → WhatIfResult in core/scenario_analysis.py
    ├── analyze_stock() → StockAnalysisResult in core/stock_analysis.py
    ├── analyze_performance() → PerformanceResult in core/performance_analysis.py
+   ├── optimize_min_variance() / optimize_max_return() → OptimizationResult in core/optimization.py
    └── analyze_and_interpret() → InterpretationResult in core/interpretation.py
    
 4. Data Layer (Supporting Functions)
@@ -539,10 +546,11 @@ def api_direct_portfolio():
         # Call CLI function with return_data=True to get Result Object
         result = run_portfolio(temp_portfolio_path, return_data=True)
         
-        # Return Result Object's API response
+        # Return Result Object's API response (unified CLI/API data)
         return jsonify({
             "success": True,
-            "data": result.to_api_response()
+            "data": result.to_api_response(),
+            "formatted_report": result.to_cli_report()  # Same text as CLI
         })
     finally:
         # Clean up temporary files
@@ -561,7 +569,7 @@ risk_module/
 ├── 📄 E2E_TESTING_GUIDE.md            # End-to-end testing documentation
 ├── 📄 PROMPTS.md                      # Development prompts and guidelines
 ├── ⚙️ settings.py                     # Default configuration settings
-├── 🔧 app.py                          # Flask web application (3,156 lines)
+├── 🔧 app.py                          # Flask application entry point (582 lines)
 ├── 🔧 database/                       # Database infrastructure module
 │   ├── __init__.py                     # Module exports and backward compatibility
 │   ├── session.py                      # Request-scoped database session management
@@ -575,13 +583,14 @@ risk_module/
 ├── 📜 LICENSE                         # MIT License
 │
 ├── 📊 LAYER 1: ROUTES LAYER (User Interface)
-│   ├── 🖥️ run_risk.py                     # CLI interface (832 lines)
-│   ├── 📁 routes/                         # API interfaces
-│   │   ├── api.py                         # REST API endpoints (669 lines)
-│   │   ├── claude.py                      # Claude AI chat interface (128 lines)
-│   │   ├── plaid.py                       # Plaid integration (254 lines)
-│   │   ├── auth.py                        # Authentication (124 lines)
-│   │   └── admin.py                       # Admin interface (134 lines)
+│   ├── 🖥️ run_risk.py                     # CLI interface with Result Objects support
+│   ├── 📁 routes/                         # Modular API route structure
+│   │   ├── api.py                         # Core analysis endpoints with Direct API support
+│   │   ├── claude.py                      # Claude AI chat integration
+│   │   ├── plaid.py                       # Plaid brokerage integration
+│   │   ├── auth.py                        # Authentication routes
+│   │   ├── admin.py                       # Admin dashboard routes
+│   │   └── frontend_logging.py            # Frontend logging routes
 │   ├── 📁 services/                       # Service orchestration
 │   │   ├── portfolio_service.py           # Portfolio analysis service
 │   │   ├── stock_service.py               # Stock analysis service
@@ -603,30 +612,38 @@ risk_module/
 │       └── src/utils/                     # Utilities and adapters
 │
 ├── 📊 LAYER 2: CORE LAYER (Pure Business Logic)
-│   ├── 📁 core/                           # Extracted business logic
-│   │   ├── portfolio_analysis.py          # Portfolio analysis logic (116 lines)
-│   │   ├── stock_analysis.py              # Stock analysis logic (133 lines)
-│   │   ├── scenario_analysis.py           # Scenario analysis logic (157 lines)
-│   │   ├── optimization.py                # Optimization logic (180 lines)
-│   │   ├── performance_analysis.py        # Performance analysis logic (115 lines)
-│   │   └── interpretation.py              # AI interpretation logic (109 lines)
+│   ├── 📁 core/                           # Result Objects architecture
+│   │   ├── portfolio_analysis.py          # Portfolio analysis with RiskAnalysisResult
+│   │   ├── stock_analysis.py              # Stock analysis with StockAnalysisResult
+│   │   ├── scenario_analysis.py           # Scenario analysis with WhatIfResult
+│   │   ├── optimization.py                # Optimization with OptimizationResult
+│   │   ├── performance_analysis.py        # Performance with PerformanceResult
+│   │   ├── interpretation.py              # AI interpretation with InterpretationResult
+│   │   ├── result_objects.py              # Unified Result Objects with dual serialization
+│   │   ├── data_objects.py                # Input data structures and validation
+│   │   └── exceptions.py                  # Core exception handling
 │   └── 📁 utils/                          # Utility functions
-│       └── serialization.py               # JSON serialization utilities
+│       ├── serialization.py               # JSON serialization utilities
+│       └── helpers.py                     # General helper functions
 │
 ├── 📊 LAYER 3: DATA LAYER (Data Access & Storage)
-│   ├── 💼 portfolio_risk.py               # Portfolio risk calculations (32KB)
-│   ├── 📈 portfolio_risk_score.py         # Risk scoring system (53KB)
-│   ├── 📊 factor_utils.py                 # Factor analysis utilities (8KB)
-│   ├── 📋 risk_summary.py                 # Single-stock risk profiling (4KB)
-│   ├── ⚡ portfolio_optimizer.py           # Portfolio optimization (36KB)
-│   ├── 🔌 data_loader.py                  # Data fetching and caching (8KB)
-│   ├── 🗃️ database/session.py             # Database session and connection pooling
-│   ├── 🗃️ database/pool.py                 # Database connection pooling
-│   ├── 🗃️ inputs/database_client.py       # Per-request PostgreSQL client
-│   ├── 🤖 gpt_helpers.py                  # GPT integration (4KB)
-│   ├── 🔧 proxy_builder.py                # Factor proxy generation (19KB)
-│   ├── 🏦 plaid_loader.py                 # Plaid brokerage integration (29KB)
-│   └── 🛠️ risk_helpers.py                 # Risk calculation helpers (8KB)
+│   ├── 💼 portfolio_risk.py               # Legacy portfolio risk calculations
+│   ├── 📈 portfolio_risk_score.py         # Legacy risk scoring system
+│   ├── 📊 factor_utils.py                 # Factor analysis utilities
+│   ├── 📋 risk_summary.py                 # Legacy single-stock risk profiling
+│   ├── ⚡ portfolio_optimizer.py           # Legacy portfolio optimization
+│   ├── 🔌 data_loader.py                  # Data fetching and caching
+│   ├── 📁 inputs/                         # Input management layer
+│   │   ├── portfolio_manager.py           # Portfolio configuration management
+│   │   ├── risk_limits_manager.py         # Risk limits management with dual storage
+│   │   ├── database_client.py             # Per-request PostgreSQL client
+│   │   ├── returns_calculator.py          # Expected returns estimation
+│   │   ├── file_manager.py                # File operations and persistence
+│   │   └── exceptions.py                  # Input-specific error handling
+│   ├── 🤖 gpt_helpers.py                  # GPT integration utilities
+│   ├── 🔧 proxy_builder.py                # Factor proxy generation
+│   ├── 🏦 plaid_loader.py                 # Plaid brokerage integration
+│   └── 🛠️ risk_helpers.py                 # Risk calculation helpers
 │
 ├── 📁 Database & Infrastructure
 │   ├── 🗃️ database/                       # Centralized database infrastructure
