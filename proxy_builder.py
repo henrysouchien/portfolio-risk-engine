@@ -478,8 +478,7 @@ def build_proxy_for_ticker(
         market_proxy = proxies.get("market", "").upper()
         if ticker.upper() != market_proxy:
             proxies["industry"] = ticker.upper()
-        else:
-            proxies["industry"] = ""
+        # else: don't set industry proxy for market proxy ETFs (prevents empty string)
         proxies["subindustry"] = []
     else:
         industry = profile.get("industry")

@@ -329,6 +329,163 @@ def run_portfolio(filepath: str, risk_yaml: str = "risk_limits.yaml", *, return_
 # WHAT-IF SCENARIO LOGIC
 # This handles what-if scenario analysis
 # ============================================================================
+
+def _handle_new_tickers_for_cli(
+    filepath: str,
+    scenario_yaml: Optional[str] = None,
+    delta: Optional[str] = None
+) -> str:
+    """
+    CLI-specific helper to detect new tickers and create temporary portfolio file with proxies.
+    
+    This function creates a temporary portfolio file if new tickers are detected that need
+    factor proxy generation. The original file is never modified. It handles both scenario
+    YAML files and inline delta strings.
+    
+    Parameters
+    ----------
+    filepath : str
+        Path to the original portfolio YAML file (read-only).
+    scenario_yaml : str, optional
+        Path to a YAML file containing scenario definitions.
+    delta : str, optional
+        Comma-separated inline weight shifts.
+        
+    Returns
+    -------
+    str
+        Path to the portfolio file to use for analysis. Either the original filepath
+        (if no new tickers) or a temporary file path (if new tickers were added).
+        
+    Side Effects
+    ------------
+    • May create a temporary portfolio file with factor proxies for new tickers
+    • Logs new ticker detection and proxy injection activities
+    • Temporary files are automatically cleaned up by the system
+    """
+    import yaml
+    import tempfile
+    import os
+    from pathlib import Path
+    from helpers_input import parse_delta
+    from proxy_builder import inject_all_proxies
+    from utils.logging import portfolio_logger
+    
+    try:
+        # Load current portfolio to get existing tickers
+        with open(filepath, 'r') as f:
+            portfolio_config = yaml.safe_load(f)
+        
+        current_tickers = set(portfolio_config.get('portfolio_input', {}).keys())
+        
+        # Parse scenario/delta to get requested tickers
+        scenario_tickers = set()
+        
+        if scenario_yaml and Path(scenario_yaml).exists():
+            # Parse scenario YAML file
+            delta_dict, new_weights = parse_delta(yaml_path=scenario_yaml)
+            if new_weights:
+                # Full replacement scenario - all tickers are potentially new
+                scenario_tickers = set(new_weights.keys())
+            elif delta_dict:
+                # Delta scenario - only delta tickers matter
+                scenario_tickers = set(delta_dict.keys())
+        elif delta:
+            # Parse inline delta string
+            try:
+                delta_dict_str = {k.strip(): v.strip() for k, v in (pair.split(":") for pair in delta.split(",")) if k.strip()}
+                delta_dict, _ = parse_delta(yaml_path=None, literal_shift=delta_dict_str)
+                scenario_tickers = set(delta_dict.keys())
+            except Exception:
+                # Invalid delta format - let analyze_scenario handle the error
+                return filepath
+        else:
+            # No scenario changes - return original file
+            return filepath
+        
+        # Detect new tickers (filter out empty strings for safety)
+        scenario_tickers = {ticker for ticker in scenario_tickers if ticker.strip()}
+        new_tickers = scenario_tickers - current_tickers
+        
+        if new_tickers:
+            portfolio_logger.info(f"CLI: Detected new tickers in scenario: {new_tickers}")
+            
+            # Create a temporary portfolio file with new tickers added
+            import copy
+            portfolio_config_copy = copy.deepcopy(portfolio_config)
+            
+            # Add new tickers to the copy with minimal shares
+            for ticker in new_tickers:
+                portfolio_config_copy['portfolio_input'][ticker] = {'shares': 0.001}
+            
+            # Create temporary file
+            temp_fd, temp_filepath = tempfile.mkstemp(suffix='.yaml', prefix='cli_portfolio_')
+            try:
+                with os.fdopen(temp_fd, 'w') as temp_file:
+                    yaml.dump(portfolio_config_copy, temp_file, sort_keys=False)
+                
+                # Inject proxies for all tickers (including new ones) in the temp file
+                portfolio_logger.info(f"CLI: Injecting factor proxies for new tickers: {new_tickers}")
+                inject_all_proxies(temp_filepath, use_gpt_subindustry=True)
+                
+                portfolio_logger.info(f"CLI: Successfully created temporary portfolio with {len(new_tickers)} new tickers and proxies")
+                return temp_filepath
+                
+            except Exception as proxy_error:
+                # Clean up temp file if proxy injection fails
+                try:
+                    os.unlink(temp_filepath)
+                except:
+                    pass
+                raise proxy_error
+        else:
+            # No new tickers - return original file
+            return filepath
+        
+    except Exception as e:
+        # Log warning but don't fail - return original file
+        portfolio_logger.warning(f"CLI: Failed to inject proxies for new tickers: {e}")
+        return filepath
+
+
+def _handle_new_tickers_for_cli_with_validation(
+    filepath: str,
+    scenario_yaml: Optional[str] = None,
+    delta: Optional[str] = None
+) -> tuple[str, Optional[str]]:
+    """
+    CLI-specific helper that validates inputs and handles new tickers.
+    
+    This function validates delta strings and filters out malformed entries
+    before delegating to the main CLI ticker handling function.
+    
+    Returns:
+        tuple[str, Optional[str]]: (portfolio_filepath, cleaned_delta)
+            - portfolio_filepath: Either original or temporary file with new tickers
+            - cleaned_delta: Validated and cleaned delta string, or None if invalid
+    """
+    # Validate and clean delta string if provided
+    cleaned_delta = delta
+    if delta:
+        try:
+            # Test if delta can be parsed without errors
+            delta_dict_str = {k.strip(): v.strip() for k, v in (pair.split(":") for pair in delta.split(",")) if k.strip()}
+            if not delta_dict_str:
+                # No valid ticker:value pairs found
+                cleaned_delta = None
+            else:
+                # Reconstruct cleaned delta string
+                cleaned_delta = ",".join(f"{k}:{v}" for k, v in delta_dict_str.items())
+        except Exception:
+            # Malformed delta - set to None to avoid processing
+            cleaned_delta = None
+    
+    # Process with the existing function
+    portfolio_file_to_use = _handle_new_tickers_for_cli(filepath, scenario_yaml, cleaned_delta)
+    
+    return portfolio_file_to_use, cleaned_delta
+
+
 def run_what_if(
     filepath: str, 
     scenario_yaml: Optional[str] = None, 
@@ -384,15 +541,15 @@ def run_what_if(
       provide a valid change set.
     """
     
-    # --- BUSINESS LOGIC: Call extracted core function ----------------------
-    result = analyze_scenario(filepath, risk_limits_yaml, scenario_yaml, delta)  # Returns WhatIfResult
-
     # ─── Dual-Mode Logic ─────────────────────────────────────
     if return_data:
-        # API MODE: Return WhatIfResult object directly
+        # API MODE: Use original analyze_scenario directly (no file modifications)
+        result = analyze_scenario(filepath, risk_limits_yaml, scenario_yaml, delta)
         return result
     else:
-        # CLI MODE: Print formatted output  
+        # CLI MODE: Handle new ticker proxy injection before analysis
+        portfolio_file_to_use, cleaned_delta = _handle_new_tickers_for_cli_with_validation(filepath, scenario_yaml, delta)
+        result = analyze_scenario(portfolio_file_to_use, risk_limits_yaml, scenario_yaml, cleaned_delta)
         print(result.to_cli_report())
 
 # ============================================================================
