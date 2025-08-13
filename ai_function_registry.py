@@ -147,21 +147,26 @@ AI_FUNCTIONS = {
     
     "run_what_if_scenario": {
         "name": "run_what_if_scenario",
-        "description": "Execute scenario analysis to test specific portfolio allocation changes and their impact on risk metrics, factor exposures, and performance characteristics. Shows before/after comparison with detailed impact analysis. Use when users want to test specific rebalancing ideas or explore 'what if' portfolio changes.",
+        "description": "Execute scenario analysis to test portfolio allocation changes and their impact on risk metrics, factor exposures, and performance characteristics. Shows before/after comparison with detailed impact analysis. Supports both absolute target weights and relative changes (deltas). IMPORTANT: Use delta_changes for language like 'add more', 'increase by', 'reduce by', 'add X%'. Use target_weights for language like 'set to', 'allocate exactly', 'target weight of'. Use when users want to test specific rebalancing ideas or explore 'what if' portfolio changes.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "target_weights": {
                     "type": "object",
-                    "description": "Target allocation weights as decimals for specific tickers you want to change. Only include tickers being modified - others remain unchanged. Format: {'TICKER': decimal_weight} (e.g., {'AAPL': 0.15, 'SGOV': 0.10} to set AAPL to 15% and SGOV to 10%).",
+                    "description": "ABSOLUTE target allocation weights as decimals for specific tickers you want to set to exact values. Use when user says 'set SPY to 10%', 'allocate exactly 15%', 'target weight of 5%'. Only include tickers being modified - others remain unchanged. Format: {'TICKER': decimal_weight} (e.g., {'AAPL': 0.15, 'SGOV': 0.10} to set AAPL to exactly 15% and SGOV to exactly 10%).",
                     "additionalProperties": {"type": "number"}
+                },
+                "delta_changes": {
+                    "type": "object", 
+                    "description": "RELATIVE changes to add/subtract from current weights. Use when user says 'add more SPY', 'increase SPY by 5%', 'reduce tech exposure', 'add another 10%'. Format: {'TICKER': 'change_string'} where change_string can be: '+5%' (add 5%), '-200bp' (subtract 2%), '+0.05' (add 5%), etc. Examples: {'SPY': '+10%', 'AAPL': '-5%'} to add 10% SPY and reduce AAPL by 5%.",
+                    "additionalProperties": {"type": "string"}
                 },
                 "scenario_name": {
                     "type": "string", 
-                    "description": "Descriptive name for this scenario (e.g., 'Reduced Tech Exposure', 'Added Defensive Position', 'Risk Reduction'). Optional but helpful for context."
+                    "description": "Descriptive name for this scenario (e.g., 'Add More SPY', 'Reduce Tech Exposure', 'Risk Reduction'). Optional but helpful for context."
                 }
             },
-            "required": ["target_weights"]
+            "required": []
         },
         "executor": "_execute_what_if_scenario",
         "underlying_function": ["create_what_if_yaml", "run_what_if"]

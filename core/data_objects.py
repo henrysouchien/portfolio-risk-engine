@@ -385,9 +385,13 @@ class PortfolioData:
                    for ticker, holding in self.portfolio_input.items()}
         else:
             # Simple weight values
+            from utils.logging import portfolio_logger
+            
             total_weight = sum(self.portfolio_input.values())
             if abs(total_weight - 1.0) > 0.01:
-                raise ValueError(f"Weights must sum to 1.0, got {total_weight}")
+                portfolio_logger.info(f"📊 Portfolio weights sum to {total_weight:.3f} (not exactly 1.0 - this is normal for partial scenarios)")
+            else:
+                portfolio_logger.info(f"📊 Portfolio weights sum to {total_weight:.3f}")
             
             standardized = {}
             for ticker, weight in self.portfolio_input.items():
