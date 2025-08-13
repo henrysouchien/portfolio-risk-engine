@@ -859,48 +859,84 @@ class RiskAnalysisResult:
     
     def to_api_response(self) -> Dict[str, Any]:
         """
-        Contract notes:
-            - Timestamps: All timestamps are UTC and serialized via ISO-8601.
-            - Determinism: Where applicable, dictionaries are derived from
-              DataFrame/Series to provide stable key ordering for clients.
-
-        Checks fields:
-            - `risk_checks` and `beta_checks` are RAW/CLI-aligned (preserve original
-              key casing and shapes) for parity and backward compatibility.
-            - Prefer normalized tables: `risk_limit_violations_summary` and
-              `beta_exposure_checks_table` for programmatic consumption.
-
-        Industry variance fields:
-            - `industry_variance` is a RAW nested object from core analysis and is kept
-              for parity/auditing. It duplicates information exposed via:
-                • `industry_variance_absolute` (was `industry_variance["absolute"]`)
-                • `industry_variance_percentage` (was `industry_variance["percent_of_portfolio"]`)
-                • `industry_group_betas` (was `industry_variance["per_industry_group_beta"]`)
-            - API consumers should use the flattened fields above. The RAW field may be
-              removed in a future major version after a deprecation window.
-
-        Response structure (top-level keys):
-            - portfolio_weights: Dict[ticker, weight]
-            - dollar_exposure: Dict[ticker, dollar_amount]
-            - target_allocations: DataFrame → dict (weights table)
-            - total_value, net_exposure, gross_exposure, leverage: float
-            - expected_returns: Optional[Dict[ticker, expected_return]]
-            - stock_factor_proxies: Optional[Dict[str, str]]
-            - risk_contributions: Series → dict (per-position Euler contributions)
-            - covariance_matrix, correlation_matrix: DataFrame → nested dict (large)
-            - stock_betas, portfolio_factor_betas: DataFrame/Series → dict
-            - industry_group_betas: Dict[industry, beta]
-            - asset_vol_summary, factor_vols, weighted_factor_var: DataFrame → dict
-            - variance_decomposition, factor_variance_absolute/percentage: dict
-            - industry_variance_absolute/percentage: dict
-            - risk_checks (RAW), beta_checks (RAW): list[dict]
-            - volatility_annual, volatility_monthly, herfindahl: float
-            - portfolio_returns, euler_variance_pct: Series → dict
-            - max_betas, max_betas_by_proxy: dict
-            - historical_analysis: dict
-            - analysis_date (UTC ISO-8601), portfolio_name: metadata
-            - formatted_report: str (CLI-identical formatted text)
-            - risk_limit_violations_summary, beta_exposure_checks_table: normalized tables
+        Convert RiskAnalysisResult to comprehensive API response format.
+        
+        CONSUMER ANALYSIS:
+        - Direct API: Uses full structured response for programmatic risk analysis
+        - Claude/AI: Only uses formatted_report (ignores all structured data)
+        - Frontend: Uses adapters to transform structured data for UI components
+        
+        RESPONSE STRUCTURE (30+ Risk Metrics):
+        
+        **Portfolio Composition:**
+        - portfolio_weights: Dict[ticker, weight] - Raw portfolio allocations
+        - dollar_exposure: Dict[ticker, dollar_amount] - Position dollar values  
+        - target_allocations: Dict - Allocation table with Portfolio Weight, Equal Weight, Eq Diff
+        - total_value, net_exposure, gross_exposure, leverage: Portfolio-level metrics
+        
+        **Risk Metrics:**
+        - volatility_annual, volatility_monthly: Core volatility measures (float)
+        - herfindahl: Concentration index (float, 0-1 scale)
+        - risk_contributions: Dict[ticker, contribution] - Euler risk contributions per position
+        
+        **Factor Analysis:**
+        - portfolio_factor_betas: Dict[factor, beta] - Portfolio factor exposures
+        - stock_betas: Dict[ticker, Dict[factor, beta]] - Individual stock factor betas
+        - variance_decomposition: {
+            portfolio_variance: float,           # Total portfolio variance
+            factor_variance: float,              # Systematic risk component
+            idiosyncratic_variance: float,       # Stock-specific risk component
+            factor_pct: float                    # Percentage of risk from factors
+          }
+        
+        **Industry Analysis:**
+        - industry_group_betas: Dict[industry, beta] - Industry exposure mapping
+        - industry_variance_absolute: Dict[industry, variance] - Absolute industry risk
+        - industry_variance_percentage: Dict[industry, pct] - Industry risk as % of portfolio
+        - industry_variance: Dict (RAW) - Legacy nested object (prefer flattened fields above)
+        
+        **Risk Matrices (Large Objects):**
+        - covariance_matrix: Dict[Dict] - Asset covariance matrix (N×N)
+        - correlation_matrix: Dict[Dict] - Asset correlation matrix (N×N)
+        
+        **Compliance & Validation:**
+        - risk_checks: List[Dict] (RAW) - Risk limit checks with original CLI formatting
+        - beta_checks: List[Dict] (RAW) - Beta exposure checks with original CLI formatting
+        - risk_limit_violations_summary: List[Dict] (NORMALIZED) - Structured violation data
+        - beta_exposure_checks_table: List[Dict] (NORMALIZED) - Structured beta checks
+        - max_betas: Dict[factor, threshold] - Maximum beta thresholds per factor
+        - max_betas_by_proxy: Dict[proxy, threshold] - Maximum proxy beta thresholds
+        
+        **Technical Analysis:**
+        - asset_vol_summary: Dict - Individual asset volatility summary
+        - factor_vols: Dict - Factor volatility data
+        - weighted_factor_var: Dict - Weighted factor variance contributions
+        - portfolio_returns: Dict[date, return] - Historical portfolio returns time series
+        - euler_variance_pct: Dict[ticker, pct] - Euler variance percentages per position
+        
+        **Metadata & Context:**
+        - analysis_date: str (ISO-8601 UTC) - When analysis was performed
+        - portfolio_name: str - Portfolio identifier
+        - expected_returns: Dict[ticker, return] (Optional) - Expected return assumptions
+        - stock_factor_proxies: Dict[str, str] (Optional) - Factor proxy mappings
+        - historical_analysis: Dict - Historical performance analysis data
+        
+        **Human-Readable Output:**
+        - formatted_report: str - Complete CLI-style text report (primary Claude/AI input)
+        
+        DATA QUALITY NOTES:
+        - All timestamps are UTC and serialized via ISO-8601
+        - Dictionaries derived from DataFrame/Series provide stable key ordering
+        - NaN values converted to null for JSON compatibility
+        - Large matrices (covariance/correlation) may impact response size
+        
+        BACKWARD COMPATIBILITY:
+        - RAW fields (risk_checks, beta_checks, industry_variance) preserve original CLI formatting
+        - NORMALIZED fields provide structured data for programmatic consumption
+        - RAW fields maintained during Phase 1.x, may be deprecated in Phase 2
+        
+        Returns:
+            Dict[str, Any]: Complete portfolio risk analysis with 30+ metrics and compliance data
         """
         return {
             # Fields ordered to match CLI section sequence  
@@ -1281,17 +1317,73 @@ class RiskAnalysisResult:
                           historical_analysis: Dict[str, Any],
                           analysis_metadata: Dict[str, Any]) -> 'RiskAnalysisResult':
         """
-        Create RiskAnalysisResult from core analysis function data.
+        Create RiskAnalysisResult from core portfolio analysis function data.
         
-        This replaces from_build_portfolio_view() with a cleaner interface
-        designed for core business logic functions, not service layer.
+        ARCHITECTURE CONTEXT:
+        This is the primary factory method for creating RiskAnalysisResult objects from
+        core portfolio analysis functions (analyze_portfolio, build_portfolio_view).
+        It transforms raw analysis data into a structured result object ready for API responses.
         
-        🔒 CONSTRAINT: Must preserve exact same field mappings as current factory.
-        The existing to_api_response() method expects these fields to be populated:
-        - portfolio_weights, dollar_exposure, allocations, total_value
-        - volatility_annual, herfindahl, risk_contributions, etc.
+        DATA FLOW:
+        analyze_portfolio() → portfolio_summary + checks → from_core_analysis() → RiskAnalysisResult
         
-        This builder MUST populate ALL fields that to_api_response() uses.
+        INPUT DATA STRUCTURE:
+        - portfolio_summary: Complete output from build_portfolio_view() containing:
+          • volatility_annual/monthly: Risk metrics (float)
+          • herfindahl: Concentration index (float)
+          • portfolio_factor_betas: Factor exposures (Dict[str, float])
+          • variance_decomposition: Risk breakdown (Dict[str, Any])
+          • risk_contributions: Position risk contributions (pd.Series)
+          • df_stock_betas: Individual stock betas (pd.DataFrame)
+          • covariance_matrix, correlation_matrix: Risk matrices (pd.DataFrame)
+          • industry_variance: Industry risk breakdown (Dict[str, Any])
+          • net_exposure, gross_exposure, leverage, total_value: Portfolio metrics
+          • dollar_exposure: Position dollar amounts (Dict[str, float])
+        
+        - risk_checks: Risk limit validation results from evaluate_portfolio_risk_limits()
+          Format: List[Dict] with keys: Metric, Actual, Limit, Pass
+        
+        - beta_checks: Beta exposure validation results from evaluate_portfolio_beta_limits()
+          Format: List[Dict] with keys: factor, portfolio_beta, max_allowed_beta, pass
+        
+        - max_betas: Maximum allowed beta thresholds (Dict[str, float])
+        - max_betas_by_proxy: Maximum proxy beta thresholds (Dict[str, float])
+        - historical_analysis: Historical performance data (Dict[str, Any])
+        - analysis_metadata: Analysis context and configuration
+          • portfolio_name: Display name (str)
+          • analysis_date: ISO timestamp (str)
+          • expected_returns: Expected return assumptions (Dict[str, float])
+          • factor_proxies: Factor proxy mappings (Dict[str, str])
+        
+        TRANSFORMATION PROCESS:
+        1. Extract core risk metrics from portfolio_summary
+        2. Map DataFrames and Series to structured fields
+        3. Build allocations DataFrame for API compatibility
+        4. Store validation results (risk_checks, beta_checks)
+        5. Set analysis metadata and timestamps
+        
+        OUTPUT OBJECT CAPABILITIES:
+        - to_api_response(): Complete structured API response with 30+ risk metrics
+        - to_formatted_report(): Human-readable CLI report for Claude/AI
+        - get_summary(): Core risk metrics for quick analysis
+        - Comprehensive risk analysis with factor exposures and compliance checks
+        
+        🔒 BACKWARD COMPATIBILITY CONSTRAINT:
+        Must preserve exact field mappings to ensure to_api_response() produces
+        identical output structure. This replaces from_build_portfolio_view() while
+        maintaining 100% API compatibility.
+        
+        Args:
+            portfolio_summary (Dict[str, Any]): Complete build_portfolio_view() output
+            risk_checks (List[Dict[str, Any]]): Risk limit validation results
+            beta_checks (List[Dict[str, Any]]): Beta exposure validation results  
+            max_betas (Dict[str, float]): Maximum beta thresholds per factor
+            max_betas_by_proxy (Dict[str, float]): Maximum proxy beta thresholds
+            historical_analysis (Dict[str, Any]): Historical performance analysis
+            analysis_metadata (Dict[str, Any]): Analysis context and configuration
+            
+        Returns:
+            RiskAnalysisResult: Fully populated result object with 30+ risk metrics
         """
         return cls(
             # Core field mappings from existing from_build_portfolio_view()
@@ -1446,23 +1538,79 @@ class OptimizationResult:
                               portfolio_summary: Optional[Dict[str, Any]] = None,
                               proxy_table: Optional[pd.DataFrame] = None) -> 'OptimizationResult':
         """
-        Create OptimizationResult from core optimization function data.
+        Create OptimizationResult from core optimization function output data.
         
-        Unified interface for both min variance and max return optimization.
+        ARCHITECTURE CONTEXT:
+        This is the primary factory method for creating OptimizationResult objects from
+        core optimization functions (optimize_minimum_variance, optimize_maximum_return).
+        It transforms QP solver results and validation data into a structured result object.
         
-        🔒 CONSTRAINT: Must preserve exact same field mappings as current implementation.
-        Max return optimization continues to work unchanged by passing all parameters.
-        Min variance optimization can now use this method by omitting optional parameters.
+        DATA FLOW:
+        optimize_*() → optimized_weights + validation tables → from_core_optimization() → OptimizationResult
+        
+        INPUT DATA STRUCTURE:
+        - optimized_weights: Optimal portfolio allocation from QP solver
+          Format: Dict[ticker, weight] (e.g., {"AAPL": 0.25, "MSFT": 0.30})
+        
+        - risk_table: Risk limit validation results from optimization
+          Format: pd.DataFrame with columns: Metric, Actual, Limit, Pass
+          
+        - factor_table: Factor beta validation results from optimization  
+          Format: pd.DataFrame with columns: factor, portfolio_beta, max_allowed_beta, pass
+          
+        - optimization_metadata: Optimization context and configuration
+          • optimization_type: "min_variance" or "max_return" (str)
+          • analysis_date: ISO timestamp when optimization was performed (str)
+          • risk_limits: Risk limits configuration used (Dict)
+          • solver_info: QP solver details and convergence status (Dict)
+          
+        - portfolio_summary: Complete portfolio analysis for max return optimization (Optional)
+          Contains build_portfolio_view() output with performance metrics
+          
+        - proxy_table: Industry proxy validation results (Optional)
+          Format: pd.DataFrame with proxy beta checks
+        
+        OPTIMIZATION TYPE HANDLING:
+        - **Minimum Variance**: Uses optimized_weights, risk_table, factor_table only
+        - **Maximum Return**: Uses all parameters including portfolio_summary for performance metrics
+        
+        TRANSFORMATION PROCESS:
+        1. Create OptimizationResult instance with core optimization data
+        2. Set optimization type from metadata
+        3. Map factor_table to beta_table for consistency
+        4. Store optional data (portfolio_summary, proxy_table) for max return optimization
+        5. Set analysis timestamp and optimization metadata
+        
+        OUTPUT OBJECT CAPABILITIES:
+        - to_api_response(): Structured API response with optimization results and compliance
+        - get_weight_changes(): Analysis of position changes from original weights
+        - get_summary(): Core optimization metrics and performance data
+        - to_formatted_report(): Human-readable optimization report for Claude/AI
+        
+        🔒 BACKWARD COMPATIBILITY CONSTRAINT:
+        Must preserve exact field mappings to ensure to_api_response() produces
+        identical output structure. Supports both optimization types with unified interface.
+        
+        Args:
+            optimized_weights (Dict[str, float]): Optimal portfolio weights from QP solver
+            risk_table (pd.DataFrame): Risk limit validation results
+            factor_table (pd.DataFrame): Factor beta validation results
+            optimization_metadata (Dict[str, Any]): Optimization context and solver info
+            portfolio_summary (Optional[Dict[str, Any]]): Portfolio analysis for max return optimization
+            proxy_table (Optional[pd.DataFrame]): Industry proxy validation results
+            
+        Returns:
+            OptimizationResult: Fully populated optimization result with compliance validation
         """
         from datetime import datetime, timezone
         
         instance = cls(
-            optimized_weights=optimized_weights,
+            optimized_weights=optimized_weights, # Optimal portfolio allocation from QP solver
             optimization_type=optimization_metadata.get("optimization_type", "max_return"),
-            risk_table=risk_table,
+            risk_table=risk_table, # Risk limit validation results from optimization
             beta_table=factor_table,  # Use factor_table as beta_table for consistency
             portfolio_summary=portfolio_summary or {},  # Default to empty dict for min variance
-            factor_table=factor_table,
+            factor_table=factor_table, # Factor beta validation results from optimization
             proxy_table=proxy_table if proxy_table is not None else pd.DataFrame()  # Default to empty DataFrame for min variance
         )
         
@@ -1533,31 +1681,91 @@ class OptimizationResult:
     
     def to_api_response(self) -> Dict[str, Any]:
         """
-        Generate structured, API-friendly response with computed summaries and serialized data.
+        Convert OptimizationResult to comprehensive API response format.
         
-        This method creates a rich, structured response that provides:
-        - Row-oriented data (easier for frontends to consume)
-        - Computed summary statuses (overall pass/fail)
-        - Filtered violation lists (failed checks only)
-        - Contextual metadata (risk limits configuration)
+        CONSUMER ANALYSIS:
+        - Direct API: Uses full structured response for programmatic optimization analysis
+        - Claude/AI: Only uses formatted_report (ignores all structured data)
+        - Frontend: Uses adapters to transform structured data for optimization UI components
         
-        Returns structured format matching the original pre-refactor API design
-        but generated from the Result Object's centralized data.
+        RESPONSE STRUCTURE:
+        
+        **Core Optimization Results:**
+        - optimized_weights: Dict[ticker, weight] - Optimal portfolio allocation from QP solver
+        - optimization_type: str - "min_variance" or "max_return"
+        - analysis_date: str (ISO-8601 UTC) - When optimization was performed
+        - summary: Dict - Optimization metrics (total_positions, largest_position, etc.)
+        
+        **Structured Compliance Analysis (Raw - for programming):**
+        - risk_analysis: {
+            risk_checks: List[Dict],           # All risk limit checks in row format
+            risk_passes: bool,                 # True if all risk checks pass
+            risk_violations: List[Dict],       # Only failed risk checks
+            risk_limits: Dict                  # Risk limits configuration applied
+          }
+        - beta_analysis: {
+            factor_beta_checks: List[Dict],    # Factor beta checks in row format
+            proxy_beta_checks: List[Dict],     # Industry proxy checks in row format
+            factor_beta_passes: bool,          # True if all factor checks pass
+            proxy_beta_passes: bool,           # True if all proxy checks pass
+            factor_beta_violations: List[Dict], # Only failed factor checks
+            proxy_beta_violations: List[Dict]   # Only failed proxy checks
+          }
+        
+        **Legacy Table Format (Column-oriented - for backward compatibility):**
+        - risk_table: Dict[column, Dict[index, value]] - Risk compliance checks (DataFrame format)
+        - beta_table: Dict[column, Dict[index, value]] - Factor exposure analysis (DataFrame format)
+        - factor_table: Dict[column, Dict[index, value]] - Factor beta checks (DataFrame format)
+        - proxy_table: Dict[column, Dict[index, value]] - Proxy/industry beta checks (DataFrame format)
+        
+        **Performance Metrics (Max Return Optimization Only):**
+        - portfolio_summary: Dict - Complete portfolio analysis with performance metrics
+          Contains volatility, returns, factor exposures from build_portfolio_view()
+        
+        **Human-Readable Output:**
+        - formatted_report: str - Complete CLI-style optimization report (primary Claude/AI input)
+        
+        OPTIMIZATION TYPE DIFFERENCES:
+        - **Minimum Variance**: Basic structure with risk/beta compliance only
+        - **Maximum Return**: Includes portfolio_summary with performance metrics and factor analysis
+        
+        DATA QUALITY NOTES:
+        - All timestamps are UTC and serialized via ISO-8601
+        - Structured analysis provides row-oriented data (easier for frontends)
+        - Legacy tables maintain column-oriented format for backward compatibility
+        - Violation lists contain only failed checks for efficient error handling
+        
+        EXAMPLE STRUCTURED DATA:
+        {
+          "risk_analysis": {
+            "risk_checks": [{"Metric": "Annual Volatility", "Actual": 0.12, "Limit": 0.15, "Pass": true}],
+            "risk_passes": true,
+            "risk_violations": []
+          },
+          "beta_analysis": {
+            "factor_beta_checks": [{"factor": "market", "portfolio_beta": 0.95, "max_allowed_beta": 1.0, "pass": true}],
+            "factor_beta_passes": true,
+            "factor_beta_violations": []
+          }
+        }
+        
+        Returns:
+            Dict[str, Any]: Complete optimization results with compliance validation and performance metrics
         """
         # Use standard serialization (consistent with rest of codebase)
-        risk_checks = _convert_to_json_serializable(self.risk_table)
-        factor_checks = _convert_to_json_serializable(self.beta_table) 
-        proxy_checks = _convert_to_json_serializable(self.proxy_table)
+        risk_checks = _convert_to_json_serializable(self.risk_table) # Risk limit validation results from optimization
+        factor_checks = _convert_to_json_serializable(self.beta_table) # Factor beta validation results from optimization
+        proxy_checks = _convert_to_json_serializable(self.proxy_table) # Industry proxy validation results from optimization
         
         # Compute summary statuses for quick API consumption
-        risk_passes = bool(self.risk_table['Pass'].all())
-        factor_passes = bool(self.beta_table['pass'].all()) 
-        proxy_passes = bool(self.proxy_table['pass'].all()) if not self.proxy_table.empty else True
+        risk_passes = bool(self.risk_table['Pass'].all()) # True if all risk checks pass
+        factor_passes = bool(self.beta_table['pass'].all()) # True if all factor checks pass
+        proxy_passes = bool(self.proxy_table['pass'].all()) if not self.proxy_table.empty else True # True if all proxy checks pass
         
         # Extract violations only (failed checks for error handling)
-        risk_violations = _convert_to_json_serializable(self.risk_table[~self.risk_table['Pass']])
-        factor_violations = _convert_to_json_serializable(self.beta_table[~self.beta_table['pass']])
-        proxy_violations = _convert_to_json_serializable(self.proxy_table[~self.proxy_table['pass']]) if not self.proxy_table.empty else []
+        risk_violations = _convert_to_json_serializable(self.risk_table[~self.risk_table['Pass']]) # Only failed risk checks
+        factor_violations = _convert_to_json_serializable(self.beta_table[~self.beta_table['pass']]) # Only failed factor checks
+        proxy_violations = _convert_to_json_serializable(self.proxy_table[~self.proxy_table['pass']]) if not self.proxy_table.empty else [] # Only failed proxy checks
         
         # Build comprehensive response with both structured and original formats
         result = {
@@ -1846,25 +2054,75 @@ class PerformanceResult:
                           analysis_metadata: Dict[str, Any],
                           allocations: Optional[Dict[str, Any]] = None) -> 'PerformanceResult':
         """
-        Create PerformanceResult from core analysis function data.
+        Create PerformanceResult from core performance analysis function data.
         
-        🔒 CRITICAL: This must preserve exact same field mappings that 
-        to_api_response() expects. All existing API fields must be preserved.
+        ARCHITECTURE CONTEXT:
+        This is the primary factory method for creating PerformanceResult objects from
+        core performance analysis functions (calculate_portfolio_performance_metrics).
+        It transforms performance calculations into a structured result object ready for API responses.
         
-        The existing to_api_response() method expects these top-level fields:
-        - analysis_period, returns, risk_metrics, risk_adjusted_returns
-        - benchmark_analysis, benchmark_comparison, monthly_stats
-        - monthly_returns, risk_free_rate, analysis_date, portfolio_name
+        DATA FLOW:
+        calculate_portfolio_performance_metrics() → performance_metrics + metadata → from_core_analysis() → PerformanceResult
+        
+        INPUT DATA STRUCTURE:
+        - performance_metrics: Complete performance calculation results containing:
+          • analysis_period: Dict with start_date, end_date, total_months, years
+          • returns: Dict with total_return, annualized_return, best_month, worst_month, positive_months, negative_months, win_rate
+          • risk_metrics: Dict with volatility, maximum_drawdown, downside_deviation, tracking_error
+          • risk_adjusted_returns: Dict with sharpe_ratio, sortino_ratio, information_ratio, calmar_ratio
+          • benchmark_analysis: Dict with benchmark_ticker, alpha_annual, beta, r_squared, excess_return
+          • benchmark_comparison: Dict with portfolio_return, benchmark_return, portfolio_volatility, benchmark_volatility, portfolio_sharpe, benchmark_sharpe
+          • monthly_stats: Dict with average_monthly_return, average_win, average_loss, win_loss_ratio
+          • monthly_returns: Dict[date_str, return] time series data
+          • risk_free_rate: Risk-free rate used in calculations (float, as percentage)
+        
+        - analysis_period: Time period analysis configuration
+          • start_date: Analysis start date (str, YYYY-MM-DD)
+          • end_date: Analysis end date (str, YYYY-MM-DD)  
+          • years: Analysis period in years (float)
+          • total_months: Analysis period in months (int)
+          • positions: Number of positions in portfolio (int)
+        
+        - portfolio_summary: Portfolio context and metadata
+          • file: Portfolio file path (str)
+          • positions: Position count (int)
+          • benchmark: Benchmark ticker used (str)
+          • portfolio_name: Display name (str)
+        
+        - analysis_metadata: Analysis execution context
+          • analysis_date: ISO timestamp when analysis was performed (str)
+          • calculation_successful: Whether calculations completed successfully (bool)
+          • portfolio_file: Source file path (str)
+        
+        - allocations: Portfolio allocation data (Optional)
+          Dict[ticker, weight] for position analysis
+        
+        TRANSFORMATION PROCESS:
+        1. Parse analysis timestamp from metadata
+        2. Build complete analysis_period with position count
+        3. Map performance_metrics to structured fields
+        4. Set portfolio context and metadata
+        5. Ensure CLI compatibility with required fields
+        
+        OUTPUT OBJECT CAPABILITIES:
+        - to_api_response(): Complete structured API response with performance metrics
+        - to_formatted_report(): Human-readable CLI report for Claude/AI
+        - get_summary(): Core performance metrics for quick analysis
+        - Time series analysis with monthly returns and benchmark comparison
+        
+        🔒 BACKWARD COMPATIBILITY CONSTRAINT:
+        Must preserve exact field mappings to ensure to_api_response() produces
+        identical output structure. All existing API fields must be maintained.
         
         Args:
-            performance_metrics: Dict containing core performance calculation results
-            analysis_period: Dict with start_date, end_date, years info
-            portfolio_summary: Dict with file, positions, benchmark info
-            analysis_metadata: Dict with analysis_date, calculation_successful
-            allocations: Optional[Dict] with allocation data for position counting
+            performance_metrics (Dict[str, Any]): Complete performance calculation results
+            analysis_period (Dict[str, Any]): Time period configuration and metrics
+            portfolio_summary (Dict[str, Any]): Portfolio context and benchmark info
+            analysis_metadata (Dict[str, Any]): Analysis execution context and timestamps
+            allocations (Optional[Dict[str, Any]]): Portfolio allocation data for position analysis
             
         Returns:
-            PerformanceResult: Fully populated result object ready for API/CLI use
+            PerformanceResult: Fully populated performance analysis with time series data
         """
         from datetime import datetime
         
@@ -1886,20 +2144,20 @@ class PerformanceResult:
         
         return cls(
             # Map from core analysis structure to PerformanceResult fields
-            analysis_period=complete_analysis_period,
-            returns=performance_metrics.get("returns", {}),
-            risk_metrics=performance_metrics.get("risk_metrics", {}), 
-            risk_adjusted_returns=performance_metrics.get("risk_adjusted_returns", {}),
-            benchmark_analysis=performance_metrics.get("benchmark_analysis", {}),
-            benchmark_comparison=performance_metrics.get("benchmark_comparison", {}),
-            monthly_stats=performance_metrics.get("monthly_stats", {}),
-            risk_free_rate=performance_metrics.get("risk_free_rate", 0.0),
-            monthly_returns=performance_metrics.get("monthly_returns", {}),
-            analysis_date=analysis_date,
-            portfolio_name=portfolio_summary.get("name"),
-            portfolio_file=portfolio_summary.get("file"),
+            analysis_period=complete_analysis_period, # Time period configuration and metrics
+            returns=performance_metrics.get("returns", {}), # Performance metrics
+            risk_metrics=performance_metrics.get("risk_metrics", {}), # Risk metrics
+            risk_adjusted_returns=performance_metrics.get("risk_adjusted_returns", {}), # Risk-adjusted returns
+            benchmark_analysis=performance_metrics.get("benchmark_analysis", {}), # Benchmark analysis
+            benchmark_comparison=performance_metrics.get("benchmark_comparison", {}), # Benchmark comparison
+            monthly_stats=performance_metrics.get("monthly_stats", {}), # Monthly statistics
+            risk_free_rate=performance_metrics.get("risk_free_rate", 0.0), # Risk-free rate
+            monthly_returns=performance_metrics.get("monthly_returns", {}), # Monthly returns
+            analysis_date=analysis_date, # Analysis date
+            portfolio_name=portfolio_summary.get("name"), # Portfolio name
+            portfolio_file=portfolio_summary.get("file"), # Portfolio file
             # Additional fields for position counting and API compatibility
-            _allocations=allocations
+            _allocations=allocations # Portfolio allocation data for position analysis
         )
     
     def get_summary(self) -> Dict[str, Any]:
@@ -2016,71 +2274,144 @@ class PerformanceResult:
     
     def to_api_response(self) -> Dict[str, Any]:
         """
-        Convert PerformanceResult to OpenAPI-compliant dictionary for API responses.
+        Convert PerformanceResult to comprehensive API response format.
         
-        This method provides schema-compliant serialization for OpenAPI documentation
-        and API responses. The output structure
-        matches the PerformanceResultSchema defined in schemas/performance_result.py.
+        CONSUMER ANALYSIS:
+        - Direct API: Uses full structured response for programmatic performance analysis
+        - Claude/AI: Only uses formatted_report (ignores all structured data)
+        - Frontend: Uses adapters to transform structured data for performance charts and tables
         
-        Schema Compliance:
-        - All fields map directly to PerformanceResultSchema field definitions
-        - DateTime objects are serialized as ISO format strings
-        - Nested dictionaries maintain original structure for API consistency
-        - Formatted report is included for human-readable display
+        RESPONSE STRUCTURE:
+        
+        **Analysis Period & Context:**
+        - analysis_period: Dict with time period configuration
+          • start_date: str (YYYY-MM-DD) - Analysis start date
+          • end_date: str (YYYY-MM-DD) - Analysis end date
+          • years: float - Analysis period in years
+          • total_months: int - Analysis period in months
+          • positions: int - Number of positions in portfolio
+        - portfolio_name: str (Optional) - Portfolio identifier
+        - analysis_date: str (ISO-8601 UTC) - When analysis was performed
+        
+        **Returns Analysis:**
+        - returns: Dict with return metrics
+          • total_return: float - Cumulative return over period (as percentage)
+          • annualized_return: float - Annualized return rate (as percentage)
+          • best_month: float - Highest monthly return (as percentage)
+          • worst_month: float - Lowest monthly return (as percentage)
+          • positive_months: int - Number of months with positive returns
+          • negative_months: int - Number of months with negative returns
+          • win_rate: float - Percentage of positive return periods
+        
+        **Risk Metrics:**
+        - risk_metrics: Dict with risk measures
+          • volatility: float - Annualized volatility (as percentage)
+          • maximum_drawdown: float - Maximum peak-to-trough decline (as percentage)
+          • downside_deviation: float - Downside risk measure (as percentage)
+          • tracking_error: float - Standard deviation of excess returns vs benchmark (as percentage)
+        
+        **Risk-Adjusted Returns:**
+        - risk_adjusted_returns: Dict with risk-adjusted performance ratios
+          • sharpe_ratio: float - Excess return per unit of risk
+          • sortino_ratio: float - Excess return per unit of downside risk
+          • information_ratio: float - Active return per unit of tracking error
+          • calmar_ratio: float - Annualized return divided by maximum drawdown
+        
+        **Benchmark Analysis:**
+        - benchmark_analysis: Dict with benchmark performance metrics
+          • benchmark_ticker: str - Benchmark ticker symbol used
+          • alpha_annual: float - Annual alpha vs benchmark (as percentage)
+          • beta: float - Portfolio sensitivity to benchmark movements
+          • r_squared: float - R-squared from benchmark regression
+          • excess_return: float - Annual excess return vs benchmark (as percentage)
+        - benchmark_comparison: Dict with side-by-side performance metrics
+          • portfolio_return: float - Portfolio annualized return (as percentage)
+          • benchmark_return: float - Benchmark annualized return (as percentage)
+          • portfolio_volatility: float - Portfolio volatility (as percentage)
+          • benchmark_volatility: float - Benchmark volatility (as percentage)
+          • portfolio_sharpe: float - Portfolio Sharpe ratio
+          • benchmark_sharpe: float - Benchmark Sharpe ratio
+        
+        **Time Series & Statistics:**
+        - monthly_returns: Dict[date_str, return] - Monthly return time series (ISO date keys)
+                - monthly_stats: Dict with monthly return statistics
+          • average_monthly_return: float - Average monthly return (as percentage)
+          • average_win: float - Average positive month return (as percentage)
+          • average_loss: float - Average negative month return (as percentage)
+          • win_loss_ratio: float - Ratio of average win to average loss
+        - risk_free_rate: float - Risk-free rate used in calculations (as percentage)
+        
+        **Human-Readable Output:**
+        - formatted_report: str - Complete CLI-style performance report (primary Claude/AI input)
+        
+        **Optional Data:**
+        - allocations: Dict[ticker, weight] (Optional) - Portfolio allocations if available
+        
+        DATA QUALITY NOTES:
+        - All timestamps are UTC and serialized via ISO-8601
+        - Time series data maintains chronological order
+        - Risk metrics use annualized conventions for consistency
+        - Benchmark comparison requires valid benchmark data
+        
+        SCHEMA COMPLIANCE:
+        Output structure matches PerformanceResultSchema for OpenAPI documentation.
+        All fields map directly to schema definitions with proper type validation.
+        
+        EXAMPLE STRUCTURED DATA:
+        {
+          "returns": {
+            "total_return": 14.5,
+            "annualized_return": 8.2,
+            "best_month": 12.3,
+            "worst_month": -8.7,
+            "positive_months": 8,
+            "negative_months": 4,
+            "win_rate": 66.7
+          },
+          "risk_metrics": {
+            "volatility": 18.5,
+            "maximum_drawdown": -8.9,
+            "downside_deviation": 12.4,
+            "tracking_error": 4.2
+          },
+          "risk_adjusted_returns": {
+            "sharpe_ratio": 1.23,
+            "sortino_ratio": 1.67,
+            "information_ratio": 0.85,
+            "calmar_ratio": 0.92
+          },
+          "benchmark_analysis": {
+            "benchmark_ticker": "SPY",
+            "alpha_annual": 2.1,
+            "beta": 1.02,
+            "r_squared": 0.89,
+            "excess_return": 1.8
+          }
+        }
         
         Returns:
-            Dict[str, Any]: Serialized performance analysis data containing:
-                - analysis_period: Dict with start_date, end_date, duration info
-                - returns: Dict with total_return, annualized_return, win_rate
-                - risk_metrics: Dict with volatility, max_drawdown, downside_deviation
-                - risk_adjusted_returns: Dict with Sharpe, Sortino, Information ratios
-                - benchmark_analysis: Dict with benchmark performance metrics
-                - benchmark_comparison: Dict with alpha, beta, tracking_error
-                - monthly_stats: Dict with monthly return statistics
-                - risk_free_rate: Float representing risk-free rate used
-                - monthly_returns: Dict with time-series monthly return data
-                - analysis_date: String in ISO format (YYYY-MM-DDTHH:MM:SS)
-                - portfolio_name: Optional string portfolio identifier
-                - allocations: Optional Dict with ticker → weight mappings
-                - formatted_report: String containing human-readable report
-                
-        Usage:
-            ```python
-            # Service layer usage
-            result = portfolio_service.analyze_performance(portfolio_data, "SPY")
-            api_data = result.to_api_response()  # OpenAPI-compliant format
-            
-            # API endpoint usage
-            @openapi_bp.response(200, PerformanceResultSchema)
-            def performance_endpoint():
-                return result.to_api_response()
-            
-            # Frontend consumption
-            response_data = api_data
-            sharpe_ratio = response_data["risk_adjusted_returns"]["sharpe_ratio"]
-            formatted_display = response_data["formatted_report"]
-            ```
+            Dict[str, Any]: Complete performance analysis with time series and benchmark comparison
         """
         return {
-            "analysis_period": self.analysis_period,
-            "returns": self.returns,
-            "risk_metrics": self.risk_metrics,
-            "risk_adjusted_returns": self.risk_adjusted_returns,
-            "benchmark_analysis": self.benchmark_analysis,
-            "benchmark_comparison": self.benchmark_comparison,
-            "monthly_stats": self.monthly_stats,
-            "risk_free_rate": self.risk_free_rate,
-            "monthly_returns": self.monthly_returns,
-            "analysis_date": self.analysis_date.isoformat(),
-            "portfolio_name": self.portfolio_name,
-            "formatted_report": self.to_cli_report(),
-            "analysis_period_text": self._format_analysis_period(),
-            "position_count": self.get_position_count(),
-            "performance_category": self._categorize_performance(),
-            "key_insights": self._generate_key_insights(),
-            "display_formatting": self._get_display_formatting_metadata(),
-            "enhanced_key_insights": self._generate_enhanced_key_insights(),
-            "allocations": _convert_to_json_serializable(self._allocations) if self._allocations else None
+            "analysis_period": self.analysis_period, # Time period configuration and metrics
+            "returns": self.returns, # Performance metrics (total_return, annualized_return, best_month, worst_month, positive_months, negative_months, win_rate)
+            "risk_metrics": self.risk_metrics, # Risk metrics (volatility, maximum_drawdown, downside_deviation, tracking_error)
+            "risk_adjusted_returns": self.risk_adjusted_returns, # Risk-adjusted returns (sharpe_ratio, sortino_ratio, information_ratio, calmar_ratio)
+            "benchmark_analysis": self.benchmark_analysis, # Benchmark analysis (benchmark_ticker, alpha_annual, beta, r_squared, excess_return)
+            "benchmark_comparison": self.benchmark_comparison, # Benchmark comparison (portfolio_return, benchmark_return, portfolio_volatility, benchmark_volatility, portfolio_sharpe, benchmark_sharpe)
+            "monthly_stats": self.monthly_stats, # Monthly statistics (average_monthly_return, average_win, average_loss, win_loss_ratio)   
+            "risk_free_rate": self.risk_free_rate, # Risk-free rate (as percentage)
+            "monthly_returns": self.monthly_returns, # Monthly returns (date, return)
+            "analysis_date": self.analysis_date.isoformat(), # Analysis date (ISO-8601 UTC)
+            "portfolio_name": self.portfolio_name, # Portfolio name
+            "formatted_report": self.to_cli_report(), # Human-readable CLI report (identical to current output)
+            "analysis_period_text": self._format_analysis_period(), # Human-readable analysis period (e.g. "2019-01-31 to 2025-06-27")
+            "position_count": self.get_position_count(), # Number of positions in portfolio
+            "performance_category": self._categorize_performance(), # Performance category (excellent, good, fair, poor)
+            "key_insights": self._generate_key_insights(), # Key insights (benchmark comparison, market sensitivity, risk-adjusted returns, win rate)
+            "display_formatting": self._get_display_formatting_metadata(), # Display formatting metadata    
+            "enhanced_key_insights": self._generate_enhanced_key_insights(), # Enhanced key insights
+            "allocations": _convert_to_json_serializable(self._allocations) if self._allocations else None # Portfolio allocation data for position analysis
         }
 
     def _get_display_formatting_metadata(self) -> Dict[str, Any]:
@@ -2336,11 +2667,83 @@ class RiskScoreResult:
                                suggested_limits: Dict[str, Any],
                                analysis_metadata: Dict[str, Any]) -> 'RiskScoreResult':
         """
-        🔒 CRITICAL: This must preserve exact same field mappings as current usage
-        AND ensure to_api_response() produces identical output to current API responses.
+        Create RiskScoreResult from core risk scoring analysis function data.
         
-        Create RiskScoreResult from the components returned by run_risk_score_analysis.
-        This builder method ensures consistent field mapping and preserves API compatibility.
+        ARCHITECTURE CONTEXT:
+        This is the primary factory method for creating RiskScoreResult objects from
+        core risk scoring functions (run_risk_score_analysis). It transforms risk scoring
+        calculations and limit compliance analysis into a structured result object.
+        
+        DATA FLOW:
+        run_risk_score_analysis() → risk_score + limits_analysis → from_risk_score_analysis() → RiskScoreResult
+        
+        INPUT DATA STRUCTURE:
+        - risk_score: Core risk scoring results containing:
+          • score: Overall risk score (0-100 scale, int)
+          • category: Risk category ("Excellent", "Good", "Moderate", "Elevated", "High")
+          • component_scores: Dict with individual risk component scores
+            - concentration: Concentration risk score (0-100)
+            - volatility: Volatility risk score (0-100)
+            - factor_exposure: Factor exposure risk score (0-100)
+            - diversification: Diversification score (0-100)
+          • potential_losses: Dict with loss analysis
+            - max_loss_limit: Maximum acceptable loss threshold
+            - estimated_loss: Estimated potential loss
+            - loss_probability: Probability of loss occurrence
+          • interpretation: Risk assessment interpretation and guidance
+        
+        - limits_analysis: Risk limit compliance analysis containing:
+          • risk_factors: List[Dict] of identified risk factors with severity
+          • recommendations: List[str] of actionable risk management recommendations
+          • violations_summary: Dict with violation counts by category
+          • violation_details: List[Dict] of specific limit breaches
+          • compliance_status: Overall compliance status (bool)
+        
+        - portfolio_analysis: Portfolio context and analysis containing:
+          • portfolio_summary: Basic portfolio metrics (positions, value, etc.)
+          • risk_metrics: Core risk measurements (volatility, concentration, etc.)
+          • factor_exposures: Factor exposure analysis
+          • historical_performance: Historical risk and return data
+        
+        - suggested_limits: Risk limit recommendations containing:
+          • portfolio_limits: Suggested portfolio-level limits
+          • concentration_limits: Suggested concentration limits
+          • variance_limits: Suggested variance limits
+          • factor_limits: Suggested factor exposure limits
+        
+        - analysis_metadata: Analysis context and configuration
+          • portfolio_name: Portfolio identifier (str)
+          • risk_limits_name: Risk limits profile name (str)
+          • analysis_date: ISO timestamp when analysis was performed (str)
+          • risk_limits_file: Path to risk limits configuration (str)
+          • portfolio_file: Path to portfolio configuration (str)
+        
+        TRANSFORMATION PROCESS:
+        1. Create RiskScoreResult instance with core risk scoring data
+        2. Set analysis timestamp and portfolio context
+        3. Store risk limits metadata and file paths
+        4. Generate formatted CLI report via to_cli_report()
+        5. Attach formatted report to result object
+        
+        OUTPUT OBJECT CAPABILITIES:
+        - to_api_response(): Complete structured API response with risk scoring and compliance
+        - to_formatted_report(): Human-readable CLI report for Claude/AI
+        - get_summary(): Core risk metrics and compliance status
+        - Risk factor analysis with priority rankings and actionable recommendations
+        
+        🔒 BACKWARD COMPATIBILITY CONSTRAINT:
+        Must preserve exact field mappings to ensure to_api_response() produces
+        identical output structure. This builder ensures consistent API compatibility.
+        
+        Args:
+            risk_score (Dict[str, Any]): Core risk scoring results with 0-100 scale scores
+            limits_analysis (Dict[str, Any]): Risk limit compliance analysis and violations
+            portfolio_analysis (Dict[str, Any]): Portfolio context and risk metrics
+            suggested_limits (Dict[str, Any]): Risk limit recommendations
+            analysis_metadata (Dict[str, Any]): Analysis context and file paths
+            
+        Returns:
+            RiskScoreResult: Fully populated risk scoring result with compliance analysis
         """
         from datetime import datetime, timezone
         
@@ -2522,14 +2925,19 @@ class RiskScoreResult:
 
     def to_api_response(self) -> Dict[str, Any]:
         """
-        Generate comprehensive, schema-compliant API response for risk score analysis.
+        Convert RiskScoreResult to comprehensive API response format.
+        
+        CONSUMER ANALYSIS:
+        - Direct API: Uses full structured response for programmatic risk scoring and compliance monitoring
+        - Claude/AI: Only uses formatted_report (ignores all structured data)
+        - Frontend: Uses adapters to transform structured data for risk dashboards and compliance views
         
         This method transforms raw risk analysis data into a structured, enhanced API response
         that provides both core risk metrics and actionable insights for portfolio management.
         The response ensures 100% field coverage alignment with CLI output while adding
         API-specific enhancements for programmatic consumption.
         
-        Response Structure:
+        RESPONSE STRUCTURE:
         ==================
         
         **Core Risk Metrics:**
@@ -3025,77 +3433,121 @@ class WhatIfResult:
                           scenario_result: Dict[str, Any],
                           scenario_name: str = "What-If Scenario") -> 'WhatIfResult':
         """
-        Create WhatIfResult from core analyze_scenario() output.
+        Create WhatIfResult from core analyze_scenario() output data.
         
-        🔒 CRITICAL: This must preserve exact same field mappings as 
-        from_analyze_scenario_output() AND ensure to_api_response() produces 
-        identical output to current API responses.
+        ARCHITECTURE CONTEXT:
+        This is the primary factory method for creating WhatIfResult objects from the
+        streamlined analyze_scenario() core function. It transforms raw DataFrames and
+        portfolio summaries into a structured result object ready for API responses.
         
-        The existing to_api_response() method expects these fields:
-        - current_metrics, scenario_metrics (RiskAnalysisResult objects)
-        - risk_comparison, beta_comparison (DataFrames)
-        - All CLI tables via get_*_table() methods
+        DATA FLOW:
+        analyze_scenario() → scenario_result_data → from_core_scenario() → WhatIfResult
+        
+        INPUT DATA STRUCTURE (scenario_result):
+        {
+            "raw_tables": {
+                "summary": Dict,           # Scenario portfolio analysis from build_portfolio_view()
+                "summary_base": Dict,      # Current portfolio analysis from build_portfolio_view()
+                "risk_new": DataFrame,     # Risk checks for scenario portfolio
+                "beta_f_new": DataFrame,   # Factor beta checks for scenario portfolio  
+                "beta_p_new": DataFrame,   # Industry proxy checks for scenario portfolio
+                "cmp_risk": DataFrame,     # Before/after risk comparison table
+                "cmp_beta": DataFrame      # Before/after beta comparison table
+            },
+            "scenario_metadata": {
+                "analysis_date": str,      # ISO timestamp when analysis was performed
+                "base_weights": Dict,      # Original portfolio weights for comparison
+                "risk_limits": Dict,       # Risk limits configuration used
+                ...                        # Additional metadata from analyze_scenario()
+            }
+        }
+        
+        TRANSFORMATION PROCESS:
+        1. Extract raw DataFrames and portfolio summaries from scenario_result
+        2. Create two RiskAnalysisResult objects (current vs scenario portfolios)
+        3. Store comparison DataFrames directly for API table generation
+        4. Store private attributes for CLI table formatting methods
+        5. Calculate delta metrics (volatility, concentration, factor variance changes)
+        
+        OUTPUT OBJECT CAPABILITIES:
+        - to_api_response(): Full structured API response with raw + formatted data
+        - to_formatted_report(): Human-readable CLI report for Claude/AI consumption
+        - get_*_table(): Individual formatted table methods for UI components
+        - get_summary(): Core delta metrics for quick analysis
+        
+        🔒 BACKWARD COMPATIBILITY CONSTRAINT:
+        Must preserve exact field mappings to ensure to_api_response() produces
+        identical output structure. Any changes here must be validated against
+        existing API consumers and schema samples.
         
         Args:
-            scenario_result: Output from analyze_scenario() core function
-            scenario_name: Name for the scenario
+            scenario_result (Dict[str, Any]): Raw output from analyze_scenario() containing
+                raw_tables (DataFrames) and scenario_metadata (analysis context)
+            scenario_name (str): Human-readable scenario identifier for display
             
         Returns:
-            WhatIfResult with all data needed for identical API responses
+            WhatIfResult: Fully populated result object ready for API serialization
         """
-        # Extract components from analyze_scenario result
-        raw_tables = scenario_result["raw_tables"]
+        # === STEP 1: Extract core data from analyze_scenario() output ===
+        raw_tables = scenario_result["raw_tables"]                   # Dict[str, DataFrame]: Core analysis DataFrames
+        scenario_metadata = scenario_result.get("scenario_metadata", {})  # Dict: Analysis context and configuration
         
-        # Create RiskAnalysisResult objects using from_core_analysis
-        # Map build_portfolio_view data to from_core_analysis parameters
+        # === STEP 2: Create RiskAnalysisResult for CURRENT portfolio (baseline) ===
+        # Transform build_portfolio_view() output into RiskAnalysisResult parameters
+        current_risk_checks = []                                     # List[Dict]: Empty - baseline doesn't run risk checks
+        current_beta_checks = []                                     # List[Dict]: Empty - baseline doesn't run beta checks  
+        current_historical_analysis = raw_tables["summary_base"].get("historical_analysis", {})  # Dict: Historical performance data
+        current_metadata = {                                         # Dict: Metadata for RiskAnalysisResult creation
+            "portfolio_name": "Current Portfolio",                  # str: Display name for baseline
+            "analysis_date": scenario_metadata.get("analysis_date") # str: ISO timestamp from analyze_scenario()
+        }
         
-        # For current portfolio
-        current_risk_checks = []  # Will be populated if available
-        current_beta_checks = []  # Will be populated if available
-        current_historical_analysis = raw_tables["summary_base"].get("historical_analysis", {})
-        current_metadata = {"portfolio_name": "Current Portfolio", "analysis_date": scenario_result.get("scenario_metadata", {}).get("analysis_date")}
-        
-        current_metrics = RiskAnalysisResult.from_core_analysis(
-            portfolio_summary=raw_tables["summary_base"],
-            risk_checks=current_risk_checks,
-            beta_checks=current_beta_checks,
-            max_betas=raw_tables["summary_base"].get("max_betas", {}),
-            max_betas_by_proxy=raw_tables["summary_base"].get("max_betas_by_proxy", {}),
-            historical_analysis=current_historical_analysis,
-            analysis_metadata=current_metadata
+        current_metrics = RiskAnalysisResult.from_core_analysis(     # RiskAnalysisResult: Baseline portfolio analysis
+            portfolio_summary=raw_tables["summary_base"],           # Dict: build_portfolio_view() output for current portfolio
+            risk_checks=current_risk_checks,                        # List[Dict]: No risk checks for baseline
+            beta_checks=current_beta_checks,                        # List[Dict]: No beta checks for baseline
+            max_betas=raw_tables["summary_base"].get("max_betas", {}),          # Dict: Max beta thresholds
+            max_betas_by_proxy=raw_tables["summary_base"].get("max_betas_by_proxy", {}),  # Dict: Max proxy beta thresholds
+            historical_analysis=current_historical_analysis,        # Dict: Historical analysis data
+            analysis_metadata=current_metadata                      # Dict: Portfolio metadata
         )
         
-        # For scenario portfolio  
-        scenario_risk_checks = raw_tables["risk_new"].to_dict('records') if not raw_tables["risk_new"].empty else []
-        scenario_beta_checks = raw_tables["beta_f_new"].to_dict('records') if not raw_tables["beta_f_new"].empty else []
-        scenario_historical_analysis = raw_tables["summary"].get("historical_analysis", {})
-        scenario_metadata = {"portfolio_name": scenario_name, "analysis_date": scenario_result.get("scenario_metadata", {}).get("analysis_date")}
+        # === STEP 3: Create RiskAnalysisResult for SCENARIO portfolio (modified) ===
+        # Convert DataFrames to List[Dict] format expected by RiskAnalysisResult
+        scenario_risk_checks = raw_tables["risk_new"].to_dict('records') if not raw_tables["risk_new"].empty else []      # List[Dict]: Risk limit checks
+        scenario_beta_checks = raw_tables["beta_f_new"].to_dict('records') if not raw_tables["beta_f_new"].empty else []  # List[Dict]: Beta exposure checks
+        scenario_historical_analysis = raw_tables["summary"].get("historical_analysis", {})  # Dict: Historical performance data
+        scenario_metadata_dict = {                                  # Dict: Metadata for RiskAnalysisResult creation
+            "portfolio_name": scenario_name,                        # str: Display name for scenario (e.g., "What-If Scenario")
+            "analysis_date": scenario_metadata.get("analysis_date") # str: ISO timestamp from analyze_scenario()
+        }
         
-        scenario_metrics = RiskAnalysisResult.from_core_analysis(
-            portfolio_summary=raw_tables["summary"],
-            risk_checks=scenario_risk_checks,
-            beta_checks=scenario_beta_checks,
-            max_betas=raw_tables["summary"].get("max_betas", {}),
-            max_betas_by_proxy=raw_tables["summary"].get("max_betas_by_proxy", {}),
-            historical_analysis=scenario_historical_analysis,
-            analysis_metadata=scenario_metadata
+        scenario_metrics = RiskAnalysisResult.from_core_analysis(   # RiskAnalysisResult: Scenario portfolio analysis
+            portfolio_summary=raw_tables["summary"],               # Dict: build_portfolio_view() output for scenario portfolio
+            risk_checks=scenario_risk_checks,                      # List[Dict]: Risk limit validation results
+            beta_checks=scenario_beta_checks,                      # List[Dict]: Beta exposure validation results
+            max_betas=raw_tables["summary"].get("max_betas", {}),                # Dict: Max beta thresholds
+            max_betas_by_proxy=raw_tables["summary"].get("max_betas_by_proxy", {}),  # Dict: Max proxy beta thresholds
+            historical_analysis=scenario_historical_analysis,      # Dict: Historical analysis data
+            analysis_metadata=scenario_metadata_dict               # Dict: Portfolio metadata
         )
         
-        # Create WhatIfResult with identical data structure
-        result = cls(
-            current_metrics=current_metrics,
-            scenario_metrics=scenario_metrics,
-            scenario_name=scenario_name,
-            risk_comparison=raw_tables["cmp_risk"],
-            beta_comparison=raw_tables["cmp_beta"]
+        # === STEP 4: Create WhatIfResult instance with core comparison data ===
+        result = cls(                                               # WhatIfResult: Main result object
+            current_metrics=current_metrics,                       # RiskAnalysisResult: Baseline portfolio analysis
+            scenario_metrics=scenario_metrics,                     # RiskAnalysisResult: Scenario portfolio analysis
+            scenario_name=scenario_name,                           # str: Human-readable scenario name
+            risk_comparison=raw_tables["cmp_risk"],                # DataFrame: Before/after risk comparison from run_what_if_scenario()
+            beta_comparison=raw_tables["cmp_beta"]                 # DataFrame: Before/after beta comparison from run_what_if_scenario()
         )
         
-        # Store CLI data exactly as factory method does
-        result._new_portfolio_risk_checks = raw_tables["risk_new"]
-        result._new_portfolio_factor_checks = raw_tables["beta_f_new"]
-        result._new_portfolio_industry_checks = raw_tables["beta_p_new"]
-        result._scenario_metadata = scenario_result.get("scenario_metadata", {})
-        result._formatted_report = scenario_result.get("formatted_report", "")
+        # === STEP 5: Store private attributes for CLI table formatting methods ===
+        # These DataFrames are used by get_*_table() methods to generate formatted display tables
+        result._new_portfolio_risk_checks = raw_tables["risk_new"]           # DataFrame: Risk checks for get_new_portfolio_risk_checks_table()
+        result._new_portfolio_factor_checks = raw_tables["beta_f_new"]       # DataFrame: Factor checks for get_new_portfolio_factor_checks_table()
+        result._new_portfolio_industry_checks = raw_tables["beta_p_new"]     # DataFrame: Industry checks for get_new_portfolio_industry_checks_table()
+        result._scenario_metadata = scenario_metadata                        # Dict: Analysis metadata for position_changes_table() and _build_risk_analysis()
+        result._formatted_report = scenario_result.get("formatted_report", "")  # str: Pre-generated CLI report (if available)
         
         return result
 
@@ -3348,45 +3800,180 @@ class WhatIfResult:
     
     def to_api_response(self) -> Dict[str, Any]:
         """
-        Convert WhatIfResult to API response format.
+        Convert WhatIfResult to comprehensive API response format.
         
-        Returns complete what-if scenario data with all CLI comparison tables:
-        - scenario_name: Scenario identifier
-        - current_metrics: Complete baseline portfolio analysis
-        - scenario_metrics: Complete modified portfolio analysis  
-        - deltas: Numerical changes between portfolios
-        - position_changes: Portfolio weights before/after table
-        - new_portfolio_risk_checks: Risk checks for scenario portfolio
-        - new_portfolio_factor_checks: Factor exposure checks for scenario portfolio
-        - new_portfolio_industry_checks: Industry exposure checks for scenario portfolio
-        - risk_comparison: Before/after risk limits comparison
-        - factor_comparison: Before/after factor betas comparison
+        CONSUMER ANALYSIS:
+        - Direct API: Uses full structured response for programmatic processing
+        - Claude/AI: Only uses formatted_report (ignores all structured data)
+        - Frontend: Not yet implemented (currently uses mock data)
+        
+        RESPONSE STRUCTURE:
+        
+        **Basic Information:**
+        - scenario_name: Scenario identifier string
+        - deltas: Core impact metrics (volatility, concentration, factor variance changes)
+        
+        **Structured Analysis Data (Raw - for programming):**
+        - risk_analysis: {
+            risk_checks: List[Dict],           # All risk limit checks in row format
+            risk_passes: bool,                 # True if all risk checks pass
+            risk_violations: List[Dict],       # Only failed risk checks
+            risk_limits: Dict                  # Risk limits configuration used
+          }
+        - beta_analysis: {
+            factor_beta_checks: List[Dict],    # Factor beta checks in row format
+            proxy_beta_checks: List[Dict],     # Industry proxy checks in row format
+            factor_beta_passes: bool,          # True if all factor checks pass
+            proxy_beta_passes: bool,           # True if all proxy checks pass
+            factor_beta_violations: List[Dict], # Only failed factor checks
+            proxy_beta_violations: List[Dict]   # Only failed proxy checks
+          }
+        - comparison_analysis: {
+            risk_comparison: List[Dict],       # Before/after risk comparison in row format
+            beta_comparison: List[Dict]        # Before/after beta comparison in row format
+          }
+        
+        **Formatted Display Tables (Human-readable - for UI):**
+        - position_changes: Portfolio weight changes with percentage formatting
+        - new_portfolio_risk_checks: Risk checks formatted as display table
+        - new_portfolio_factor_checks: Factor checks formatted as display table
+        - new_portfolio_industry_checks: Industry checks formatted as display table
+        - risk_comparison: Before/after risk comparison with percentage formatting
+        - factor_comparison: Before/after factor comparison with decimal formatting
+        
+        **Human-Readable Report:**
+        - formatted_report: Complete CLI-style text report (primary Claude/AI input)
+        
+        EXAMPLE STRUCTURED DATA:
+        {
+          "risk_analysis": {
+            "risk_checks": [{"Metric": "Annual Volatility", "Actual": 0.185, "Limit": 0.20, "Pass": true}],
+            "risk_passes": true,
+            "risk_violations": [],
+            "risk_limits": {"portfolio_limits": {...}, "concentration_limits": {...}}
+          },
+          "beta_analysis": {
+            "factor_beta_checks": [{"market": {"portfolio_beta": 1.22, "max_allowed_beta": 0.77, "pass": false}}],
+            "factor_beta_passes": false,
+            "factor_beta_violations": [{"market": {"portfolio_beta": 1.22, "pass": false}}],
+            "proxy_beta_checks": [{"DSU": {"portfolio_beta": 0.85, "max_allowed_beta": 1.10, "pass": true}}],
+            "proxy_beta_passes": true,
+            "proxy_beta_violations": []
+          },
+          "comparison_analysis": {
+            "risk_comparison": [{"Metric": "Annual Volatility", "Old": 0.18, "New": 0.185, "Δ": 0.005}],
+            "beta_comparison": [{"market": {"Old": 1.18, "New": 1.22, "Δ": 0.04}}]
+          }
+        }
+        
+        NOTE: Currently includes data duplication (raw + formatted) for backward compatibility.
+        Raw structured data and formatted tables contain same information in different formats.
         
         Returns:
-            Dict[str, Any]: Complete what-if scenario data with all CLI tables
+            Dict[str, Any]: Complete what-if scenario analysis with structured + formatted data
         """
         result_data = {
-            "scenario_name": self.scenario_name,
+            # === BASIC INFORMATION ===
+            "scenario_name": self.scenario_name,                        # str: Scenario identifier ("What-If Scenario")
             #TODO: Add current and scenario metrics back in (if needed)
-            # "current_metrics": self.current_metrics.to_api_response(),
-            # "scenario_metrics": self.scenario_metrics.to_api_response(),
-            "deltas": {
-                "volatility_delta": self.volatility_delta,
-                "concentration_delta": self.concentration_delta,
-                "factor_variance_delta": self.factor_variance_delta
+            # "current_metrics": self.current_metrics.to_api_response(),  # Dict: Full baseline portfolio analysis
+            # "scenario_metrics": self.scenario_metrics.to_api_response(), # Dict: Full scenario portfolio analysis
+            
+            "deltas": {                                                  # Dict: Core impact metrics
+                "volatility_delta": self.volatility_delta,              # float: Change in annual volatility (e.g., 0.02 = +2%)
+                "concentration_delta": self.concentration_delta,        # float: Change in Herfindahl concentration index
+                "factor_variance_delta": self.factor_variance_delta     # float: Change in factor variance percentage
             },
-            # CLI comparison tables
-            "position_changes": self.get_position_changes_table(),
-            "new_portfolio_risk_checks": self.get_new_portfolio_risk_checks_table(),
-            "new_portfolio_factor_checks": self.get_new_portfolio_factor_checks_table(),
-            "new_portfolio_industry_checks": self.get_new_portfolio_industry_checks_table(),
-            "risk_comparison": self.get_risk_comparison_table(),
-            "factor_comparison": self.get_factor_comparison_table(),
-            "formatted_report": self.to_formatted_report()  # Human-readable CLI-style report
+            
+            # === STRUCTURED ANALYSIS DATA (Raw - for programming) ===
+            "risk_analysis": self._build_risk_analysis(),               # Dict: Raw risk data with checks/passes/violations/limits
+            "beta_analysis": self._build_beta_analysis(),               # Dict: Raw beta data with factor/proxy checks/passes/violations
+            "comparison_analysis": self._build_comparison_analysis(),   # Dict: Raw before/after comparison data
+            
+            # === FORMATTED DISPLAY TABLES (Human-readable - for UI) ===
+            "position_changes": self.get_position_changes_table(),      # List[Dict]: Weight changes with % formatting ("15.2%" → "18.5%")
+            "new_portfolio_risk_checks": self.get_new_portfolio_risk_checks_table(),        # List[Dict]: Risk checks with % formatting
+            "new_portfolio_factor_checks": self.get_new_portfolio_factor_checks_table(),    # List[Dict]: Factor checks with decimal formatting
+            "new_portfolio_industry_checks": self.get_new_portfolio_industry_checks_table(), # List[Dict]: Industry checks with decimal formatting
+            "risk_comparison": self.get_risk_comparison_table(),        # List[Dict]: Before/after risk with % formatting
+            "factor_comparison": self.get_factor_comparison_table(),    # List[Dict]: Before/after factors with decimal formatting
+            
+            # === HUMAN-READABLE REPORT (Primary Claude/AI input) ===
+            "formatted_report": self.to_formatted_report()             # str: Complete CLI-style text report for natural language processing
         }
         
         # Ensure all data is JSON serializable (handles nested numpy types)
         return _convert_to_json_serializable(result_data)
+
+    def _build_risk_analysis(self) -> Dict[str, Any]:
+        """Build structured risk analysis data for API response (matching OptimizationResult pattern)."""
+        if not hasattr(self, '_new_portfolio_risk_checks') or self._new_portfolio_risk_checks.empty:
+            return {
+                "risk_checks": [],
+                "risk_passes": True,
+                "risk_violations": [],
+                "risk_limits": {}
+            }
+        
+        risk_df = self._new_portfolio_risk_checks
+        
+        # Use standard serialization (consistent with OptimizationResult)
+        risk_checks = _convert_to_json_serializable(risk_df)
+        risk_passes = bool(risk_df['Pass'].all()) if 'Pass' in risk_df.columns else True
+        risk_violations = _convert_to_json_serializable(risk_df[~risk_df['Pass']]) if 'Pass' in risk_df.columns else []
+        
+        return {
+            "risk_checks": risk_checks,              # List[Dict]: All risk checks in row format
+            "risk_passes": risk_passes,              # bool: True if all risk checks pass
+            "risk_violations": risk_violations,      # List[Dict]: Only failed risk checks
+            "risk_limits": getattr(self, '_scenario_metadata', {}).get('risk_limits', {})  # Dict: Risk limits configuration
+        }
+
+    def _build_beta_analysis(self) -> Dict[str, Any]:
+        """Build structured beta analysis data for API response (matching OptimizationResult pattern)."""
+        # Initialize defaults
+        factor_checks = []
+        proxy_checks = []
+        factor_passes = True
+        proxy_passes = True
+        factor_violations = []
+        proxy_violations = []
+        
+        # Process factor beta checks
+        if hasattr(self, '_new_portfolio_factor_checks') and not self._new_portfolio_factor_checks.empty:
+            factor_df = self._new_portfolio_factor_checks
+            factor_checks = _convert_to_json_serializable(factor_df)
+            if 'pass' in factor_df.columns:
+                factor_passes = bool(factor_df['pass'].all())
+                factor_violations = _convert_to_json_serializable(factor_df[~factor_df['pass']])
+        
+        # Process proxy beta checks
+        if hasattr(self, '_new_portfolio_industry_checks') and not self._new_portfolio_industry_checks.empty:
+            proxy_df = self._new_portfolio_industry_checks
+            proxy_checks = _convert_to_json_serializable(proxy_df)
+            if 'pass' in proxy_df.columns:
+                proxy_passes = bool(proxy_df['pass'].all())
+                proxy_violations = _convert_to_json_serializable(proxy_df[~proxy_df['pass']])
+        
+        return {
+            "factor_beta_checks": factor_checks,     # List[Dict]: Factor beta checks in row format
+            "proxy_beta_checks": proxy_checks,       # List[Dict]: Industry proxy beta checks in row format
+            "factor_beta_passes": factor_passes,     # bool: True if all factor checks pass
+            "proxy_beta_passes": proxy_passes,       # bool: True if all proxy checks pass
+            "factor_beta_violations": factor_violations,  # List[Dict]: Only failed factor checks
+            "proxy_beta_violations": proxy_violations,    # List[Dict]: Only failed proxy checks
+        }
+
+    def _build_comparison_analysis(self) -> Dict[str, Any]:
+        """Build structured comparison analysis data for API response (matching OptimizationResult pattern)."""
+        # Use standard serialization (consistent with OptimizationResult)
+        risk_comparison = _convert_to_json_serializable(self.risk_comparison) if not self.risk_comparison.empty else []
+        beta_comparison = _convert_to_json_serializable(self.beta_comparison) if not self.beta_comparison.empty else []
+        
+        return {
+            "risk_comparison": risk_comparison,       # List[Dict]: Before/after risk comparison in row format
+            "beta_comparison": beta_comparison,       # List[Dict]: Before/after beta comparison in row format
+        }
 
     def _get_scenario_metadata(self) -> Dict[str, Any]:
         """Generate scenario metadata and description."""
@@ -3694,12 +4281,77 @@ class StockAnalysisResult:
                           factor_proxies: Optional[Dict[str, Any]] = None,
                           analysis_metadata: Dict[str, Any] = None) -> 'StockAnalysisResult':
         """
-        🔒 CRITICAL: This must preserve exact same field mappings as current
-        service layer conversion AND ensure to_api_response() produces 
-        identical output to current API responses.
+        Create StockAnalysisResult from core stock analysis function data.
         
-        This builder creates StockAnalysisResult from core analyze_stock() output.
-        All fields used by to_api_response() must be preserved.
+        ARCHITECTURE CONTEXT:
+        This is the primary factory method for creating StockAnalysisResult objects from
+        core stock analysis functions (analyze_stock). It transforms individual stock
+        risk analysis calculations into a structured result object ready for API responses.
+        
+        DATA FLOW:
+        analyze_stock() → volatility_metrics + regression_metrics + factor_summary → from_core_analysis() → StockAnalysisResult
+        
+        INPUT DATA STRUCTURE:
+        - ticker: Stock symbol identifier (str, e.g., "AAPL")
+        - analysis_period: Time period analysis configuration
+          • start_date: Analysis start date (str, YYYY-MM-DD)
+          • end_date: Analysis end date (str, YYYY-MM-DD)
+        - analysis_type: Type of analysis performed (str, "simple_market_regression" or "multi_factor")
+        - volatility_metrics: Stock volatility analysis containing:
+          • monthly_vol: Monthly volatility (standard deviation of returns) (float)
+          • annual_vol: Annualized volatility (monthly_vol * sqrt(12)) (float)
+        - regression_metrics: Market regression analysis (Optional) containing:
+          • beta: Market sensitivity coefficient (slope from OLS regression) (float)
+          • alpha: Intercept from OLS regression (float)
+          • r_squared: Model R-squared (proportion of variance explained) (float)
+          • idio_vol_m: Idiosyncratic volatility (standard deviation of residuals) (float)
+        - factor_summary: Multi-factor analysis results (Optional, pandas DataFrame)
+          One row per factor (market, momentum, value, industry, subindustry) with columns:
+          • beta: Factor exposure coefficient (float)
+          • r_squared: Variance explained by this factor (float, 0-1 scale)  
+          • idio_vol_m: Unexplained monthly volatility after this factor (float)
+        - risk_metrics: Market regression analysis for simple_market_regression (Optional) containing:
+          Same fields as regression_metrics: beta, alpha, r_squared, idio_vol_m
+        - factor_exposures: Structured factor metadata (Optional, Dict)
+          Maps factor names to their stats and proxy metadata from _create_factor_exposures_mapping
+        - factor_proxies: ETF/ticker mappings for factors (Optional, Dict)
+          Maps factor names to proxy tickers (e.g., {"market": "SPY", "momentum": "MTUM"})
+        - analysis_metadata: Analysis configuration and timestamps (Optional, Dict)
+          • has_factor_analysis: Whether multi-factor analysis was performed (bool)
+          • num_factors: Number of factors analyzed (int)
+          • analysis_date: When analysis was performed (str, ISO format)
+          • benchmark: Benchmark used for simple regression (str, "SPY")
+        
+        TRANSFORMATION PROCESS:
+        1. Create stock_data dictionary from input parameters
+        2. Instantiate StockAnalysisResult with stock_data and ticker
+        3. Set additional fields required for CLI formatting (analysis_period, analysis_type)
+        4. Preserve raw data for API response compatibility
+        5. Ensure backward compatibility with existing service layer
+        
+        OUTPUT OBJECT CAPABILITIES:
+        - to_api_response(): Complete structured API response with stock analysis and factor exposures
+        - to_formatted_report(): Human-readable CLI report for Claude/AI
+        - get_volatility_metrics(), get_market_regression(), get_factor_exposures(): Accessor methods
+        
+        🔒 BACKWARD COMPATIBILITY CONSTRAINT:
+        Must preserve exact field mappings to ensure to_api_response() produces
+        identical output structure. This builder ensures consistent API compatibility.
+        
+        Args:
+            ticker (str): Stock symbol identifier
+            analysis_period (Dict[str, str]): Time period configuration
+            analysis_type (str): Analysis type performed
+            volatility_metrics (Dict[str, Any]): Stock volatility analysis results
+            regression_metrics (Optional[Dict[str, Any]]): Market regression analysis
+            risk_metrics (Optional[Dict[str, Any]]): Additional risk characteristics
+            factor_summary (Optional[Any]): Multi-factor analysis DataFrame
+            factor_exposures (Optional[Dict[str, Any]]): Factor metadata
+            factor_proxies (Optional[Dict[str, Any]]): Factor proxy mappings
+            analysis_metadata (Dict[str, Any]): Analysis configuration
+            
+        Returns:
+            StockAnalysisResult: Fully populated stock analysis with multi-factor support
         """
         # Create the stock_data dict that the constructor expects
         stock_data = {
@@ -3808,7 +4460,12 @@ class StockAnalysisResult:
     
     def to_api_response(self) -> Dict[str, Any]:
         """
-        Generate schema-compliant JSON response for stock analysis results.
+        Convert StockAnalysisResult to comprehensive API response format.
+        
+        CONSUMER ANALYSIS:
+        - Direct API: Uses full structured response for programmatic stock analysis and factor exposure research
+        - Claude/AI: Only uses formatted_report (ignores all structured data)
+        - Frontend: Uses adapters to transform structured data for stock analysis dashboards and factor charts
         
         Converts internal data structures (including pandas DataFrames) to 
         JSON-serializable dictionaries for API responses. Provides comprehensive
@@ -3823,28 +4480,25 @@ class StockAnalysisResult:
                 
                 📈 VOLATILITY ANALYSIS:
                 - volatility_metrics: Historical volatility statistics
-                  • annual_vol: Annualized volatility (e.g., 0.22 = 22%)
-                  • monthly_vol: Monthly volatility (e.g., 0.063 = 6.3%)
-                  • sharpe_ratio: Risk-adjusted return ratio
-                  • max_drawdown: Maximum peak-to-trough decline
+                  • monthly_vol: Monthly volatility (standard deviation of returns)
+                  • annual_vol: Annualized volatility (monthly_vol * sqrt(12))
                 
                 📉 MARKET REGRESSION:
-                - regression_metrics: Market beta analysis (vs SPY)
-                  • beta: Market sensitivity coefficient (e.g., 1.22 = 22% more volatile than market)
-                  • alpha: Risk-adjusted excess return (monthly)
-                  • r_squared: Proportion of variance explained by market (e.g., 0.658 = 65.8%)
-                  • correlation: Linear correlation with market
-                  • idio_vol: Stock-specific volatility not explained by market
+                - regression_metrics: Market regression analysis (vs benchmark)
+                  • beta: Market sensitivity coefficient (slope from OLS regression)
+                  • alpha: Intercept from OLS regression
+                  • r_squared: Model R-squared (proportion of variance explained)
+                  • idio_vol_m: Idiosyncratic volatility (standard deviation of residuals)
                 
                 🎯 MULTI-FACTOR ANALYSIS:
                 - factor_summary: Comprehensive factor exposure analysis (pandas DataFrame → dict)
                   Structure: {"beta": {...}, "r_squared": {...}, "idio_vol_m": {...}}
                   Each contains factor exposures for:
-                  • market: Market factor (SPY proxy)
-                  • momentum: Momentum factor (MTUM proxy)  
-                  • value: Value factor (IWD proxy)
-                  • industry: Industry sector factor (e.g., XLK for tech)
-                  • subindustry: Sub-industry peer group factor
+                  • market: Market factor (typically SPY proxy)
+                  • momentum: Momentum factor (ETF proxy based on factor_proxies)
+                  • value: Value factor (ETF proxy based on factor_proxies)
+                  • industry: Industry sector factor (ETF proxy based on factor_proxies)
+                  • subindustry: Sub-industry peer group factor (list of peer tickers)
                   
                   Metrics per factor:
                   • beta: Factor exposure coefficient (how much stock moves with factor)
@@ -3873,10 +4527,10 @@ class StockAnalysisResult:
             "analysis_date": self.analysis_date.isoformat(),          # Timestamp (ISO format)
             
             # 📈 Volatility analysis  
-            "volatility_metrics": self.volatility_metrics,            # Dict: annual_vol, monthly_vol, sharpe_ratio, max_drawdown
+            "volatility_metrics": self.volatility_metrics,            # Dict: monthly_vol, annual_vol
             
             # 📉 Market regression analysis
-            "regression_metrics": self.regression_metrics,            # Dict: beta, alpha, r_squared, correlation, idio_vol
+            "regression_metrics": self.regression_metrics,            # Dict: beta, alpha, r_squared, idio_vol_m
             
             # 🎯 Multi-factor analysis (CORE FEATURE)
             "factor_summary": factor_summary_dict,                    # Dict: {"beta": {factors...}, "r_squared": {factors...}, "idio_vol_m": {factors...}}
@@ -3946,7 +4600,12 @@ class InterpretationResult:
     
     def to_api_response(self) -> Dict[str, Any]:
         """
-        Convert InterpretationResult to API-compliant dictionary format.
+        Convert InterpretationResult to comprehensive API response format.
+        
+        CONSUMER ANALYSIS:
+        - Direct API: Uses full structured response for AI interpretation and portfolio diagnostics
+        - Claude/AI: Only uses ai_interpretation (ignores diagnostics and metadata)
+        - Frontend: Uses adapters to display AI insights alongside diagnostic data
         
         Returns structured data suitable for JSON serialization and API responses.
         This method provides complete interpretation results including both the AI
@@ -3996,7 +4655,53 @@ class InterpretationResult:
     @classmethod
     def from_interpretation_output(cls, interpretation_output: Dict[str, Any],
                                   portfolio_name: Optional[str] = None) -> 'InterpretationResult':
-        """Create InterpretationResult from run_and_interpret output."""
+        """
+        Create InterpretationResult from AI interpretation analysis function data.
+        
+        ARCHITECTURE CONTEXT:
+        This is the primary factory method for creating InterpretationResult objects from
+        AI-assisted portfolio interpretation functions (run_and_interpret). It transforms
+        AI interpretation output into a structured result object ready for API responses.
+        
+        DATA FLOW:
+        run_and_interpret() → interpretation_output → from_interpretation_output() → InterpretationResult
+        
+        INPUT DATA STRUCTURE:
+        - interpretation_output: Complete AI interpretation results containing:
+          • ai_interpretation: GPT-generated portfolio analysis and insights (str)
+          • full_diagnostics: Complete formatted portfolio analysis report (str)
+          • analysis_metadata: Analysis configuration and process metadata (Dict)
+            - portfolio_file: Source portfolio file path (str)
+            - analysis_date: When analysis was performed (str, ISO format)
+            - interpretation_service: AI service used (str, e.g., "claude", "gpt-4")
+            - analysis_type: Type of analysis performed (str)
+            - model_version: AI model version used (str)
+            - token_usage: Token consumption statistics (Dict, optional)
+        - portfolio_name: Portfolio identifier (Optional[str])
+        
+        TRANSFORMATION PROCESS:
+        1. Extract AI interpretation text from output
+        2. Extract full diagnostic report from output
+        3. Preserve analysis metadata for traceability
+        4. Set current timestamp for result creation
+        5. Associate with portfolio name if provided
+        
+        OUTPUT OBJECT CAPABILITIES:
+        - to_api_response(): Complete structured API response with AI insights and diagnostics
+        - to_cli_report(): Human-readable CLI report combining AI interpretation and diagnostics
+        - get_summary(): Content length metrics for interpretation and diagnostics
+        
+        🔒 BACKWARD COMPATIBILITY CONSTRAINT:
+        Must preserve exact field mappings to ensure to_api_response() produces
+        identical output structure. This builder ensures consistent API compatibility.
+        
+        Args:
+            interpretation_output (Dict[str, Any]): AI interpretation analysis results
+            portfolio_name (Optional[str]): Portfolio identifier for context
+            
+        Returns:
+            InterpretationResult: Fully populated interpretation result with AI insights
+        """
         return cls(
             ai_interpretation=interpretation_output["ai_interpretation"],
             full_diagnostics=interpretation_output["full_diagnostics"],

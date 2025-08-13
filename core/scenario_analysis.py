@@ -158,56 +158,30 @@ def analyze_scenario(
             beta_f_new = beta_new.copy()
             beta_p_new = pd.DataFrame()
     
-    # --- Build result object using new builder method ---------------------
-    # Create structured data for the builder method
-    #TODO: Need to consolidate all this data stuff with the result_objects.py builder method or API response
+    # --- Build minimal result data structure consumed by WhatIfResult -----
+    raw_tables = {
+        "summary": summary,
+        "summary_base": summary_base,  # Original portfolio for before/after comparison
+        "risk_new": risk_new,
+        "beta_f_new": beta_f_new,
+        "beta_p_new": beta_p_new,
+        "cmp_risk": cmp_risk,
+        "cmp_beta": cmp_beta,
+    }
+
+    scenario_metadata = {
+        "scenario_yaml": scenario_yaml,
+        "delta_string": delta,
+        "shift_dict": shift_dict,
+        "analysis_date": datetime.now(UTC).isoformat(),
+        "portfolio_file": filepath,
+        "base_weights": weights,
+        "risk_limits": risk_config,
+    }
+
     scenario_result_data = {
-        # Raw scenario_summary with pandas objects (for service layer)
-        "scenario_summary": summary,
-        
-        # Analysis data with selective conversion (matching portfolio analysis pattern)
-        "risk_analysis": {
-            "risk_checks": risk_new.to_dict('records') if not risk_new.empty else [],
-            "risk_passes": bool(risk_new['Pass'].all()) if not risk_new.empty and 'Pass' in risk_new.columns else True,
-            "risk_violations": risk_new[~risk_new['Pass']].to_dict('records') if not risk_new.empty and 'Pass' in risk_new.columns else [],
-            "risk_limits": {
-                "portfolio_limits": risk_config["portfolio_limits"],
-                "concentration_limits": risk_config["concentration_limits"],
-                "variance_limits": risk_config["variance_limits"]
-            }
-        },
-        
-        "beta_analysis": {
-            "factor_beta_checks": beta_f_new.to_dict('records') if not beta_f_new.empty else [],
-            "proxy_beta_checks": beta_p_new.to_dict('records') if not beta_p_new.empty else [],
-            "beta_passes": bool(beta_new['pass'].all()) if not beta_new.empty and 'pass' in beta_new.columns else True,
-            "beta_violations": beta_new[~beta_new['pass']].to_dict('records') if not beta_new.empty and 'pass' in beta_new.columns else [],
-        },
-        
-        "comparison_analysis": {
-            "risk_comparison": cmp_risk.to_dict('records'),
-            "beta_comparison": cmp_beta.to_dict('records'),
-        },
-        
-        "scenario_metadata": {
-            "scenario_yaml": scenario_yaml,
-            "delta_string": delta,
-            "shift_dict": shift_dict,
-            "analysis_date": datetime.now(UTC).isoformat(),
-            "portfolio_file": filepath,
-            "base_weights": weights
-        },
-        
-        # Store raw objects for dual-mode compatibility
-        "raw_tables": {
-            "summary": summary,
-            "summary_base": summary_base,  # Add original portfolio for before/after comparison
-            "risk_new": risk_new,
-            "beta_f_new": beta_f_new,
-            "beta_p_new": beta_p_new,
-            "cmp_risk": cmp_risk,
-            "cmp_beta": cmp_beta
-        }
+        "raw_tables": raw_tables,
+        "scenario_metadata": scenario_metadata,
     }
     
     # LOGGING: Add scenario analysis completion logging with timing here
