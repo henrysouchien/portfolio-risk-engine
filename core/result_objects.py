@@ -2679,37 +2679,35 @@ class RiskScoreResult:
         
         INPUT DATA STRUCTURE:
         - risk_score: Core risk scoring results containing:
-          • score: Overall risk score (0-100 scale, int)
-          • category: Risk category ("Excellent", "Good", "Moderate", "Elevated", "High")
+          • score: Overall risk score (0-100 scale, float)
+          • category: Risk category ("Excellent", "Good", "Fair", "Poor", "Very Poor")
           • component_scores: Dict with individual risk component scores
-            - concentration: Concentration risk score (0-100)
-            - volatility: Volatility risk score (0-100)
-            - factor_exposure: Factor exposure risk score (0-100)
-            - diversification: Diversification score (0-100)
+            - factor_risk: Market/Value/Momentum exposure risk score (0-100)
+            - concentration_risk: Position sizes & diversification risk score (0-100)
+            - volatility_risk: Portfolio volatility level risk score (0-100)
+            - sector_risk: Sector concentration risk score (0-100)
+          • risk_factors: List[str] of identified risk factors with descriptions
+          • recommendations: List[str] of actionable risk management recommendations
           • potential_losses: Dict with loss analysis
-            - max_loss_limit: Maximum acceptable loss threshold
-            - estimated_loss: Estimated potential loss
-            - loss_probability: Probability of loss occurrence
-          • interpretation: Risk assessment interpretation and guidance
+            - factor_risk: Potential loss from factor exposure (float)
+            - concentration_risk: Potential loss from concentration (float)
+            - volatility_risk: Potential loss from volatility (float)
+            - sector_risk: Potential loss from sector concentration (float)
+            - max_loss_limit: Maximum acceptable loss threshold (float)
+          • details: Dict with additional scoring details
+          • interpretation: Risk assessment interpretation and guidance (from generate_score_interpretation)
         
         - limits_analysis: Risk limit compliance analysis containing:
-          • risk_factors: List[Dict] of identified risk factors with severity
-          • recommendations: List[str] of actionable risk management recommendations
-          • violations_summary: Dict with violation counts by category
-          • violation_details: List[Dict] of specific limit breaches
+          • risk_factors: List[str] of identified risk factors (same as risk_score.risk_factors)
+          • recommendations: List[str] of actionable risk management recommendations (same as risk_score.recommendations)
+          • limit_violations: Dict with violation details (derived from risk scoring analysis)
           • compliance_status: Overall compliance status (bool)
         
         - portfolio_analysis: Portfolio context and analysis containing:
-          • portfolio_summary: Basic portfolio metrics (positions, value, etc.)
-          • risk_metrics: Core risk measurements (volatility, concentration, etc.)
-          • factor_exposures: Factor exposure analysis
-          • historical_performance: Historical risk and return data
+          Complete portfolio analysis data from build_portfolio_view (Dict[str, Any])
         
         - suggested_limits: Risk limit recommendations containing:
-          • portfolio_limits: Suggested portfolio-level limits
-          • concentration_limits: Suggested concentration limits
-          • variance_limits: Suggested variance limits
-          • factor_limits: Suggested factor exposure limits
+          Risk limit suggestions calculated from max loss tolerance (Dict[str, Any])
         
         - analysis_metadata: Analysis context and configuration
           • portfolio_name: Portfolio identifier (str)
