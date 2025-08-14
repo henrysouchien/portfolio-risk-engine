@@ -6,7 +6,9 @@ PORTFOLIO_DEFAULTS = {
     "end_date":   "2025-06-27", # end date for portfolio analysis
     "normalize_weights": False,  # Global default for portfolio weight normalization
     "worst_case_lookback_years": 10,  # Historical lookback period for worst-case scenario analysis
-    "expected_returns_lookback_years": 10  # Default years of historical data for expected returns estimation
+    "expected_returns_lookback_years": 10,  # Default years of historical data for expected returns estimation
+    "expected_returns_fallback_default": 0.06,  # Default fallback return (6%) when calculation fails
+    "cash_proxy_fallback_return": 0.02  # Conservative fallback return (2%) for cash proxies when Treasury rates unavailable
 }
 
 # Risk Analysis Thresholds
