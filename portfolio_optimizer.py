@@ -1060,6 +1060,8 @@ def solve_max_return_with_risk_limits(
     Σ_m = view["covariance_matrix"].loc[tickers, tickers].values          # Σ (monthly)
     β_tbl = view["df_stock_betas"].fillna(0.0).loc[tickers]               # n × factors
 
+    #TODO: Address the issue of expected returns being empty or zeros (defaults to 0)
+
     μ = np.array([expected_returns.get(t, 0.0) for t in tickers])
     if np.allclose(μ, 0):
         raise ValueError("expected_returns is empty or zeros – nothing to maximise")
