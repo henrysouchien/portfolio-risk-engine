@@ -1,11 +1,11 @@
 # Complete Risk Module Codebase Map
 
 ## Overview
-This document provides a comprehensive map of the entire risk_module codebase, including all directories (even those in .gitignore). Last updated on 2025-08-13 to reflect current codebase state, risk limits manager refactor, database structure reorganization, and recent API refactoring initiatives.
+This document provides a comprehensive map of the entire risk_module codebase, including all directories (even those in .gitignore). Last updated on 2025-08-14 to reflect current codebase state, risk limits manager refactor, database structure reorganization, and recent API refactoring initiatives.
 
 ## Directory Structure with Python File Counts
 
-### Root Level Files (25 Python files)
+### Root Level Files (18 Python files)
 Core application files and utilities:
 - `ai_function_registry.py` - Registry for AI/Claude function definitions
 - `app.py` - Main Flask application entry point
@@ -26,24 +26,17 @@ Core application files and utilities:
 - `run_risk.py` - Main risk calculation runner
 - `settings.py` - Application settings
 
-**Schema and Testing Files:**
-- `EXAMPLE_SCHEMAS.py` - Example schema definitions
-- `PHASE_1_6A_SCHEMA_STUBS.py` - Phase 1.6A schema stubs
-- `SCHEMA_STUBS.py` - Schema stub definitions
-- `compare_cli_api.py` - CLI vs API comparison utilities
-- `comprehensive_alignment_test.py` - Comprehensive alignment testing
-- `field_coverage_test.py` - Field coverage testing
-- `proper_field_mapping_test.py` - Field mapping validation
-- `risk_score_field_mapping_test.py` - Risk score field mapping tests
+**Note**: Schema and testing files have been relocated to appropriate directories (`/docs/planning/`, `/backup/`, etc.) to improve repository organization.
 
 ### Core Application Layers (CRITICAL - Gitignored)
 
-#### `/services/` (17 Python files) - Business Logic Layer
+#### `/services/` (16 Python files) - Business Logic Layer
 Service layer implementing core business logic:
 - `service_manager.py` - Service lifecycle management
 - `portfolio_service.py` - Portfolio management service
 - `stock_service.py` - Stock analysis service
 - `optimization_service.py` - Portfolio optimization service
+- `returns_service.py` - Returns calculation service
 - `scenario_service.py` - Scenario analysis service
 - `validation_service.py` - Data validation service
 - `async_service.py` - Asynchronous service utilities
@@ -58,7 +51,6 @@ Service layer implementing core business logic:
 - **`/portfolio/`** subdirectory (2 Python files):
   - `__init__.py` - Portfolio module initialization
   - `context_service.py` - Portfolio context management
-- Plus additional service files (17 total including subdirectories and __init__.py files)
 
 #### `/routes/` (7 Python files) - API Endpoints Layer
 Flask route definitions:
@@ -157,15 +149,25 @@ Production-ready React frontend application with comprehensive architecture:
 
 ### Testing Infrastructure (Basic Test Setup)
 
-#### `/tests/` (Basic testing framework)
-Basic test setup with core functionality:
+#### `/tests/` (Comprehensive testing framework)
+Robust testing infrastructure with extensive coverage:
 
 **Core Test Files**:
 - `ai_test_orchestrator.py` - AI-powered test orchestration
 - `conftest.py` - Pytest configuration
 - `test_factor_proxies.py` - Factor proxy tests
+- `test_claude_functions.py` - Claude AI function testing utility
 - `auth.setup.js` - Authentication setup for E2E tests
 - Documentation: `AI_TEST_GUIDE.md`, `README.md`, `TESTING_COMMANDS.md`
+
+**Subdirectories**:
+- **`/api/`** - API endpoint tests (7 Python files)
+- **`/e2e/`** - End-to-end testing with Playwright
+- **`/integration/`** - Integration tests for complex workflows
+- **`/frontend/`** - React component and integration tests
+- **`/utils/`** - Testing utilities including `show_api_output.py`
+- **`/performance/`** - Performance benchmarking tests
+- **`/debug/`** - Debugging and diagnostic test specs
 
 **Scripts and Configuration**:
 - Various shell scripts for E2E testing (`run-e2e-tests.sh`, `run-e2e-tests-ai.sh`)
@@ -176,10 +178,9 @@ Basic test setup with core functionality:
 - `jest.config.js` - Jest configuration for unit tests
 
 **Test Results Storage**:
-- `/test-results/` - Test execution results
-- `/coverage/` - Code coverage reports (clover.xml, coverage-final.json, lcov.info)
-
-**Note**: The comprehensive multi-layer testing framework mentioned in previous documentation appears to be primarily located in the `/risk_module_secrets/` directory, which contains extensive E2E tests, integration tests, and various test scenarios.
+- `/reports/` - AI test execution reports with timestamps
+- `/fixtures/` - Test data files and configurations
+- `/cache_prices/` - Test-specific cached price data
 
 ### Development & Archive
 
@@ -361,16 +362,17 @@ Legacy source files:
 - Database connection strings and configuration files
 
 ## File Count Summary
-- Total Python files: 662 (as of 2025-08-13)
-- Core application: ~74 files (25 root + 17 services + 7 routes + 8 utils + 7 inputs + 10 core)
-- Tests: ~5 files (basic test setup, extensive tests in secrets directory)
+- Total Python files: 661 (as of 2025-08-14)
+- Core application: ~67 files (18 root + 16 services + 7 routes + 8 utils + 7 inputs + 10 core + 1 database)
+- Tests: Comprehensive suite with 50+ test files across multiple directories
 - Archive/Backup: Extensive files across multiple directories
 - Prototype: 17+ files (Python + Jupyter notebooks)
 - Tools: 9 files
 - Frontend: Full React application (0 Python files, comprehensive TypeScript architecture)
 - Admin tools: 2 files
+- Database: Centralized infrastructure with migration support
 
-## Architecture Changes Since Last Update (2025-08-13)
+## Architecture Changes Since Last Update (2025-08-14)
 
 ### Risk Limits Manager Refactor (August 2025):
 1. **File Rename**: `risk_config.py` → `risk_limits_manager.py` for better semantic clarity
@@ -392,11 +394,12 @@ Legacy source files:
 4. **State Management**: Comprehensive Zustand stores for auth, portfolio, and UI state
 5. **Service Layer**: Production-ready services including APIService, AuthService, ClaudeService, and PlaidService
 
-### Backend Service Layer Stability:
-1. **Service Count Accuracy**: Confirmed 17 service files including subdirectories and initialization files
-2. **Proxy Service Maturation**: Established `factor_proxy_service.py` for centralized proxy management
-3. **Cache Management**: Stable `cache_mixin.py` for service-level caching utilities
-4. **Function Registry**: Enhanced `ai_function_registry.py` for AI/Claude function definitions
+### Backend Service Layer Enhancements:
+1. **Returns Service Addition**: New `returns_service.py` for centralized return calculation logic
+2. **Service Count Update**: Confirmed 16 service files (including subdirectories and initialization files)
+3. **Enhanced Function Registry**: Updated `ai_function_registry.py` with improved expected returns handling
+4. **Proxy Service Maturation**: Established `factor_proxy_service.py` for centralized proxy management
+5. **Cache Management**: Stable `cache_mixin.py` for service-level caching utilities
 
 ### API Refactoring Initiative (August 2025):
 1. **Direct API Refactoring**: Comprehensive refactoring plans for direct API endpoints
@@ -404,12 +407,13 @@ Legacy source files:
 3. **Schema Management**: Enhanced schema inventory and validation systems
 4. **Template-Based Refactoring**: Standardized refactoring templates for consistency
 
-### Documentation and Development Tools:
-1. **Prompts Documentation**: Multiple prompt files including PROMPTS_INTERFACE.md, PROMPTS_DEV.md, and PROMPTS_WORKING.md
-2. **E2E Testing**: New E2E_TESTING_GUIDE.md for comprehensive testing documentation
-3. **Living Code Map**: Dynamic code mapping tools for real-time codebase analysis
-4. **API Refactor Documentation**: Extensive planning documents for API modernization
-5. **Schema Testing**: Enhanced schema validation and field mapping test files
+### Testing Infrastructure Expansion:
+1. **Comprehensive Test Report**: New COMPREHENSIVE_TEST_REPORT.md documenting full system validation
+2. **Claude Function Testing**: Enhanced `test_claude_functions.py` utility for local AI function testing
+3. **API Testing Suite**: Expanded `/tests/api/` directory with comprehensive endpoint coverage
+4. **E2E Testing Framework**: Mature Playwright-based testing with extensive user journey coverage
+5. **Performance Benchmarking**: Dedicated performance testing infrastructure
+6. **Debug Tools**: Specialized debugging specs for complex workflow analysis
 
 ## Key Integration Points
 1. Database: PostgreSQL via `database_client.py`

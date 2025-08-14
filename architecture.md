@@ -48,9 +48,9 @@ The system includes robust data quality validation to prevent unstable factor ca
 The Risk Module implements a comprehensive multi-user database system with PostgreSQL backend:
 
 **Database Components:**
-- **Database Session Management** (`database/session.py`): Request-scoped session management (moved from db_session.py)
-- **Database Connection Pooling** (`database/pool.py`): PostgreSQL connection pool management (moved from db_pool.py)
-- **Database Schema** (`database/schema.sql`): Centralized database schema definitions (moved from db_schema.sql)
+- **Database Session Management** (`database/session.py`): Request-scoped session management
+- **Database Connection Pooling** (`database/pool.py`): PostgreSQL connection pool management
+- **Database Schema** (`database/schema.sql`): Centralized database schema definitions
 - **Database Client** (`inputs/database_client.py`): Per-request PostgreSQL helper with no singleton pattern
 - **Multi-Currency Support** (`inputs/database_client.py`): Currency extraction and position mapping
 - **User Management** (`services/auth_service.py`): Authentication, session handling, user isolation
@@ -222,7 +222,7 @@ CREATE TABLE user_sessions (
 - **Fallback Logic**: Automatic currency extraction from ticker format when currency field missing
 
 **Database Architecture Features:**
-- **Connection Pooling** (`database/pool.py`): Database connection pool with 2-5 connections (moved from db_pool.py)
+- **Connection Pooling** (`database/pool.py`): Database connection pool with 2-5 connections
 - **Session Management** (`database/session.py`): Request-scoped session helpers
 - **Per-Request Clients** (`inputs/database_client.py`): No singleton pattern, injection-based design
 - **Transaction Safety**: ACID compliance with rollback on failure
@@ -237,16 +237,81 @@ For web interface, REST API, and Claude AI chat integration, see:
 - **[Frontend Backend Connection Map](docs/FRONTEND_BACKEND_CONNECTION_MAP.md)** - Interface connection mapping
 - **[Interface Alignment Table](docs/interface_alignment_table.md)** - Function alignment across interfaces
 
+## 🏗️ Service Architecture Layer
+
+The Risk Module implements a sophisticated service architecture that provides enterprise-level capabilities with comprehensive caching, validation, and integration patterns.
+
+### Service Layer Components
+
+**Core Services** (`services/`):
+- **`PortfolioService`** - Portfolio analysis and risk calculations with caching
+- **`OptimizationService`** - Portfolio optimization (min variance, max return) with solver management
+- **`ScenarioService`** - What-if analysis and scenario modeling with proxy injection
+- **`StockService`** - Individual stock analysis with factor decomposition
+- **`ReturnsService`** - Expected returns management with auto-generation capabilities
+- **`AuthService`** - Multi-provider authentication (Google, GitHub, Apple)
+- **`ServiceManager`** - Central service orchestration and dependency injection
+
+**Specialized Services**:
+- **`AsyncService`** - Non-blocking portfolio operations for web interface
+- **`FactorProxyService`** - Dynamic factor proxy assignment and validation
+- **`ValidationService`** - Data validation and schema compliance checking
+
+**Service Capabilities**:
+- **ServiceCacheMixin** - Intelligent caching with TTL and invalidation
+- **Performance Monitoring** - Sub-100ms response times with resource tracking
+- **Error Handling** - Graceful degradation with fallback mechanisms
+- **Multi-User Support** - Complete data isolation between users
+
+### Claude AI Integration
+
+**AI Function Registry** (`ai_function_registry.py`):
+- **Centralized Function Definitions** - Single source of truth for 14 Claude functions
+- **Dynamic Routing** - Eliminates hardcoded function dispatch logic
+- **Schema Validation** - JSON schema validation for Claude API parameters
+- **Function Executor** (`claude/function_executor.py`) - Modernized Claude function execution
+
+**Available Claude Functions** (14 total):
+```python
+# Portfolio Analysis Functions
+- analyze_portfolio() - Complete risk analysis with factor decomposition
+- get_risk_score() - Credit-score style risk rating (1-100)
+- analyze_performance() - Performance metrics and benchmarking
+
+# Optimization Functions (with automatic expected returns)
+- optimize_min_variance() - Minimum risk portfolio optimization
+- optimize_max_return() - Maximum return with risk constraints, auto-handles missing returns
+- estimate_expected_returns() - Auto-generate returns using 10-year industry ETF methodology
+- set_expected_returns() - Custom return assumptions override system estimates
+
+# Scenario Analysis
+- analyze_what_if() - Scenario modeling with automatic proxy injection for new tickers
+- analyze_stock() - Individual stock factor analysis with auto-generated proxies
+
+# Portfolio Management
+- list_portfolios() - Multi-user portfolio listing with authentication
+- get_portfolio_summary() - Portfolio composition and metadata
+- create_portfolio() - Create new portfolio from positions data
+- update_portfolio() - Modify existing portfolio positions
+```
+
+**Claude Function Improvements**:
+- **Automatic Expected Returns**: `optimize_max_return()` now auto-generates missing returns using industry ETF methodology and Treasury rates for cash proxies
+- **Intelligent Cash Handling**: Cash positions (SGOV, etc.) use Treasury rates instead of industry ETF data
+- **Enhanced What-If Analysis**: Automatic ticker detection and proxy assignment for new securities in scenarios
+- **10-Year Lookback**: Extended from 5-year to 10-year default lookback period for more stable estimates
+
 ## 🔄 Dual-Mode Interface Pattern
 
-A critical architectural pattern that enables **multiple consumer types** (CLI, API, Claude AI) to access the same core business logic with **guaranteed output consistency**.
+A critical architectural pattern that enables **multiple consumer types** (CLI, API, React Frontend, Claude AI) to access the same core business logic with **guaranteed output consistency**.
 
 ### The Challenge
 
-The system must support three fundamentally different consumption patterns:
+The system must support four fundamentally different consumption patterns:
 - **CLI Users**: `python run_risk.py --portfolio portfolio.yaml` → formatted text output
-- **API Clients**: `POST /api/portfolio-analysis` → structured JSON data
-- **Claude AI**: `run_portfolio_analysis()` → human-readable formatted reports
+- **API Clients**: `POST /api/analyze` → structured JSON data
+- **React Frontend**: Component-based dashboard with real-time updates
+- **Claude AI**: `analyze_portfolio()` → human-readable formatted reports
 
 ### The Solution: Dual-Mode Functions
 
@@ -383,6 +448,104 @@ The system follows a **clean 3-layer architecture** with clear separation of con
 └─────────────────────────────────────────────────────────────┘
 ```
 
+## 🌐 React Frontend Architecture
+
+The Risk Module includes a production-ready React frontend with sophisticated component architecture, real-time data flow, and enterprise-grade user experience.
+
+### Frontend Architecture Overview
+
+**Technology Stack:**
+- **React 18** with TypeScript for type-safe component development
+- **React Query (TanStack Query)** for server state management and caching
+- **React Router** for navigation and route management
+- **Tailwind CSS** for utility-first styling
+- **Recharts** for financial data visualization
+- **Jest + React Testing Library** for comprehensive testing
+
+### Component Architecture (`frontend/src/`)
+
+**Application Layer:**
+- **`App.tsx`** - Root application component with routing
+- **`AppOrchestrator.tsx`** - Main application orchestrator
+- **`apps/DashboardApp.tsx`** - Primary dashboard application
+- **`apps/LandingApp.tsx`** - Authentication and landing experience
+
+**Service Layer (`chassis/services/`):**
+- **`APIService.ts`** - Centralized API communication with error handling
+- **`AuthService.ts`** - Multi-provider authentication (Google OAuth)
+- **`RiskAnalysisService.ts`** - Risk analysis data fetching and caching
+- **`PlaidService.ts`** - Plaid integration for brokerage account data
+- **`ServiceContainer.ts`** - Dependency injection container for services
+
+**Data Adapters (`adapters/`):**
+- **`RiskAnalysisAdapter.ts`** - Transforms API responses for risk analysis views
+- **`PerformanceAdapter.ts`** - Transforms performance data for charts and metrics
+- **`PortfolioSummaryAdapter.ts`** - Transforms portfolio data for summary views
+- **`RiskScoreAdapter.ts`** - Transforms risk score data for visualization
+
+**Dashboard Architecture (`components/dashboard/`):**
+```
+DashboardContainer.tsx
+├── DashboardLayout.tsx (main layout)
+│   ├── HeaderBar.tsx (navigation + user menu)
+│   ├── Sidebar.tsx (navigation menu)
+│   ├── ChatPanel.tsx (Claude AI integration)
+│   └── ViewRenderer.tsx (dynamic view loading)
+└── views/
+    ├── RiskAnalysisView.tsx (factor analysis + risk decomposition)
+    ├── PerformanceAnalyticsView.tsx (returns + benchmarking)
+    ├── HoldingsView.tsx (portfolio composition)
+    ├── RiskScoreView.tsx (credit-score style risk rating)
+    └── WhatIfAnalysisView.tsx (scenario modeling)
+```
+
+**Chart Components (`components/dashboard/shared/charts/`):**
+- **`RiskContributionChart.tsx`** - Interactive risk contribution visualization
+- **`PerformanceLineChart.tsx`** - Time series performance charts
+- **`RiskRadarChart.tsx`** - Multi-dimensional risk radar visualization
+- **`VarianceBarChart.tsx`** - Factor variance decomposition charts
+
+**Data Flow Architecture:**
+```
+User Interaction → Component → Custom Hook → React Query → API Service → Backend
+                                      ↓
+                              Cache Management → Re-render → Updated UI
+```
+
+### Key Frontend Features
+
+**Real-Time Data Management:**
+- **React Query Integration** - Automatic caching, background updates, optimistic updates
+- **Smart Invalidation** - Intelligent cache invalidation on portfolio changes
+- **Error Boundaries** - Graceful error handling with user-friendly messages
+- **Loading States** - Sophisticated loading indicators for async operations
+
+**Authentication Flow:**
+```typescript
+// Multi-provider authentication with session management
+const { user, login, logout } = useAuthFlow();
+
+// Google OAuth integration
+<GoogleSignInButton onSuccess={handleGoogleAuth} />
+```
+
+**Portfolio Integration:**
+```typescript
+// Real-time portfolio analysis
+const { data: analysis, isLoading } = useRiskAnalysis(portfolioId);
+const { data: performance } = usePerformance(portfolioId);
+const { data: holdings } = usePortfolioSummary(portfolioId);
+```
+
+**Chart Integration:**
+```typescript
+// Dynamic chart rendering with live data
+<RiskContributionChart 
+  data={analysis.risk_contributions}
+  onSliceClick={handleDrillDown}
+/>
+```
+
 ## 🎯 Result Objects Architecture
 
 ### Architecture Evolution: From Raw Dicts to Result Objects
@@ -464,6 +627,26 @@ All analysis functions return typed Result Objects:
 3. **Simplified Dual-Mode**: Reduced from ~100 lines to ~10 lines per function
 4. **Rich Business Logic**: Computed properties, validation, and formatting
 5. **Type Safety**: Structured objects with clear interfaces
+
+### Recent Architecture Enhancements
+
+**New Ticker Detection and Auto-Proxy Assignment**:
+- **What-If Scenarios**: Automatic detection of new tickers in scenario changes (e.g., `"AAPL:+500bp,SPY:-200bp"`)
+- **Proxy Auto-Assignment**: New tickers automatically receive factor proxy assignments
+- **Seamless Integration**: New securities seamlessly integrated into existing portfolio analysis
+- **Risk Impact Analysis**: Before/after risk comparison with detailed factor exposure changes
+
+**Claude Function Executor Modernization**:
+- **RiskLimitsData Integration**: Modernized to use `RiskLimitsData` objects instead of file-based risk limits
+- **Object-Oriented Risk Management**: Enhanced type safety and validation for risk limit operations
+- **Database Integration**: Full integration with database-backed risk limits management
+
+**Expected Returns Auto-Generation**:
+- **Automatic Coverage**: Max return optimization now automatically handles missing expected returns
+- **10-Year Lookback**: Default analysis period increased from 5 to 10 years for stability
+- **Industry ETF Methodology**: Uses industry ETF CAGR for equity expected returns
+- **Treasury Rate Integration**: Cash proxies (SGOV) use Treasury rates for expected returns
+- **No Manual Intervention**: Eliminated need for manual expected returns setup before optimization
 6. **Easy Maintenance**: Add field once, works across all outputs
 
 ### Key Architectural Benefits
@@ -963,7 +1146,7 @@ The system now uses professional-grade risk-free rates from the FMP Treasury API
 
 **Optimization Functions (2)**:
 - `optimize_minimum_variance()`: Minimum variance optimization
-- `optimize_maximum_return()`: Maximum return optimization
+- `optimize_maximum_return()`: Maximum return optimization with automatic expected returns generation
 
 **Scenario Analysis Functions (1)**:
 - `run_what_if_scenario()`: Portfolio modification testing
@@ -972,7 +1155,7 @@ The system now uses professional-grade risk-free rates from the FMP Treasury API
 - `analyze_stock()`: Single stock analysis with factor decomposition
 
 **Returns Management Functions (2)**:
-- `estimate_expected_returns()`: Estimate returns for user's stock universe
+- `estimate_expected_returns()`: Generate expected returns using industry ETF methodology (10-year lookback default)
 - `set_expected_returns()`: Set returns for user's portfolio
 
 **Risk Management Functions (3)**:
@@ -983,18 +1166,6 @@ The system now uses professional-grade risk-free rates from the FMP Treasury API
 - `load_portfolio_yaml()`: Portfolio configuration loading
 - `update_portfolio_weights()`: Weight modification
 - `validate_portfolio_config()`: Configuration validation
-
-**Returns Management Functions (3)**:
-- `estimate_expected_returns()`: Historical returns estimation
-- `set_expected_returns()`: Manual returns configuration
-- `update_portfolio_expected_returns()`: Returns persistence
-
-**Risk Management Functions (5)**:
-- `view_current_risk_limits()`: Risk limits inspection
-- `update_risk_limits()`: Risk tolerance modification
-- `reset_risk_limits()`: Risk limits reset to defaults
-- `validate_risk_limits()`: Risk configuration validation
-- `get_risk_score()`: Comprehensive risk assessment
 
 **File Management Functions (4)**:
 - `list_portfolios()`: Portfolio file listing
@@ -1023,6 +1194,26 @@ The system now uses professional-grade risk-free rates from the FMP Treasury API
 - Context persistence across conversations
 - Automatic context updates after portfolio modifications
 - Performance optimization for repeated analysis
+
+#### Returns Service (`services/returns_service.py`)
+**Enterprise-level expected returns management with validation and auto-generation**
+
+**Key Functions**:
+- `validate_returns_coverage()`: Validate expected returns coverage for portfolio tickers
+- `generate_missing_returns()`: Auto-generate missing returns using industry ETF methodology
+- `get_expected_returns()`: Retrieve expected returns with fallback logic
+- `save_expected_returns()`: Persist expected returns to database or files
+- `estimate_returns_for_portfolio()`: Portfolio-level returns estimation with coverage validation
+
+**Features**:
+- **Coverage validation** for portfolio tickers with structured warnings
+- **Auto-generation** using industry ETF historical performance (10-year lookback default)
+- **Intelligent cash proxy handling** using Treasury rates for cash equivalents
+- **Database and file-based** returns storage patterns
+- **Integration** with optimization workflows to prevent 0% return defaults
+- **Structured reporting** for missing data and coverage gaps
+
+**Architecture Position**: Service Layer → ReturnsCalculator → Data Sources (Files/Database)
 
 ### 6. Data Management Layer (`inputs/`)
 
@@ -2340,6 +2531,12 @@ The Risk Module includes a production-ready testing framework with 95% test cove
 
 **Test Suite Components:**
 
+**0. Comprehensive Test Report** (`COMPREHENSIVE_TEST_REPORT.md`):
+- **Full System Validation**: Complete test coverage across CLI, API, Claude functions, and database
+- **Performance Benchmarks**: All 20+ test scenarios passed with excellent performance metrics
+- **Production Readiness Assessment**: Comprehensive success report demonstrating enterprise-grade reliability
+- **Real-World Testing**: Includes actual portfolio analysis, optimization, and scenario testing with live data
+
 **1. AI Test Orchestration** (`tests/ai_test_orchestrator.py`):
 - **Intelligent Test Execution**: AI-powered test selection and prioritization
 - **Dynamic Test Generation**: Context-aware test case creation
@@ -2486,6 +2683,8 @@ npm run test:coverage                                 # Coverage report
 1. **Advanced AI Integration**:
    - ✅ **Implemented**: Claude AI with 16+ portfolio analysis functions
    - ✅ **Implemented**: Natural language risk reports and peer generation
+   - ✅ **Implemented**: Automatic ticker detection and proxy assignment in what-if scenarios
+   - ✅ **Implemented**: Auto-generation of expected returns using industry ETF methodology
    - 🔄 **In Progress**: Intelligent factor selection and market regime detection
    - 📋 **Planned**: Automated portfolio rebalancing recommendations
 
@@ -2640,10 +2839,10 @@ comparison = compare_risk_tables(old_risk_df, new_risk_df)
 - [Readme.md](./Readme.md): Project overview and usage guide
 - [portfolio.yaml](./portfolio.yaml): Example portfolio configuration
 - [risk_limits.yaml](./risk_limits.yaml): Risk limit definitions
-- [check_user_data.py](./check_user_data.py): Database inspection utility
+- [admin/manage_reference_data.py](./admin/manage_reference_data.py): Database administration utilities
 - [COMPLETE_CODEBASE_MAP.md](./COMPLETE_CODEBASE_MAP.md): Comprehensive codebase mapping
 - [E2E_TESTING_GUIDE.md](./E2E_TESTING_GUIDE.md): End-to-end testing documentation
-- [PROMPTS.md](./PROMPTS.md): Development prompts and guidelines
+- [PROMPTS_DEV.md](./PROMPTS_DEV.md): Development prompts and guidelines
 - [Financial Modeling Prep API](https://financialmodelingprep.com/developer/docs/): API documentation
 
 ---
