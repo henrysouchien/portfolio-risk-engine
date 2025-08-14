@@ -191,7 +191,7 @@ AI_FUNCTIONS = {
     
     "optimize_maximum_return": {
         "name": "optimize_maximum_return",
-        "description": "Execute algorithmic optimization to find the portfolio allocation with the highest expected return while staying within all risk constraints. CRITICAL: Before calling this function, you MUST ensure expected returns exist for ALL portfolio tickers. If expected returns are missing, first call estimate_expected_returns() to generate them, or ask the user to provide them via set_expected_returns(). Returns specific recommended allocations and expected return improvement. Automatically optimizes the user's current portfolio unless a specific portfolio is requested. Use when users want to maximize returns within their risk tolerance.",
+        "description": "Execute algorithmic optimization to find the portfolio allocation with the highest expected return while staying within all risk constraints. Automatically handles missing expected returns by generating temporary estimates using industry ETF methodology and Treasury rates for cash proxies - no manual intervention required. Returns specific recommended allocations and expected return improvement. Automatically optimizes the user's current portfolio unless a specific portfolio is requested. Use when users want to maximize returns within their risk tolerance.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -242,7 +242,7 @@ AI_FUNCTIONS = {
     
     "estimate_expected_returns": {
         "name": "estimate_expected_returns",
-        "description": "Generate expected return estimates for portfolio tickers using industry ETF historical performance as baseline. Provides systematic return expectations for optimization functions. Note: Based on industry ETF data - users with individual stock research may have higher expectations.",
+        "description": "Generate expected return estimates for portfolio tickers using industry ETF historical performance as baseline with intelligent cash proxy handling. Uses 10-year lookback period by default (configurable). Cash proxies (like SGOV) use Treasury rates while equities use industry ETF CAGR methodology. Provides systematic return expectations for optimization functions. Note: Based on industry ETF data - users with individual stock research may have higher expectations.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -258,7 +258,7 @@ AI_FUNCTIONS = {
                 },
                 "years_lookback": {
                     "type": "integer",
-                    "description": "Years of historical data to analyze for estimates. Default: 5 years."
+                    "description": "Years of historical data to analyze for estimates. Default: 10 years (from settings configuration)."
                 }
             },
             "required": []
@@ -269,7 +269,7 @@ AI_FUNCTIONS = {
     
     "set_expected_returns": {
         "name": "set_expected_returns",
-        "description": "Set custom expected return assumptions for specific tickers based on user research and analysis. Enables optimization functions that require return expectations. Use when users have specific return expectations for their holdings or want to override system estimates.",
+        "description": "Set custom expected return assumptions for specific tickers based on user research and analysis. Overrides automatic return estimation for optimization functions. Use when users have specific return expectations for their holdings or want to override system-generated estimates with their own research.",
         "input_schema": {
             "type": "object",
             "properties": {
