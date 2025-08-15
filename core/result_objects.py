@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from utils.serialization import make_json_safe
 
 
+
 def _convert_to_json_serializable(obj):
     """Convert pandas objects to JSON-serializable format."""
     if isinstance(obj, pd.DataFrame):
@@ -988,7 +989,6 @@ class RiskAnalysisResult:
             "beta_exposure_checks_table": self._get_beta_exposure_checks_table()  # Beta Exposure Checks Formatted Table
         }
     
-
     
     def to_cli_report(self) -> str:
         """
@@ -1425,6 +1425,8 @@ class RiskAnalysisResult:
         """Format interpretation results for display (identical to to_cli_report())."""
         return self.to_cli_report()
     
+
+
     def __hash__(self) -> int:
         """Make RiskAnalysisResult hashable for caching."""
         # Use key metrics for hashing
@@ -1806,6 +1808,7 @@ class OptimizationResult:
             
         # Apply JSON serialization for any remaining complex objects
         return _convert_to_json_serializable(result)
+    
 
     def _get_risk_limits_config(self) -> Dict[str, Any]:
         """
@@ -1948,6 +1951,7 @@ class OptimizationResult:
             "pass":      lambda x: "PASS" if x else "FAIL",  # Use lowercase 'pass' to match actual column name
         }))
         return "\n".join(lines)
+
 
 
 @dataclass
@@ -2414,6 +2418,7 @@ class PerformanceResult:
             "allocations": _convert_to_json_serializable(self._allocations) if self._allocations else None # Portfolio allocation data for position analysis
         }
 
+
     def _get_display_formatting_metadata(self) -> Dict[str, Any]:
         """Generate display formatting metadata for UI rendering hints."""
         # Get clean category and map to display components
@@ -2546,6 +2551,7 @@ class PerformanceResult:
     def to_formatted_report(self) -> str:
         """Format performance results for display (identical to to_cli_report())."""
         return self.to_cli_report()
+    
     
     def __hash__(self) -> int:
         """Make PerformanceResult hashable for caching."""
@@ -2889,6 +2895,7 @@ class RiskScoreResult:
         
         return actions
     
+
     def _get_violations_summary(self) -> Dict[str, Any]:
         """
         Generate a comprehensive violations summary.
@@ -3378,6 +3385,7 @@ class RiskScoreResult:
     def to_formatted_report(self) -> str:
         """Format risk score results for display (identical to to_cli_report())."""
         return self.to_cli_report()
+ 
     
     def __hash__(self) -> int:
         """Make RiskScoreResult hashable for caching."""
@@ -4155,6 +4163,7 @@ class WhatIfResult:
         return factor_comparison
 
 
+
 class StockAnalysisResult:
     """
     Individual stock analysis results with multi-factor support and volatility metrics.
@@ -4379,7 +4388,7 @@ class StockAnalysisResult:
         }
         
         return result
-    
+
     def to_cli_report(self) -> str:
         """Generate complete CLI formatted report - IDENTICAL to current output"""
         sections = []
@@ -4541,6 +4550,7 @@ class StockAnalysisResult:
             "risk_metrics": self.risk_metrics,                        # Dict: Additional risk characteristics (if available)
         }
 
+   
 
     def __hash__(self) -> int:
         """Make StockAnalysisResult hashable for caching."""
@@ -4707,6 +4717,8 @@ class InterpretationResult:
             analysis_date=datetime.now(UTC),
             portfolio_name=portfolio_name
         )
+    
+   
     
     def __hash__(self) -> int:
         """Make InterpretationResult hashable for caching."""
