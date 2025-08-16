@@ -19,12 +19,12 @@ This document provides a comprehensive overview of the Risk Module's architectur
 
 ## 🎯 System Overview
 
-The Risk Module is a comprehensive full-stack application combining a modular Python backend with a production-ready React frontend. It provides multi-factor regression diagnostics, risk decomposition, and portfolio optimization capabilities through a **clean 3-layer architecture** with **multi-user database support**, **Result Objects architecture**, and **integrated dashboard interface** that promotes maintainability, testability, and extensibility.
+The Risk Module is a comprehensive full-stack application combining a modular Python FastAPI backend with a production-ready React frontend. It provides multi-factor regression diagnostics, risk decomposition, and portfolio optimization capabilities through a **clean 3-layer architecture** with **multi-user database support**, **Result Objects architecture**, **Pydantic response validation**, and **integrated dashboard interface** that promotes maintainability, testability, and extensibility.
 
 ### Architecture Evolution
 
 **BEFORE**: Monolithic `run_risk.py` (1217 lines) mixing CLI, business logic, and formatting
-**AFTER**: Enterprise-grade multi-user system with production-ready React dashboard, Result Objects architecture for complete CLI/API alignment, comprehensive database architecture, and sophisticated testing infrastructure
+**AFTER**: Enterprise-grade multi-user system with FastAPI backend, production-ready React dashboard, Result Objects architecture for complete CLI/API alignment, Pydantic response validation, comprehensive database architecture, and sophisticated testing infrastructure
 
 ### Data Quality Assurance
 
@@ -300,6 +300,115 @@ The Risk Module implements a sophisticated service architecture that provides en
 - **Intelligent Cash Handling**: Cash positions (SGOV, etc.) use Treasury rates instead of industry ETF data
 - **Enhanced What-If Analysis**: Automatic ticker detection and proxy assignment for new securities in scenarios
 - **10-Year Lookback**: Extended from 5-year to 10-year default lookback period for more stable estimates
+
+## 🚀 FastAPI & Response Validation
+
+The Risk Module has migrated from Flask to **FastAPI** for enhanced performance, automatic documentation, and type safety.
+
+### FastAPI Implementation
+
+**Core Benefits**:
+- **High Performance**: Async/await support for non-blocking request handling
+- **Automatic Documentation**: Interactive API docs at `/docs` with OpenAPI 3.0 schema
+- **Type Safety**: Python type hints for request/response validation
+- **Async Operations**: Support for concurrent database and API operations
+
+**Migration Architecture**:
+```python
+# FastAPI app with middleware
+app = FastAPI(title="Portfolio Risk Analysis API")
+app.add_middleware(CORSMiddleware, allow_origins=["*"])
+app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
+
+# Rate limiting with SlowAPI (FastAPI-compatible)
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
+```
+
+### Pydantic Response Models
+
+**Comprehensive Response Validation** (`models/response_models.py`):
+
+**Direct API Models** (Stateless analysis):
+- `DirectPortfolioResponse` - Direct portfolio analysis
+- `DirectStockResponse` - Individual stock analysis  
+- `DirectPerformanceResponse` - Performance measurement
+- `DirectOptimizeMinVarResponse` - Minimum variance optimization
+- `DirectOptimizeMaxRetResponse` - Maximum return optimization
+- `DirectWhatIfResponse` - Scenario analysis
+- `DirectInterpretResponse` - AI interpretation
+
+**Database API Models** (Stateful with user sessions):
+- `AnalyzeResponse` - Portfolio risk analysis results
+- `PerformanceResponse` - Performance metrics and benchmarking
+- `RiskScoreResponse` - Credit-style risk scoring
+- `InterpretResponse` - AI-powered portfolio insights
+- `MinVarianceResponse` - Portfolio optimization results
+- `MaxReturnResponse` - Return optimization with constraints
+- `WhatIfResponse` - Scenario modeling results
+
+**System Models**:
+- `HealthResponse` - API health check status
+- `RiskSettingsResponse` - Risk configuration management
+- `PortfoliosListResponse` - User portfolio management
+- `CurrentPortfolioResponse` - Active portfolio details
+
+**Auto-Generated Models**:
+```python
+# Pydantic models auto-generated from Result Objects
+@classmethod
+def get_pydantic_model(cls):
+    """Generate Pydantic model from to_api_response() structure"""
+    sample_response = cls.create_sample().to_api_response()
+    return generate_pydantic_model_from_response(
+        sample_response, 
+        f"{cls.__name__}Response"
+    )
+```
+
+**Response Validation Toggle**:
+```python
+# Environment-based validation control
+DISABLE_PYDANTIC_VALIDATION = os.getenv('DISABLE_PYDANTIC_VALIDATION', '0')
+
+def get_response_model(model_class):
+    """Conditionally return response model for gradual migration"""
+    if DISABLE_PYDANTIC_VALIDATION.lower() in ('1', 'true', 'yes'):
+        return None  # Disable validation during migration
+    return model_class
+```
+
+**Endpoint Implementation**:
+```python
+@app.post("/api/analyze", response_model=get_response_model(AnalyzeResponse))
+async def analyze_portfolio(request: Request):
+    """Portfolio risk analysis with Pydantic validation"""
+    result = portfolio_service.analyze_portfolio(user_key, portfolio_name)
+    return result.to_api_response()  # Auto-validated against Pydantic model
+```
+
+### FastAPI Application Startup
+
+**Development Mode**:
+```bash
+# Start FastAPI with hot reloading
+uvicorn app:app --host 0.0.0.0 --port 5001 --reload
+
+# Alternative: Direct Python execution
+python app.py
+```
+
+**Production Mode**:
+```bash
+# Production server with Gunicorn
+gunicorn app:app -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:5001
+```
+
+**Interactive Documentation**:
+- **Swagger UI**: http://localhost:5001/docs
+- **ReDoc**: http://localhost:5001/redoc
+- **OpenAPI Schema**: http://localhost:5001/openapi.json
 
 ## 🔄 Dual-Mode Interface Pattern
 
@@ -752,7 +861,7 @@ risk_module/
 ├── 📄 E2E_TESTING_GUIDE.md            # End-to-end testing documentation
 ├── 📄 PROMPTS.md                      # Development prompts and guidelines
 ├── ⚙️ settings.py                     # Default configuration settings
-├── 🔧 app.py                          # Flask application entry point (582 lines)
+├── 🔧 app.py                          # FastAPI application entry point (582 lines)
 ├── 🔧 database/                       # Database infrastructure module
 │   ├── __init__.py                     # Module exports and backward compatibility
 │   ├── session.py                      # Request-scoped database session management
@@ -1564,13 +1673,17 @@ The risk module implements a comprehensive mathematical framework for portfolio 
 
 ## 🌐 Web Application Architecture  
 
-The Risk Module provides a complete full-stack web application with a production-ready Flask backend and a sophisticated React frontend dashboard.
+The Risk Module provides a complete full-stack web application with a production-ready FastAPI backend and a sophisticated React frontend dashboard.
 
-### Flask Web App (`app.py`)
+### FastAPI Web App (`app.py`)
 
-**Production-Ready Flask Backend** (3,156 lines):
+**Production-Ready FastAPI Backend** (3,156 lines):
+- **FastAPI Framework**: High-performance async web framework with automatic API documentation
+- **Pydantic Models**: Type-safe request/response validation with automatic schema generation
 - **Multi-Provider OAuth**: Google, GitHub, Apple authentication with database sessions
-- **Multi-Tier Access Control**: Public/Registered/Paid user tiers with sophisticated rate limiting
+- **Multi-Tier Access Control**: Public/Registered/Paid user tiers with sophisticated rate limiting (SlowAPI)
+- **Async Architecture**: Non-blocking I/O for high-performance concurrent request handling
+- **Automatic Documentation**: Interactive API docs at `/docs` with OpenAPI 3.0 schema
 - **Plaid Integration**: Real-time portfolio import from 1000+ financial institutions
 - **Claude AI Chat**: Interactive risk analysis with 16+ portfolio analysis functions
 - **RESTful API**: Comprehensive endpoints for portfolio analysis, risk scoring, and optimization
@@ -1754,9 +1867,9 @@ const handleAnalyzeRisk = async () => {
 
 **Complete Integrated Data Flow**:
 ```
-User Action → React Component → Service Layer → Flask API → Core Engine → Database
+User Action → React Component → Service Layer → FastAPI → Core Engine → Database
      ↓
-React State ← Component Update ← Structured Response ← Business Logic ← Analysis Results
+React State ← Component Update ← Pydantic Response ← Business Logic ← Analysis Results
 ```
 
 **Hook → Adapter → Manager → API Pattern**:
@@ -2222,7 +2335,7 @@ npm test                    # Run tests
 - Environment variable injection
 
 **Deployment**:
-- Served through Flask static files
+- Served through FastAPI static files
 - CDN integration for assets
 - Service worker for offline support
 - Progressive Web App (PWA) capabilities
@@ -2231,9 +2344,9 @@ npm test                    # Run tests
 
 **Data Flow**:
 ```
-User Input → React Component → API Service → Flask Route → Core Engine → Database
+User Input → React Component → API Service → FastAPI Route → Core Engine → Database
      ↓
-React State ← Component Update ← API Response ← Flask Response ← Analysis Results
+React State ← Component Update ← API Response ← Pydantic Response ← Analysis Results
 ```
 
 **Real-time Features**:
@@ -2745,7 +2858,7 @@ npm run test:coverage                                 # Coverage report
 | Portfolio Optimization | `portfolio_optimizer.py` | ✅ Working | Min variance and max return |
 | GPT Integration | `gpt_helpers.py` | ✅ Working | Peer generation and interpretation |
 | Proxy Builder | `proxy_builder.py` | ✅ Working | Factor proxy generation |
-| Web Application | `app.py` | ✅ Production Ready | Flask backend + React dashboard with multi-user architecture |
+| Web Application | `app.py` | ✅ Production Ready | FastAPI backend + React dashboard with multi-user architecture |
 | Frontend Dashboard | `frontend/` | ✅ Production Ready | Enterprise-grade React SPA with state management |
 | Plaid Integration | `plaid_loader.py` | ✅ Working | Financial data import |
 | Risk Helpers | `risk_helpers.py` | ✅ Working | Risk calculation utilities |

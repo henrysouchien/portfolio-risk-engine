@@ -1,14 +1,15 @@
 # Complete Risk Module Codebase Map
 
 ## Overview
-This document provides a comprehensive map of the entire risk_module codebase, including all directories (even those in .gitignore). Last updated on 2025-08-14 to reflect current codebase state, risk limits manager refactor, database structure reorganization, and recent API refactoring initiatives.
+This document provides a comprehensive map of the entire risk_module codebase, including all directories (even those in .gitignore). Last updated on 2025-08-16 to reflect current codebase state, FastAPI migration completion, database structure reorganization, and recent API refactoring initiatives.
 
 ## Directory Structure with Python File Counts
 
-### Root Level Files (18 Python files)
+### Root Level Files (19 Python files)
 Core application files and utilities:
 - `ai_function_registry.py` - Registry for AI/Claude function definitions
-- `app.py` - Main Flask application entry point
+- `app.py` - Main FastAPI application entry point (migrated from Flask)
+- `comprehensive_endpoint_testing.py` - Comprehensive API endpoint testing utility
 - `data_loader.py` - Data loading utilities
 - `factor_utils.py` - Factor analysis utilities
 - `gpt_helpers.py` - GPT/AI integration helpers
@@ -28,9 +29,20 @@ Core application files and utilities:
 
 **Note**: Schema and testing files have been relocated to appropriate directories (`/docs/planning/`, `/backup/`, etc.) to improve repository organization.
 
+### Core Application Layers
+
+#### `/models/` (23 Python files) - Pydantic Response Models
+FastAPI response validation models for API endpoints:
+- Auto-generated Pydantic models for all API responses
+- Type-safe response validation and documentation
+- Comprehensive model coverage for all result objects
+- `response_models.py` - Core response model definitions
+- Individual model files for each endpoint type (e.g., `analyzeresponse.py`, `performanceresponse.py`)
+- `usage_example.py` - Model usage examples
+
 ### Core Application Layers (CRITICAL - Gitignored)
 
-#### `/services/` (16 Python files) - Business Logic Layer
+#### `/services/` (18 Python files) - Business Logic Layer
 Service layer implementing core business logic:
 - `service_manager.py` - Service lifecycle management
 - `portfolio_service.py` - Portfolio management service
@@ -52,16 +64,17 @@ Service layer implementing core business logic:
   - `__init__.py` - Portfolio module initialization
   - `context_service.py` - Portfolio context management
 
-#### `/routes/` (7 Python files) - API Endpoints Layer
-Flask route definitions:
-- `api.py` - Main API endpoints
+#### `/routes/` (6 Python files) - API Endpoints Layer
+FastAPI route definitions:
 - `auth.py` - Authentication routes
 - `admin.py` - Admin panel routes
 - `claude.py` - Claude AI integration routes
 - `plaid.py` - Plaid integration routes
 - `frontend_logging.py` - Frontend logging routes
 
-#### `/utils/` (8 Python files) - Utility Layer
+**Note**: Main API routes have been migrated directly into `app.py` as part of the FastAPI migration
+
+#### `/utils/` (10 Python files) - Utility Layer
 Shared utilities:
 - `auth.py` - Authentication utilities
 - `config.py` - Configuration management
@@ -319,7 +332,6 @@ Active planning and development documentation:
 - `CLI_API_ALIGNMENT_WORKFLOW.md` - CLI and API alignment workflow
 - `COMPLETE_CODEBASE_MAP.md` - This comprehensive codebase map
 - `E2E_TESTING_GUIDE.md` - End-to-end testing guide
-- `GAPS_AND_RECOMMENDATIONS.md` - Architecture gaps and recommendations
 - `PROMPTS_DEV.md` - Development prompts
 - `PROMPTS_INTERFACE.md` - Interface prompts
 - `PROMPTS_WORKING.md` - Working prompts
@@ -362,8 +374,8 @@ Legacy source files:
 - Database connection strings and configuration files
 
 ## File Count Summary
-- Total Python files: 661 (as of 2025-08-14)
-- Core application: ~67 files (18 root + 16 services + 7 routes + 8 utils + 7 inputs + 10 core + 1 database)
+- Total Python files: 712 (as of 2025-08-16)
+- Core application: ~76 files (19 root + 18 services + 6 routes + 10 utils + 7 inputs + 10 core + 23 models + database)
 - Tests: Comprehensive suite with 50+ test files across multiple directories
 - Archive/Backup: Extensive files across multiple directories
 - Prototype: 17+ files (Python + Jupyter notebooks)
@@ -372,7 +384,17 @@ Legacy source files:
 - Admin tools: 2 files
 - Database: Centralized infrastructure with migration support
 
-## Architecture Changes Since Last Update (2025-08-14)
+## Architecture Changes Since Last Update (2025-08-16)
+
+### FastAPI Migration Completion (August 2025):
+1. **Framework Migration**: Complete migration from Flask to FastAPI
+2. **Pydantic Integration**: Full Pydantic model validation for all API responses
+3. **Auto Documentation**: Interactive API docs at `/docs` with comprehensive examples
+4. **Type Safety**: Enhanced type safety with Pydantic models and FastAPI dependency injection
+5. **Performance**: Async request handling and improved performance characteristics
+6. **Rate Limiting**: Migrated from Flask-Limiter to SlowAPI for FastAPI compatibility
+7. **Session Management**: Updated session handling for FastAPI middleware
+8. **Error Handling**: Standardized error response format maintained across migration
 
 ### Risk Limits Manager Refactor (August 2025):
 1. **File Rename**: `risk_config.py` → `risk_limits_manager.py` for better semantic clarity
@@ -396,7 +418,7 @@ Legacy source files:
 
 ### Backend Service Layer Enhancements:
 1. **Returns Service Addition**: New `returns_service.py` for centralized return calculation logic
-2. **Service Count Update**: Confirmed 16 service files (including subdirectories and initialization files)
+2. **Service Count Update**: Confirmed 18 service files (including subdirectories and initialization files)
 3. **Enhanced Function Registry**: Updated `ai_function_registry.py` with improved expected returns handling
 4. **Proxy Service Maturation**: Established `factor_proxy_service.py` for centralized proxy management
 5. **Cache Management**: Stable `cache_mixin.py` for service-level caching utilities
