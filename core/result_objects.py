@@ -3897,7 +3897,7 @@ class WhatIfResult:
             "comparison_analysis": self._build_comparison_analysis(),   # Dict: Raw before/after comparison data
             
             # === FORMATTED DISPLAY TABLES (Human-readable - for UI) ===
-            "position_changes": self.get_position_changes_table(),      # List[Dict]: Weight changes with % formatting ("15.2%" → "18.5%")
+            "position_changes": self.get_position_changes_table(show_all_positions=True),      # List[Dict]: Weight changes with % formatting ("15.2%" → "18.5%") - shows all positions
             "new_portfolio_risk_checks": self.get_new_portfolio_risk_checks_table(),        # List[Dict]: Risk checks with % formatting
             "new_portfolio_factor_checks": self.get_new_portfolio_factor_checks_table(),    # List[Dict]: Factor checks with decimal formatting
             "new_portfolio_industry_checks": self.get_new_portfolio_industry_checks_table(), # List[Dict]: Industry checks with decimal formatting
@@ -4016,9 +4016,13 @@ class WhatIfResult:
         
         return summaries
 
-    def get_position_changes_table(self) -> List[Dict[str, Any]]:
+    def get_position_changes_table(self, show_all_positions: bool = False) -> List[Dict[str, Any]]:
         """
         Generate position changes table (Portfolio Weights — Before vs After).
+        
+        Args:
+            show_all_positions (bool): If True, shows all positions including unchanged ones.
+                                     If False, only shows positions with meaningful changes (> 0.0001).
         
         Returns list of position changes with before/after weights and deltas.
         """
@@ -4036,7 +4040,10 @@ class WhatIfResult:
             after = scenario_weights.get(ticker, 0.0)
             change = after - before
             
-            if abs(change) > 0.0001:  # Only include meaningful changes
+            # Include position if:
+            # 1. show_all_positions is True (show everything), OR
+            # 2. There's a meaningful change (> 0.0001)
+            if show_all_positions or abs(change) > 0.0001:
                 position_changes.append({
                     "position": ticker,
                     "before": f"{before:.1%}",

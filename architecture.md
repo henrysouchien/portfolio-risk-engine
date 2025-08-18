@@ -8,6 +8,7 @@ This document provides a comprehensive overview of the Risk Module's architectur
 - [Dual-Mode Interface Pattern](#dual-mode-interface-pattern)
 - [Architecture Layers](#architecture-layers)
 - [Data Flow](#data-flow)
+- [Frontend Architecture Patterns](#frontend-architecture-patterns)
 - [Component Details](#component-details)
 - [Configuration Management](#configuration-management)
 - [Caching Strategy](#caching-strategy)
@@ -848,6 +849,249 @@ def api_direct_portfolio():
         # Clean up temporary files
         os.unlink(temp_portfolio_path)
 ```
+
+## 🎨 Frontend Architecture Patterns
+
+### Container-View Pattern
+
+The frontend implements a consistent **Container-View Pattern** across all dashboard features for clean separation of concerns and maintainability.
+
+#### Established Pattern Architecture
+
+**Container Responsibilities:**
+- **Hook Integration**: Calls feature-specific hooks (e.g., `useRiskScore()`, `useWhatIfAnalysis()`, `usePerformance()`)
+- **State Management**: Handles loading, error, hasData, hasPortfolio states
+- **Early Returns**: Loading/Error/NoPortfolio states handled in container
+- **Data Passing**: Passes transformed data to view
+- **Action Handlers**: Wraps hook actions with logging
+- **No UI Logic**: Pure state management and data flow
+
+**View Responsibilities:**
+- **Pure Presentation**: Only handles UI rendering
+- **No State Management**: No hooks or complex state
+- **Data Display**: Renders data passed from container
+- **No Data Fallback**: Shows placeholder when no data
+- **DOM Props Filtering**: Filters non-DOM props properly
+
+#### Implementation Examples
+
+**Risk Score Feature:**
+```typescript
+// RiskScoreViewContainer.tsx - Container Layer
+const RiskScoreViewContainer: React.FC = () => {
+  const { data, loading, error, hasData, hasPortfolio, refreshRiskScore, clearError } = useRiskScore();
+  
+  // Early returns for loading/error states
+  if (loading) return <LoadingSpinner />;
+  if (error) return <ErrorMessage error={error} onRetry={refreshRiskScore} />;
+  if (!hasPortfolio) return <NoPortfolioMessage />;
+  
+  // Pass all data and handlers to view
+  return (
+    <RiskScoreView
+      riskScoreData={data}
+      hasData={hasData}
+      onRefresh={refreshRiskScore}
+      onClearError={clearError}
+    />
+  );
+};
+
+// RiskScoreView.tsx - View Layer
+const RiskScoreView: React.FC<RiskScoreViewProps> = (props) => {
+  const { riskScoreData, hasData, onRefresh, onClearError, ...domProps } = props;
+  
+  return (
+    <div {...domProps}>
+      {hasData ? (
+        <RiskScoreDisplay score={riskScoreData.risk_score} />
+      ) : (
+        <NoDataPlaceholder />
+      )}
+    </div>
+  );
+};
+```
+
+**What-If Analysis Feature:**
+```typescript
+// WhatIfAnalysisViewContainer.tsx - Container Layer
+const WhatIfAnalysisViewContainer: React.FC = () => {
+  const {
+    data, loading, error, hasData, hasPortfolio,
+    // Input management state and functions from hook
+    inputMode, weightInputs, deltaInputs,
+    addAssetInput, removeAssetInput, updateAssetName, updateAssetValue,
+    runScenarioFromInputs, refreshWhatIfAnalysis, clearError
+  } = useWhatIfAnalysis();
+  
+  // Early returns
+  if (loading) return <LoadingSpinner />;
+  if (error) return <ErrorMessage error={error} onRetry={refreshWhatIfAnalysis} />;
+  
+  // Action handlers with logging
+  const handleRunScenario = useCallback(() => {
+    frontendLogger.user.logUserAction('WhatIfAnalysisViewContainer', 'runWhatIfScenario');
+    runScenarioFromInputs();
+  }, [runScenarioFromInputs]);
+  
+  return (
+    <WhatIfAnalysisView
+      whatIfData={data}
+      hasData={hasData}
+      hasPortfolio={hasPortfolio}
+      // Input management props
+      inputMode={inputMode}
+      weightInputs={weightInputs}
+      deltaInputs={deltaInputs}
+      addAssetInput={addAssetInput}
+      removeAssetInput={removeAssetInput}
+      updateAssetName={updateAssetName}
+      updateAssetValue={updateAssetValue}
+      onRunScenario={handleRunScenario}
+      onRefresh={refreshWhatIfAnalysis}
+      onClearError={clearError}
+    />
+  );
+};
+```
+
+### Frontend Data Flow Architecture
+
+**Frontend Data Flow:**
+```
+1. User Interaction
+   ├── View Component (UI Event)
+   └── Container Component (Event Handler)
+
+2. Container Layer
+   ├── Calls Hook Function
+   ├── Logs User Action
+   └── Updates Loading State
+
+3. Hook Layer (Business Logic)
+   ├── Validates Input
+   ├── Calls Service/Manager
+   ├── Handles TanStack Query
+   └── Returns Transformed Data
+
+4. Service Layer
+   ├── APIService (HTTP Requests)
+   ├── PortfolioCacheService (Caching)
+   └── Adapter (Data Transformation)
+
+5. Backend API
+   ├── FastAPI Route Handler
+   ├── Service Layer
+   ├── Core Business Logic
+   └── Result Object Response
+
+6. Response Flow
+   ├── Adapter Transforms Data
+   ├── Hook Updates State
+   ├── Container Receives Data
+   └── View Renders UI
+```
+
+### Hook Architecture Patterns
+
+**Feature-Organized Hooks:**
+```
+features/
+├── riskScore/hooks/useRiskScore.ts
+├── analysis/hooks/useRiskAnalysis.ts
+├── analysis/hooks/usePerformance.ts
+├── whatIf/hooks/useWhatIfAnalysis.ts
+├── optimize/hooks/usePortfolioOptimization.ts
+└── portfolio/hooks/usePortfolioSummary.ts
+```
+
+**Hook Responsibilities:**
+- **Data Fetching**: TanStack Query integration
+- **State Management**: Local hook state for UI interactions
+- **Business Logic**: Input validation, scenario creation
+- **Error Handling**: Comprehensive error states
+- **Caching**: Scenario-specific cache keys
+- **Logging**: Detailed operation logging
+
+**Hook Return Interface Pattern:**
+```typescript
+// Standard hook return interface
+interface HookReturn {
+  // Data
+  data: TransformedData | null;
+  
+  // States
+  loading: boolean;
+  error: Error | null;
+  hasData: boolean;
+  hasPortfolio: boolean;
+  
+  // Actions
+  refresh: () => void;
+  clearError: () => void;
+  
+  // Feature-specific actions and state
+  [featureSpecificProps]: any;
+}
+```
+
+### Adapter Pattern Implementation
+
+**Direct Pass-Through Approach:**
+```typescript
+// WhatIfAnalysisAdapter.ts - Direct API Response Pass-Through
+export class WhatIfAnalysisAdapter {
+  static transform(apiResponse: any): WhatIfAnalysisData {
+    // Direct pass-through of backend API response
+    return {
+      scenario_results: apiResponse.scenario_results,
+      summary: apiResponse.summary,
+      portfolio_metadata: apiResponse.portfolio_metadata,
+      risk_limits_metadata: apiResponse.risk_limits_metadata
+    };
+  }
+}
+```
+
+**Transformation Approach:**
+```typescript
+// PerformanceAdapter.ts - Data Transformation
+export class PerformanceAdapter {
+  static transform(apiResponse: any): PerformanceData {
+    return {
+      period: this.transformPeriod(apiResponse.performance_metrics.analysis_period),
+      returns: this.transformReturns(apiResponse.performance_metrics.returns),
+      benchmark: this.transformBenchmark(apiResponse.performance_metrics),
+      // ... other transformations
+    };
+  }
+}
+```
+
+### Caching Strategy
+
+**Scenario-Specific Cache Keys:**
+```typescript
+// PortfolioCacheService.ts
+private generateScenarioHash(scenarioParams: any): string {
+  const scenario = scenarioParams?.scenario || scenarioParams?.apiScenario || scenarioParams;
+  const scenarioString = JSON.stringify(scenario, Object.keys(scenario).sort());
+  // Generate hash for unique cache key
+  return Math.abs(hash).toString(36).substring(0, 8);
+}
+
+async getWhatIfAnalysis(portfolioId: string, scenarioParams: any): Promise<any> {
+  const scenarioHash = this.generateScenarioHash(scenarioParams);
+  const operation = `whatIfAnalysis_${scenarioHash}`;
+  
+  return this.getOrFetch(portfolioId, operation, async () => {
+    return this.apiService.getWhatIfAnalysis(portfolioId, scenarioParams);
+  });
+}
+```
+
+---
 
 ## 📂 File Structure
 
