@@ -266,6 +266,34 @@ The Risk Module implements a sophisticated service architecture that provides en
 
 ### Claude AI Integration
 
+**Enhanced AI-Powered Analytics with Vercel AI SDK Integration**:
+The Risk Module includes sophisticated Claude AI integration for conversational portfolio analysis, now enhanced with Vercel AI SDK-compatible streaming capabilities and modern React components.
+
+**Frontend Architecture Components**:
+```typescript
+// Enhanced chat component structure
+frontend/src/components/
+├── chat/
+│   ├── AIChat.tsx              # Modal chat interface (550x750px)
+│   ├── ChatContext.tsx         # Shared chat state management
+│   ├── shared/
+│   │   └── ChatCore.tsx        # Centralized chat logic (~640 lines)
+└── layout/
+    └── ChatInterface.tsx       # Full-screen chat interface
+
+// Enhanced streaming hook
+frontend/src/features/external/hooks/
+└── usePortfolioChat.ts         # Vercel AI SDK-compatible streaming
+```
+
+**Key Features**:
+- **Streaming API Integration**: Token-by-token delivery with enhanced status tracking
+- **Context-Aware Responses**: AI maintains portfolio context throughout conversations
+- **SharedChat Architecture**: Zero code duplication between modal and full-screen interfaces
+- **Enhanced UI Components**: AIChat modal and ChatInterface for seamless user experience
+- **Message Management**: Edit, delete, retry, regenerate functionality
+- **File Upload Support**: Multi-modal message support (implementation in progress)
+
 **AI Function Registry** (`ai_function_registry.py`):
 - **Centralized Function Definitions** - Single source of truth for 14 Claude functions
 - **Dynamic Routing** - Eliminates hardcoded function dispatch logic
@@ -599,7 +627,7 @@ DashboardContainer.tsx
 ├── DashboardLayout.tsx (main layout)
 │   ├── HeaderBar.tsx (navigation + user menu)
 │   ├── Sidebar.tsx (navigation menu)
-│   ├── ChatPanel.tsx (Claude AI integration)
+│   ├── ChatPanel.tsx (Legacy Claude AI - replaced by AIChat/ChatInterface)
 │   └── ViewRenderer.tsx (dynamic view loading)
 └── views/
     ├── RiskAnalysisView.tsx (factor analysis + risk decomposition)
@@ -1953,7 +1981,7 @@ limits = {
 
 ### React Dashboard Frontend Architecture
 
-**Enterprise-Grade Single Page Application** with sophisticated multi-user architecture:
+**Enterprise-Grade Single Page Application** with sophisticated multi-user architecture and enhanced streaming AI integration:
 
 #### Multi-User State-Driven Architecture (`frontend/src/ARCHITECTURE.md`)
 
@@ -2028,10 +2056,20 @@ const portfolioSummary = useMemo(() => {
 }, [currentPortfolio, portfolioSummaryHook.data]);
 ```
 
-**6. Claude AI Chat Integration (Context-Aware)**:
-```javascript
-// Chat with visual context integration
-const handleSendMessage = async (message) => {
+**6. Enhanced Claude AI Chat Integration (Streaming + Context-Aware)**:
+```typescript
+// Enhanced streaming chat with Vercel AI SDK compatibility
+const { 
+  messages, 
+  sendMessage, 
+  status,           // submitted, streaming, ready, error, tool-executing
+  stop, 
+  regenerate, 
+  reload 
+} = usePortfolioChat();
+
+// Chat with visual context integration and streaming
+const handleSendMessage = async (message: string) => {
   const chatMessage = {
     content: message,
     context: {
@@ -2042,14 +2080,19 @@ const handleSendMessage = async (message) => {
     }
   };
   
-  // Real Claude API call (backend integration)
-  const response = await apiService.claudeChat(message, chatMessages, currentPortfolio?.portfolio_name);
+  // Enhanced streaming API call with status tracking
+  await sendMessage(message, { context: chatMessage.context });
 };
 ```
 
-**Chat Features**:
+**Enhanced Chat Features**:
+- **Streaming Responses**: Token-by-token delivery with real-time status updates
 - **Context-Aware Responses**: Claude receives current view data and portfolio state
 - **Function Calling**: Chat can trigger view changes and data refreshes
+- **Message Management**: Edit, delete, retry, regenerate functionality
+- **Dual Interface**: Modal (AIChat) and full-screen (ChatInterface) options
+- **Shared Logic**: Centralized in ChatCore component for consistency
+- **Multi-modal Support**: File upload capabilities (in progress)
 - **Real API Integration**: Connects to backend Claude API with portfolio context
 - **Visual Integration**: Assistant can navigate between dashboard views based on conversation
 
@@ -2161,7 +2204,7 @@ frontend/src/
 │   │   │   ├── HeaderBar.tsx      # Dashboard header
 │   │   │   ├── Sidebar.tsx        # Navigation sidebar
 │   │   │   ├── SummaryBar.tsx     # Portfolio summary bar
-│   │   │   └── ChatPanel.tsx      # AI chat panel
+│   │   │   └── ChatPanel.tsx      # Legacy AI chat panel (replaced)
 │   │   ├── views/                 # Dashboard view containers
 │   │   │   ├── RiskScoreViewContainer.tsx      # Risk scoring
 │   │   │   ├── HoldingsViewContainer.tsx       # Portfolio holdings
@@ -2193,10 +2236,16 @@ frontend/src/
 │   ├── plaid/                     # Plaid integration components
 │   │   ├── PlaidLinkButton.tsx
 │   │   └── ConnectedAccounts.tsx
-│   ├── chat/                      # AI chat components
-│   │   └── RiskAnalysisChat.tsx
-│   ├── layouts/                   # Page layout components
-│   │   └── DashboardLayout.tsx
+│   ├── chat/                      # Enhanced AI chat components
+│   │   ├── AIChat.tsx             # Modal chat interface
+│   │   ├── ChatContext.tsx        # Shared chat state
+│   │   ├── RiskAnalysisChat.tsx   # Legacy component
+│   │   ├── shared/
+│   │   │   └── ChatCore.tsx       # Centralized chat logic
+│   │   └── index.ts
+│   ├── layouts/                   # Page layout components  
+│   │   ├── DashboardLayout.tsx    # Main dashboard layout
+│   │   └── ChatInterface.tsx      # Full-screen chat layout
 │   ├── shared/                    # Reusable UI components
 │   │   ├── ConditionalStates.tsx
 │   │   ├── ErrorDisplay.tsx
@@ -2217,7 +2266,7 @@ frontend/src/
 │   │   ├── hooks/                 # Analysis hooks (useFactorAnalysis, usePerformance)
 │   │   └── formatters/            # Data formatters
 │   ├── auth/hooks/                # Authentication hooks
-│   ├── external/hooks/            # External service hooks (usePlaid, useChat)
+│   ├── external/hooks/            # External service hooks (usePlaid, usePortfolioChat)
 │   ├── portfolio/                 # Portfolio feature
 │   │   ├── hooks/                 # Portfolio hooks (usePortfolio, usePortfolioSummary)
 │   │   └── formatters/            # Portfolio data formatters
@@ -2357,16 +2406,20 @@ The web interface is organized into 5 specialized route modules for clean separa
 - Export functionality for analysis results
 
 #### Claude AI Chat Routes (`routes/claude.py`)
-**AI-powered conversational analysis**
+**AI-powered conversational analysis with streaming capabilities**
 
 | Endpoint | Method | Purpose | Parameters |
 |----------|--------|---------|------------|
-| `/api/claude_chat` | POST | Interactive AI analysis | `user_message`, `chat_history`, `portfolio_name` |
+| `/api/claude_chat` | POST | Interactive AI analysis with streaming | `user_message`, `chat_history`, `portfolio_name` |
 
-**Features**:
+**Enhanced Features**:
+- **Streaming Responses**: Token-by-token streaming compatible with Vercel AI SDK
+- **Enhanced Status Tracking**: submitted, streaming, ready, error, tool-executing states
 - Integration with 14 Claude functions across 6 categories
 - Database-first architecture with user isolation
 - Authentication required for all functions
+- **Message Management**: Support for edit, delete, retry, regenerate operations
+- **Multi-modal Support**: File upload capability (implementation in progress)
 - Function calling and parameter validation
 - Natural language result interpretation
 - Session-based user authentication

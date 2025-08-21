@@ -1,7 +1,7 @@
 # Complete Risk Module Codebase Map
 
 ## Overview
-This document provides a comprehensive map of the entire risk_module codebase, including all directories (even those in .gitignore). Last updated on 2025-08-16 to reflect current codebase state, FastAPI migration completion, database structure reorganization, and recent API refactoring initiatives.
+This document provides a comprehensive map of the entire risk_module codebase, including all directories (even those in .gitignore). Last updated on 2025-08-21 to reflect current codebase state, FastAPI migration completion, database structure reorganization, recent API refactoring initiatives, and the integration of Vercel AI SDK for enhanced chat functionality.
 
 ## Directory Structure with Python File Counts
 
@@ -113,7 +113,7 @@ Core data structures and algorithms:
 Production-ready React frontend application with comprehensive architecture:
 - **`/node_modules/`** - Complete npm dependencies (extensive)
 - Configuration files:
-  - `package.json` - Frontend dependencies and scripts
+  - `package.json` - Frontend dependencies and scripts (includes Vercel AI SDK)
   - `package-lock.json` - Dependency lock file
   - `tsconfig.json` - TypeScript configuration
 - Documentation:
@@ -135,8 +135,15 @@ Production-ready React frontend application with comprehensive architecture:
   - **`/components/`** - UI components organized by feature
     - `/apps/` - Complete app experiences (LandingApp, DashboardApp)
     - `/auth/` - Authentication components
-    - `/chat/` - AI chat integration
+    - `/chat/` - AI chat integration with streaming capabilities
+      - `AIChat.tsx` - Modal chat interface
+      - `ChatContext.tsx` - Shared chat state management
+      - `ChatCore.tsx` - Core chat functionality and UI
+      - `RiskAnalysisChat.tsx` - Specialized risk analysis chat
+      - `CHAT_ARCHITECTURE.md` - Chat system documentation
+      - `/shared/` - Shared chat components
     - `/dashboard/` - Dashboard views and containers
+    - `/layout/` - Layout components including ChatInterface
     - `/plaid/` - Plaid integration components
     - `/portfolio/` - Portfolio management components
     - `/shared/` - Reusable UI components
@@ -144,6 +151,9 @@ Production-ready React frontend application with comprehensive architecture:
     - `/analysis/` - Factor analysis and performance hooks (with formatters)
     - `/auth/` - Authentication flow hooks
     - `/external/` - Plaid and AI chat hooks
+      - `useChat.ts` - Chat functionality hook
+      - `usePortfolioChat.ts` - Portfolio-specific chat integration
+      - `usePlaid.ts` - Plaid integration hook
     - `/portfolio/` - Portfolio data and operations hooks (with formatters)
     - `/riskScore/` - Risk score calculations and hooks (with formatters)
     - `/optimize/` - Portfolio optimization hooks
@@ -232,6 +242,7 @@ Development tools:
 #### `/docs/`
 - `API_REFERENCE.md` - API documentation
 - `DATA_SCHEMAS.md` - Data schema documentation
+- `VERCEL_AI_SDK_FULL_INTEGRATION_GUIDE.md` - Comprehensive Vercel AI SDK integration guide
 - **`/interfaces/`** - Interface documentation
 - **`/planning/`** - Planning documents
 
@@ -384,7 +395,7 @@ Legacy source files:
 - Admin tools: 2 files
 - Database: Centralized infrastructure with migration support
 
-## Architecture Changes Since Last Update (2025-08-16)
+## Architecture Changes Since Last Update (2025-08-21)
 
 ### FastAPI Migration Completion (August 2025):
 1. **Framework Migration**: Complete migration from Flask to FastAPI
@@ -415,6 +426,12 @@ Legacy source files:
 3. **Hook-Based Data Layer**: Feature-organized hooks for analysis, auth, external integrations, portfolio, risk, and utilities
 4. **State Management**: Comprehensive Zustand stores for auth, portfolio, and UI state
 5. **Service Layer**: Production-ready services including APIService, AuthService, ClaudeService, and PlaidService
+6. **AI Chat Integration**: Comprehensive chat system with streaming capabilities
+   - Modal and full-screen chat interfaces
+   - Shared conversation state via ChatContext
+   - Integration with Vercel AI SDK for enhanced UX
+   - File upload support and message management
+   - Real-time streaming responses with Claude AI
 
 ### Backend Service Layer Enhancements:
 1. **Returns Service Addition**: New `returns_service.py` for centralized return calculation logic
@@ -428,6 +445,14 @@ Legacy source files:
 2. **Result Objects Architecture**: Unified result objects architecture across CLI and API
 3. **Schema Management**: Enhanced schema inventory and validation systems
 4. **Template-Based Refactoring**: Standardized refactoring templates for consistency
+
+### Chat System Enhancement (August 2025):
+1. **Vercel AI SDK Integration**: Added `@ai-sdk/react` and `@ai-sdk/anthropic` packages for enhanced chat functionality
+2. **Streaming Implementation**: Real-time token-by-token streaming for improved user experience
+3. **Unified Chat Architecture**: Modal and full-screen interfaces sharing conversation state
+4. **Advanced Chat Features**: Message editing, regeneration, file uploads, and smart actions
+5. **Context-Aware AI**: Portfolio-specific AI responses with integrated analysis tools
+6. **Documentation**: Comprehensive chat architecture documentation including integration guides
 
 ### Testing Infrastructure Expansion:
 1. **Comprehensive Test Report**: New COMPREHENSIVE_TEST_REPORT.md documenting full system validation

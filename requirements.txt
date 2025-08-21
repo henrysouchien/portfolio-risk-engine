@@ -16,7 +16,6 @@ slowapi>=0.1.9
 
 # Database & Connection Pooling
 psycopg2-binary>=2.9.5
-psycopg2>=2.9.5
 
 # Caching & Performance
 cachetools>=5.5.0
