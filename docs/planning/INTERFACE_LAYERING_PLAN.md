@@ -103,36 +103,58 @@ Let me know if you want:
 
 You’re at the part where structure compounds — and it’ll get faster from here.
 di
-⏺ API Audit Summary
+## 📋 **IMPLEMENTATION STATUS UPDATE** (Current as of audit)
 
-  Based on my analysis of your apiRegistry.ts and frontend implementation, here are the backend APIs that need frontend 
-  connections:
+### ✅ **ARCHITECTURE FULLY IMPLEMENTED**:
+- **Auto-generated API types** ✅ - FastAPI OpenAPI → TypeScript types (replaces apiRegistry.ts)
+- **PortfolioCacheService** ✅ - User-scoped caching service  
+- **PortfolioManager** ✅ - High-level portfolio business logic
+- **IntentRegistry** ✅ - Decoupled action system (utils/NavigationIntents.ts)
+- **SessionServicesProvider** ✅ - Multi-user service isolation
+- **ServiceContainer** ✅ - Dependency injection container
+- **Features folder structure** ✅ - Organized by domain (portfolio/, analysis/, etc.)
+- **Hook layer** ✅ - React Query integration with TanStack Query
+- **Manager → Cache → API flow** ✅ - Complete service architecture
 
-  Missing Core Portfolio Management APIs (9 endpoints):
+### ✅ **CURRENTLY CONNECTED APIs** (6 endpoints):
+- **riskScore** ✅ - POST /api/risk-score
+- **analyze** ✅ - POST /api/analyze  
+- **portfolioAnalysis** ✅ - POST /api/portfolio-analysis
+- **performance** ✅ - POST /api/performance
+- **getPortfolio** ✅ - GET /api/portfolio
+- **refreshPrices** ✅ - POST /api/refresh-prices
 
-  1. health - /api/health (GET) - Health check
-  2. interpret - /api/interpret (POST) - AI interpretation
-  3. listPortfolios - /api/portfolios (GET) - List user portfolios
-  4. createPortfolio - /api/portfolios (POST) - Create portfolio
-  5. updatePortfolio - /api/portfolios/:name (PUT) - Replace portfolio
-  6. patchPortfolio - /api/portfolios/:name (PATCH) - Update portfolio
-  7. deletePortfolio - /api/portfolios/:name (DELETE) - Delete portfolio
-  8. riskSettings - /api/risk-settings (GET) - Get risk settings
-  9. updateRiskSettings - /api/risk-settings (POST) - Update risk settings
+### ❌ **STILL NEED FRONTEND INTEGRATION** (16 endpoints):
 
-  Missing Direct-Mode APIs (7 endpoints):
+#### **HIGH PRIORITY - Core Portfolio Management (9 endpoints):**
+1. **health** - GET /api/health - Health check
+2. **interpret** - POST /api/interpret - AI interpretation
+3. **listPortfolios** - GET /api/portfolios - List user portfolios
+4. **createPortfolio** - POST /api/portfolios - Create portfolio
+5. **updatePortfolio** - PUT /api/portfolios/:name - Replace portfolio
+6. **patchPortfolio** - PATCH /api/portfolios/:name - Update portfolio
+7. **deletePortfolio** - DELETE /api/portfolios/:name - Delete portfolio
+8. **riskSettings** - GET /api/risk-settings - Get risk settings
+9. **updateRiskSettings** - POST /api/risk-settings - Update risk settings
 
-  10. directPortfolio - /api/direct/portfolio (POST)
-  11. directStock - /api/direct/stock (POST)
-  12. directWhatIf - /api/direct/what-if (POST)
-  13. directOptimizeMinVariance - /api/direct/optimize/min-variance (POST)
-  14. directOptimizeMaxReturn - /api/direct/optimize/max-return (POST)
-  15. directPerformance - /api/direct/performance (POST)
-  16. directInterpret - /api/direct/interpret (POST)
+#### **MEDIUM PRIORITY - Direct-Mode APIs (7 endpoints):**
+10. **directPortfolio** - POST /api/direct/portfolio
+11. **directStock** - POST /api/direct/stock
+12. **directWhatIf** - POST /api/direct/what-if
+13. **directOptimizeMinVariance** - POST /api/direct/optimize/min-variance
+14. **directOptimizeMaxReturn** - POST /api/direct/optimize/max-return
+15. **directPerformance** - POST /api/direct/performance
+16. **directInterpret** - POST /api/direct/interpret
 
-  Currently Connected APIs ✅:
+### 🎯 **IMPLEMENTATION ROADMAP**:
+**Phase 1**: Portfolio CRUD (endpoints #3-7) - Enables full portfolio management
+**Phase 2**: Settings Management (endpoints #8-9) - User preferences  
+**Phase 3**: Health & AI (endpoints #1-2) - System monitoring and AI features
+**Phase 4**: Direct-Mode APIs (endpoints #10-16) - Advanced analysis features
 
-  - riskScore, analyze, portfolioAnalysis, performance, getPortfolio, refreshPrices
+---
+
+⏺ **ORIGINAL API AUDIT SUMMARY** (for reference)
 
   The most critical missing connections are the portfolio CRUD operations (#3-7) and risk settings management (#8-9), as
   these would enable full portfolio management functionality.
@@ -216,25 +238,28 @@ Then the low-risk “read-only” endpoints:
 Finally the direct-mode batch set (10-16).
 
 ────────────────────────────────────────
-2. Repeatable implementation recipe
+2. Implementation recipe (for remaining endpoints)
 ────────────────────────────────────────
-For *each* endpoint run the same four-step loop:
+**✅ ARCHITECTURE READY** - All infrastructure exists, just need to wire endpoints!
 
-STEP A – Contract entry  
- • Add/update object in `frontend/src/apiRegistry.ts`.
+For *each* remaining endpoint, follow this streamlined process:
 
-STEP B – Service + cache  
- • In `PortfolioCacheService` create helpers `get{Feature}` / `set{Feature}` / `clear{Feature}`.  
- • If the call is *mutating* (`create`, `update`, `delete`, `updateRiskSettings`) make the helper `async` and return the backend result; clear or invalidate affected cache keys.
+**STEP A – API Types** ✅ **AUTO-GENERATED**
+ • Types auto-generated from FastAPI OpenAPI spec (✅ no manual contract needed)
 
-STEP C – Manager method  
- • Add `createPortfolio`, `updatePortfolio`, etc. to `PortfolioManager`.  
- • Use the cache helper where it makes sense (read operations) or bypass for direct writes (mutations).  
- • On success update Zustand store or Repository accordingly.
+**STEP B – Service + cache** ✅ **INFRASTRUCTURE EXISTS**  
+ • In `PortfolioCacheService` create helpers `get{Feature}` / `set{Feature}` / `clear{Feature}` (✅ service exists)
+ • If mutating, make helper `async` and clear affected cache keys (✅ patterns established)
 
-STEP D – Hook & UI (optional for non-interactive endpoints)  
- • If the feature needs a UI button or form, scaffold `useCreatePortfolio`, `{Feature}ViewContainer`, etc. via the template.  
- • Otherwise expose the manager method directly to the component that needs it.
+**STEP C – Manager method** ✅ **INFRASTRUCTURE EXISTS**
+ • Add methods to `PortfolioManager` (✅ manager exists with established patterns)
+ • Use cache helper for reads, bypass for mutations (✅ patterns established)
+ • Update Zustand store or Repository on success (✅ store integration exists)
+
+**STEP D – Hook & UI** ✅ **INFRASTRUCTURE EXISTS**
+ • Create hooks using established `useQuery`/`useMutation` patterns (✅ React Query integrated)
+ • Wire to UI using existing container patterns (✅ container architecture exists)
+ • Use `IntentRegistry` for action decoupling (✅ intent system exists)
 
 ────────────────────────────────────────
 3. Claude prompt you can reuse
@@ -254,11 +279,11 @@ Endpoint details
   response schema: {…}
 
 Steps
-1. Update apiRegistry.ts
+1. Verify auto-generated types exist for endpoint (from FastAPI OpenAPI)
 2. Add cache helpers in PortfolioCacheService (get/set/clear)
 3. Extend PortfolioManager with {methodName}()
-4. If endpoint is read-only, add Zod type via adapters and a hook
-5. If endpoint is mutating, add a React Query mutation hook
+4. If endpoint is read-only, add adapter and useQuery hook
+5. If endpoint is mutating, add React Query mutation hook
 6. Add unit test for adapter + manager
 7. Create Storybook story if a new component is involved
 

@@ -1,113 +1,196 @@
 # Security Implementation Plan - Pre-Deployment Checklist
 
 ## Overview
-This document outlines critical security improvements needed before production deployment. Current architecture has solid foundations but lacks several standard web security layers.
+This document outlines remaining security improvements needed before production deployment. Current FastAPI architecture has excellent modern security foundations with comprehensive built-in protections.
 
-## Current Security Status ✅
-- ✅ Session-based authentication with Google OAuth
-- ✅ Rate limiting per user tier (public/registered/paid)
-- ✅ Database parameterized queries (SQL injection protection)
-- ✅ User data isolation via user_id scoping
-- ✅ Environment variable separation (secrets not in frontend)
-- ✅ CORS configured for development
+## Current Security Status ✅ (FastAPI Architecture)
+- ✅ **FastAPI Framework** with automatic Pydantic validation and OpenAPI docs
+- ✅ **Session-based authentication** with Google OAuth and database-backed sessions
+- ✅ **Rate limiting** per user tier (public/registered/paid) via SlowAPI middleware
+- ✅ **Input validation** via comprehensive Pydantic models (15+ response models)
+- ✅ **Database parameterized queries** (SQL injection protection)
+- ✅ **User data isolation** via user_id scoping and dependency injection
+- ✅ **Environment variable separation** (secrets not in frontend)
+- ✅ **CORS middleware** properly configured for React frontend
+- ✅ **Session middleware** with HTTP-only cookies and secure configuration
+- ✅ **Comprehensive logging** and audit trails for all user actions
 
 ## Critical Security Gaps to Address
 
 ### 🔴 HIGH PRIORITY (Must Fix Before Production)
 
-#### 1. CSRF Protection
+#### 1. CSRF Protection (FastAPI)
 **Issue**: State-changing operations vulnerable to Cross-Site Request Forgery
 **Risk**: Malicious sites could perform actions on behalf of authenticated users
 
 **Implementation:**
 ```python
 # Add to requirements.txt
-flask-wtf>=1.1.1
+fastapi-csrf-protect>=0.3.0
 
 # In app.py
-from flask_wtf.csrf import CSRFProtect
-csrf = CSRFProtect(app)
+from fastapi_csrf_protect import CsrfProtect
+from fastapi_csrf_protect.exceptions import CsrfProtectError
+
+# Configure CSRF protection
+@CsrfProtect.load_config
+def get_csrf_config():
+    return {
+        'secret_key': os.getenv("FLASK_SECRET_KEY", "dev-secret-key-change-in-production"),
+        'cookie_samesite': 'lax',
+        'cookie_secure': os.getenv('ENVIRONMENT') == 'production'
+    }
+
+# Add CSRF dependency to state-changing endpoints
+from fastapi import Depends
+csrf_protect = CsrfProtect()
 
 # Frontend: Include CSRF token in headers
-headers['X-CSRFToken'] = await getCsrfToken();
+headers['X-CSRF-Token'] = await getCsrfToken();
 ```
 
 **Affected Endpoints:**
 - `POST /api/portfolios` (create portfolio)
-- `PUT /api/portfolios/<name>` (update portfolio)
+- `PUT /api/portfolios/<name>` (update portfolio)  
 - `DELETE /api/portfolios/<name>` (delete portfolio)
 - `POST /api/risk-settings` (update risk settings)
+- `POST /auth/logout` (logout user)
 
-#### 2. Security Headers Middleware
+#### 2. Security Headers Middleware (FastAPI)
 **Issue**: Missing standard security headers
 **Risk**: XSS, clickjacking, MIME-sniffing attacks
 
 **Implementation:**
 ```python
 # Create utils/security_headers.py
-@app.after_request
-def add_security_headers(response):
-    response.headers['X-Content-Type-Options'] = 'nosniff'
-    response.headers['X-Frame-Options'] = 'DENY'
-    response.headers['X-XSS-Protection'] = '1; mode=block'
-    response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
-    response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'"
-    return response
+from fastapi import Request, Response
+from starlette.middleware.base import BaseHTTPMiddleware
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        
+        # Security headers
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        response.headers['X-Frame-Options'] = 'DENY'
+        response.headers['X-XSS-Protection'] = '1; mode=block'
+        response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+        
+        # HSTS for production
+        if os.getenv('ENVIRONMENT') == 'production':
+            response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+        
+        # CSP for React app
+        response.headers['Content-Security-Policy'] = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
+            "style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data: https:; "
+            "connect-src 'self' https://api.anthropic.com https://production.plaid.com;"
+        )
+        
+        return response
+
+# In app.py create_app() function
+app.add_middleware(SecurityHeadersMiddleware)
 ```
 
 ### 🟡 MEDIUM PRIORITY (Should Fix Before Production)
 
-#### 3. Input Validation & Sanitization
-**Issue**: Weak input validation using basic `.get()` methods
-**Risk**: Data corruption, injection attacks via malformed inputs
+#### 3. Python Dependencies Security Updates
+**Issue**: Potentially outdated security-sensitive Python packages
+**Risk**: Known vulnerabilities in cryptography, authentication, and web framework dependencies
 
 **Implementation:**
-```python
-# Add to requirements.txt
-marshmallow>=3.19.0
+```bash
+# Check current versions and security vulnerabilities
+pip list --outdated
+pip-audit  # Install with: pip install pip-audit
 
-# Create schemas/portfolio_schemas.py
-from marshmallow import Schema, fields, validate
+# Priority packages to verify and update:
+pip install --upgrade cryptography>=41.0.0  # Critical security updates
+pip install --upgrade anthropic>=0.60.0     # AI service security patches  
+pip install --upgrade flask>=2.3.0          # Web framework security fixes
+pip install --upgrade requests>=2.31.0      # HTTP client security updates
+pip install --upgrade google-auth>=2.22.0   # OAuth security improvements
 
-class CreatePortfolioSchema(Schema):
-    portfolio_name = fields.Str(required=True, validate=validate.Length(min=1, max=100))
-    holdings = fields.Dict(required=True, validate=validate.Length(min=1))
-    start_date = fields.Date(allow_none=True)
-    end_date = fields.Date(allow_none=True)
-
-# In routes, replace:
-data = request.json or {}
-portfolio_name = data.get('portfolio_name')
-
-# With:
-schema = CreatePortfolioSchema()
-try:
-    validated_data = schema.load(request.json)
-except ValidationError as e:
-    return jsonify_error_response(message="Invalid input", details=e.messages)
+# Verify no breaking changes in staging before production
+python -m pytest tests/ --verbose
 ```
 
-#### 4. Enhanced Session Security
-**Issue**: Basic session configuration
-**Risk**: Session hijacking, insufficient session management
+**Verification Steps:**
+1. Run `pip-audit` to identify known vulnerabilities
+2. Update packages in staging environment first
+3. Run full test suite to ensure compatibility
+4. Monitor application logs for any issues
+5. Update requirements.txt with pinned secure versions
+
+#### 4. Debug Code Cleanup
+**Issue**: Production debug statements and development code remnants
+**Risk**: Information disclosure, performance impact, potential security leaks
 
 **Implementation:**
+```bash
+# Find debug statements across codebase
+grep -r "print(" --include="*.py" . | grep -v "__pycache__" | grep -v ".git"
+grep -r "DEBUG" --include="*.py" . | grep -v "__pycache__" | grep -v ".git"
+grep -r "console.log" --include="*.js" --include="*.ts" --include="*.tsx" frontend/src/
+
+# Remove or replace debug statements:
+# Replace print() with proper logging
+# Remove console.log() statements  
+# Replace DEBUG=True with environment-based configuration
+# Remove development-only code paths
+```
+
+**Cleanup Checklist:**
+- [ ] Remove all `print()` statements (replace with `logger.debug()`)
+- [ ] Remove all `console.log()` statements from frontend
+- [ ] Replace hardcoded `DEBUG=True` with `os.getenv('DEBUG', 'false').lower() == 'true'`
+- [ ] Remove development-only code blocks and comments
+- [ ] Verify no sensitive data in debug output
+- [ ] Test that logging levels work correctly in production
+
+#### 5. Enhanced Session Security (Already Implemented ✅)
+**Status**: ✅ **ALREADY IMPLEMENTED** in FastAPI architecture
+
+**Current Implementation:**
 ```python
-# In app.py
-app.config.update(
-    SESSION_COOKIE_SECURE=True,  # HTTPS only
-    SESSION_COOKIE_HTTPONLY=True,  # No JS access
-    SESSION_COOKIE_SAMESITE='Lax',  # CSRF protection
-    PERMANENT_SESSION_LIFETIME=timedelta(hours=24)  # Auto logout
+# ✅ CONFIRMED: Secure session middleware already configured (app.py:875-879)
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=os.getenv("FLASK_SECRET_KEY", "dev-secret-key-change-in-production")
 )
 
-# Add session validation
-def validate_session_security():
-    # Check session age, IP consistency, etc.
-    pass
+# ✅ CONFIRMED: HTTP-only cookies and secure session handling in AuthService
+# ✅ CONFIRMED: Database-backed session management with automatic cleanup
+# ✅ CONFIRMED: Proper session expiration and validation
 ```
 
-#### 5. Error Information Disclosure Prevention
+**No Action Required** - Session security is properly implemented with FastAPI SessionMiddleware.
+
+#### 6. Production OpenAPI Documentation Security
+**Issue**: Interactive API documentation exposed in production
+**Risk**: Information disclosure about API structure and endpoints
+
+**Implementation:**
+```python
+# In app.py create_app() function
+def create_app():
+    # Disable docs in production
+    docs_url = None if os.getenv('ENVIRONMENT') == 'production' else "/docs"
+    redoc_url = None if os.getenv('ENVIRONMENT') == 'production' else "/redoc"
+    
+    app = FastAPI(
+        title="Risk Module API", 
+        version="2.0",
+        description="Portfolio risk analysis and optimization API",
+        docs_url=docs_url,
+        redoc_url=redoc_url
+    )
+```
+
+#### 7. Error Information Disclosure Prevention
 **Issue**: Error messages may leak internal information
 **Risk**: Information disclosure about system internals
 
@@ -202,13 +285,18 @@ def check_api_version():
 ## Testing Requirements
 
 ### Security Testing Checklist
-- [ ] CSRF token validation works
-- [ ] Security headers present in responses
-- [ ] Input validation rejects malformed data
-- [ ] Error messages don't leak sensitive info
-- [ ] CORS properly restricts origins
-- [ ] Sessions expire appropriately
-- [ ] Rate limiting functions correctly
+- [ ] **FastAPI CSRF protection** works with fastapi-csrf-protect
+- [ ] **Security headers middleware** present in all responses
+- [ ] **Pydantic input validation** rejects malformed data (✅ already implemented)
+- [ ] **Error messages** don't leak sensitive info
+- [ ] **CORS middleware** properly restricts origins (✅ already implemented)
+- [ ] **Sessions expire** appropriately (✅ already implemented)
+- [ ] **Rate limiting** functions correctly via SlowAPI (✅ already implemented)
+- [ ] **Python dependencies** have no known vulnerabilities (`pip-audit` passes)
+- [ ] **No debug statements** in production code
+- [ ] **Logging levels** configured correctly for production
+- [ ] **FastAPI OpenAPI docs** disabled in production (`docs_url=None`)
+- [ ] **Database session isolation** working correctly (✅ already implemented)
 
 ### Penetration Testing
 - [ ] OWASP ZAP scan
@@ -225,6 +313,9 @@ def check_api_version():
 - [ ] All secrets in environment variables (not code)
 - [ ] HTTPS certificate configured
 - [ ] Security headers configured in web server
+- [ ] Python dependencies updated to secure versions
+- [ ] All debug code removed from production build
+- [ ] Production logging levels configured (no DEBUG output)
 
 ### Monitoring Setup
 - [ ] Security event logging configured

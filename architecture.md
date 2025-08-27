@@ -25,7 +25,7 @@ The Risk Module is a comprehensive full-stack application combining a modular Py
 ### Architecture Evolution
 
 **BEFORE**: Monolithic `run_risk.py` (1217 lines) mixing CLI, business logic, and formatting
-**AFTER**: Enterprise-grade multi-user system with FastAPI backend, production-ready React dashboard, Result Objects architecture for complete CLI/API alignment, Pydantic response validation, comprehensive database architecture, and sophisticated testing infrastructure
+**AFTER**: Enterprise-grade multi-user system with FastAPI backend, production-ready React dashboard, comprehensive service architecture with dependency injection, Pydantic response models for type safety, multi-user database architecture with PostgreSQL, and sophisticated testing infrastructure
 
 ### Data Quality Assurance
 
@@ -245,18 +245,24 @@ The Risk Module implements a sophisticated service architecture that provides en
 ### Service Layer Components
 
 **Core Services** (`services/`):
-- **`PortfolioService`** - Portfolio analysis and risk calculations with caching
-- **`OptimizationService`** - Portfolio optimization (min variance, max return) with solver management
-- **`ScenarioService`** - What-if analysis and scenario modeling with proxy injection
-- **`StockService`** - Individual stock analysis with factor decomposition
-- **`ReturnsService`** - Expected returns management with auto-generation capabilities
-- **`AuthService`** - Multi-provider authentication (Google, GitHub, Apple)
-- **`ServiceManager`** - Central service orchestration and dependency injection
+- **`portfolio_service.py`** - Portfolio analysis and risk calculations with caching
+- **`optimization_service.py`** - Portfolio optimization (min variance, max return) with solver management
+- **`scenario_service.py`** - What-if analysis and scenario modeling with proxy injection
+- **`stock_service.py`** - Individual stock analysis with factor decomposition
+- **`returns_service.py`** - Expected returns management with auto-generation capabilities
+- **`auth_service.py`** - Multi-provider authentication (Google, GitHub, Apple)
+- **`service_manager.py`** - Central service orchestration and dependency injection
 
 **Specialized Services**:
-- **`AsyncService`** - Non-blocking portfolio operations for web interface
-- **`FactorProxyService`** - Dynamic factor proxy assignment and validation
-- **`ValidationService`** - Data validation and schema compliance checking
+- **`async_service.py`** - Non-blocking portfolio operations for web interface
+- **`factor_proxy_service.py`** - Dynamic factor proxy assignment and validation
+- **`validation_service.py`** - Data validation and schema compliance checking
+- **`cache_mixin.py`** - ServiceCacheMixin for intelligent caching with TTL
+- **`claude/`** - Claude AI integration services
+  - **`chat_service.py`** - AI chat and conversation management
+  - **`function_executor.py`** - Claude function execution engine
+- **`portfolio/`** - Portfolio-specific services
+  - **`context_service.py`** - Portfolio context management
 
 **Service Capabilities**:
 - **ServiceCacheMixin** - Intelligent caching with TTL and invalidation
@@ -337,10 +343,11 @@ The Risk Module has migrated from Flask to **FastAPI** for enhanced performance,
 ### FastAPI Implementation
 
 **Core Benefits**:
-- **High Performance**: Async/await support for non-blocking request handling
-- **Automatic Documentation**: Interactive API docs at `/docs` with OpenAPI 3.0 schema
+- **High Performance**: Async/await support for non-blocking request handling with uvicorn
+- **Automatic Documentation**: Interactive API docs at `/docs` with OpenAPI 3.0 schema  
 - **Type Safety**: Python type hints for request/response validation
 - **Async Operations**: Support for concurrent database and API operations
+- **Modern Architecture**: Replaces Flask with FastAPI for better performance and developer experience
 
 **Migration Architecture**:
 ```python
@@ -357,43 +364,48 @@ app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
 
 ### Pydantic Response Models
 
-**Comprehensive Response Validation** (`models/response_models.py`):
+**Comprehensive Response Validation** (`models/` directory):
 
 **Direct API Models** (Stateless analysis):
-- `DirectPortfolioResponse` - Direct portfolio analysis
-- `DirectStockResponse` - Individual stock analysis  
-- `DirectPerformanceResponse` - Performance measurement
-- `DirectOptimizeMinVarResponse` - Minimum variance optimization
-- `DirectOptimizeMaxRetResponse` - Maximum return optimization
-- `DirectWhatIfResponse` - Scenario analysis
-- `DirectInterpretResponse` - AI interpretation
+- `DirectPortfolioResponse` (`directportfolioresponse.py`) - Direct portfolio analysis
+- `DirectStockResponse` (`directstockresponse.py`) - Individual stock analysis  
+- `DirectPerformanceResponse` (`directperformanceresponse.py`) - Performance measurement
+- `DirectOptimizeMinVarResponse` (`directoptimizeminvarresponse.py`) - Minimum variance optimization
+- `DirectOptimizeMaxRetResponse` (`directoptimizemaxretresponse.py`) - Maximum return optimization
+- `DirectWhatIfResponse` (`directwhatifresponse.py`) - Scenario analysis
+- `DirectInterpretResponse` (`directinterpretresponse.py`) - AI interpretation
 
 **Database API Models** (Stateful with user sessions):
-- `AnalyzeResponse` - Portfolio risk analysis results
-- `PerformanceResponse` - Performance metrics and benchmarking
-- `RiskScoreResponse` - Credit-style risk scoring
-- `InterpretResponse` - AI-powered portfolio insights
-- `MinVarianceResponse` - Portfolio optimization results
-- `MaxReturnResponse` - Return optimization with constraints
-- `WhatIfResponse` - Scenario modeling results
+- `AnalyzeResponse` (`analyzeresponse.py`) - Portfolio risk analysis results
+- `PerformanceResponse` (`performanceresponse.py`) - Performance metrics and benchmarking
+- `RiskScoreResponse` (`riskscoreresponse.py`) - Credit-style risk scoring
+- `InterpretResponse` (`interpretresponse.py`) - AI-powered portfolio insights
+- `MinVarianceResponse` (`minvarianceresponse.py`) - Portfolio optimization results
+- `MaxReturnResponse` (`maxreturnresponse.py`) - Return optimization with constraints
+- `WhatIfResponse` (`whatifresponse.py`) - Scenario modeling results
 
 **System Models**:
-- `HealthResponse` - API health check status
-- `RiskSettingsResponse` - Risk configuration management
-- `PortfoliosListResponse` - User portfolio management
-- `CurrentPortfolioResponse` - Active portfolio details
+- `HealthResponse` (`healthresponse.py`) - API health check status
+- `RiskSettingsResponse` (`risksettingsresponse.py`) - Risk configuration management
+- `PortfoliosListResponse` (`portfolioslistresponse.py`) - User portfolio management
+- `CurrentPortfolioResponse` (`currentportfolioresponse.py`) - Active portfolio details
+- `PortfolioAnalysisResponse` (`portfolioanalysisresponse.py`) - Comprehensive analysis results
 
-**Auto-Generated Models**:
+**Modular Response Architecture**:
 ```python
-# Pydantic models auto-generated from Result Objects
-@classmethod
-def get_pydantic_model(cls):
-    """Generate Pydantic model from to_api_response() structure"""
-    sample_response = cls.create_sample().to_api_response()
-    return generate_pydantic_model_from_response(
-        sample_response, 
-        f"{cls.__name__}Response"
-    )
+# Each response model is a separate file for maintainability
+# models/analyzeresponse.py
+class AnalyzeResponse(BaseModel):
+    """Portfolio analysis response model"""
+    risk_results: Dict[str, Any]
+    portfolio_metadata: Dict[str, Any]
+    analysis_metadata: Dict[str, Any]
+    # ... additional fields
+
+# models/response_models.py - Central registry
+from .analyzeresponse import AnalyzeResponse
+from .performanceresponse import PerformanceResponse
+# ... imports for all response models
 ```
 
 **Response Validation Toggle**:

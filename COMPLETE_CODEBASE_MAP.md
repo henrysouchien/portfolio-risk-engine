@@ -1,7 +1,7 @@
 # Complete Risk Module Codebase Map
 
 ## Overview
-This document provides a comprehensive map of the entire risk_module codebase, including all directories (even those in .gitignore). Last updated on 2025-08-21 to reflect current codebase state, FastAPI migration completion, database structure reorganization, recent API refactoring initiatives, and the integration of Vercel AI SDK for enhanced chat functionality.
+This document provides a comprehensive map of the entire risk_module codebase, including all directories (even those in .gitignore). Last updated on 2025-08-27 to reflect current codebase state, FastAPI migration completion, database structure reorganization, recent API refactoring initiatives, modern UI integration enhancements, and comprehensive frontend architecture maturation.
 
 ## Directory Structure with Python File Counts
 
@@ -31,7 +31,7 @@ Core application files and utilities:
 
 ### Core Application Layers
 
-#### `/models/` (23 Python files) - Pydantic Response Models
+#### `/models/` (22 Python files) - Pydantic Response Models
 FastAPI response validation models for API endpoints:
 - Auto-generated Pydantic models for all API responses
 - Type-safe response validation and documentation
@@ -92,7 +92,7 @@ Data input and management:
 - `file_manager.py` - File system management
 - `portfolio_manager.py` - Portfolio data management
 - `returns_calculator.py` - Returns calculation
-- `risk_limits_manager.py` - Risk limits configuration management (renamed from risk_config.py)
+- `risk_limits_manager.py` - Risk limits configuration management
 - `exceptions.py` - Custom exception definitions
 
 #### `/core/` (10 Python files) - Core Business Objects
@@ -133,20 +133,24 @@ Production-ready React frontend application with comprehensive architecture:
     - `/services/` - APIService, AuthService, ClaudeService, PlaidService
     - `/types/` - TypeScript type definitions
   - **`/components/`** - UI components organized by feature
-    - `/apps/` - Complete app experiences (LandingApp, DashboardApp)
-    - `/auth/` - Authentication components
+    - `/apps/` - Complete app experiences (LandingApp, DashboardApp, ModernDashboardApp)
+    - `/auth/` - Authentication components (GoogleSignInButton, LandingPage)
     - `/chat/` - AI chat integration with streaming capabilities
-      - `AIChat.tsx` - Modal chat interface
-      - `ChatContext.tsx` - Shared chat state management
-      - `ChatCore.tsx` - Core chat functionality and UI
-      - `RiskAnalysisChat.tsx` - Specialized risk analysis chat
-      - `CHAT_ARCHITECTURE.md` - Chat system documentation
-      - `/shared/` - Shared chat components
-    - `/dashboard/` - Dashboard views and containers
-    - `/layout/` - Layout components including ChatInterface
-    - `/plaid/` - Plaid integration components
+      - `AIChat.tsx` - Modal chat interface with floating design
+      - `ChatContext.tsx` - Shared chat state management across interfaces
+      - `shared/ChatCore.tsx` - Centralized chat functionality eliminating code duplication
+      - `RiskAnalysisChat.tsx` - Legacy specialized risk analysis chat
+      - `/shared/` - Shared chat components and utilities
+    - `/dashboard/` - Dashboard views and containers with modern architecture
+      - `/layout/` - Dashboard layout components (DashboardLayout.tsx)
+      - `/shared/` - Shared dashboard components (ErrorBoundary, ui components)
+      - `/views/` - Feature-specific views and containers
+      - `/views/modern/` - Modern UI view implementations (RiskAnalysisModernContainer, etc.)
+    - `/layout/` - Page layout components including ChatInterface
+    - `/plaid/` - Plaid integration components (PlaidLinkButton, ConnectedAccounts)
     - `/portfolio/` - Portfolio management components
     - `/shared/` - Reusable UI components
+    - `/ui/` - Shadcn/ui and modern component library components
   - **`/features/`** - Feature-organized hooks and logic
     - `/analysis/` - Factor analysis and performance hooks (with formatters)
     - `/auth/` - Authentication flow hooks
@@ -162,7 +166,16 @@ Production-ready React frontend application with comprehensive architecture:
   - **`/stores/`** - Zustand state management
   - **`/providers/`** - React context providers
   - **`/router/`** - App orchestration
-  - **`/utils/`** - Utilities and adapters
+  - **`/utils/`** - Utilities and navigation helpers
+  - **`/adapters/`** - Data transformation adapters
+    - `AnalysisReportAdapter.ts` - Analysis report data transformation
+    - `PerformanceAdapter.ts` - Performance metrics transformation  
+    - `PortfolioOptimizationAdapter.ts` - Portfolio optimization data transformation
+    - `PortfolioSummaryAdapter.ts` - Portfolio summary transformation
+    - `RiskAnalysisAdapter.ts` - Risk analysis data transformation
+    - `RiskSettingsAdapter.ts` - Risk settings transformation
+    - `StockAnalysisAdapter.ts` - Stock analysis transformation
+    - `WhatIfAnalysisAdapter.ts` - What-if scenario analysis transformation
 - Testing infrastructure:
   - `/coverage/` - Code coverage reports
   - `/examples/` - Usage examples
@@ -240,27 +253,47 @@ Development tools:
 ### Documentation
 
 #### `/docs/`
-- `API_REFERENCE.md` - API documentation
-- `DATA_SCHEMAS.md` - Data schema documentation
-- `VERCEL_AI_SDK_FULL_INTEGRATION_GUIDE.md` - Comprehensive Vercel AI SDK integration guide
-- **`/interfaces/`** - Interface documentation
-- **`/planning/`** - Planning documents
+- **Core documentation:**
+  - `API_REFERENCE.md` - API documentation
+  - `DATA_SCHEMAS.md` - Data schema documentation
+  - `DEVELOPER_ONBOARDING.md` - Developer onboarding guide
+  - `COMPREHENSIVE_TEST_REPORT.md` - Complete testing documentation
+- **Frontend documentation:**
+  - `FRONTEND_DATA_FLOW_GUIDE.md` - Frontend data flow guide
+  - `FRONTEND_ADD_NEW_API_TEMPLATE.md` - Template for adding new APIs
+  - `MODERN_UI_COMPONENT_TEMPLATE.md` - Modern UI component templates
+  - `TYPESCRIPT_TYPE_GENERATION.md` - TypeScript type generation guide
+- **Architecture documentation:**
+  - `ADAPTER_PATTERNS.md` - Adapter pattern documentation
+  - `CHAT_MIGRATION_GUIDE.md` - Chat system migration guide
+  - `REFACTORING_TOOLKIT.md` - Refactoring toolkit
+  - `interface_alignment_table.md` - Interface alignment reference
+- **Subdirectories:**
+  - **`/ideas/`** - Architecture concepts and AI tutor designs
+  - **`/planning/`** - Planning documents including Vercel AI SDK integration guide
+  - **`/schema_samples/`** - API and CLI result samples for reference
 
 #### `/completed/` 
 Completed feature documentation and plans including:
-- `API_DIRECT_INTERPRET_REFACTOR_PLAN.md` - API direct interpret endpoint refactor plan
-- `API_DIRECT_PERFORMANCE_REFACTOR_PLAN.md` - API direct performance endpoint refactor plan  
-- `API_DIRECT_WHAT_IF_REFACTOR_PLAN.md` - API direct what-if endpoint refactor plan
-- `API_PERFORMANCE_ANALYSIS_REFACTOR_PLAN.md` - API performance analysis refactor plan
-- `API_RISK_SCORE_REFACTORING_PLAN.md` - API risk score refactor plan
-- `DIRECT_API_REFACTOR_TEMPLATE.md` - Template for direct API refactoring
-- `MIN_VARIANCE_REFACTORING_PLAN.md` - Minimum variance optimization refactor plan
-- `STOCK_ANALYSIS_REFACTOR_PLAN.md` - Stock analysis refactor plan
-- `api_direct_max_return_refactor_plan.md` - Maximum return optimization refactor plan
-- `RISK_LIMITS_MANAGER_REFACTOR_HANDOFF.md` - Risk limits manager refactor documentation
-- Various phase implementation reports and architectural plans
-- Frontend refactoring completion reports
-- Multi-user implementation documentation
+- **Recent additions:**
+  - `FRONTEND_MODERN_UI_INTEGRATION_PLAN.md` - Modern UI integration completion
+  - `API_MODERNIZATION_ROADMAP.md` - API modernization roadmap
+  - `OPENAPI_MIGRATION_PLAN.md` - OpenAPI migration planning
+  - `INTEGRATION_GUIDE.md` - Integration guide documentation
+- **Core refactoring plans:**
+  - Various API refactoring plans (interpret, performance, what-if, risk score)
+  - `DIRECT_API_REFACTOR_TEMPLATE.md` - Template for direct API refactoring
+  - `MIN_VARIANCE_REFACTORING_PLAN.md` - Minimum variance optimization refactor plan
+  - `STOCK_ANALYSIS_REFACTOR_PLAN.md` - Stock analysis refactor plan
+- **Architecture documentation:**
+  - `FRONTEND_DATA_FLOW_AUDIT_REPORT.md` - Frontend data flow audit
+  - `RESULT_OBJECT_AUDIT_REPORT.md` - Result objects architecture audit
+  - `SECURITY_AUDIT_REPORT.md` - Security audit report
+- **Phase implementation documentation:**
+  - `/phase_1/` - Comprehensive phase 1 implementation documentation (60+ files)
+  - Various phase implementation reports and architectural plans
+  - Frontend refactoring completion reports
+  - Multi-user implementation documentation
 
 #### `/admin/` (2 Python files)
 - `manage_reference_data.py` - Reference data management tool
@@ -385,8 +418,8 @@ Legacy source files:
 - Database connection strings and configuration files
 
 ## File Count Summary
-- Total Python files: 712 (as of 2025-08-16)
-- Core application: ~76 files (19 root + 18 services + 6 routes + 10 utils + 7 inputs + 10 core + 23 models + database)
+- Total Python files: 718 (as of 2025-08-27)
+- Core application: ~72 files (19 root + 18 services + 6 routes + 10 utils + 7 inputs + 10 core + 22 models + 4 database)
 - Tests: Comprehensive suite with 50+ test files across multiple directories
 - Archive/Backup: Extensive files across multiple directories
 - Prototype: 17+ files (Python + Jupyter notebooks)
@@ -395,7 +428,7 @@ Legacy source files:
 - Admin tools: 2 files
 - Database: Centralized infrastructure with migration support
 
-## Architecture Changes Since Last Update (2025-08-21)
+## Architecture Changes Since Last Update (2025-08-27)
 
 ### FastAPI Migration Completion (August 2025):
 1. **Framework Migration**: Complete migration from Flask to FastAPI
@@ -420,18 +453,20 @@ Legacy source files:
 3. **Migration Management**: Structured `/database/migrations/` with SQL migration files
 4. **Import Compatibility**: Backward-compatible imports via `database/__init__.py`
 5. **Schema Centralization**: `database/schema.sql` for centralized schema management
-### Frontend Architecture Maturation (Recent Changes):
-1. **Chassis Pattern Implementation**: Complete service layer infrastructure with managers and navigation
-2. **Component Architecture**: Well-organized feature-based component structure with apps, auth, dashboard, and shared components
-3. **Hook-Based Data Layer**: Feature-organized hooks for analysis, auth, external integrations, portfolio, risk, and utilities
-4. **State Management**: Comprehensive Zustand stores for auth, portfolio, and UI state
-5. **Service Layer**: Production-ready services including APIService, AuthService, ClaudeService, and PlaidService
-6. **AI Chat Integration**: Comprehensive chat system with streaming capabilities
-   - Modal and full-screen chat interfaces
-   - Shared conversation state via ChatContext
-   - Integration with Vercel AI SDK for enhanced UX
-   - File upload support and message management
-   - Real-time streaming responses with Claude AI
+6. **Additional Migration Files**: New user ID migration files for expected returns table
+### Frontend Architecture Maturation (August 2025):
+1. **Modern UI Integration**: Complete ModernDashboardApp implementation with enhanced component architecture
+2. **Chassis Pattern Implementation**: Complete service layer infrastructure with managers, services, and navigation
+3. **Component Architecture**: Well-organized feature-based component structure with apps, auth, dashboard, and shared components
+4. **Advanced Data Adapters**: Comprehensive adapter system for data transformation (AnalysisReportAdapter, PerformanceAdapter, etc.)
+5. **Enhanced Hook Architecture**: Feature-organized hooks with formatters for analysis, portfolio, risk score, and external integrations
+6. **Radix UI Integration**: Complete Radix UI component library integration for accessible, modern UI components
+7. **AI Chat System Enhancement**: Advanced streaming chat system with:
+   - Modal and full-screen chat interfaces (AIChat, ChatInterface)
+   - Centralized ChatCore component eliminating code duplication
+   - Enhanced ChatContext for unified state management
+   - Vercel AI SDK integration (@ai-sdk/react, @ai-sdk/anthropic)
+   - Real-time streaming with status management and error handling
 
 ### Backend Service Layer Enhancements:
 1. **Returns Service Addition**: New `returns_service.py` for centralized return calculation logic
@@ -446,13 +481,17 @@ Legacy source files:
 3. **Schema Management**: Enhanced schema inventory and validation systems
 4. **Template-Based Refactoring**: Standardized refactoring templates for consistency
 
-### Chat System Enhancement (August 2025):
-1. **Vercel AI SDK Integration**: Added `@ai-sdk/react` and `@ai-sdk/anthropic` packages for enhanced chat functionality
-2. **Streaming Implementation**: Real-time token-by-token streaming for improved user experience
-3. **Unified Chat Architecture**: Modal and full-screen interfaces sharing conversation state
-4. **Advanced Chat Features**: Message editing, regeneration, file uploads, and smart actions
-5. **Context-Aware AI**: Portfolio-specific AI responses with integrated analysis tools
-6. **Documentation**: Comprehensive chat architecture documentation including integration guides
+### Modern UI and Component Enhancement (August 2025):
+1. **ModernDashboardApp**: Complete modern dashboard implementation with enhanced navigation and UI
+2. **Enhanced Component Structure**: Modern view containers (RiskAnalysisModernContainer, ScenarioAnalysisContainer, StrategyBuilderContainer)
+3. **Comprehensive Adapter System**: Complete data transformation layer with specialized adapters for all data types
+4. **Advanced Service Layer**: Enhanced services including StockManager, RiskManagerService, StockCacheService, PlaidPollingService
+5. **Radix UI Component Library**: Full integration with accessible UI components (accordion, dialog, dropdown, toast, etc.)
+6. **Chat System Enhancement**: 
+   - Vercel AI SDK integration with @ai-sdk/react and @ai-sdk/anthropic
+   - Centralized ChatCore component reducing code duplication
+   - Enhanced streaming capabilities with real-time status management
+   - Unified ChatContext for seamless state management across interfaces
 
 ### Testing Infrastructure Expansion:
 1. **Comprehensive Test Report**: New COMPREHENSIVE_TEST_REPORT.md documenting full system validation
