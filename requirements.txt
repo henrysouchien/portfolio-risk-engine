@@ -39,6 +39,7 @@ openai>=1.0.0
 
 # Financial Data Integration
 plaid-python>=9.0.0
+snaptrade-python-sdk>=5.0.0
 
 # Cloud Storage (Optional)
 boto3>=1.26.0

@@ -2050,6 +2050,11 @@ class PerformanceResult:
     # Additional fields for CLI-API parity
     _allocations: Optional[Dict[str, Any]] = None
     
+    # Data quality information
+    excluded_tickers: Optional[List[str]] = None
+    warnings: Optional[List[str]] = None
+    analysis_notes: Optional[str] = None
+    
     @classmethod  
     def from_core_analysis(cls,
                           performance_metrics: Dict[str, Any],
@@ -2161,7 +2166,11 @@ class PerformanceResult:
             portfolio_name=portfolio_summary.get("name"), # Portfolio name
             portfolio_file=portfolio_summary.get("file"), # Portfolio file
             # Additional fields for position counting and API compatibility
-            _allocations=allocations # Portfolio allocation data for position analysis
+            _allocations=allocations, # Portfolio allocation data for position analysis
+            # Data quality information
+            excluded_tickers=performance_metrics.get("excluded_tickers"), # Tickers excluded due to insufficient data
+            warnings=performance_metrics.get("warnings"), # Data quality warnings
+            analysis_notes=performance_metrics.get("analysis_notes") # Analysis notes about data quality
         )
     
     def get_summary(self) -> Dict[str, Any]:
@@ -2415,7 +2424,11 @@ class PerformanceResult:
             "key_insights": self._generate_key_insights(), # Key insights (benchmark comparison, market sensitivity, risk-adjusted returns, win rate)
             "display_formatting": self._get_display_formatting_metadata(), # Display formatting metadata    
             "enhanced_key_insights": self._generate_enhanced_key_insights(), # Enhanced key insights
-            "allocations": _convert_to_json_serializable(self._allocations) if self._allocations else None # Portfolio allocation data for position analysis
+            "allocations": _convert_to_json_serializable(self._allocations) if self._allocations else None, # Portfolio allocation data for position analysis
+            # Data quality information
+            "excluded_tickers": self.excluded_tickers, # Tickers excluded due to insufficient data
+            "warnings": self.warnings, # Data quality warnings
+            "analysis_notes": self.analysis_notes # Analysis notes about data quality
         }
 
 

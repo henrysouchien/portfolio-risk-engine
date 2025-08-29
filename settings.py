@@ -71,3 +71,90 @@ MAX_SINGLE_FACTOR_LOSS = {
     "portfolio": -0.08,  # Portfolio-level factor loss limit (8%)
 }
 
+# SnapTrade Configuration
+import os
+
+SNAPTRADE_CLIENT_ID = os.getenv("SNAPTRADE_CLIENT_ID", "")
+SNAPTRADE_CONSUMER_KEY = os.getenv("SNAPTRADE_CONSUMER_KEY", "")
+SNAPTRADE_BASE_URL = os.getenv("SNAPTRADE_BASE_URL", "https://api.snaptrade.com/api/v1")
+SNAPTRADE_ENVIRONMENT = os.getenv("SNAPTRADE_ENVIRONMENT", "production")  # or "sandbox"
+ENABLE_SNAPTRADE = True  # Always enabled
+
+# SnapTrade Rate Limits
+SNAPTRADE_RATE_LIMIT = int(os.getenv("SNAPTRADE_RATE_LIMIT", "250"))  # requests per minute
+SNAPTRADE_HOLDINGS_DAILY_LIMIT = int(os.getenv("SNAPTRADE_HOLDINGS_DAILY_LIMIT", "4"))  # per user per day
+
+# SnapTrade Webhook Configuration
+SNAPTRADE_WEBHOOK_SECRET = os.getenv("SNAPTRADE_WEBHOOK_SECRET", "")
+SNAPTRADE_WEBHOOK_URL = os.getenv("SNAPTRADE_WEBHOOK_URL", "")
+
+# Multi-Provider Configuration
+PROVIDER_PRIORITY_CONFIG = {
+    # Provider priority for metadata (quantities always summed)
+    # Higher number = higher priority for cost_basis, account_id, etc.
+    "snaptrade": int(os.getenv("SNAPTRADE_PRIORITY", "3")),  # Highest - real-time brokerage data
+    "plaid": int(os.getenv("PLAID_PRIORITY", "2")),          # Medium - aggregated data  
+    "manual": int(os.getenv("MANUAL_PRIORITY", "1")),        # Lowest - user input
+}
+
+# Provider Display Configuration
+PROVIDER_DISPLAY_CONFIG = {
+    "snaptrade": {
+        "name": "SnapTrade",
+        "description": "Direct brokerage connections (Fidelity, Schwab, etc.)",
+        "icon": "snaptrade",
+        "color": "#4F46E5",
+        "features": ["real_time_data", "all_brokerages", "trading"]
+    },
+    "plaid": {
+        "name": "Plaid",
+        "description": "Bank and investment account aggregation",
+        "icon": "plaid", 
+        "color": "#00D4AA",
+        "features": ["bank_accounts", "aggregation", "read_only"]
+    },
+    "manual": {
+        "name": "Manual Entry",
+        "description": "Manually entered positions and accounts",
+        "icon": "manual",
+        "color": "#6B7280",
+        "features": ["custom_portfolios", "flexibility"]
+    }
+}
+
+# Provider Routing Configuration
+PROVIDER_ROUTING_CONFIG = {
+    "enabled": True,
+    "default_timeout": 30,  # seconds
+    "max_fallback_time": 60,  # seconds
+    "health_check_interval": 300,  # seconds
+    "error_rate_threshold": 0.3,  # 30% error rate triggers degradation
+}
+
+# Institution Routing Mappings
+# Maps institution slugs to supported providers
+INSTITUTION_PROVIDER_MAPPING = {
+    # Major brokerages - SnapTrade preferred
+    "charles_schwab": ["snaptrade", "plaid"],
+    "fidelity": ["snaptrade", "plaid"], 
+    "td_ameritrade": ["snaptrade", "plaid"],
+    "etrade": ["snaptrade", "plaid"],
+    "interactive_brokers": ["snaptrade", "plaid"],
+    "vanguard": ["snaptrade", "plaid"],
+    "merrill_edge": ["snaptrade", "plaid"],
+    
+    # Banks - Plaid preferred
+    "chase": ["plaid"],
+    "bank_of_america": ["plaid"],
+    "wells_fargo": ["plaid"],
+    "citibank": ["plaid"],
+    "us_bank": ["plaid"],
+    
+    # Investment platforms
+    "robinhood": ["snaptrade", "plaid"],
+    "webull": ["snaptrade"],
+    "m1_finance": ["plaid"],
+    "betterment": ["plaid"],
+    "wealthfront": ["plaid"],
+}
+

@@ -175,7 +175,9 @@ This document contains all the backend enhancements needed to support the comple
 - ✅ `RiskSettingsViewModern.tsx` - **0 TODOs** (fully integrated)
 
 ### Total Enhancement Items
-**75 backend enhancement items** identified across 6 adapter categories:
+**150+ backend enhancement items** identified across 12 comprehensive categories:
+
+**Original Adapter Categories (75 items):**
 - **StockAnalysisAdapter**: 25 enhancements (stock search, market data, risk calculations, fundamentals, technical analysis)
 - **PortfolioSummaryAdapter**: 11 enhancements (holdings enhancement, risk analytics per holding)
 - **OptimizationAdapter**: 8 enhancements (risk metrics, strategy comparison, templates & management)
@@ -183,8 +185,203 @@ This document contains all the backend enhancements needed to support the comple
 - **UI Component Integration**: 6 enhancements (mock data components, system integration)
 - **PerformanceAdapter**: 4 minor enhancements (attribution analysis - backend features, not adapter issues)
 
+**Advanced Integration Categories (75+ additional items):**
+- **Cross-Component Data Integration**: 10+ enhancements (portfolio context propagation, cross-view dependencies)
+- **Real-Time Data Orchestration**: 12+ enhancements (WebSocket integration, notifications & alerts)
+- **User Experience Data**: 8+ enhancements (dashboard personalization, view state persistence)
+- **Advanced Data Relationships**: 12+ enhancements (portfolio comparison, deep analytics, custom factors)
+- **AI Context Integration**: 8+ enhancements (portfolio awareness, chart data access, decision tracking)
+- **Advanced Visualization Data**: 12+ enhancements (correlation heatmaps, factor radar charts, attribution waterfalls)
+- **State Management Enhancements**: 13+ enhancements (cross-view synchronization, error recovery)
+
 ### New Categories Added
 - **WhatIfAnalysisAdapter Enhancements** (new category)
 - **UI Component Integration** (new category)
 - **Basic Stock Search & Metadata** (new subcategory under StockAnalysisAdapter)
 - **Market Data Integration** (enhanced subcategory under StockAnalysisAdapter)
+- **Cross-Component Data Integration** (new category - added below)
+- **Real-Time Data Orchestration** (new category - added below)
+- **User Experience Data** (new category - added below)
+- **Advanced Data Relationships** (new category - added below)
+- **AI Context Integration** (new category - added below)
+- **Advanced Visualization Data** (new category - added below)
+- **State Management Enhancements** (new category - added below)
+
+## Cross-Component Data Integration
+
+### Portfolio Context Propagation
+- [ ] **Holdings-to-Risk synchronization**: Holdings changes should trigger real-time risk recalculation across all views
+- [ ] **Stock research portfolio integration**: Selected stock in StockLookup should show portfolio context (current holdings, weight, etc.)
+- [ ] **Strategy-to-scenario integration**: Strategy created in StrategyBuilder should be auto-available in ScenarioAnalysis templates
+- [ ] **Risk threshold propagation**: Risk limit changes should trigger real-time updates across all risk displays (Holdings, Performance, Overview)
+- [ ] **Benchmark sharing**: Performance benchmarks should be shared between Performance and Scenario views
+- [ ] **Portfolio optimization suggestions**: Stock research results should inform portfolio optimization recommendations
+
+### Cross-View Data Dependencies
+- [ ] **Portfolio modification cascading**: When portfolio composition changes, update dependent views:
+  - [ ] Risk metrics recalculation (RiskAnalysis view)
+  - [ ] Performance attribution updates (Performance view)
+  - [ ] Asset allocation rebalancing (Overview view)
+  - [ ] Scenario impact recalculation (ScenarioAnalysis view)
+
+## Real-Time Data Orchestration
+
+### WebSocket Integration
+- [ ] **Live price feed orchestration**: WebSocket streams that simultaneously update:
+  - [ ] Holdings view (current prices, daily changes)
+  - [ ] StockLookup view (real-time stock prices)
+  - [ ] Performance view (live portfolio valuation)
+  - [ ] Overview view (total portfolio value, daily P&L)
+- [ ] **Market event broadcasting**: Real-time market events that trigger updates:
+  - [ ] Volatility spike alerts across all risk displays
+  - [ ] Earnings announcements affecting portfolio holdings
+  - [ ] Market close/open status updates
+
+### Real-Time Notifications & Alerts
+- [ ] **Risk limit breach notifications**: Real-time alerts that appear across all views when:
+  - [ ] Portfolio risk exceeds user-defined thresholds
+  - [ ] Individual position risk becomes excessive
+  - [ ] Correlation limits are breached
+  - [ ] Sector concentration exceeds limits
+- [ ] **Performance milestone alerts**: Real-time notifications for:
+  - [ ] Portfolio hits new high/low watermarks
+  - [ ] Benchmark outperformance/underperformance thresholds
+  - [ ] Sharpe ratio improvements/deterioration
+
+## User Experience Data
+
+### Dashboard Personalization
+- [ ] **Custom metric preferences**: Backend storage for user-specific display preferences:
+  - [ ] Which risk metrics to show/hide per view
+  - [ ] Preferred chart types and time periods
+  - [ ] Default benchmark selections
+  - [ ] Risk limit threshold customization per user
+- [ ] **Saved custom benchmarks**: User-defined benchmark compositions and historical tracking
+- [ ] **Personal watchlists**: Cross-view integration of user watchlists:
+  - [ ] Watchlist stocks available in StockLookup autocomplete
+  - [ ] Watchlist integration with Holdings view (potential additions)
+  - [ ] Watchlist performance tracking in Performance view
+- [ ] **Custom alert thresholds**: Per-user configurable alerts for:
+  - [ ] Risk metric thresholds (VaR, volatility, drawdown)
+  - [ ] Performance milestones (returns, Sharpe ratio)
+  - [ ] Position size limits and concentration warnings
+
+### View State Persistence
+- [ ] **View layout preferences**: Save user's preferred view configurations:
+  - [ ] Chart display preferences (line vs bar, time periods)
+  - [ ] Table sorting and column visibility preferences
+  - [ ] Dashboard widget arrangements and sizes
+
+## Advanced Data Relationships
+
+### Portfolio Comparison Features
+- [ ] **Side-by-side portfolio analysis**: Multi-portfolio comparison capabilities:
+  - [ ] Risk metric comparisons across portfolios
+  - [ ] Performance attribution side-by-side analysis
+  - [ ] Holdings overlap and correlation analysis
+  - [ ] Optimization suggestions for portfolio pairs
+- [ ] **Portfolio evolution timeline**: Historical portfolio composition tracking:
+  - [ ] Holdings changes over time visualization
+  - [ ] Risk profile evolution tracking
+  - [ ] Performance impact of portfolio modifications
+- [ ] **Cross-portfolio risk correlation**: Advanced analytics for multiple portfolios:
+  - [ ] Correlation analysis between user's portfolios
+  - [ ] Combined risk exposure calculations
+  - [ ] Diversification opportunity identification
+
+### Deep Analytics Integration
+- [ ] **Sector/factor drill-down capabilities**: Click-through navigation from overview to detailed analysis:
+  - [ ] Click sector allocation → detailed sector risk analysis
+  - [ ] Click factor exposure → factor attribution details
+  - [ ] Click holding → individual stock deep analysis
+- [ ] **Historical "what-if" analysis**: Time-travel scenario analysis:
+  - [ ] Apply current strategies to historical periods
+  - [ ] Analyze portfolio performance under past market conditions
+  - [ ] Historical stress testing and scenario replay
+- [ ] **Custom risk factor definitions**: User-defined risk factors and calculations:
+  - [ ] Custom factor exposure calculations
+  - [ ] User-defined risk metrics and thresholds
+  - [ ] Custom correlation and regression analysis
+
+## AI Context Integration
+
+### Enhanced Chat Portfolio Awareness
+- [ ] **Real-time portfolio context**: AI should have access to current portfolio state:
+  - [ ] Holdings composition and weights
+  - [ ] Current risk metrics and exposures
+  - [ ] Recent performance and attribution data
+  - [ ] Active alerts and risk limit breaches
+- [ ] **Chart data accessibility**: AI should be able to analyze visual data:
+  - [ ] Performance chart data for trend analysis
+  - [ ] Risk contribution chart interpretation
+  - [ ] Asset allocation optimization suggestions
+  - [ ] Historical pattern recognition from charts
+- [ ] **Historical decision tracking**: AI learning from user decisions:
+  - [ ] Track user's portfolio modification decisions
+  - [ ] Learn from successful/unsuccessful strategies
+  - [ ] Provide personalized recommendations based on user history
+  - [ ] Context-aware risk tolerance learning
+
+### AI-Driven Insights Integration
+- [ ] **Cross-view AI recommendations**: Intelligent suggestions that span multiple views:
+  - [ ] Holdings optimization suggestions based on risk analysis
+  - [ ] Performance improvement recommendations from factor analysis
+  - [ ] Scenario-based portfolio adjustments from stress testing
+
+## Advanced Visualization Data
+
+### Enhanced Chart Data Requirements
+- [ ] **Correlation heatmaps**: Interactive correlation matrices between holdings:
+  - [ ] Real-time correlation calculations
+  - [ ] Time-varying correlation analysis
+  - [ ] Sector and factor-based correlation groupings
+  - [ ] Interactive drill-down capabilities
+- [ ] **Factor exposure radar charts**: Comprehensive factor analysis visualization:
+  - [ ] Multi-dimensional factor exposure mapping
+  - [ ] Benchmark comparison overlays
+  - [ ] Time series factor exposure evolution
+  - [ ] Interactive factor sensitivity analysis
+- [ ] **Performance attribution waterfall charts**: Detailed return decomposition:
+  - [ ] Security-level attribution breakdown
+  - [ ] Sector and factor contribution analysis
+  - [ ] Time-period attribution comparison
+  - [ ] Interactive component drill-down
+- [ ] **Rolling risk metrics over time**: Dynamic risk metric visualization:
+  - [ ] Rolling volatility, VaR, and drawdown charts
+  - [ ] Risk metric correlation with market events
+  - [ ] Comparative risk evolution vs benchmarks
+  - [ ] Predictive risk trend analysis
+
+### Interactive Dashboard Enhancements
+- [ ] **Cross-chart linking**: Synchronized interactions across multiple charts:
+  - [ ] Hover effects across related visualizations
+  - [ ] Time period synchronization between charts
+  - [ ] Selection highlighting across different views
+  - [ ] Coordinated zoom and pan capabilities
+
+## State Management Enhancements
+
+### Cross-View State Synchronization
+- [ ] **Global portfolio state coordinator**: Centralized state that coordinates loading across all views:
+  - [ ] Synchronized loading states when portfolio changes
+  - [ ] Coordinated error handling across dependent views
+  - [ ] Optimistic updates that propagate across multiple components
+  - [ ] Conflict resolution when multiple views modify data simultaneously
+- [ ] **Intelligent cache invalidation**: Smart cache management for related data:
+  - [ ] Holdings change → invalidate risk, performance, and overview caches
+  - [ ] Risk settings change → invalidate all risk-dependent calculations
+  - [ ] Market data updates → selective cache refresh for affected components
+- [ ] **Cross-component optimistic updates**: Immediate UI updates with rollback capabilities:
+  - [ ] Holdings modifications reflect immediately in all views
+  - [ ] Risk threshold changes show instant impact across risk displays
+  - [ ] Strategy applications show immediate portfolio impact preview
+
+### Enhanced Error Recovery
+- [ ] **Graceful degradation patterns**: Fallback behaviors when data is unavailable:
+  - [ ] Partial data display when some metrics fail to load
+  - [ ] Cached data fallback with staleness indicators
+  - [ ] Progressive enhancement as data becomes available
+- [ ] **Cross-view error propagation**: Intelligent error handling across related components:
+  - [ ] Portfolio load failure → coordinated error display across all views
+  - [ ] Market data outage → graceful degradation with cached prices
+  - [ ] Risk calculation errors → fallback to simplified risk metrics

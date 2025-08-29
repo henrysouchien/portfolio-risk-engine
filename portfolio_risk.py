@@ -329,7 +329,63 @@ def compute_euler_variance_percent(
 import pandas as pd
 import numpy as np
 import statsmodels.api as sm
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, List, Optional, Any, Union, Tuple
+
+def _filter_tickers_by_data_availability(
+    weights: Dict[str, float],
+    start_date: str,
+    end_date: str,
+    min_months: int = 12
+) -> Tuple[Dict[str, float], List[str], List[str]]:
+    """
+    Filter out tickers with insufficient historical data and rebalance remaining weights.
+    
+    Args:
+        weights (Dict[str, float]): Original portfolio weights
+        start_date (str): Analysis start date
+        end_date (str): Analysis end date  
+        min_months (int): Minimum months of data required (default: 12)
+        
+    Returns:
+        tuple: (filtered_weights, excluded_tickers, warnings)
+            - filtered_weights: Rebalanced weights for tickers with sufficient data
+            - excluded_tickers: List of tickers excluded due to insufficient data
+            - warnings: List of warning messages about exclusions
+    """
+    valid_tickers = {}
+    excluded_tickers = []
+    warnings = []
+    
+    # Check data availability for each ticker
+    for ticker, weight in weights.items():
+        try:
+            prices = fetch_monthly_close(ticker, start_date=start_date, end_date=end_date)
+            returns = calc_monthly_returns(prices)
+            
+            if returns is not None and len(returns) >= min_months:
+                valid_tickers[ticker] = weight
+            else:
+                excluded_tickers.append(ticker)
+                months_available = len(returns) if returns is not None else 0
+                warnings.append(f"Excluded {ticker}: only {months_available} months of data (need {min_months})")
+                
+        except Exception as e:
+            excluded_tickers.append(ticker)
+            warnings.append(f"Excluded {ticker}: data fetch failed ({str(e)[:50]}...)")
+    
+    # Rebalance weights for remaining tickers
+    if valid_tickers:
+        total_valid_weight = sum(valid_tickers.values())
+        if total_valid_weight > 0:
+            # Normalize weights to sum to 1.0
+            filtered_weights = {ticker: weight / total_valid_weight 
+                             for ticker, weight in valid_tickers.items()}
+        else:
+            filtered_weights = {}
+    else:
+        filtered_weights = {}
+    
+    return filtered_weights, excluded_tickers, warnings
 
 def get_returns_dataframe(
     weights: Dict[str, float],
@@ -767,16 +823,34 @@ def calculate_portfolio_performance_metrics(
             - calmar_ratio: Return / max drawdown
             - benchmark_comparison: Side-by-side metrics vs benchmark
             - monthly_performance: Month-by-month returns for analysis
+            - excluded_tickers: List of tickers excluded due to insufficient data (if any)
+            - warnings: List of warnings about data quality issues (if any)
     """
     
-    # Get portfolio returns using existing infrastructure
-    df_ret = get_returns_dataframe(weights, start_date, end_date)
-    portfolio_returns = compute_portfolio_returns(df_ret, weights)
+    # Pre-filter tickers with insufficient data and rebalance weights
+    filtered_weights, excluded_tickers, warnings = _filter_tickers_by_data_availability(
+        weights, start_date, end_date, min_months=12
+    )
     
+    # If no tickers remain after filtering, return error
+    if not filtered_weights:
+        return {
+            "error": "Insufficient data for performance calculation - all tickers excluded",
+            "excluded_tickers": excluded_tickers,
+            "warnings": warnings
+        }
+    
+    # Get portfolio returns using filtered weights
+    df_ret = get_returns_dataframe(filtered_weights, start_date, end_date)
+    portfolio_returns = compute_portfolio_returns(df_ret, filtered_weights)
+    
+    # Final safety check (should not trigger after filtering, but just in case)
     if portfolio_returns.empty or len(portfolio_returns) < 12:
         return {
-            "error": "Insufficient data for performance calculation",
-            "months_available": len(portfolio_returns)
+            "error": "Insufficient data for performance calculation after filtering",
+            "months_available": len(portfolio_returns),
+            "excluded_tickers": excluded_tickers,
+            "warnings": warnings
         }
     
     # Get benchmark returns
@@ -938,6 +1012,12 @@ def calculate_portfolio_performance_metrics(
         "risk_free_rate": round(risk_free_rate * 100, 2),
         "monthly_returns": {k.date().isoformat(): float(v) for k, v in port_ret.round(4).to_dict().items()}
     }
+    
+    # Add data quality information if any tickers were excluded
+    if excluded_tickers:
+        performance_metrics["excluded_tickers"] = excluded_tickers
+        performance_metrics["warnings"] = warnings
+        performance_metrics["analysis_notes"] = f"Analysis completed with {len(excluded_tickers)} ticker(s) excluded due to insufficient data"
     
     return performance_metrics
 
