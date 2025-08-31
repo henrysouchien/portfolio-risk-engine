@@ -128,13 +128,13 @@ CREATE TABLE positions (
     
     -- Position metadata
     account_id VARCHAR(100),                     -- Broker account identifier
-    position_source VARCHAR(50),                 -- Data source: "plaid", "manual", "csv_import", "api"
+    position_source VARCHAR(50),                 -- Data source: "plaid", "snaptrade", "manual", "csv_import", "api"
     position_status VARCHAR(20) DEFAULT 'active', -- Status: "active", "closed", "pending"
     
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW(),
     
-    -- Same ticker allowed from different sources (Plaid + manual entry)
+    -- Same ticker allowed from different sources (Plaid + SnapTrade + manual entry)
     UNIQUE(portfolio_id, ticker, position_source)
 );
 
@@ -218,7 +218,7 @@ CREATE TABLE user_sessions (
 **Multi-Currency Architecture:**
 - **Currency Preservation**: Original cash identifiers (CUR:USD, CUR:EUR) preserved in database
 - **No Consolidation**: Each currency stored as separate position, no automatic conversion
-- **Position Source Tracking**: Supports multiple data sources per ticker (Plaid + manual entry)
+- **Position Source Tracking**: Supports multiple data sources per ticker (Plaid + SnapTrade + manual entry)
 - **Dynamic Proxy Mapping**: Cash-to-ETF mapping applied at analysis time, not storage time
 - **Fallback Logic**: Automatic currency extraction from ticker format when currency field missing
 
@@ -228,7 +228,7 @@ CREATE TABLE user_sessions (
 - **Per-Request Clients** (`inputs/database_client.py`): No singleton pattern, injection-based design
 - **Transaction Safety**: ACID compliance with rollback on failure
 - **Currency Extraction**: Automatic currency detection from ticker format (CUR:USD → USD)
-- **Multi-Source Support**: Same ticker from different sources (Plaid + manual entry)
+- **Multi-Source Support**: Same ticker from different sources (Plaid + SnapTrade + manual entry)
 - **Data Validation**: Input sanitization and constraint enforcement
 
 ### Interface Layer
@@ -1164,6 +1164,8 @@ risk_module/
 │   │   ├── api.py                         # Core analysis endpoints with Direct API support
 │   │   ├── claude.py                      # Claude AI chat integration
 │   │   ├── plaid.py                       # Plaid brokerage integration
+│   │   ├── snaptrade.py                   # SnapTrade brokerage integration
+│   │   ├── provider_routing_api.py        # Provider routing and institution support
 │   │   ├── auth.py                        # Authentication routes
 │   │   ├── admin.py                       # Admin dashboard routes
 │   │   └── frontend_logging.py            # Frontend logging routes
@@ -1219,6 +1221,7 @@ risk_module/
 │   ├── 🤖 gpt_helpers.py                  # GPT integration utilities
 │   ├── 🔧 proxy_builder.py                # Factor proxy generation
 │   ├── 🏦 plaid_loader.py                 # Plaid brokerage integration
+│   ├── 💼 snaptrade_loader.py             # SnapTrade brokerage integration
 │   └── 🛠️ risk_helpers.py                 # Risk calculation helpers
 │
 ├── 📁 Database & Infrastructure
@@ -1969,6 +1972,8 @@ The Risk Module provides a complete full-stack web application with a production
 - **Async Architecture**: Non-blocking I/O for high-performance concurrent request handling
 - **Automatic Documentation**: Interactive API docs at `/docs` with OpenAPI 3.0 schema
 - **Plaid Integration**: Real-time portfolio import from 1000+ financial institutions
+- **SnapTrade Integration**: Extended broker coverage for Fidelity, Schwab, and additional brokers
+- **Provider Routing**: Intelligent routing between Plaid and SnapTrade with dynamic fallback
 - **Claude AI Chat**: Interactive risk analysis with 16+ portfolio analysis functions
 - **RESTful API**: Comprehensive endpoints for portfolio analysis, risk scoring, and optimization
 - **Database-First Architecture**: PostgreSQL with migration system and connection pooling
@@ -2278,7 +2283,7 @@ frontend/src/
 │   │   ├── hooks/                 # Analysis hooks (useFactorAnalysis, usePerformance)
 │   │   └── formatters/            # Data formatters
 │   ├── auth/hooks/                # Authentication hooks
-│   ├── external/hooks/            # External service hooks (usePlaid, usePortfolioChat)
+│   ├── external/hooks/            # External service hooks (usePlaid, useSnapTrade, usePortfolioChat)
 │   ├── portfolio/                 # Portfolio feature
 │   │   ├── hooks/                 # Portfolio hooks (usePortfolio, usePortfolioSummary)
 │   │   └── formatters/            # Portfolio data formatters
@@ -2453,6 +2458,48 @@ The web interface is organized into 5 specialized route modules for clean separa
 - Cash position mapping
 - Portfolio YAML generation
 - AWS Secrets Manager integration
+
+#### SnapTrade Integration Routes (`routes/snaptrade.py`)
+**Brokerage account integration for Fidelity, Schwab, and other brokers**
+
+| Endpoint | Method | Purpose | Parameters |
+|----------|--------|---------|------------|
+| `/snaptrade/register` | POST | Register user with SnapTrade | `user_id` |
+| `/snaptrade/create-connection-url` | POST | Create connection URL for account linking | `user_id` |
+| `/snaptrade/connections` | GET | List user's SnapTrade connections | - |
+| `/snaptrade/holdings` | GET | Retrieve and store portfolio holdings | - |
+| `/snaptrade/webhook` | POST | Handle SnapTrade webhook notifications | `webhook_data` |
+| `/snaptrade/connections/{authorizationId}` | DELETE | Remove specific connection | `authorizationId` |
+| `/snaptrade/user` | DELETE | Delete SnapTrade user and cleanup | - |
+
+**Features**:
+- Fidelity, Schwab, and extended broker support (supplements Plaid)
+- Three-layer type mapping system preserving SnapTrade metadata
+- Hybrid cash + securities fetching with unified holdings
+- Provider-specific position management with multi-source consolidation
+- AWS Secrets Manager integration for secure credential storage
+- Feature-flagged rollout with ENABLE_SNAPTRADE gate
+- Session-based authentication with user isolation
+- Comprehensive error handling and retry logic
+
+#### Provider Routing Routes (`routes/provider_routing_api.py`)
+**Dynamic provider routing and institution support management**
+
+| Endpoint | Method | Purpose | Parameters |
+|----------|--------|---------|------------|
+| `/api/provider-routing/institution-support/{institution_slug}` | GET | Check provider support for institution | `institution_slug` |
+| `/api/provider-routing/supported-institutions` | GET | List all supported institutions | - |
+| `/api/provider-routing/status` | GET | Get provider health and routing status | - |
+| `/api/provider-routing/metrics` | GET | Get routing analytics and metrics | - |
+
+**Features**:
+- Institution support checking across Plaid and SnapTrade
+- Dynamic provider routing with intelligent fallback
+- Real-time provider health monitoring
+- Institution mapping and support discovery
+- Routing analytics and performance metrics
+- Public API (no authentication required)
+- Caching for performance optimization
 
 #### Authentication Routes (`routes/auth.py`)
 **User management and security**
@@ -2767,6 +2814,7 @@ The system includes sophisticated tools for managing the complexity of the 4-int
 - **Returns Management**: 0% aligned (0/3 functions) - Missing CLI functions
 - **Risk Limits**: 0% aligned (0/5 functions) - Missing CLI functions
 - **Plaid Integration**: 0% aligned (0/5 functions) - Missing CLI functions
+- **SnapTrade Integration**: 0% aligned (0/7 functions) - Missing CLI functions
 - **File Management**: 0% aligned (0/4 functions) - Missing CLI functions
 - **Auth & Admin**: 0% aligned (0/4 functions) - Missing CLI functions
 - **AI Orchestration**: 0% aligned (0/3 functions) - Missing CLI functions
@@ -2799,6 +2847,33 @@ Plaid API → Holdings Data → Cash Mapping → Portfolio YAML → Risk Analysi
 - Multi-currency support
 - Automatic cash gap detection
 - Portfolio consolidation
+
+### SnapTrade Financial Data Integration (`snaptrade_loader.py`)
+
+**Extended Broker Coverage**:
+- **Fidelity, Schwab & More**: Coverage for brokers not supported by Plaid
+- **Three-Layer Type Mapping**: Preserves SnapTrade metadata while mapping to internal types
+- **Hybrid Data Fetching**: Combined securities (positions) and cash (balances) retrieval
+- **Provider-Specific Management**: Multi-source consolidation with provider tracking
+- **AWS Secrets Management**: Secure storage of user credentials and connection data
+
+**Data Flow**:
+```
+SnapTrade API → Holdings + Cash → Type Mapping → Normalization → Portfolio YAML → Risk Analysis
+```
+
+**Key Features**:
+- SDK-based integration (snaptrade-python-sdk)
+- Multi-account consolidation with type preservation  
+- Feature-flagged rollout (ENABLE_SNAPTRADE)
+- Comprehensive error handling and retry logic
+- Support for shorts and fractional shares
+- Derivatives mapping to internal 'derivative' type
+
+**Type Mapping System**:
+1. **Raw SnapTrade**: Preserves API codes ("cs") + descriptions ("Common Stock")
+2. **Internal Mapping**: Maps codes to standard types ("cs" → "equity")  
+3. **System Usage**: Uses internal types for risk analysis and storage
 
 ### **Database-First Architecture**
 
@@ -3118,6 +3193,7 @@ npm run test:coverage                                 # Coverage report
 
 3. **Real-time Capabilities**:
    - ✅ **Implemented**: Real-time Plaid portfolio imports
+   - ✅ **Implemented**: SnapTrade integration for extended broker coverage (Fidelity, Schwab)
    - 📋 **Planned**: Live market data feeds and intraday risk monitoring
    - 📋 **Planned**: Alert system for risk limit breaches
    - 📋 **Planned**: Automated rebalancing with optimization

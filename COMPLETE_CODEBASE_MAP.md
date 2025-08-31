@@ -1,15 +1,16 @@
 # Complete Risk Module Codebase Map
 
 ## Overview
-This document provides a comprehensive map of the entire risk_module codebase, including all directories (even those in .gitignore). Last updated on 2025-08-27 to reflect current codebase state, FastAPI migration completion, database structure reorganization, recent API refactoring initiatives, modern UI integration enhancements, and comprehensive frontend architecture maturation.
+This document provides a comprehensive map of the entire risk_module codebase, including all directories (even those in .gitignore). Last updated on 2025-08-31 to reflect current codebase state, SnapTrade integration completion, provider routing implementation, comprehensive testing suite expansion, and latest architectural enhancements.
 
 ## Directory Structure with Python File Counts
 
-### Root Level Files (19 Python files)
+### Root Level Files (28 Python files)
 Core application files and utilities:
 - `ai_function_registry.py` - Registry for AI/Claude function definitions
 - `app.py` - Main FastAPI application entry point (migrated from Flask)
-- `comprehensive_endpoint_testing.py` - Comprehensive API endpoint testing utility
+- `check_db_positions.py` - Database position checking utility
+- `create_test_session.py` - Test session creation utility
 - `data_loader.py` - Data loading utilities
 - `factor_utils.py` - Factor analysis utilities
 - `gpt_helpers.py` - GPT/AI integration helpers
@@ -26,8 +27,16 @@ Core application files and utilities:
 - `run_portfolio_risk.py` - Portfolio risk runner script
 - `run_risk.py` - Main risk calculation runner
 - `settings.py` - Application settings
+- `snaptrade_loader.py` - SnapTrade brokerage integration loader
+- `test_snaptrade_authenticated.py` - SnapTrade authenticated testing
+- `test_snaptrade_basic.py` - SnapTrade basic functionality testing
+- `test_snaptrade_credentials.py` - SnapTrade credentials testing
+- `test_snaptrade_endpoints.py` - SnapTrade API endpoints testing
+- `test_snaptrade_existing_user.py` - SnapTrade existing user handling testing
+- `test_snaptrade_integration.py` - SnapTrade integration testing
+- `test_snaptrade_registration.py` - SnapTrade user registration testing
 
-**Note**: Schema and testing files have been relocated to appropriate directories (`/docs/planning/`, `/backup/`, etc.) to improve repository organization.
+**Note**: Schema and testing files have been relocated to appropriate directories (`/docs/planning/`, `/backup/`, etc.) to improve repository organization. New SnapTrade test files added for comprehensive brokerage integration testing.
 
 ### Core Application Layers
 
@@ -42,7 +51,7 @@ FastAPI response validation models for API endpoints:
 
 ### Core Application Layers (CRITICAL - Gitignored)
 
-#### `/services/` (18 Python files) - Business Logic Layer
+#### `/services/` (39 Python files) - Business Logic Layer
 Service layer implementing core business logic:
 - `service_manager.py` - Service lifecycle management
 - `portfolio_service.py` - Portfolio management service
@@ -64,15 +73,20 @@ Service layer implementing core business logic:
   - `__init__.py` - Portfolio module initialization
   - `context_service.py` - Portfolio context management
 
-#### `/routes/` (6 Python files) - API Endpoints Layer
+**Note**: Service count includes all Python files across subdirectories and comprehensive backup/archive services. Total reflects extensive service layer architecture with multiple specialized components.
+
+#### `/routes/` (8 Python files) - API Endpoints Layer
 FastAPI route definitions:
 - `auth.py` - Authentication routes
 - `admin.py` - Admin panel routes
 - `claude.py` - Claude AI integration routes
 - `plaid.py` - Plaid integration routes
+- `snaptrade.py` - SnapTrade brokerage integration routes
+- `provider_routing.py` - Multi-provider routing logic
+- `provider_routing_api.py` - Provider routing API endpoints
 - `frontend_logging.py` - Frontend logging routes
 
-**Note**: Main API routes have been migrated directly into `app.py` as part of the FastAPI migration
+**Note**: Main API routes have been migrated directly into `app.py` as part of the FastAPI migration. SnapTrade integration added in August 2025.
 
 #### `/utils/` (10 Python files) - Utility Layer
 Shared utilities:
@@ -86,13 +100,13 @@ Shared utilities:
 
 **Note**: `portfolio_context.py` has been removed as part of recent refactoring
 
-#### `/inputs/` (7 Python files) - Data Access Layer
+#### `/inputs/` (8 Python files) - Data Access Layer
 Data input and management:
 - `database_client.py` - PostgreSQL database client
 - `file_manager.py` - File system management
 - `portfolio_manager.py` - Portfolio data management
 - `returns_calculator.py` - Returns calculation
-- `risk_limits_manager.py` - Risk limits configuration management
+- `risk_limits_manager.py` - Risk limits configuration management\n- `provider_settings_manager.py` - Multi-provider settings management
 - `exceptions.py` - Custom exception definitions
 
 #### `/core/` (10 Python files) - Core Business Objects
@@ -378,11 +392,11 @@ Active planning and development documentation:
 - `E2E_TESTING_GUIDE.md` - End-to-end testing guide
 - `PROMPTS_DEV.md` - Development prompts
 - `PROMPTS_INTERFACE.md` - Interface prompts
-- `PROMPTS_WORKING.md` - Working prompts
+- `PROMPTS_WORKING.md` - Working prompts (updated August 2025 with SnapTrade implementation guidance)
 - `REFACTORING_TOOLKIT.md` - Refactoring toolkit documentation
 - `RESULT_OBJECTS_ARCHITECTURE.md` - Result objects architecture guide
 - `SCENARIO_ANALYSIS_CLEANUP_PLAN.md` - Scenario analysis cleanup plan
-- `SCHEMA_INVENTORY.md` - Schema inventory documentation
+- `SCHEMA_INVENTORY.md` - Schema inventory documentation\n- `SNAPTRADE_TEST_RESULTS.md` - SnapTrade integration test results and validation report
 
 ### Additional Directories
 
@@ -418,17 +432,18 @@ Legacy source files:
 - Database connection strings and configuration files
 
 ## File Count Summary
-- Total Python files: 718 (as of 2025-08-27)
-- Core application: ~72 files (19 root + 18 services + 6 routes + 10 utils + 7 inputs + 10 core + 22 models + 4 database)
-- Tests: Comprehensive suite with 50+ test files across multiple directories
+- Total Python files: 750+ (as of 2025-08-31)
+- Core application: ~85 files (28 root + 39 services + 8 routes + 10 utils + 7 inputs + 10 core + 22 models + 4 database)
+- Tests: Comprehensive suite with 60+ test files across multiple directories
 - Archive/Backup: Extensive files across multiple directories
 - Prototype: 17+ files (Python + Jupyter notebooks)
 - Tools: 9 files
 - Frontend: Full React application (0 Python files, comprehensive TypeScript architecture)
 - Admin tools: 2 files
 - Database: Centralized infrastructure with migration support
+- SnapTrade Integration: 8+ test files and loader implementation
 
-## Architecture Changes Since Last Update (2025-08-27)
+## Architecture Changes Since Last Update (2025-08-31)
 
 ### FastAPI Migration Completion (August 2025):
 1. **Framework Migration**: Complete migration from Flask to FastAPI
@@ -467,6 +482,16 @@ Legacy source files:
    - Enhanced ChatContext for unified state management
    - Vercel AI SDK integration (@ai-sdk/react, @ai-sdk/anthropic)
    - Real-time streaming with status management and error handling
+
+### SnapTrade Integration (August 2025):
+1. **New Brokerage Integration**: Complete SnapTrade integration for multi-broker portfolio consolidation
+2. **SnapTrade Loader**: New `snaptrade_loader.py` with SDK initialization, authentication, and data normalization
+3. **Route Implementation**: New `/routes/snaptrade.py` with user registration, connection management, and holdings sync
+4. **Provider Routing**: Added `provider_routing.py` and `provider_routing_api.py` for multi-provider support
+5. **Comprehensive Testing**: 7 dedicated test files for SnapTrade functionality validation
+6. **Multi-Provider Consolidation**: Enhanced portfolio management with cross-provider position consolidation
+7. **Currency Handling**: Advanced currency-aware position consolidation for international assets
+8. **AWS Integration**: Full AWS Secrets Manager integration for secure credential storage
 
 ### Backend Service Layer Enhancements:
 1. **Returns Service Addition**: New `returns_service.py` for centralized return calculation logic
