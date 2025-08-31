@@ -1,4 +1,9 @@
 #Date settings for portfolio analysis are in settings.py
+import os
+
+# URL Configuration
+FRONTEND_BASE_URL = os.getenv('FRONTEND_BASE_URL', 'http://localhost:3000')
+BACKEND_BASE_URL = os.getenv('BACKEND_BASE_URL', 'http://localhost:5001')
 
 # settings.py  
 PORTFOLIO_DEFAULTS = {
@@ -97,30 +102,106 @@ PROVIDER_PRIORITY_CONFIG = {
     "manual": int(os.getenv("MANUAL_PRIORITY", "1")),        # Lowest - user input
 }
 
-# Provider Display Configuration
-PROVIDER_DISPLAY_CONFIG = {
-    "snaptrade": {
-        "name": "SnapTrade",
-        "description": "Direct brokerage connections (Fidelity, Schwab, etc.)",
-        "icon": "snaptrade",
-        "color": "#4F46E5",
-        "features": ["real_time_data", "all_brokerages", "trading"]
-    },
-    "plaid": {
-        "name": "Plaid",
-        "description": "Bank and investment account aggregation",
-        "icon": "plaid", 
-        "color": "#00D4AA",
-        "features": ["bank_accounts", "aggregation", "read_only"]
-    },
-    "manual": {
-        "name": "Manual Entry",
-        "description": "Manually entered positions and accounts",
-        "icon": "manual",
-        "color": "#6B7280",
-        "features": ["custom_portfolios", "flexibility"]
-    }
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🛠️ PROVIDER CAPABILITIES CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Provider Capabilities Configuration for Backend Routing Logic
+# Defines the technical capabilities and features of each financial data provider
+# Used by backend routing and provider health monitoring systems
+#
+# 🎯 PURPOSE:
+# ===========
+# This configuration provides capability metadata for provider routing decisions:
+# • Backend provider routing and selection logic
+# • Health monitoring and availability checks
+# • API response metadata for routing explanations
+# • Provider comparison for optimal routing decisions
+#
+# 🔗 INTEGRATION POINTS:
+# =====================
+# • **provider_routing_api.py**: Uses capabilities for routing decisions and API metadata
+# • **Provider Health Monitoring**: Tracks capabilities for availability assessments
+# • **Routing Logic**: Determines provider suitability based on required capabilities
+# • **Analytics**: Capability tracking for provider performance metrics
+#
+# 🏗️ ARCHITECTURE NOTE:
+# =====================
+# UI/Visual configuration (colors, icons, descriptions) has been moved to:
+# frontend/src/config/providers.ts - This ensures proper separation of concerns
+# where frontend owns UI metadata and backend owns business logic.
+
+PROVIDER_CAPABILITIES = {
+    # ═══════════════════════════════════════════════════════════════════════════════
+    # 📈 SNAPTRADE - Real-time Brokerage Specialist
+    # ═══════════════════════════════════════════════════════════════════════════════
+    "snaptrade": [
+        "real_time_data",      # Live position updates and pricing
+        "all_brokerages",      # Comprehensive brokerage institution support
+        "trading",             # Trading capabilities and order management
+        "options_trading",     # Options and advanced trading features
+        "crypto_support"       # Cryptocurrency trading support
+    ],
+    
+    # ═══════════════════════════════════════════════════════════════════════════════
+    # 🏦 PLAID - Universal Financial Data Aggregator
+    # ═══════════════════════════════════════════════════════════════════════════════
+    "plaid": [
+        "bank_accounts",       # Traditional banking (checking, savings, credit)
+        "aggregation",         # Multi-institution data consolidation
+        "read_only",          # Read-only access (no trading capabilities)
+        "transaction_data",    # Detailed transaction history
+        "credit_monitoring"    # Credit score and monitoring features
+    ],
+    
+    # ═══════════════════════════════════════════════════════════════════════════════
+    # ✏️ MANUAL ENTRY - User-controlled Portfolio Management
+    # ═══════════════════════════════════════════════════════════════════════════════
+    "manual": [
+        "custom_portfolios",   # User-defined portfolio structures
+        "flexibility",         # Maximum customization and control
+        "privacy",            # No external connections required
+        "offline_mode"        # Works without internet connectivity
+    ]
 }
+
+# 🏷️ CAPABILITY DEFINITIONS:
+# ===========================
+# Standard capability tags used for provider routing and feature comparison:
+#
+# **Data Quality & Timing:**
+# • "real_time_data" - Live updates and current pricing
+# • "aggregation" - Multi-source data consolidation
+# • "transaction_data" - Detailed transaction history and categorization
+# • "historical_data" - Historical price and transaction data
+#
+# **Institution Support:**
+# • "all_brokerages" - Comprehensive brokerage coverage
+# • "bank_accounts" - Traditional banking institution support
+# • "crypto_exchanges" - Cryptocurrency platform integration
+#
+# **Trading & Management:**
+# • "trading" - Active trading and order management
+# • "options_trading" - Options and advanced trading strategies
+# • "crypto_support" - Cryptocurrency trading and wallet management
+# • "read_only" - View-only access without trading capabilities
+#
+# **Privacy & Control:**
+# • "custom_portfolios" - User-defined portfolio structures
+# • "flexibility" - Maximum customization and manual control
+# • "privacy" - No external connections or data sharing required
+# • "offline_mode" - Functionality available without internet connectivity
+#
+# **Additional Services:**
+# • "credit_monitoring" - Credit score tracking and monitoring alerts
+#
+# 🔄 ADDING NEW PROVIDERS:
+# ========================
+# 1. Add new provider entry to PROVIDER_CAPABILITIES with appropriate capability tags
+# 2. Update provider_routing_api.py routing logic if needed
+# 3. Add institution mappings to INSTITUTION_PROVIDER_MAPPING below
+# 4. Test routing decisions with new provider configuration
+# 5. Update frontend provider display config in frontend/src/config/providers.ts
 
 # Provider Routing Configuration
 PROVIDER_ROUTING_CONFIG = {
@@ -131,30 +212,106 @@ PROVIDER_ROUTING_CONFIG = {
     "error_rate_threshold": 0.3,  # 30% error rate triggers degradation
 }
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🏦 INSTITUTION PROVIDER ROUTING CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
 # Institution Routing Mappings
-# Maps institution slugs to supported providers
+# Maps institution slugs to supported providers with intelligent routing priority
+# 
+# 🎯 ROUTING STRATEGY:
+# ===================
+# 1. **Array Order = Priority**: First provider in array is preferred
+# 2. **Brokerage Priority**: SnapTrade preferred for investment accounts (better data quality)
+# 3. **Bank Priority**: Plaid preferred/only for traditional banking (specialized support)
+# 4. **Fallback Logic**: If primary provider fails, system automatically tries secondary
+# 5. **Health Monitoring**: Unhealthy providers are automatically skipped
+#
+# 🔗 INTEGRATION POINTS:
+# =====================
+# • Frontend: ProviderRoutingService.routeConnection() uses this mapping
+# • Backend: /api/provider-routing/institution-support/{slug} endpoint
+# • Routing API: provider_routing_api.py for real-time routing decisions
+# • Health Checks: provider_routing.py monitors provider availability
+#
+# 📊 PROVIDER CAPABILITIES:
+# ========================
+# • **SnapTrade**: Specialized for brokerages (Schwab, Fidelity, TD, etc.)
+#   - Real-time brokerage data, better investment account support
+#   - Supports: Stock positions, options, crypto, retirement accounts
+#   - Limitations: Limited traditional banking features
+#
+# • **Plaid**: Universal financial data provider
+#   - Excellent banking support, broad institution coverage
+#   - Supports: Checking/savings, credit cards, loans, some investments
+#   - Limitations: Less detailed investment data for some brokerages
+#
+# 🛠️ CONFIGURATION EXAMPLES:
+# ==========================
+# ["snaptrade", "plaid"] = SnapTrade preferred, Plaid fallback
+# ["plaid"]              = Plaid only (no alternatives)
+# ["snaptrade"]          = SnapTrade only (rare, specific use cases)
+#
+# 🔄 DYNAMIC ROUTING FLOW:
+# ========================
+# 1. User selects institution (e.g., "charles_schwab")
+# 2. ProviderRoutingService.routeConnection("charles_schwab") called
+# 3. Backend checks INSTITUTION_PROVIDER_MAPPING["charles_schwab"] = ["snaptrade", "plaid"]
+# 4. System attempts SnapTrade first (preferred for brokerages)
+# 5. If SnapTrade unavailable/unhealthy, falls back to Plaid
+# 6. Connection attempt routed to selected provider's API flow
+
 INSTITUTION_PROVIDER_MAPPING = {
-    # Major brokerages - SnapTrade preferred
-    "charles_schwab": ["snaptrade", "plaid"],
-    "fidelity": ["snaptrade", "plaid"], 
-    "td_ameritrade": ["snaptrade", "plaid"],
-    "etrade": ["snaptrade", "plaid"],
-    "interactive_brokers": ["snaptrade", "plaid"],
-    "vanguard": ["snaptrade", "plaid"],
-    "merrill_edge": ["snaptrade", "plaid"],
+    # ═══════════════════════════════════════════════════════════════════════════════
+    # 🏢 MAJOR TRADITIONAL BROKERAGES
+    # ═══════════════════════════════════════════════════════════════════════════════
+    # SnapTrade preferred for investment-focused institutions with better data quality
+    # and real-time position tracking. Plaid as reliable fallback option.
     
-    # Banks - Plaid preferred
-    "chase": ["plaid"],
-    "bank_of_america": ["plaid"],
-    "wells_fargo": ["plaid"],
-    "citibank": ["plaid"],
-    "us_bank": ["plaid"],
+    "charles_schwab": ["snaptrade", "plaid"],        # Large brokerage, excellent SnapTrade support
+    "fidelity": ["snaptrade", "plaid"],             # Investment giant, strong both providers
+    "td_ameritrade": ["snaptrade", "plaid"],        # Now part of Schwab, good SnapTrade integration
+    "etrade": ["snaptrade", "plaid"],               # Popular online brokerage
+    "interactive_brokers": ["snaptrade", "plaid"],  # Professional platform, international
+    "vanguard": ["snaptrade", "plaid"],             # Low-cost index funds and ETFs
+    "merrill_edge": ["snaptrade", "plaid"],         # Bank of America brokerage arm
     
-    # Investment platforms
-    "robinhood": ["snaptrade", "plaid"],
-    "webull": ["snaptrade"],
-    "m1_finance": ["plaid"],
-    "betterment": ["plaid"],
-    "wealthfront": ["plaid"],
+    # ═══════════════════════════════════════════════════════════════════════════════
+    # 🏦 TRADITIONAL BANKS
+    # ═══════════════════════════════════════════════════════════════════════════════
+    # Plaid specialized for banking services - checking, savings, credit cards, loans
+    # SnapTrade not supported as these are primarily banking institutions
+    
+    "chase": ["plaid"],                             # JPMorgan Chase - largest US bank
+    "bank_of_america": ["plaid"],                   # Major retail banking
+    "wells_fargo": ["plaid"],                       # Large regional bank
+    "citibank": ["plaid"],                          # Global banking institution
+    "us_bank": ["plaid"],                           # Fifth largest bank in US
+    
+    # ═══════════════════════════════════════════════════════════════════════════════
+    # 📱 MODERN DIGITAL INVESTMENT PLATFORMS
+    # ═══════════════════════════════════════════════════════════════════════════════
+    # Mix of SnapTrade and Plaid based on platform capabilities and data availability
+    
+    "robinhood": ["snaptrade", "plaid"],            # Popular mobile-first brokerage
+    "webull": ["snaptrade"],                        # Commission-free trading, SnapTrade specialized
+    "m1_finance": ["plaid"],                        # Automated investing, better Plaid integration
+    "betterment": ["plaid"],                        # Robo-advisor, primarily Plaid supported
+    "wealthfront": ["plaid"],                       # Automated investment management
 }
+
+# 📋 INSTITUTION SLUG NAMING CONVENTION:
+# =====================================
+# • lowercase_with_underscores format
+# • No spaces, special characters, or numbers
+# • Recognizable abbreviations for long names (td_ameritrade vs td_ameritrade_inc)
+# • Consistent with both SnapTrade and Plaid institution identifiers where possible
+#
+# 🔄 ADDING NEW INSTITUTIONS:
+# ===========================
+# 1. Add entry to INSTITUTION_PROVIDER_MAPPING with appropriate provider priority
+# 2. Test routing via /api/provider-routing/institution-support/{new_slug}
+# 3. Update frontend institution selection UI if needed
+# 4. Add display name mapping in provider_routing_api.py _get_institution_display_name()
+# 5. Consider adding institution logo and categories for UI enhancement
 
