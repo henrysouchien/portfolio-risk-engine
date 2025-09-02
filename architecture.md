@@ -14,6 +14,7 @@ This document provides a comprehensive overview of the Risk Module's architectur
 - [Caching Strategy](#caching-strategy)
 - [Risk Calculation Framework](#risk-calculation-framework)
 - [API Integration](#api-integration)
+- [Comprehensive Logging & Monitoring Architecture](#comprehensive-logging--monitoring-architecture)
 - [Performance Considerations](#performance-considerations)
 - [Testing Strategy](#testing-strategy)
 - [Future Enhancements](#future-enhancements)
@@ -2442,7 +2443,7 @@ The web interface is organized into 5 specialized route modules for clean separa
 - Session-based user authentication
 
 #### Plaid Integration Routes (`routes/plaid.py`)
-**Brokerage account integration**
+**Brokerage account integration with connection management**
 
 | Endpoint | Method | Purpose | Parameters |
 |----------|--------|---------|------------|
@@ -2451,13 +2452,22 @@ The web interface is organized into 5 specialized route modules for clean separa
 | `/plaid/accounts` | GET | List connected accounts | `user_id` |
 | `/plaid/holdings` | GET | Get account holdings | `user_id`, `account_id` |
 | `/plaid/import` | POST | Import portfolio data | `user_id`, `account_id` |
+| `/plaid/connections` | GET | List user's Plaid connections with management identifiers | - |
+| `/plaid/connections/{institution_slug}` | DELETE | Disconnect specific Plaid institution connection | `institution_slug` |
 
-**Features**:
-- Multi-institution support
-- Real-time holdings import
-- Cash position mapping
-- Portfolio YAML generation
-- AWS Secrets Manager integration
+**Enhanced Features**:
+- **Multi-institution support** with connection management
+- **Real-time holdings import** with data validation
+- **Cash position mapping** with currency preservation
+- **Portfolio YAML generation** with multi-source consolidation
+- **AWS Secrets Manager integration** with secure credential storage
+- **Complete connection lifecycle management**:
+  - Connection listing with institution identification
+  - Granular disconnection by institution slug (chase, fidelity, robinhood)
+  - Complete cleanup including Plaid API removal, AWS secret deletion, database position cleanup
+  - Provider-scoped position deletion to maintain data integrity
+- **Enhanced authentication** with session-based user lookup
+- **Comprehensive error handling** with detailed logging and user feedback
 
 #### SnapTrade Integration Routes (`routes/snaptrade.py`)
 **Brokerage account integration for Fidelity, Schwab, and other brokers**
@@ -3113,6 +3123,130 @@ npm run test:coverage                                 # Coverage report
 - **Fallback Mechanisms**: 100% coverage
 - **E2E User Workflows**: 85% coverage
 
+## 📊 Comprehensive Logging & Monitoring Architecture
+
+The Risk Module implements a sophisticated multi-layered logging architecture that provides real-time monitoring, debugging capabilities, and production-grade observability.
+
+### Enhanced Logging Infrastructure
+
+**Environment-Based Configuration** (`utils/logging.py`):
+```python
+# Production-optimized log levels (reduced verbosity)
+PRODUCTION_LEVELS = {
+    "database": logging.ERROR,      # Only log database errors
+    "api": logging.WARNING,         # Log API errors and slow requests
+    "claude": logging.INFO,         # Track AI usage (cost monitoring)
+    "performance": logging.WARNING, # Only log slow operations (>1s)
+    "frontend": logging.WARNING     # Only log frontend errors
+}
+
+# Development log levels (comprehensive debugging)  
+DEVELOPMENT_LEVELS = {
+    "database": logging.DEBUG,      # All database operations
+    "api": logging.INFO,           # All API requests
+    "claude": logging.DEBUG,        # Full AI interaction tracking
+    "performance": logging.INFO,    # All performance metrics
+    "frontend": logging.DEBUG       # All frontend operations
+}
+```
+
+### API Request/Response Logging
+
+**Enhanced Request Logging Decorators**:
+```python
+from utils.logging import log_api_request, log_api_health
+
+@log_api_health("PortfolioAPI", "analyze")
+@app.post("/api/analyze")
+async def api_analyze_portfolio(request: Request):
+    """
+    Automatic logging of:
+    - Raw request body for debugging Pydantic validation
+    - User identification and authentication status
+    - Request/response data structure analysis
+    - Performance metrics and timing
+    - Full error tracking with architectural context
+    """
+```
+
+**Pydantic Validation Error Logging**:
+```python
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """
+    Enhanced validation error handling with:
+    - Raw request body logging for frontend/backend debugging
+    - Detailed field-by-field validation error breakdown
+    - Field name mapping analysis for API alignment issues
+    - Request headers and method logging
+    """
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": exc.errors(),
+            "message": "Request validation failed - check field names and structure",
+            "validation_details": validation_details,
+            "raw_body_logged": True
+        }
+    )
+```
+
+### Architectural Context Logging
+
+**Real-Time Architectural Guidance**:
+```python
+class ArchitecturalContextFormatter(logging.Formatter):
+    """Custom formatter that includes architectural context in log output"""
+    
+    def format(self, record):
+        # Add architectural layer information
+        if hasattr(record, 'architectural_context'):
+            layer = record.architectural_context.get('layer', 'unknown')
+            ai_guidance = record.architectural_context.get('ai_guidance', '')
+            violations = record.architectural_context.get('violations', [])
+            
+            formatted_message += f"\n🏗️  Layer: {layer}"
+            if ai_guidance:
+                formatted_message += f"\n🤖 AI Guidance: {ai_guidance}"
+            if violations:
+                formatted_message += f"\n⚠️  Issues: {'; '.join(violations)}"
+```
+
+### Performance Monitoring
+
+**API Health Monitoring** (`@log_api_health` decorator):
+- **Response Time Tracking**: Sub-100ms performance monitoring
+- **User Activity Tracking**: Per-user API usage analytics  
+- **Endpoint Performance**: Individual endpoint performance metrics
+- **Resource Usage**: Memory and CPU utilization tracking
+- **Error Rate Monitoring**: Real-time error detection and alerting
+
+**Frontend-Backend Alignment Logging**:
+```python
+# API Response debugging for frontend integration
+api_logger.info(f"🔍 API Response /api/analyze - Status: 200")
+api_logger.info(f"🔍 Response keys: {list(response_data.keys())}")
+api_logger.info(f"🔍 Data keys: {list(response_data['data'].keys())}")
+api_logger.info(f"🔍 Response size: ~{len(str(response_data))} chars")
+```
+
+### Multi-Level Logging Strategy
+
+**Structured Log Categories**:
+1. **Database Logger** (`database.log`) - All database operations and connection pooling
+2. **API Logger** (`api.log`) - Request/response cycles, authentication, validation
+3. **Performance Logger** (`performance.log`) - Timing metrics, slow operations, resource usage
+4. **Claude Logger** (`claude.log`) - AI interaction tracking, cost monitoring, function execution
+5. **Frontend Logger** (`frontend.log`) - Client-side error tracking, component lifecycle, state management
+6. **Schema Logger** (`schema.log`) - Data validation, Pydantic model compliance, type checking
+
+**Production Safety Features**:
+- **Sensitive Data Redaction**: Automatic <TOKEN> replacement for secrets
+- **Log Rotation**: Time-based and size-based log rotation
+- **Performance Thresholds**: Only log operations >1s in production
+- **Memory-Efficient**: Streaming logs to prevent memory buildup
+- **Real-Time Streaming**: Live log monitoring capabilities
+
 ## ⚡ Performance Considerations
 
 ### Optimization Strategies
@@ -3132,12 +3266,19 @@ npm run test:coverage                                 # Coverage report
    - Batch processing for multiple securities
    - Async/await for I/O operations
 
+4. **Enhanced Logging Performance**:
+   - Environment-based log level optimization
+   - Asynchronous log writing to prevent I/O blocking
+   - Intelligent log buffering and batching
+   - Performance threshold filtering (>1s operations only in production)
+
 ### Memory Management
 
 - Lazy loading of large datasets
 - Garbage collection optimization
 - Memory-efficient data structures
 - Streaming for large files
+- Log rotation and cleanup to prevent disk space issues
 
 ## 🧪 Testing Strategy
 

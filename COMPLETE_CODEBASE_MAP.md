@@ -1,7 +1,7 @@
 # Complete Risk Module Codebase Map
 
 ## Overview
-This document provides a comprehensive map of the entire risk_module codebase, including all directories (even those in .gitignore). Last updated on 2025-08-31 to reflect current codebase state, SnapTrade integration completion, provider routing implementation, comprehensive testing suite expansion, and latest architectural enhancements.
+This document provides a comprehensive map of the entire risk_module codebase, including all directories (even those in .gitignore). Last updated on 2025-09-02 to reflect current codebase state, SnapTrade integration completion, provider routing implementation, comprehensive testing suite expansion, and latest architectural enhancements.
 
 ## Directory Structure with Python File Counts
 
@@ -51,7 +51,7 @@ FastAPI response validation models for API endpoints:
 
 ### Core Application Layers (CRITICAL - Gitignored)
 
-#### `/services/` (39 Python files) - Business Logic Layer
+#### `/services/` (18 Python files) - Business Logic Layer
 Service layer implementing core business logic:
 - `service_manager.py` - Service lifecycle management
 - `portfolio_service.py` - Portfolio management service
@@ -65,6 +65,7 @@ Service layer implementing core business logic:
 - `usage_examples.py` - Service usage examples
 - `cache_mixin.py` - Cache management utilities
 - `factor_proxy_service.py` - Factor proxy management service
+- `__init__.py` - Services module initialization
 - **`/claude/`** subdirectory (3 Python files):
   - `__init__.py` - Claude module initialization
   - `chat_service.py` - Claude chat integration
@@ -73,9 +74,7 @@ Service layer implementing core business logic:
   - `__init__.py` - Portfolio module initialization
   - `context_service.py` - Portfolio context management
 
-**Note**: Service count includes all Python files across subdirectories and comprehensive backup/archive services. Total reflects extensive service layer architecture with multiple specialized components.
-
-#### `/routes/` (8 Python files) - API Endpoints Layer
+#### `/routes/` (9 Python files) - API Endpoints Layer
 FastAPI route definitions:
 - `auth.py` - Authentication routes
 - `admin.py` - Admin panel routes
@@ -85,6 +84,7 @@ FastAPI route definitions:
 - `provider_routing.py` - Multi-provider routing logic
 - `provider_routing_api.py` - Provider routing API endpoints
 - `frontend_logging.py` - Frontend logging routes
+- `__init__.py` - Routes module initialization
 
 **Note**: Main API routes have been migrated directly into `app.py` as part of the FastAPI migration. SnapTrade integration added in August 2025.
 
@@ -106,8 +106,10 @@ Data input and management:
 - `file_manager.py` - File system management
 - `portfolio_manager.py` - Portfolio data management
 - `returns_calculator.py` - Returns calculation
-- `risk_limits_manager.py` - Risk limits configuration management\n- `provider_settings_manager.py` - Multi-provider settings management
+- `risk_limits_manager.py` - Risk limits configuration management
+- `provider_settings_manager.py` - Multi-provider settings management
 - `exceptions.py` - Custom exception definitions
+- `__init__.py` - Inputs module initialization
 
 #### `/core/` (10 Python files) - Core Business Objects
 Core data structures and algorithms:
@@ -124,7 +126,7 @@ Core data structures and algorithms:
 ### Frontend Application (React/TypeScript)
 
 #### `/frontend/` (0 Python files + full React app)
-Production-ready React frontend application with comprehensive architecture:
+Production-ready React frontend application with comprehensive architecture including recent cache architecture fixes and enhanced connection management:
 - **`/node_modules/`** - Complete npm dependencies (extensive)
 - Configuration files:
   - `package.json` - Frontend dependencies and scripts (includes Vercel AI SDK)
@@ -133,11 +135,10 @@ Production-ready React frontend application with comprehensive architecture:
 - Documentation:
   - `README.md` - Frontend documentation
   - `FRONTEND_DATA_FLOW_GUIDE.md` - Data flow guide
-- Build and development logs:
-  - `build-final.log` - Final build log
-  - `build-test.log` - Test build log
-  - `eslint-check.log` - ESLint validation log
-  - `typescript-check.log` - TypeScript validation log
+- Documentation and architecture:
+  - `CACHE_ARCHITECTURE.md` - Frontend cache architecture with conflict resolution
+  - `CACHE_CONFLICT_ANALYSIS.md` - Cache conflict analysis and audit report
+  - Build logs: `build-final.log`, `build-test.log`, `eslint-check.log`, `typescript-check.log`
 - **`/src/`** - Complete React application with clean architecture:
   - `ARCHITECTURE.md` - Frontend architecture documentation
   - **`/chassis/`** - Service layer infrastructure
@@ -181,12 +182,13 @@ Production-ready React frontend application with comprehensive architecture:
   - **`/providers/`** - React context providers
   - **`/router/`** - App orchestration
   - **`/utils/`** - Utilities and navigation helpers
-  - **`/adapters/`** - Data transformation adapters
+  - **`/adapters/`** - Data transformation adapters (9 TypeScript files)
     - `AnalysisReportAdapter.ts` - Analysis report data transformation
-    - `PerformanceAdapter.ts` - Performance metrics transformation  
+    - `PerformanceAdapter.ts` - Performance metrics transformation with comprehensive backend integration
     - `PortfolioOptimizationAdapter.ts` - Portfolio optimization data transformation
     - `PortfolioSummaryAdapter.ts` - Portfolio summary transformation
     - `RiskAnalysisAdapter.ts` - Risk analysis data transformation
+    - `RiskScoreAdapter.ts` - Risk score calculations transformation
     - `RiskSettingsAdapter.ts` - Risk settings transformation
     - `StockAnalysisAdapter.ts` - Stock analysis transformation
     - `WhatIfAnalysisAdapter.ts` - What-if scenario analysis transformation
@@ -386,17 +388,16 @@ Temporary file storage
 
 ### Root Level Documentation & Planning
 Active planning and development documentation:
-- `CLAUDE_RISK_LIMITS_MODERNIZATION_PLAN.md` - Risk limits modernization plan (moved from /completed/)
-- `CLI_API_ALIGNMENT_WORKFLOW.md` - CLI and API alignment workflow
+- `architecture.md` - Complete application architecture documentation (updated September 2025)
+- `CHANGELOG.md` - Complete changelog with multi-provider integration timeline
 - `COMPLETE_CODEBASE_MAP.md` - This comprehensive codebase map
 - `E2E_TESTING_GUIDE.md` - End-to-end testing guide
+- `ENVIRONMENT_SETUP.md` - Environment and development setup guide
 - `PROMPTS_DEV.md` - Development prompts
 - `PROMPTS_INTERFACE.md` - Interface prompts
 - `PROMPTS_WORKING.md` - Working prompts (updated August 2025 with SnapTrade implementation guidance)
-- `REFACTORING_TOOLKIT.md` - Refactoring toolkit documentation
-- `RESULT_OBJECTS_ARCHITECTURE.md` - Result objects architecture guide
-- `SCENARIO_ANALYSIS_CLEANUP_PLAN.md` - Scenario analysis cleanup plan
-- `SCHEMA_INVENTORY.md` - Schema inventory documentation\n- `SNAPTRADE_TEST_RESULTS.md` - SnapTrade integration test results and validation report
+- `Readme.md` - Project README with current implementation status
+- `SNAPTRADE_TEST_RESULTS.md` - SnapTrade integration test results and validation report
 
 ### Additional Directories
 
@@ -432,18 +433,37 @@ Legacy source files:
 - Database connection strings and configuration files
 
 ## File Count Summary
-- Total Python files: 750+ (as of 2025-08-31)
-- Core application: ~85 files (28 root + 39 services + 8 routes + 10 utils + 7 inputs + 10 core + 22 models + 4 database)
+- Total Python files: 750+ (as of 2025-09-02)
+- Core application: ~86 files (28 root + 18 services + 9 routes + 10 utils + 8 inputs + 10 core + 22 models + 4 database)
 - Tests: Comprehensive suite with 60+ test files across multiple directories
 - Archive/Backup: Extensive files across multiple directories
 - Prototype: 17+ files (Python + Jupyter notebooks)
 - Tools: 9 files
-- Frontend: Full React application (0 Python files, comprehensive TypeScript architecture)
+- Frontend: Full React application (0 Python files, comprehensive TypeScript architecture with 9 adapters)
 - Admin tools: 2 files
 - Database: Centralized infrastructure with migration support
-- SnapTrade Integration: 8+ test files and loader implementation
+- SnapTrade Integration: 7 test files and loader implementation
 
-## Architecture Changes Since Last Update (2025-08-31)
+## Architecture Changes Since Last Update (2025-09-02)
+
+### Documentation Synchronization & Cache Architecture Improvements (September 2025):
+1. **Frontend Cache Architecture**: Complete resolution of cache conflicts between legacy and modern UI patterns
+   - Fixed performance data conflicts between `usePerformance` and `usePortfolioSummary` hooks
+   - Added separate cache keys to prevent data format collisions: `['performance-raw']` vs `['performance']`
+   - New documentation: `CACHE_ARCHITECTURE.md` and `CACHE_CONFLICT_ANALYSIS.md`
+2. **Plaid Disconnection Enhancement**: Complete fix for Plaid connection management
+   - Enhanced `disconnect_plaid_connection()` endpoint with proper cleanup
+   - Provider-scoped database cleanup to prevent data loss
+   - AWS Secrets Manager cleanup for complete data removal
+3. **API Response Validation**: Enhanced Pydantic validation error handling
+   - Added detailed validation failure logging in `app.py`
+   - Improved debugging for frontend/backend field name mismatches
+4. **Authentication Flow Fixes**: Resolved circular dependency issues
+   - Fixed auth and logger handling of user_id in authentication flow
+   - Enhanced API request/response logging for debugging
+5. **Scripts & Validation**: New adapter validation system
+   - Added `scripts/run-adapter-validation.sh` and `scripts/validate_adapters.py`
+   - Enhanced adapter documentation and validation capabilities
 
 ### FastAPI Migration Completion (August 2025):
 1. **Framework Migration**: Complete migration from Flask to FastAPI
