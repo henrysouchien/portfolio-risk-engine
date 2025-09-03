@@ -17,7 +17,7 @@ from datetime import datetime, UTC
 import os
 
 # Import settings for risk analysis thresholds and scenarios
-from settings import RISK_ANALYSIS_THRESHOLDS, WORST_CASE_SCENARIOS, MAX_SINGLE_FACTOR_LOSS
+from settings import RISK_ANALYSIS_THRESHOLDS, WORST_CASE_SCENARIOS, MAX_SINGLE_FACTOR_LOSS, SECURITY_TYPE_CRASH_MAPPING
 
 # Import existing modules without modifying them
 try:
@@ -25,6 +25,7 @@ try:
     from risk_helpers import calc_max_factor_betas
     from run_portfolio_risk import standardize_portfolio_input, latest_price
     from core.result_objects import RiskScoreResult
+    from services.security_type_service import SecurityTypeService
 except ImportError:
     print("Warning: Could not import existing modules. Make sure you're in the risk_module directory.")
     build_portfolio_view = None
@@ -32,6 +33,7 @@ except ImportError:
     standardize_portfolio_input = None
     latest_price = None
     RiskScoreResult = None
+    SecurityTypeService = None
 
 
 # =====================================================================
@@ -46,13 +48,21 @@ except ImportError:
 # USAGE BY FUNCTION:
 # - calculate_factor_risk_loss: Historical → Fallback to configured
 # - calculate_sector_risk_loss: Historical → Fallback to configured  
-# - calculate_concentration_risk_loss: Always uses configured scenarios
+# - calculate_concentration_risk_loss: Uses security-type-aware scenarios (NEW!)
 # - calculate_volatility_risk_loss: Always uses configured scenarios
 # - calculate_suggested_risk_limits: Historical → Fallback to configured
 #
+# SECURITY-TYPE-AWARE RISK SCORING (NEW):
+# calculate_concentration_risk_loss now uses different crash scenarios based on security type:
+# - equity: 80% (individual stock failure - ENRON, LEHMAN)
+# - etf: 35% (diversified ETF crash - market-like risk)  
+# - mutual_fund: 40% (mutual fund crash - moderate diversification) ← FIXES DSU ISSUE!
+# - cash: 5% (cash equivalent risk - money market funds)
+#
 # CONFIGURATION:
-# All scenario values are now centralized in settings.py:
-# - settings.WORST_CASE_SCENARIOS: Market crash, factor crashes, concentration scenarios
+# All scenario values are centralized in settings.py:
+# - settings.WORST_CASE_SCENARIOS: Market crash, factor crashes, security-type-specific scenarios
+# - settings.SECURITY_TYPE_CRASH_MAPPING: Maps security types to crash scenarios
 # - settings.MAX_SINGLE_FACTOR_LOSS: Default loss limits for factor exposures
 #
 # Update these values in settings.py as new historical data becomes available
@@ -291,37 +301,126 @@ def calculate_factor_risk_loss(summary: Dict[str, Any], leverage_ratio: float, m
     return max_factor_loss
 
 
-def calculate_concentration_risk_loss(summary: Dict[str, Any], leverage_ratio: float) -> float:
+def calculate_concentration_risk_loss(summary: Dict[str, Any], leverage_ratio: float, portfolio_data=None) -> float:
     """
-    Calculate potential loss from single stock concentration.
+    Calculate potential loss from single stock concentration with security-type-aware crash scenarios.
     
-    DATA SOURCE: Always uses configured WORST_CASE_SCENARIOS
+    ENHANCEMENT: This function now uses SecurityTypeService to apply different crash scenarios
+    based on the actual security type rather than treating all securities as individual stocks.
+    This fixes the DSU issue where mutual funds were getting 80% crash scenarios instead of 40%.
+    
+    DATA SOURCE: Uses security-type-specific WORST_CASE_SCENARIOS via SECURITY_TYPE_CRASH_MAPPING
     
     Parameters
     ----------
     summary : Dict[str, Any]
-        Portfolio analysis with position weights
+        Portfolio analysis with position weights from build_portfolio_view()
     leverage_ratio : float
         Portfolio leverage multiplier (use 1.0 when weights already include leverage)
+    portfolio_data : PortfolioData, optional
+        Portfolio data containing provider classifications for cash preservation.
+        Required for SecurityTypeService to preserve provider cash classifications.
         
     Returns
     -------
     float
-        Potential loss from largest single position
+        Potential loss from largest single position using appropriate crash scenario.
+        Values range from 5% (cash) to 80% (individual equity) of position size.
         
     Notes
     -----
-    - Uses largest absolute position weight from portfolio
-    - Applies configured single_stock_crash scenario (80% loss)
-    - Formula: max_position × single_stock_crash × leverage_ratio
+    SECURITY-TYPE-AWARE CRASH SCENARIOS:
+    - equity: 80% crash (individual stock failure - Enron, Lehman Brothers)
+    - etf: 35% crash (diversified ETF - tracks market-wide crashes)
+    - mutual_fund: 40% crash (diversified fund - moderate crash protection)
+    - cash: 5% crash (money market risk - very low)
+    
+    CASH-FIRST STRATEGY:
+    - Cash positions: Trust provider classification (Plaid/SnapTrade expertise)
+    - Securities: Use FMP via SecurityTypeService for authoritative classification
+    
+    FALLBACK BEHAVIOR:
+    - If SecurityTypeService unavailable: Falls back to generic 80% (equity) scenario
+    - If security type unknown: Defaults to equity classification (conservative)
+    
+    PERFORMANCE:
+    - Leverages dual-layer caching (LFU memory + database) for fast lookups
+    - Typical response time: <1ms for cached securities, <200ms for new lookups
+    
+    Formula: max_position_weight × security_type_crash_scenario × leverage_ratio
+    
+    Examples
+    --------
+    >>> # DSU mutual fund with 30% portfolio allocation
+    >>> # Before: 0.30 × 0.80 × 1.0 = 0.24 (24% loss)
+    >>> # After:  0.30 × 0.40 × 1.0 = 0.12 (12% loss) ← 50% reduction!
     """
     weights = summary["allocations"]["Portfolio Weight"]
     max_position = weights.abs().max()
+    largest_ticker = weights.abs().idxmax()
     
-    # Use configured single stock crash scenario
-    single_stock_crash = WORST_CASE_SCENARIOS["single_stock_crash"]
-    concentration_loss = max_position * single_stock_crash * leverage_ratio
+    # Get security types with provider cash preservation
+    if SecurityTypeService and largest_ticker:
+        try:
+            tickers = [largest_ticker]
+            security_types = SecurityTypeService.get_security_types(tickers, portfolio_data)
+            security_type = security_types.get(largest_ticker, "equity")
+        except Exception as e:
+            print(f"Warning: SecurityTypeService failed, using default: {e}")
+            security_type = "equity"
+    else:
+        security_type = "equity"  # Conservative fallback
+    
+    # Apply security-type-specific crash scenario
+    crash_scenario_key = SECURITY_TYPE_CRASH_MAPPING.get(security_type, "single_stock_crash")
+    crash_scenario = WORST_CASE_SCENARIOS[crash_scenario_key]
+    
+    concentration_loss = max_position * crash_scenario * leverage_ratio
     return concentration_loss
+
+
+def get_crash_scenario_for_security_type(security_type: str) -> float:
+    """
+    Map security type to appropriate crash scenario percentage.
+    
+    Helper function that provides the mapping between security types and their
+    corresponding crash scenarios for risk calculations.
+    
+    Parameters
+    ----------
+    security_type : str
+        Security type classification ('equity', 'etf', 'mutual_fund', 'cash')
+        
+    Returns
+    -------
+    float
+        Crash scenario percentage (0.0 to 1.0)
+        
+    Notes
+    -----
+    CRASH SCENARIO MAPPINGS:
+    - equity: 0.80 (80%) - Individual stock failure risk (Enron, WorldCom)
+    - etf: 0.35 (35%) - Diversified ETF crash (market correlation risk)
+    - mutual_fund: 0.40 (40%) - Mutual fund crash (moderate diversification)
+    - cash: 0.05 (5%) - Money market/cash equivalent risk (very low)
+    - unknown: 0.80 (80%) - Conservative default (treats as individual stock)
+    
+    Examples
+    --------
+    >>> get_crash_scenario_for_security_type('mutual_fund')
+    0.4
+    >>> get_crash_scenario_for_security_type('etf')
+    0.35
+    >>> get_crash_scenario_for_security_type('unknown_type')
+    0.8
+    """
+    scenario_mapping = {
+        "equity": WORST_CASE_SCENARIOS["single_stock_crash"],      # 80%
+        "etf": WORST_CASE_SCENARIOS["etf_crash"],                  # 35%
+        "mutual_fund": WORST_CASE_SCENARIOS["mutual_fund_crash"],  # 40%
+        "cash": WORST_CASE_SCENARIOS["cash_crash"],                # 5%
+    }
+    return scenario_mapping.get(security_type, WORST_CASE_SCENARIOS["single_stock_crash"])
 
 
 def calculate_volatility_risk_loss(summary: Dict[str, Any], leverage_ratio: float) -> float:

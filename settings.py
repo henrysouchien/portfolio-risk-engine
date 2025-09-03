@@ -64,6 +64,13 @@ WORST_CASE_SCENARIOS = {
     "single_stock_crash": 0.80,  # Individual stock failure
     "sector_crash": 0.50,        # Sector-wide crisis
     
+    # Security-type-specific crash scenarios (NEW - FIXES DSU ISSUE!)
+    # These replace the generic single_stock_crash for different security types
+    # Based on historical diversification and risk profiles:
+    "etf_crash": 0.35,              # Diversified ETF crash (tracks market-wide events)
+    "mutual_fund_crash": 0.40,      # Mutual fund crash (moderate diversification) ← DSU FIX!
+    "cash_crash": 0.05,             # Cash equivalent risk (money market funds, very low)
+    
     # Volatility scenarios
     "max_reasonable_volatility": 0.40,  # Maximum reasonable portfolio volatility
 }
@@ -74,6 +81,26 @@ MAX_SINGLE_FACTOR_LOSS = {
     "default": -0.10,    # Default maximum single factor loss (10%)
     "sector": -0.08,     # Sector-specific factor loss limit (8%)
     "portfolio": -0.08,  # Portfolio-level factor loss limit (8%)
+}
+
+# Security Type to Crash Scenario Mapping (NEW - ENABLES SECURITY-TYPE-AWARE RISK SCORING!)
+# Maps security types from SecurityTypeService to their appropriate crash scenarios.
+# Used by portfolio_risk_score.calculate_concentration_risk_loss() to apply different
+# crash scenarios based on the actual security type rather than treating all as equity.
+#
+# BEFORE: All securities used single_stock_crash (80%) - DSU got 80% ❌
+# AFTER: Each security type gets appropriate scenario - DSU gets 40% ✅
+#
+# Historical Context:
+# - equity (80%): Individual stock failures (Enron, Lehman Brothers, WorldCom)
+# - etf (35%): Diversified ETF crashes track market events (2008, 2020)
+# - mutual_fund (40%): Mutual fund crashes have moderate diversification protection
+# - cash (5%): Money market/cash equivalents have very low crash risk
+SECURITY_TYPE_CRASH_MAPPING = {
+    "equity": "single_stock_crash",      # Individual equity positions (80%)
+    "etf": "etf_crash",                  # Diversified ETFs (35%) - 56% risk reduction
+    "mutual_fund": "mutual_fund_crash",  # Mutual funds (40%) - 50% risk reduction ← DSU FIX!
+    "cash": "cash_crash"                 # Cash equivalents (5%) - 94% risk reduction
 }
 
 # SnapTrade Configuration
