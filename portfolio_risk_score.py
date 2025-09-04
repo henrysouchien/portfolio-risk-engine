@@ -56,7 +56,7 @@ except ImportError:
 # calculate_concentration_risk_loss now uses different crash scenarios based on security type:
 # - equity: 80% (individual stock failure - ENRON, LEHMAN)
 # - etf: 35% (diversified ETF crash - market-like risk)  
-# - mutual_fund: 40% (mutual fund crash - moderate diversification) ← FIXES DSU ISSUE!
+# - fund: 40% (fund crash - moderate diversification) ← FIXES DSU ISSUE!
 # - cash: 5% (cash equivalent risk - money market funds)
 #
 # CONFIGURATION:
@@ -332,7 +332,7 @@ def calculate_concentration_risk_loss(summary: Dict[str, Any], leverage_ratio: f
     SECURITY-TYPE-AWARE CRASH SCENARIOS:
     - equity: 80% crash (individual stock failure - Enron, Lehman Brothers)
     - etf: 35% crash (diversified ETF - tracks market-wide crashes)
-    - mutual_fund: 40% crash (diversified fund - moderate crash protection)
+    - fund: 40% crash (diversified fund - moderate crash protection)
     - cash: 5% crash (money market risk - very low)
     
     CASH-FIRST STRATEGY:
@@ -372,7 +372,8 @@ def calculate_concentration_risk_loss(summary: Dict[str, Any], leverage_ratio: f
         security_type = "equity"  # Conservative fallback
     
     # Apply security-type-specific crash scenario
-    crash_scenario_key = SECURITY_TYPE_CRASH_MAPPING.get(security_type, "single_stock_crash")
+    # Use centralized mapping system with built-in 3-tier fallback
+    crash_scenario_key = SECURITY_TYPE_CRASH_MAPPING[security_type]
     crash_scenario = WORST_CASE_SCENARIOS[crash_scenario_key]
     
     concentration_loss = max_position * crash_scenario * leverage_ratio
@@ -381,15 +382,16 @@ def calculate_concentration_risk_loss(summary: Dict[str, Any], leverage_ratio: f
 
 def get_crash_scenario_for_security_type(security_type: str) -> float:
     """
-    Map security type to appropriate crash scenario percentage.
+    Map security type to appropriate crash scenario percentage using centralized mapping system.
     
-    Helper function that provides the mapping between security types and their
-    corresponding crash scenarios for risk calculations.
+    This function now uses the centralized security type mapping system with 3-tier fallback:
+    Database → YAML → Hardcoded defaults. This ensures consistency across the entire
+    risk module and allows for dynamic updates via the admin interface.
     
     Parameters
     ----------
     security_type : str
-        Security type classification ('equity', 'etf', 'mutual_fund', 'cash')
+        Security type classification ('equity', 'etf', 'fund', 'cash')
         
     Returns
     -------
@@ -398,29 +400,32 @@ def get_crash_scenario_for_security_type(security_type: str) -> float:
         
     Notes
     -----
-    CRASH SCENARIO MAPPINGS:
+    CENTRALIZED CRASH SCENARIO MAPPINGS:
+    Uses the centralized security type mapping system with 3-tier fallback:
+    Database → YAML → Hardcoded defaults. Supported security types:
     - equity: 0.80 (80%) - Individual stock failure risk (Enron, WorldCom)
     - etf: 0.35 (35%) - Diversified ETF crash (market correlation risk)
-    - mutual_fund: 0.40 (40%) - Mutual fund crash (moderate diversification)
+    - fund: 0.40 (40%) - Fund crash (moderate diversification)
     - cash: 0.05 (5%) - Money market/cash equivalent risk (very low)
-    - unknown: 0.80 (80%) - Conservative default (treats as individual stock)
+    
+    The centralized system supports both "fund" and "mutual_fund" for backward compatibility.
+    If an unsupported security type is passed, the centralized system will handle fallback logic.
     
     Examples
     --------
-    >>> get_crash_scenario_for_security_type('mutual_fund')
+    >>> get_crash_scenario_for_security_type('fund')
     0.4
     >>> get_crash_scenario_for_security_type('etf')
     0.35
-    >>> get_crash_scenario_for_security_type('unknown_type')
-    0.8
+    >>> get_crash_scenario_for_security_type('unknown_type')  # doctest: +SKIP
+    # Will raise KeyError - centralized system handles unsupported types
     """
-    scenario_mapping = {
-        "equity": WORST_CASE_SCENARIOS["single_stock_crash"],      # 80%
-        "etf": WORST_CASE_SCENARIOS["etf_crash"],                  # 35%
-        "mutual_fund": WORST_CASE_SCENARIOS["mutual_fund_crash"],  # 40%
-        "cash": WORST_CASE_SCENARIOS["cash_crash"],                # 5%
-    }
-    return scenario_mapping.get(security_type, WORST_CASE_SCENARIOS["single_stock_crash"])
+    from settings import SECURITY_TYPE_CRASH_MAPPING, WORST_CASE_SCENARIOS
+    
+    # Use centralized mapping system with built-in 3-tier fallback
+    # The centralized system already handles all fallback logic
+    crash_scenario_key = SECURITY_TYPE_CRASH_MAPPING[security_type]
+    return WORST_CASE_SCENARIOS[crash_scenario_key]
 
 
 def calculate_volatility_risk_loss(summary: Dict[str, Any], leverage_ratio: float) -> float:

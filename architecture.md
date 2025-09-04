@@ -1270,6 +1270,7 @@ risk_module/
 │   │   └── exceptions.py                  # Core exception handling
 │   └── 📁 utils/                          # Utility functions
 │       ├── serialization.py               # JSON serialization utilities
+│       ├── security_type_mappings.py      # Centralized security type mapping with 3-tier fallback
 │       └── helpers.py                     # General helper functions
 │
 ├── 📊 LAYER 3: DATA LAYER (Data Access & Storage)

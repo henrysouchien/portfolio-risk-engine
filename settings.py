@@ -68,7 +68,8 @@ WORST_CASE_SCENARIOS = {
     # These replace the generic single_stock_crash for different security types
     # Based on historical diversification and risk profiles:
     "etf_crash": 0.35,              # Diversified ETF crash (tracks market-wide events)
-    "mutual_fund_crash": 0.40,      # Mutual fund crash (moderate diversification) ← DSU FIX!
+    "fund_crash": 0.40,             # Fund crash (moderate diversification) ← DSU FIX!
+    "mutual_fund_crash": 0.40,      # Mutual fund crash (backward compatibility) ← DSU FIX!
     "cash_crash": 0.05,             # Cash equivalent risk (money market funds, very low)
     
     # Volatility scenarios
@@ -96,12 +97,38 @@ MAX_SINGLE_FACTOR_LOSS = {
 # - etf (35%): Diversified ETF crashes track market events (2008, 2020)
 # - mutual_fund (40%): Mutual fund crashes have moderate diversification protection
 # - cash (5%): Money market/cash equivalents have very low crash risk
-SECURITY_TYPE_CRASH_MAPPING = {
-    "equity": "single_stock_crash",      # Individual equity positions (80%)
-    "etf": "etf_crash",                  # Diversified ETFs (35%) - 56% risk reduction
-    "mutual_fund": "mutual_fund_crash",  # Mutual funds (40%) - 50% risk reduction ← DSU FIX!
-    "cash": "cash_crash"                 # Cash equivalents (5%) - 94% risk reduction
-}
+#
+# CENTRALIZED MAPPING SYSTEM:
+# Uses the established 3-tier architecture pattern (Database → YAML → Hardcoded)
+# that is consistent with all other mapping systems in the risk module.
+def _load_crash_scenario_mappings():
+    """
+    Load crash scenario mappings using centralized system.
+    
+    ARCHITECTURE:
+    Calls utils.security_type_mappings.get_crash_scenario_mappings() which uses:
+    1. Database: security_type_scenarios table (primary)
+    2. YAML: security_type_mappings.yaml (fallback)
+    3. Hardcoded: Built-in mapping dictionary (ultimate fallback)
+    
+    Returns:
+        Dict mapping security types to crash scenario keys
+    """
+    try:
+        from utils.security_type_mappings import get_crash_scenario_mappings
+        return get_crash_scenario_mappings()
+    except Exception:
+        # Ultimate fallback - preserve original hardcoded mapping
+        return {
+            "equity": "single_stock_crash",      # Individual equity positions (80%)
+            "etf": "etf_crash",                  # Diversified ETFs (35%) - 56% risk reduction
+            "fund": "fund_crash",                # Funds (40%) - 50% risk reduction ← DSU FIX!
+            "mutual_fund": "mutual_fund_crash",  # Mutual funds (40%) - backward compatibility ← DSU FIX!
+            "cash": "cash_crash"                 # Cash equivalents (5%) - 94% risk reduction
+        }
+
+# Load crash scenario mappings using centralized system
+SECURITY_TYPE_CRASH_MAPPING = _load_crash_scenario_mappings()
 
 # SnapTrade Configuration
 import os
