@@ -257,6 +257,7 @@ The Risk Module implements a sophisticated service architecture that provides en
 **Specialized Services**:
 - **`async_service.py`** - Non-blocking portfolio operations for web interface
 - **`factor_proxy_service.py`** - Dynamic factor proxy assignment and validation
+- **`security_type_service.py`** - Security type classification with intelligent caching and FMP integration
 - **`validation_service.py`** - Data validation and schema compliance checking
 - **`cache_mixin.py`** - ServiceCacheMixin for intelligent caching with TTL
 - **`claude/`** - Claude AI integration services
@@ -336,6 +337,69 @@ frontend/src/features/external/hooks/
 - **Intelligent Cash Handling**: Cash positions (SGOV, etc.) use Treasury rates instead of industry ETF data
 - **Enhanced What-If Analysis**: Automatic ticker detection and proxy assignment for new securities in scenarios
 - **10-Year Lookback**: Extended from 5-year to 10-year default lookback period for more stable estimates
+
+### Security Type Service & Admin Tools Architecture
+
+**Enhanced Security Classification System**:
+The Risk Module implements a sophisticated Security Type Service that addresses the critical issue where DSU and other mutual funds were incorrectly treated as individual stocks (80% crash scenarios) instead of mutual funds (40% crash scenarios).
+
+**Security Type Service** (`services/security_type_service.py`):
+- **Intelligent Classification**: Automatic security type detection using Financial Modeling Prep API
+- **PostgreSQL Caching**: Database-backed caching with 90-day TTL for performance optimization
+- **Fallback Logic**: Graceful degradation when API is unavailable
+- **Health Monitoring**: Comprehensive health checks and cache statistics
+- **Force Refresh**: Manual refresh capabilities for problematic tickers
+
+**Admin Tools Module** (`admin/manage_security_types.py`):
+- **Cache Management**: Monitor security type cache performance and health
+- **Bulk Operations**: Refresh stale entries older than specified threshold
+- **Data Export/Import**: Backup and restore security type classifications
+- **Operational Tools**: Command-line interface for system administrators
+
+**Administrative Commands**:
+```bash
+# Monitor cache performance
+python admin/manage_security_types.py stats
+
+# Health check
+python admin/manage_security_types.py health
+
+# List cached security types
+python admin/manage_security_types.py list --limit 50
+
+# Force refresh specific ticker
+python admin/manage_security_types.py refresh DSU
+
+# Bulk refresh stale entries
+python admin/manage_security_types.py bulk-refresh --days 90
+
+# Export/Import for backup
+python admin/manage_security_types.py export security_types.json
+python admin/manage_security_types.py import security_types.json
+```
+
+**Database Schema Enhancement**:
+```sql
+-- Security types table with intelligent caching
+CREATE TABLE security_types (
+    id SERIAL PRIMARY KEY,
+    ticker VARCHAR(100) UNIQUE NOT NULL,
+    security_type VARCHAR(50) NOT NULL,  -- 'equity', 'etf', 'mutual_fund', 'cash'
+    fmp_data JSONB,                     -- Raw FMP API response
+    last_updated TIMESTAMP DEFAULT NOW(),
+    created_at TIMESTAMP DEFAULT NOW(),
+    
+    INDEX idx_security_types_ticker (ticker),
+    INDEX idx_security_types_updated (last_updated),
+    INDEX idx_security_types_type (security_type)
+);
+```
+
+**Business Impact**:
+- **Correct Risk Scenarios**: DSU now properly classified as mutual fund with 40% crash scenario
+- **Data Quality**: Prevents incorrect extreme risk calculations due to misclassification
+- **Operational Monitoring**: Admin tools provide visibility into classification accuracy
+- **Performance**: 90-day caching reduces API calls while ensuring data freshness
 
 ## 🚀 FastAPI & Response Validation
 
@@ -640,7 +704,7 @@ DashboardContainer.tsx
 ├── DashboardLayout.tsx (main layout)
 │   ├── HeaderBar.tsx (navigation + user menu)
 │   ├── Sidebar.tsx (navigation menu)
-│   ├── ChatPanel.tsx (Legacy Claude AI - replaced by AIChat/ChatInterface)
+│   ├── legacy/ (Legacy UI components moved to legacy folder)
 │   └── ViewRenderer.tsx (dynamic view loading)
 └── views/
     ├── RiskAnalysisView.tsx (factor analysis + risk decomposition)
@@ -670,6 +734,9 @@ User Interaction → Component → Custom Hook → React Query → API Service �
 - **Smart Invalidation** - Intelligent cache invalidation on portfolio changes
 - **Error Boundaries** - Graceful error handling with user-friendly messages
 - **Loading States** - Sophisticated loading indicators for async operations
+- **Enhanced Cache Architecture** - Complete resolution of cache conflicts between legacy and modern UI patterns
+- **Performance Data Isolation** - Separate cache keys prevent data format collisions (`['performance-raw']` vs `['performance']`)
+- **Provider-Scoped Cleanup** - Enhanced connection management with proper database cleanup
 
 **Authentication Flow:**
 ```typescript
@@ -2222,7 +2289,7 @@ frontend/src/
 │   │   │   ├── HeaderBar.tsx      # Dashboard header
 │   │   │   ├── Sidebar.tsx        # Navigation sidebar
 │   │   │   ├── SummaryBar.tsx     # Portfolio summary bar
-│   │   │   └── ChatPanel.tsx      # Legacy AI chat panel (replaced)
+│   │   └── legacy/               # Legacy UI components moved to legacy folder
 │   │   ├── views/                 # Dashboard view containers
 │   │   │   ├── RiskScoreViewContainer.tsx      # Risk scoring
 │   │   │   ├── HoldingsViewContainer.tsx       # Portfolio holdings

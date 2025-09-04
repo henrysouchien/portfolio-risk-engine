@@ -1,11 +1,11 @@
 # Complete Risk Module Codebase Map
 
 ## Overview
-This document provides a comprehensive map of the entire risk_module codebase, including all directories (even those in .gitignore). Last updated on 2025-09-02 to reflect current codebase state, SnapTrade integration completion, provider routing implementation, comprehensive testing suite expansion, and latest architectural enhancements.
+This document provides a comprehensive map of the entire risk_module codebase, including all directories (even those in .gitignore). Last updated on 2025-09-04 to reflect current codebase state, legacy code organization, SnapTrade integration completion, provider routing implementation, comprehensive testing suite expansion, and latest architectural enhancements.
 
 ## Directory Structure with Python File Counts
 
-### Root Level Files (28 Python files)
+### Root Level Files (19 Python files)
 Core application files and utilities:
 - `ai_function_registry.py` - Registry for AI/Claude function definitions
 - `app.py` - Main FastAPI application entry point (migrated from Flask)
@@ -28,15 +28,8 @@ Core application files and utilities:
 - `run_risk.py` - Main risk calculation runner
 - `settings.py` - Application settings
 - `snaptrade_loader.py` - SnapTrade brokerage integration loader
-- `test_snaptrade_authenticated.py` - SnapTrade authenticated testing
-- `test_snaptrade_basic.py` - SnapTrade basic functionality testing
-- `test_snaptrade_credentials.py` - SnapTrade credentials testing
-- `test_snaptrade_endpoints.py` - SnapTrade API endpoints testing
-- `test_snaptrade_existing_user.py` - SnapTrade existing user handling testing
-- `test_snaptrade_integration.py` - SnapTrade integration testing
-- `test_snaptrade_registration.py` - SnapTrade user registration testing
 
-**Note**: Schema and testing files have been relocated to appropriate directories (`/docs/planning/`, `/backup/`, etc.) to improve repository organization. New SnapTrade test files added for comprehensive brokerage integration testing.
+**Note**: SnapTrade test files have been moved to `/tests/snaptrade/` directory for better organization. Database utility files (`check_db_positions.py`, `create_test_session.py`) have been moved to `/tests/` directory.
 
 ### Core Application Layers
 
@@ -408,9 +401,9 @@ Development and validation scripts:
 - `ai-validate-repo.sh` - Repository validation
 - Various validation scripts for different phases
 
-#### `/templates/`
-Template files:
-- `dashboard.html` - Dashboard HTML template
+#### `/legacy/`
+Legacy template files:
+- `/templates/dashboard.html` - Legacy dashboard HTML template
 
 #### `/src/`
 Legacy source files:
@@ -433,8 +426,8 @@ Legacy source files:
 - Database connection strings and configuration files
 
 ## File Count Summary
-- Total Python files: 750+ (as of 2025-09-02)
-- Core application: ~86 files (28 root + 18 services + 9 routes + 10 utils + 8 inputs + 10 core + 22 models + 4 database)
+- Total Python files: 750+ (as of 2025-09-04)
+- Core application: ~77 files (19 root + 18 services + 9 routes + 10 utils + 8 inputs + 10 core + 22 models + 4 database)
 - Tests: Comprehensive suite with 60+ test files across multiple directories
 - Archive/Backup: Extensive files across multiple directories
 - Prototype: 17+ files (Python + Jupyter notebooks)
@@ -442,9 +435,21 @@ Legacy source files:
 - Frontend: Full React application (0 Python files, comprehensive TypeScript architecture with 9 adapters)
 - Admin tools: 2 files
 - Database: Centralized infrastructure with migration support
-- SnapTrade Integration: 7 test files and loader implementation
+- SnapTrade Integration: 7 test files in `/tests/snaptrade/` and loader implementation
 
-## Architecture Changes Since Last Update (2025-09-02)
+## Architecture Changes Since Last Update (2025-09-04)
+
+### Legacy Code Organization & Frontend Refactoring (September 2025):
+1. **Legacy Code Reorganization**: Major reorganization of legacy frontend code
+   - Moved legacy UI components to `/frontend/src/legacy/` directory  
+   - Clear separation between modern and legacy UI patterns
+   - Enhanced code organization with 49 TypeScript files in legacy directory
+2. **Root Legacy Directory**: Simplified `/legacy/` directory structure
+   - Contains only template files (moved to `/legacy/templates/`)
+   - Moved examples and other legacy files to appropriate directories
+3. **Frontend Structure Enhancement**: Current frontend structure reflects modern architecture
+   - Clear separation between `/components/`, `/features/`, `/adapters/`, and `/legacy/`
+   - Enhanced TypeScript architecture with comprehensive component organization
 
 ### Documentation Synchronization & Cache Architecture Improvements (September 2025):
 1. **Frontend Cache Architecture**: Complete resolution of cache conflicts between legacy and modern UI patterns
