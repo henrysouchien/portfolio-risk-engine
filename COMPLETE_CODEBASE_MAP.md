@@ -1,7 +1,7 @@
 # Complete Risk Module Codebase Map
 
 ## Overview
-This document provides a comprehensive map of the entire risk_module codebase, including all directories (even those in .gitignore). Last updated on 2025-09-04 to reflect current codebase state, legacy code organization, SnapTrade integration completion, provider routing implementation, comprehensive testing suite expansion, and latest architectural enhancements.
+This document provides a comprehensive map of the entire risk_module codebase, including all directories (even those in .gitignore). Last updated on 2025-09-05 to reflect current codebase state, legacy code organization, SnapTrade integration completion, provider routing implementation, comprehensive testing suite expansion, and latest architectural enhancements.
 
 ## Directory Structure with Python File Counts
 
@@ -44,7 +44,7 @@ FastAPI response validation models for API endpoints:
 
 ### Core Application Layers (CRITICAL - Gitignored)
 
-#### `/services/` (18 Python files) - Business Logic Layer
+#### `/services/` (14 Python files) - Business Logic Layer
 Service layer implementing core business logic:
 - `service_manager.py` - Service lifecycle management
 - `portfolio_service.py` - Portfolio management service
@@ -58,14 +58,8 @@ Service layer implementing core business logic:
 - `usage_examples.py` - Service usage examples
 - `cache_mixin.py` - Cache management utilities
 - `factor_proxy_service.py` - Factor proxy management service
+- `security_type_service.py` - Security type mapping service
 - `__init__.py` - Services module initialization
-- **`/claude/`** subdirectory (3 Python files):
-  - `__init__.py` - Claude module initialization
-  - `chat_service.py` - Claude chat integration
-  - `function_executor.py` - Function execution for Claude
-- **`/portfolio/`** subdirectory (2 Python files):
-  - `__init__.py` - Portfolio module initialization
-  - `context_service.py` - Portfolio context management
 
 #### `/routes/` (9 Python files) - API Endpoints Layer
 FastAPI route definitions:
@@ -81,7 +75,7 @@ FastAPI route definitions:
 
 **Note**: Main API routes have been migrated directly into `app.py` as part of the FastAPI migration. SnapTrade integration added in August 2025.
 
-#### `/utils/` (10 Python files) - Utility Layer
+#### `/utils/` (14 Python files) - Utility Layer
 Shared utilities:
 - `auth.py` - Authentication utilities
 - `config.py` - Configuration management
@@ -248,7 +242,7 @@ Jupyter notebook prototypes converted to Python:
 - `run_risk_summary_to_gpt_dev.py` - GPT integration development
 - Various Jupyter notebooks (.ipynb files)
 
-#### `/tools/` (9 Python files)
+#### `/tools/` (18 Python files)
 Development tools:
 - `check_dependencies.py` - Dependency checker
 - `test_all_interfaces.py` - Interface testing
@@ -258,6 +252,16 @@ Development tools:
 - `living_code_map_clean.py` - Clean code mapping
 - `watch_and_update.py` - File watching utility
 - `backfill_subindustry_peers.py` - Data backfill utility
+- `code_tracer.py` - Code tracing utility
+- `trace_plaid.py` - Plaid integration tracing
+- `clean_plaid_trace.py` - Plaid trace cleaning
+- `enhanced_code_tracer.py` - Enhanced tracing functionality
+- `demo_tracer.py` - Demo tracing utility
+- `js_analyzer.py` - JavaScript analysis tool
+- `fullstack_code_tracer.py` - Full-stack tracing
+- `fullstack_living_map.py` - Full-stack live mapping
+- `real_dependency_tracer.py` - Real dependency analysis
+- `fullstack_real_dependencies.py` - Full-stack dependency analysis
 
 ### Documentation
 
@@ -426,24 +430,24 @@ Legacy source files:
 - Database connection strings and configuration files
 
 ## File Count Summary
-- Total Python files: 750+ (as of 2025-09-04)
-- Core application: ~77 files (19 root + 18 services + 9 routes + 10 utils + 8 inputs + 10 core + 22 models + 4 database)
+- Total Python files: 842 (as of 2025-09-05)
+- Core application: ~85 files (19 root + 14 services + 9 routes + 14 utils + 8 inputs + 10 core + 22 models + 4 database)
 - Tests: Comprehensive suite with 60+ test files across multiple directories
 - Archive/Backup: Extensive files across multiple directories
 - Prototype: 17+ files (Python + Jupyter notebooks)
-- Tools: 9 files
+- Tools: 18 files
 - Frontend: Full React application (0 Python files, comprehensive TypeScript architecture with 9 adapters)
 - Admin tools: 2 files
 - Database: Centralized infrastructure with migration support
 - SnapTrade Integration: 7 test files in `/tests/snaptrade/` and loader implementation
 
-## Architecture Changes Since Last Update (2025-09-04)
+## Architecture Changes Since Last Update (2025-09-05)
 
 ### Legacy Code Organization & Frontend Refactoring (September 2025):
 1. **Legacy Code Reorganization**: Major reorganization of legacy frontend code
    - Moved legacy UI components to `/frontend/src/legacy/` directory  
    - Clear separation between modern and legacy UI patterns
-   - Enhanced code organization with 49 TypeScript files in legacy directory
+   - Enhanced code organization with 51 TypeScript files in legacy directory
 2. **Root Legacy Directory**: Simplified `/legacy/` directory structure
    - Contains only template files (moved to `/legacy/templates/`)
    - Moved examples and other legacy files to appropriate directories

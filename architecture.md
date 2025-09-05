@@ -670,11 +670,13 @@ The Risk Module includes a production-ready React frontend with sophisticated co
 ### Frontend Architecture Overview
 
 **Technology Stack:**
-- **React 18** with TypeScript for type-safe component development
-- **React Query (TanStack Query)** for server state management and caching
-- **React Router** for navigation and route management
-- **Tailwind CSS** for utility-first styling
+- **React 19.1.0** with TypeScript for type-safe component development
+- **React Query (TanStack Query 5.83.0)** for server state management and caching
+- **React Router 6.30.1** for navigation and route management
+- **Tailwind CSS 3.4.17** for utility-first styling with Shadcn/ui and Radix UI components  
 - **Recharts** for financial data visualization
+- **Zustand 4.5.0** for client-side state management
+- **AI SDK 5.0.19** for streaming AI responses and chat integration
 - **Jest + React Testing Library** for comprehensive testing
 
 ### Component Architecture (`frontend/src/`)
@@ -704,7 +706,7 @@ DashboardContainer.tsx
 ├── DashboardLayout.tsx (main layout)
 │   ├── HeaderBar.tsx (navigation + user menu)
 │   ├── Sidebar.tsx (navigation menu)
-│   ├── legacy/ (Legacy UI components moved to legacy folder)
+│   ├── legacy/ (49 TypeScript files - Legacy UI components for backward compatibility)
 │   └── ViewRenderer.tsx (dynamic view loading)
 └── views/
     ├── RiskAnalysisView.tsx (factor analysis + risk decomposition)
@@ -2290,7 +2292,7 @@ frontend/src/
 │   │   │   ├── HeaderBar.tsx      # Dashboard header
 │   │   │   ├── Sidebar.tsx        # Navigation sidebar
 │   │   │   ├── SummaryBar.tsx     # Portfolio summary bar
-│   │   └── legacy/               # Legacy UI components moved to legacy folder
+│   │   └── legacy/               # Legacy UI components (49 TypeScript files) for backward compatibility
 │   │   ├── views/                 # Dashboard view containers
 │   │   │   ├── RiskScoreViewContainer.tsx      # Risk scoring
 │   │   │   ├── HoldingsViewContainer.tsx       # Portfolio holdings
@@ -3153,6 +3155,15 @@ The Risk Module includes a production-ready testing framework with 95% test cove
 - **Service Integration**: End-to-end workflow validation across all layers
 - **Performance Regression**: Automated detection of performance degradation
 
+**7. SnapTrade Integration Testing** (`tests/snaptrade/`):
+- **Comprehensive Test Suite**: 7 specialized test files for complete SnapTrade API coverage
+- **Authentication Testing**: Multi-stage authentication flow validation
+- **Endpoint Coverage**: Complete API endpoint testing with real and simulated data
+- **User Registration**: New user onboarding and existing user handling
+- **Holdings Integration**: Portfolio data import and normalization validation
+- **Error Handling**: Graceful degradation and fallback mechanism testing
+- **Connection Management**: Session handling and token refresh validation
+
 ### Test Execution Commands
 
 ```bash
@@ -3169,6 +3180,12 @@ cd tests && python3 test_comprehensive_migration.py  # Master test runner
 cd tests && python3 test_performance_benchmarks.py   # Performance validation
 cd tests && python3 test_user_isolation.py           # Security testing
 cd tests && python3 test_fallback_mechanisms.py      # Fallback validation
+
+# SnapTrade Integration Tests
+cd tests/snaptrade && python3 test_snaptrade_integration.py      # Complete integration test
+cd tests/snaptrade && python3 test_snaptrade_authenticated.py    # Authenticated user flows
+cd tests/snaptrade && python3 test_snaptrade_endpoints.py        # API endpoint coverage
+cd tests/snaptrade && python3 test_snaptrade_registration.py     # User registration flows
 
 # Frontend Testing
 npm test                                              # Jest unit tests
