@@ -44,7 +44,7 @@ FastAPI response validation models for API endpoints:
 
 ### Core Application Layers (CRITICAL - Gitignored)
 
-#### `/services/` (14 Python files) - Business Logic Layer
+#### `/services/` (19 Python files) - Business Logic Layer
 Service layer implementing core business logic:
 - `service_manager.py` - Service lifecycle management
 - `portfolio_service.py` - Portfolio management service
@@ -60,6 +60,13 @@ Service layer implementing core business logic:
 - `factor_proxy_service.py` - Factor proxy management service
 - `security_type_service.py` - Security type mapping service
 - `__init__.py` - Services module initialization
+- **`/claude/`** subdirectory (3 Python files):
+  - `__init__.py` - Claude module initialization
+  - `chat_service.py` - Claude chat integration
+  - `function_executor.py` - Function execution for Claude
+- **`/portfolio/`** subdirectory (2 Python files):
+  - `__init__.py` - Portfolio module initialization
+  - `context_service.py` - Portfolio context management
 
 #### `/routes/` (9 Python files) - API Endpoints Layer
 FastAPI route definitions:
@@ -75,7 +82,7 @@ FastAPI route definitions:
 
 **Note**: Main API routes have been migrated directly into `app.py` as part of the FastAPI migration. SnapTrade integration added in August 2025.
 
-#### `/utils/` (14 Python files) - Utility Layer
+#### `/utils/` (11 Python files) - Utility Layer
 Shared utilities:
 - `auth.py` - Authentication utilities
 - `config.py` - Configuration management
@@ -84,6 +91,10 @@ Shared utilities:
 - `errors.py` - Error handling utilities
 - `etf_mappings.py` - ETF mapping utilities
 - `json_logging.py` - JSON logging utilities
+- `security_type_mappings.py` - Security type mapping utilities
+- `pydantic_codegen.py` - Pydantic model code generation
+- `pydantic_helpers.py` - Pydantic utility functions
+- `__init__.py` - Utils module initialization
 
 **Note**: `portfolio_context.py` has been removed as part of recent refactoring
 
@@ -270,43 +281,29 @@ Development tools:
   - `API_REFERENCE.md` - API documentation
   - `DATA_SCHEMAS.md` - Data schema documentation
   - `DEVELOPER_ONBOARDING.md` - Developer onboarding guide
-  - `COMPREHENSIVE_TEST_REPORT.md` - Complete testing documentation
-- **Frontend documentation:**
-  - `FRONTEND_DATA_FLOW_GUIDE.md` - Frontend data flow guide
-  - `FRONTEND_ADD_NEW_API_TEMPLATE.md` - Template for adding new APIs
-  - `MODERN_UI_COMPONENT_TEMPLATE.md` - Modern UI component templates
-  - `TYPESCRIPT_TYPE_GENERATION.md` - TypeScript type generation guide
-- **Architecture documentation:**
-  - `ADAPTER_PATTERNS.md` - Adapter pattern documentation
-  - `CHAT_MIGRATION_GUIDE.md` - Chat system migration guide
-  - `REFACTORING_TOOLKIT.md` - Refactoring toolkit
-  - `interface_alignment_table.md` - Interface alignment reference
+  - `BACKEND_ARCHITECTURE.md` - Backend architecture documentation
+  - `FRONTEND_BACKEND_CONNECTION_MAP.md` - Frontend-backend connection reference
+  - `usage_notes.md` - Usage notes and guidelines
 - **Subdirectories:**
-  - **`/ideas/`** - Architecture concepts and AI tutor designs
-  - **`/planning/`** - Planning documents including Vercel AI SDK integration guide
-  - **`/schema_samples/`** - API and CLI result samples for reference
+  - **`/integration/`** - Integration guides and implementation plans
+  - **`/planning/`** - Architecture planning and design documents
+  - **`/overviews/`** - UI component templates and overview documentation
 
 #### `/completed/` 
-Completed feature documentation and plans including:
-- **Recent additions:**
-  - `FRONTEND_MODERN_UI_INTEGRATION_PLAN.md` - Modern UI integration completion
-  - `API_MODERNIZATION_ROADMAP.md` - API modernization roadmap
-  - `OPENAPI_MIGRATION_PLAN.md` - OpenAPI migration planning
-  - `INTEGRATION_GUIDE.md` - Integration guide documentation
-- **Core refactoring plans:**
-  - Various API refactoring plans (interpret, performance, what-if, risk score)
-  - `DIRECT_API_REFACTOR_TEMPLATE.md` - Template for direct API refactoring
-  - `MIN_VARIANCE_REFACTORING_PLAN.md` - Minimum variance optimization refactor plan
-  - `STOCK_ANALYSIS_REFACTOR_PLAN.md` - Stock analysis refactor plan
-- **Architecture documentation:**
-  - `FRONTEND_DATA_FLOW_AUDIT_REPORT.md` - Frontend data flow audit
-  - `RESULT_OBJECT_AUDIT_REPORT.md` - Result objects architecture audit
-  - `SECURITY_AUDIT_REPORT.md` - Security audit report
+Completed feature documentation and plans (136+ markdown files) including:
+- **Root level completed docs:**
+  - `CHAT_MIGRATION_GUIDE.md` - Chat system migration guide
+  - `COMPREHENSIVE_TEST_REPORT.md` - Complete testing documentation
+  - `RESPONSE_MODELS_INTEGRATED.md` - Response model integration report
 - **Phase implementation documentation:**
-  - `/phase_1/` - Comprehensive phase 1 implementation documentation (60+ files)
-  - Various phase implementation reports and architectural plans
-  - Frontend refactoring completion reports
-  - Multi-user implementation documentation
+  - **`/phase_1/`** - Comprehensive phase 1 implementation documentation (98+ files)
+  - **`/phase_2/`** - Phase 2 implementation including caching architecture (40+ files)
+    - `CACHE_ARCHITECTURE.md` - Frontend cache architecture documentation
+    - `CACHE_CONFLICT_ANALYSIS.md` - Cache conflict analysis report
+    - `COORDINATED_CACHING_ARCHITECTURE.md` - Multi-layer cache coordination
+    - `SECURITY_TYPE_ARCHITECTURE_PLAN.md` - Security type classification system
+    - Various refactoring and integration plans
+  - **`/migration_baselines/`** - Migration baseline documentation
 
 #### `/admin/` (2 Python files)
 - `manage_reference_data.py` - Reference data management tool
@@ -431,7 +428,7 @@ Legacy source files:
 
 ## File Count Summary
 - Total Python files: 842 (as of 2025-09-05)
-- Core application: ~85 files (19 root + 14 services + 9 routes + 14 utils + 8 inputs + 10 core + 22 models + 4 database)
+- Core application: ~93 files (19 root + 19 services + 9 routes + 11 utils + 8 inputs + 10 core + 22 models + 4 database)
 - Tests: Comprehensive suite with 60+ test files across multiple directories
 - Archive/Backup: Extensive files across multiple directories
 - Prototype: 17+ files (Python + Jupyter notebooks)
@@ -447,7 +444,7 @@ Legacy source files:
 1. **Legacy Code Reorganization**: Major reorganization of legacy frontend code
    - Moved legacy UI components to `/frontend/src/legacy/` directory  
    - Clear separation between modern and legacy UI patterns
-   - Enhanced code organization with 51 TypeScript files in legacy directory
+   - Enhanced code organization with 52 TypeScript files in legacy directory
 2. **Root Legacy Directory**: Simplified `/legacy/` directory structure
    - Contains only template files (moved to `/legacy/templates/`)
    - Moved examples and other legacy files to appropriate directories

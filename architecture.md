@@ -706,7 +706,7 @@ DashboardContainer.tsx
 ├── DashboardLayout.tsx (main layout)
 │   ├── HeaderBar.tsx (navigation + user menu)
 │   ├── Sidebar.tsx (navigation menu)
-│   ├── legacy/ (49 TypeScript files - Legacy UI components for backward compatibility)
+│   ├── legacy/ (52 TypeScript files - Legacy UI components for backward compatibility)
 │   └── ViewRenderer.tsx (dynamic view loading)
 └── views/
     ├── RiskAnalysisView.tsx (factor analysis + risk decomposition)
@@ -2292,7 +2292,7 @@ frontend/src/
 │   │   │   ├── HeaderBar.tsx      # Dashboard header
 │   │   │   ├── Sidebar.tsx        # Navigation sidebar
 │   │   │   ├── SummaryBar.tsx     # Portfolio summary bar
-│   │   └── legacy/               # Legacy UI components (49 TypeScript files) for backward compatibility
+│   │   └── legacy/               # Legacy UI components (52 TypeScript files) for backward compatibility
 │   │   ├── views/                 # Dashboard view containers
 │   │   │   ├── RiskScoreViewContainer.tsx      # Risk scoring
 │   │   │   ├── HoldingsViewContainer.tsx       # Portfolio holdings

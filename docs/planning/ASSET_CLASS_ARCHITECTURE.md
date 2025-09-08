@@ -235,6 +235,209 @@ def infer_asset_class(proxies_dict):
         return "equity"
 ```
 
+## ServiceManager Coordination Architecture
+
+### **Foundation: SecurityTypeService Integration**
+The asset class architecture builds on the `SecurityTypeService` foundation established in the Security Type Architecture Plan:
+
+```python
+# ServiceManager coordinates all asset-related analysis
+class ServiceManager:
+    def __init__(self):
+        # Existing services
+        self.portfolio_service = PortfolioService()
+        self.optimization_service = OptimizationService()
+        self.stock_service = StockService()
+        self.scenario_service = ScenarioService()
+        
+        # Foundation service (from Security Type Architecture Plan)
+        self.security_type_service = SecurityTypeService()
+        
+        # Future asset allocation services
+        self.asset_allocation_service = AssetAllocationService()
+        self.rebalancing_service = RebalancingService()
+```
+
+### **Cross-Service Data Coordination**
+
+#### **1. Shared Security Classification:**
+```python
+def get_enhanced_portfolio_context(self, portfolio_data: PortfolioData) -> PortfolioContext:
+    """Single call to get all portfolio context for coordinated analysis"""
+    
+    # Foundation: Security types from SecurityTypeService
+    tickers = list(portfolio_data.weights.keys())
+    security_types = self.security_type_service.get_security_types(tickers, portfolio_data)
+    
+    # Enhanced: Asset class mapping from security types
+    asset_classes = self._map_security_types_to_asset_classes(security_types)
+    
+    # Factor proxies (asset-class-aware)
+    factor_proxies = self._get_asset_class_aware_proxies(tickers, asset_classes)
+    
+    return PortfolioContext(
+        security_types=security_types,
+        asset_classes=asset_classes,
+        factor_proxies=factor_proxies
+    )
+
+def _map_security_types_to_asset_classes(self, security_types: Dict[str, str]) -> Dict[str, str]:
+    """Map SecurityTypeService output to asset classes"""
+    mapping = {
+        "equity": "domestic_equity",  # Can be enhanced with geographic data
+        "etf": "determine_from_fmp_data",  # ETFs can be any asset class
+        "mutual_fund": "determine_from_fmp_data",
+        "cash": "cash_equivalents",
+        "bond": "fixed_income"
+    }
+    
+    asset_classes = {}
+    for ticker, security_type in security_types.items():
+        if security_type in ["etf", "mutual_fund"]:
+            # Use FMP data to determine actual asset class
+            asset_classes[ticker] = self._determine_etf_asset_class(ticker)
+        else:
+            asset_classes[ticker] = mapping.get(security_type, "equity")
+    
+    return asset_classes
+```
+
+#### **2. Enhanced Risk Analysis with Asset Class Context:**
+```python
+def intelligent_risk_analysis(self, portfolio_data: PortfolioData) -> RiskAnalysisResult:
+    """Risk analysis enhanced by asset allocation insights"""
+    
+    # Get coordinated context
+    context = self.get_enhanced_portfolio_context(portfolio_data)
+    
+    # Asset-class-aware risk analysis
+    risk_result = self.portfolio_service.analyze_portfolio(
+        portfolio_data, 
+        asset_class_context=context.asset_classes
+    )
+    
+    # Cross-service intelligence
+    allocation = self.asset_allocation_service.analyze_allocation(
+        portfolio_data, context.asset_classes
+    )
+    
+    # Enhanced concentration risk by asset class
+    if allocation.is_over_concentrated("domestic_equity"):
+        risk_result.add_warning("High domestic equity concentration detected")
+        risk_result.enhance_concentration_analysis(allocation.get_concentration_details())
+    
+    return risk_result
+```
+
+#### **3. Asset Allocation Service Integration:**
+```python
+class AssetAllocationService(ServiceCacheMixin):
+    """Future service for asset allocation analysis"""
+    
+    def analyze_allocation(self, portfolio_data: PortfolioData, 
+                          asset_classes: Dict[str, str]) -> AllocationAnalysis:
+        """Analyze portfolio asset allocation"""
+        
+        allocation = {}
+        for ticker, weight in portfolio_data.weights.items():
+            asset_class = asset_classes.get(ticker, 'equity')
+            allocation[asset_class] = allocation.get(asset_class, 0) + weight
+        
+        return AllocationAnalysis(
+            current_allocation=allocation,
+            concentration_metrics=self._calculate_concentration(allocation),
+            diversification_score=self._calculate_diversification(allocation),
+            rebalancing_opportunities=self._identify_rebalancing_opportunities(allocation)
+        )
+    
+    def get_geographic_exposure(self, portfolio_data: PortfolioData) -> Dict[str, float]:
+        """Calculate geographic exposure using SecurityTypeService FMP data"""
+        tickers = list(portfolio_data.weights.keys())
+        
+        # Leverage SecurityTypeService's FMP data cache
+        geographic_data = {}
+        for ticker in tickers:
+            fmp_data = self.security_type_service.get_fmp_data(ticker)
+            country = fmp_data.get('country', 'US')
+            weight = portfolio_data.weights[ticker]
+            geographic_data[country] = geographic_data.get(country, 0) + weight
+        
+        return geographic_data
+```
+
+### **Coordinated Caching Strategy**
+
+```python
+class ServiceManager:
+    def clear_all_caches(self):
+        """Coordinated cache management across all services"""
+        self.portfolio_service.clear_cache()
+        self.security_type_service.clear_cache()
+        self.asset_allocation_service.clear_cache()
+        self.rebalancing_service.clear_cache()
+    
+    def get_comprehensive_cache_stats(self) -> Dict[str, Any]:
+        """Unified cache monitoring across all services"""
+        return {
+            'security_type_service': self.security_type_service.get_cache_stats(),
+            'portfolio_service': self.portfolio_service.get_cache_stats(),
+            'asset_allocation_service': self.asset_allocation_service.get_cache_stats(),
+            'total_memory_usage': self._calculate_total_cache_memory(),
+            'cache_hit_rates': self._calculate_aggregate_hit_rates()
+        }
+```
+
+### **Enhanced API Endpoint Integration**
+
+Instead of creating new endpoints, enhance existing ones:
+
+```python
+# Enhanced existing endpoint: /api/portfolio/analyze
+@app.route('/api/portfolio/analyze', methods=['POST'])
+def analyze_portfolio():
+    """Enhanced portfolio analysis with asset allocation context"""
+    
+    portfolio_data = get_portfolio_data_from_request()
+    service_manager = get_service_manager()
+    
+    # Coordinated analysis through ServiceManager
+    context = service_manager.get_enhanced_portfolio_context(portfolio_data)
+    risk_analysis = service_manager.intelligent_risk_analysis(portfolio_data)
+    
+    # Enhanced response with asset allocation data
+    response = risk_analysis.to_dict()
+    response.update({
+        "asset_allocation": {
+            "current_allocation": context.asset_classes,
+            "concentration_metrics": service_manager.asset_allocation_service.get_concentration_metrics(portfolio_data),
+            "diversification_score": service_manager.asset_allocation_service.get_diversification_score(portfolio_data)
+        },
+        "security_classifications": context.security_types
+    })
+    
+    return response
+
+# Enhanced existing endpoint: /api/portfolio/optimize  
+@app.route('/api/portfolio/optimize', methods=['POST'])
+def optimize_portfolio():
+    """Enhanced optimization with asset-class-aware constraints"""
+    
+    portfolio_data = get_portfolio_data_from_request()
+    service_manager = get_service_manager()
+    
+    # Get asset class context for optimization
+    context = service_manager.get_enhanced_portfolio_context(portfolio_data)
+    
+    # Asset-class-aware optimization
+    optimization_result = service_manager.optimization_service.optimize_portfolio(
+        portfolio_data,
+        asset_class_constraints=context.get_asset_class_constraints(),
+        security_type_context=context.security_types
+    )
+    
+    return optimization_result.to_dict()
+```
+
 ## Benefits of This Architecture
 
 1. **Eliminates Current Bugs**: No more impossible industry beta constraints for bonds
@@ -243,6 +446,10 @@ def infer_asset_class(proxies_dict):
 4. **Extensible**: Easy to add new asset classes
 5. **Industry Standard**: Aligns with institutional risk management practices
 6. **Clean Separation**: Clear boundaries between asset class logic
+7. **Service Coordination**: ServiceManager orchestrates complex cross-service analysis
+8. **Unified Data Layer**: SecurityTypeService provides consistent foundation for all services
+9. **Enhanced Intelligence**: Services can inform and enhance each other's analysis
+10. **Coordinated Caching**: Optimal performance through unified cache management
 
 ## Testing Strategy
 
