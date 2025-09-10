@@ -1,3 +1,108 @@
+# Industry to ETF Mapping Configuration
+# 
+# PRIMARY PURPOSE: Industry ETF Proxy Mappings for Factor Analysis
+# ===============================================================
+# This file provides industry-to-ETF proxy mappings used primarily for:
+# 1. **Factor Analysis**: Maps industries to representative ETFs for risk modeling
+# 2. **Asset Class Classification**: Tier 3 of the 5-tier classification system
+# 3. **Portfolio Risk Analysis**: Industry exposure calculations via proxy ETFs
+#
+# MAIN USAGE: Industry ETF Proxies
+# ===============================
+# The primary use case is mapping company industries to representative ETFs:
+# - Technology companies → XLK (Technology Select Sector SPDR Fund)
+# - Healthcare companies → XLV (Health Care Select Sector SPDR Fund)  
+# - Financial companies → XLF (Financial Select Sector SPDR Fund)
+# - REITs → VNQ (Vanguard Real Estate ETF) + real_estate classification
+# - Gold mining → GLD (SPDR Gold Shares) + commodity classification
+#
+# This enables factor regression analysis: 
+# Stock_Return = α + β₁*Market + β₂*Momentum + β₃*Value + β₄*Industry_ETF + ε
+#
+# INTEGRATION WITH ASSET CLASS SYSTEM:
+# ===================================
+# Tier 1: Cash Proxy           → Direct cash detection
+# Tier 2: Database Cache       → Cached asset class results  
+# Tier 3: FMP Industry         → DATABASE industry_proxies table (this file as backup)
+# Tier 4: Security Type        → Basic type-based mapping (equity → equity)
+# Tier 5: AI Fallback          → GPT analysis for complex cases
+#
+# USAGE IN CODE:
+# =============
+# **Primary Usage - Factor Analysis:**
+# - proxy_builder.load_industry_etf_map() (loads from industry_proxies database table)
+# - DatabaseClient.get_industry_mappings() (retrieves 175 mappings from database)
+# - proxy_builder.map_industry_etf() (gets ETF proxy for industry)
+# - Factor regression models use these ETFs as industry exposure proxies
+# - Risk analysis calculates portfolio industry exposures via proxy ETFs
+#
+# **Secondary Usage - Asset Classification:**
+# - SecurityTypeService._classify_asset_class_from_fmp_industry() (Tier 3)
+# - proxy_builder.map_industry_asset_class() (uses database asset_class overrides)
+#
+# **Development Usage - YAML Source of Truth:**
+# - Edit this file for new mappings (easier than database commands)
+# - Upload changes to database when ready for production
+# - Serves as configuration source and emergency fallback
+#
+# DATABASE SYNCHRONIZATION:
+# ========================
+# This file follows the 3-tier architecture pattern:
+# 1. DATABASE (Primary): industry_proxies table - live production data (175 mappings)
+# 2. YAML (Source of Truth): This file - configuration management and development
+# 3. HARDCODED (Ultimate): Built-in mappings in proxy_builder.py
+#
+# DEVELOPMENT WORKFLOW:
+# ====================
+# 1. **Edit YAML**: Modify this file for new mappings or changes (easier to work with)
+# 2. **Upload to Database**: Sync changes to production database when ready
+# 3. **Production Use**: Database serves all runtime requests
+#
+# CURRENT STATUS: Database is PRIMARY for runtime, YAML is SOURCE OF TRUTH for config
+# - industry_proxies table: 175 rows with ETF mappings + 24 asset_class overrides
+# - This YAML file: Configuration source and development workspace
+# - Database includes asset_class column for real_estate, commodity, bond, crypto overrides
+#
+# To manage via admin tools:
+#   python admin/manage_reference_data.py industry list
+#   python admin/manage_reference_data.py industry add [industry] [etf]
+#   # Or edit this YAML file directly and re-upload to database
+#
+# MAPPING FORMATS:
+# ===============
+# Simple format (ETF only):
+#   Industry Name: ETF_TICKER
+#
+# Extended format (ETF + asset class override):
+#   Industry Name:
+#     etf: ETF_TICKER
+#     asset_class: ASSET_CLASS
+#
+# ASSET CLASS OVERRIDES:
+# =====================
+# The asset_class field overrides the default equity classification.
+# This is crucial for industries that should map to different asset classes:
+# - REITs → real_estate (not equity)
+# - Commodity industries → commodity (not equity)  
+# - Financial services → varies based on business model
+#
+# EXAMPLES:
+# ========
+# **Primary Use - Industry ETF Proxies:**
+# Technology: XLK                    # Tech companies use XLK as industry proxy ETF
+# Healthcare: XLV                    # Healthcare companies use XLV as industry proxy ETF
+# 
+# **Extended Use - ETF Proxy + Asset Class Override:**
+# Gold:                              # Gold mining companies:
+#   etf: GLD                         #   - Use GLD as industry proxy ETF  
+#   asset_class: commodity           #   - Override asset class to commodity (not equity)
+#
+# Real Estate Investment Trusts:     # REITs:
+#   etf: VNQ                         #   - Use VNQ as industry proxy ETF
+#   asset_class: real_estate         #   - Override asset class to real_estate (not equity)
+#
+# ============================================================================
+
 Semiconductors: SOXX
 Software - Application: XSW
 Oil & Gas Exploration & Production:
