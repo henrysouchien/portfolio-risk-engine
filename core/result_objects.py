@@ -929,18 +929,9 @@ class RiskAnalysisResult:
         return sorted(allocation_breakdown, key=lambda x: x['percentage'], reverse=True)
 
     def _get_asset_class_color(self, asset_class: str) -> str:
-        """Map asset classes to consistent UI colors"""
-        color_map = {
-            'equity': 'bg-blue-500',
-            'bond': 'bg-emerald-500', 
-            'reit': 'bg-amber-500',
-            'commodity': 'bg-orange-500',
-            'crypto': 'bg-purple-500',
-            'cash': 'bg-gray-500',
-            'mixed': 'bg-neutral-500',
-            'unknown': 'bg-neutral-400'  # Slightly lighter than mixed for "Other" category
-        }
-        return color_map.get(asset_class, 'bg-neutral-500')
+        """Map asset classes to consistent UI colors using centralized constants"""
+        from core.constants import get_asset_class_color
+        return get_asset_class_color(asset_class)
     
     def _format_asset_allocation_table(self, allocation_data: List[Dict[str, Any]]) -> str:
         """Format asset allocation as CLI table for Claude AI and CLI users."""
