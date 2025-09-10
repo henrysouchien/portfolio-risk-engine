@@ -6,11 +6,27 @@ API Serialization Patterns:
     • to_api_response() - Schema-compliant serialization for API endpoints
       Returns structured data matching the OpenAPI schema definitions.
       Use this method for all API responses to ensure schema compliance.
+    
+    • to_cli_report() - Human-readable formatted reports for CLI and Claude AI
+      Returns formatted text reports with consistent styling and structure.
+
+ASSET CLASS EXTENSION (Phase 1):
+    Enhanced RiskAnalysisResult with asset allocation breakdown:
+    
+    • asset_allocation field in API responses for frontend charts
+    • Asset allocation section in CLI reports with formatted tables
+    • Automatic categorization using SecurityTypeService asset class data
+    • Color mapping for consistent UI presentation
 
 Example Usage:
-    # Preferred - schema-compliant API response
+    # API response with asset allocation
     result = analyze_portfolio(portfolio_data)
     api_data = result.to_api_response()
+    # api_data['asset_allocation'] contains frontend-ready allocation breakdown
+    
+    # CLI report with asset allocation table
+    cli_report = result.to_cli_report()
+    # Contains "=== Asset Allocation ===" section with formatted table
 """
 
 from typing import Dict, Any, Optional, List, Union
@@ -856,8 +872,104 @@ class RiskAnalysisResult:
         # Return the exact data that CLI uses for "Industry Variance (absolute)"
         return self.industry_variance.get("absolute", {})
 
+    def _build_asset_allocation_breakdown(self) -> List[Dict[str, Any]]:
+        """
+        Build asset allocation breakdown for frontend AssetAllocation component.
+        
+        Uses pre-calculated asset classes from analysis_metadata. This is pure formatting
+        logic - no business logic or service calls in result objects.
+        
+        Returns:
+            List[Dict]: Asset allocation breakdown for frontend charts
+        """
+        if not self.portfolio_weights:
+            return []
+        
+        # Require pre-calculated asset classes - fail fast if missing
+        asset_classes = getattr(self, 'analysis_metadata', {}).get('asset_classes', {})
+        if not asset_classes:
+            # Fail fast - don't hide missing data with fallback business logic
+            return []  # Return empty, this is a real error that should be fixed in core analysis
+        
+        # Group by asset class and calculate aggregates
+        asset_groups = {}
+        total_value = self.total_value or 0
+        
+        for ticker, weight in self.portfolio_weights.items():
+            asset_class = asset_classes.get(ticker)
+            if not asset_class:
+                continue  # Skip tickers without asset class classification
+                
+            dollar_value = weight * total_value
+            
+            if asset_class not in asset_groups:
+                asset_groups[asset_class] = {
+                    'total_weight': 0,
+                    'total_value': 0,
+                    'holdings': []
+                }
+            
+            asset_groups[asset_class]['total_weight'] += weight
+            asset_groups[asset_class]['total_value'] += dollar_value
+            asset_groups[asset_class]['holdings'].append(ticker)
+        
+        # Build frontend-compatible array
+        allocation_breakdown = []
+        for asset_class, data in asset_groups.items():
+            allocation_breakdown.append({
+                'category': 'Other' if asset_class == 'unknown' else asset_class.title(),  # "Equity", "Bond", "Other"
+                'percentage': round(data['total_weight'] * 100, 1),
+                'value': f"${data['total_value']:,.0f}",
+                'change': "+0.0%",  # TODO: Calculate performance change
+                'changeType': "neutral",  # TODO: Determine based on performance
+                'color': self._get_asset_class_color(asset_class),
+                'holdings': data['holdings']
+            })
+        
+        return sorted(allocation_breakdown, key=lambda x: x['percentage'], reverse=True)
 
+    def _get_asset_class_color(self, asset_class: str) -> str:
+        """Map asset classes to consistent UI colors"""
+        color_map = {
+            'equity': 'bg-blue-500',
+            'bond': 'bg-emerald-500', 
+            'reit': 'bg-amber-500',
+            'commodity': 'bg-orange-500',
+            'crypto': 'bg-purple-500',
+            'cash': 'bg-gray-500',
+            'mixed': 'bg-neutral-500',
+            'unknown': 'bg-neutral-400'  # Slightly lighter than mixed for "Other" category
+        }
+        return color_map.get(asset_class, 'bg-neutral-500')
     
+    def _format_asset_allocation_table(self, allocation_data: List[Dict[str, Any]]) -> str:
+        """Format asset allocation as CLI table for Claude AI and CLI users."""
+        if not allocation_data:
+            return "No asset allocation data available"
+        
+        lines = []
+        lines.append("Asset Class      Allocation    Value        Holdings")
+        lines.append("-" * 55)
+        
+        for item in allocation_data:
+            asset_class = item['category'].ljust(15)
+            percentage = f"{item['percentage']:>6.1f}%".ljust(12)
+            value = str(item['value']).ljust(12)
+            holdings_count = f"({len(item['holdings'])} positions)"
+            
+            lines.append(f"{asset_class} {percentage} {value} {holdings_count}")
+            
+            # Show top holdings for each asset class
+            if len(item['holdings']) <= 3:
+                holdings_str = ", ".join(item['holdings'])
+            else:
+                holdings_str = ", ".join(item['holdings'][:3]) + f", +{len(item['holdings'])-3} more"
+            
+            lines.append(f"                 └─ {holdings_str}")
+            lines.append("")  # Blank line between asset classes
+        
+        return "\n".join(lines)
+
     def to_api_response(self) -> Dict[str, Any]:
         """
         Convert RiskAnalysisResult to comprehensive API response format.
@@ -983,7 +1095,9 @@ class RiskAnalysisResult:
                 "total_positions": (self.analysis_metadata or {}).get("total_positions"), # Total Positions
                 "active_positions": (self.analysis_metadata or {}).get("active_positions"), # Active Positions
                 "expected_returns": self.expected_returns,  # EXPECTED RETURNS
+                "asset_classes": (self.analysis_metadata or {}).get("asset_classes"),  # NEW: Asset class classifications
             },
+            "asset_allocation": self._build_asset_allocation_breakdown(),  # NEW: Asset allocation breakdown for frontend charts
             "formatted_report": self.to_cli_report(),  # Formatted Report
             "risk_limit_violations_summary": self._get_risk_limit_violations_summary(),  # Risk Limit Violations Summary
             "beta_exposure_checks_table": self._get_beta_exposure_checks_table()  # Beta Exposure Checks Formatted Table
@@ -1025,6 +1139,12 @@ class RiskAnalysisResult:
         if hasattr(self, 'allocations') and self.allocations is not None and not self.allocations.empty:
             sections.append("=== Target Allocations ===")
             sections.append(str(self.allocations))
+        
+        # NEW: Asset Allocation Section (after Target Allocations)
+        asset_allocation = self._build_asset_allocation_breakdown()
+        if asset_allocation:
+            sections.append("=== Asset Allocation ===")
+            sections.append(self._format_asset_allocation_table(asset_allocation))
         
         # Section 2: Covariance Matrix 
         if hasattr(self, 'covariance_matrix') and self.covariance_matrix is not None and not self.covariance_matrix.empty:

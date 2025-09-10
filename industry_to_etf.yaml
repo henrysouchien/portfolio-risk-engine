@@ -1,24 +1,42 @@
 Semiconductors: SOXX
 Software - Application: XSW
-Oil & Gas Exploration & Production: XOP
-Oil & Gas E&P: XOP
+Oil & Gas Exploration & Production:
+  etf: XOP
+  asset_class: commodity
+Oil & Gas E&P:
+  etf: XOP
+  asset_class: commodity
 Biotechnology: XBI
 Credit Services: KCE
 Internet Retail: FDN
 Pharmaceuticals: IHE
 
-Steel: XME
-Silver: SLV
-Other Precious Metals: XME
-Gold: GDX
-Copper: XME
-Aluminum: XME
+Steel:
+  etf: XME
+  asset_class: commodity
+Silver:
+  etf: SLV
+  asset_class: commodity
+Other Precious Metals:
+  etf: XME
+  asset_class: commodity
+Gold:
+  etf: GDX
+  asset_class: commodity
+Copper:
+  etf: XME
+  asset_class: commodity
+Aluminum:
+  etf: XME
+  asset_class: commodity
 Paper, Lumber & Forest Products: WOOD
 Industrial Materials: XLB
 Construction Materials: XLB
 Chemicals - Specialty: XLB
 Chemicals: XLB
-Agricultural Inputs: MOO
+Agricultural Inputs:
+  etf: MOO
+  asset_class: commodity
 
 Telecommunications Services: IYZ
 Internet Content & Information: XLC
@@ -92,10 +110,14 @@ Banks - Diversified: KBE
 Banks: KBE
 
 Asset Management: KCE
-Asset Management - Bonds: KCE
+Asset Management - Bonds:
+  etf: KCE
+  asset_class: bond
 Asset Management - Income: KCE
 Asset Management - Leveraged: KCE
-Asset Management - Cryptocurrency: BITQ
+Asset Management - Cryptocurrency:
+  etf: BITQ
+  asset_class: crypto
 Asset Management - Global: KCE
 
 Medical - Specialties: XHS
@@ -146,20 +168,46 @@ Electrical Equipment & Parts: XLI
 Agricultural - Machinery: MOO
 Agricultural - Commodities/Milling: DBA
 
-REIT - Specialty: IYR
-REIT - Retail: IYR
-REIT - Residential: REZ
-REIT - Office: IYR
-REIT - Mortgage: REM
-REIT - Industrial: INDS
-REIT - Hotel & Motel: XLY
-REIT - Healthcare Facilities: IHF
-REIT - Diversified: IYR
+REIT - Specialty:
+  etf: IYR
+  asset_class: real_estate
+REIT - Retail:
+  etf: IYR
+  asset_class: real_estate
+REIT - Residential:
+  etf: REZ
+  asset_class: real_estate
+REIT - Office:
+  etf: IYR
+  asset_class: real_estate
+REIT - Mortgage:
+  etf: REM
+  asset_class: real_estate
+REIT - Industrial:
+  etf: INDS
+  asset_class: real_estate
+REIT - Hotel & Motel:
+  etf: XLY
+  asset_class: real_estate
+REIT - Healthcare Facilities:
+  etf: IHF
+  asset_class: real_estate
+REIT - Diversified:
+  etf: IYR
+  asset_class: real_estate
 
-Real Estate - Services: IYR
-Real Estate - Diversified: IYR
-Real Estate - Development: IYR
-Real Estate - General: IYR
+Real Estate - Services:
+  etf: IYR
+  asset_class: real_estate
+Real Estate - Diversified:
+  etf: IYR
+  asset_class: real_estate
+Real Estate - Development:
+  etf: IYR
+  asset_class: real_estate
+Real Estate - General:
+  etf: IYR
+  asset_class: real_estate
 
 Information Technology Services: XLK
 Hardware, Equipment & Parts: XLK
@@ -181,5 +229,4 @@ Independent Power Producers: XLU
 Diversified Utilities: XLU
 General Utilities: XLU
 
-DEFAULT: SPY
 

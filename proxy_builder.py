@@ -276,6 +276,8 @@ def fetch_profile(ticker: str) -> dict:
             - 'marketCap'  : int  — latest market cap in USD
             - 'isEtf'      : bool — True if classified as an ETF
             - 'isFund'     : bool — True if classified as a mutual fund
+            - 'companyName': str  — full company name (e.g., "BlackRock Debt Strategies Fund, Inc.")
+            - 'description': str  — detailed company/fund description for AI asset classification
 
     Raises
     ------
@@ -307,6 +309,8 @@ def fetch_profile(ticker: str) -> dict:
         "marketCap": profile.get("marketCap"),            # e.g. 3T
         "isEtf": profile.get("isEtf", False),
         "isFund": profile.get("isFund", False),
+        "companyName": profile.get("companyName"),        # e.g. "BlackRock Debt Strategies Fund, Inc."
+        "description": profile.get("description"),        # Rich fund/company description for AI classification
     }
 
 
@@ -379,6 +383,10 @@ def load_industry_etf_map(path: str = "industry_to_etf.yaml") -> dict:
 def map_industry_etf(industry: str, etf_map: dict) -> str:
     """
     Map a given industry string to its corresponding ETF using the lookup map.
+    
+    UPDATED: Now handles new structured YAML format
+    OLD: {"Gold": "GDX"}
+    NEW: {"Gold": {"etf": "GDX", "asset_class": "commodity"}}
 
     Returns
     -------
@@ -389,8 +397,48 @@ def map_industry_etf(industry: str, etf_map: dict) -> str:
     -----
     • No fallback to 'DEFAULT' — this is now handled at the call site,
       where fund/ETF detection can decide whether to skip the assignment.
+    • Handles both old format (string) and new format (dict with etf field)
     """
-    return etf_map.get(industry)
+    mapping = etf_map.get(industry)
+    if mapping is None:
+        return None
+    
+    # Handle new structured format
+    if isinstance(mapping, dict):
+        return mapping.get("etf")
+    
+    # Handle old format (backward compatibility during transition)
+    return mapping
+
+def map_industry_asset_class(industry: str, etf_map: dict) -> str:
+    """
+    Map a given industry string to its corresponding asset class using the lookup map.
+    
+    NEW FUNCTION: Extracts asset class from extended industry_to_etf.yaml structure
+    
+    Args:
+        industry: Industry name from FMP profile
+        etf_map: Dictionary loaded from industry_to_etf.yaml
+        
+    Returns:
+        Asset class string or None if not found
+        
+    Examples:
+        >>> map_industry_asset_class("Gold", {"Gold": {"etf": "GDX", "asset_class": "commodity"}})
+        'commodity'
+        >>> map_industry_asset_class("Unknown", etf_map)
+        None
+    """
+    mapping = etf_map.get(industry)
+    if mapping is None:
+        return None
+    
+    # Handle new structured format
+    if isinstance(mapping, dict):
+        return mapping.get("asset_class")
+    
+    # Old format doesn't have asset class info
+    return None
 
 
 # In[ ]:

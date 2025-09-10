@@ -24,7 +24,8 @@ from utils.logging import (
     log_error_handling,
     log_api_health,
     log_service_health,
-    log_critical_alert
+    log_critical_alert,
+    portfolio_logger
 )
 
 
@@ -188,5 +189,89 @@ Industry: {industry}
         print(f"⚠️ generate_subindustry_peers failed for {ticker}: {e}")
         traceback.print_exc()
         return ""
+
+
+@log_error_handling("high")
+@log_portfolio_operation_decorator("ai_asset_classification")
+@log_api_health("OpenAI", "asset_class_classification")
+@log_performance(3.0)
+def generate_asset_class_classification(ticker: str, company_name: str, description: str, timeout: int = 30) -> str:
+    """
+    GPT function for asset class classification (follows generate_subindustry_peers pattern)
+    
+    Args:
+        ticker: Stock symbol (e.g., "DSU")
+        company_name: Company name from FMP (e.g., "BlackRock Debt Strategies Fund, Inc.")
+        description: Company description from FMP profile
+        timeout: Request timeout in seconds
+        
+    Returns:
+        String in format "asset_class,confidence_score" (e.g., "bond,0.95")
+        FALLBACK: Returns "mixed,0.50" if GPT API fails (timeout, error, etc.)
+        
+    Fallback Behavior:
+        - GPT API failure → "mixed,0.50" (safe default for unknown securities)
+        - Maintains consistent return format even on error
+        - Caller can parse and handle low confidence appropriately
+        - "mixed" is safest assumption for unclassifiable securities
+        
+    Prompt Strategy:
+        - Clear 8-category classification (equity, bond, real_estate, commodity, crypto, cash, mixed, unknown)
+        - Focus on investment exposure, not legal structure
+        - Return format: "asset_class,confidence_score"
+        - Confidence range: 0.00-1.00
+    """
+    prompt = f"""
+Classify the following security into one of these asset classes: equity, bond, real_estate, commodity, crypto, cash, mixed, unknown
+
+Security: {ticker}
+Company: {company_name}
+Description: {description}
+
+Focus on the investment exposure, not the legal structure. For example:
+- A bond fund should be classified as "bond"
+- A REIT or real estate fund should be classified as "real_estate" 
+- A mining company or fund (gold, silver, copper, etc.) should be classified as "commodity"
+- A cryptocurrency fund or crypto-themed ETF should be classified as "crypto"
+- A regular stock should be classified as "equity"
+- A money market or ultra-short-term bond fund should be classified as "cash"
+- A multi-asset fund should be classified as "mixed"
+- If unclear or insufficient information, use "unknown"
+
+Respond in this exact format: "asset_class,confidence_score"
+Where confidence_score is between 0.00 and 1.00
+
+Examples:
+- "bond,0.95" for a bond fund
+- "equity,0.85" for a regular stock
+- "real_estate,0.90" for a REIT or real estate fund
+- "commodity,0.80" for a mining company or mining fund
+- "crypto,0.90" for a cryptocurrency fund or crypto-themed ETF
+- "cash,0.95" for a money market or ultra-short-term bond fund
+- "mixed,0.75" for a target-date fund
+- "unknown,0.30" if insufficient information
+""".strip()
+    
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",  # Use cost-effective model for classification
+            messages=[
+                {"role": "system", "content": "You are a financial asset classification expert."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=50,  # Short response expected
+            temperature=0.2,  # Low temperature for consistent classification
+            timeout=timeout
+        )
+        
+        content = response.choices[0].message.content.strip()
+        portfolio_logger.debug(f"GPT asset class response for {ticker}: {content}")
+        return content
+        
+    except Exception as e:
+        # Log full traceback for debugging
+        portfolio_logger.error(f"GPT asset class classification failed for {ticker}: {e}")
+        traceback.print_exc()
+        return "mixed,0.50"  # Return structured response format even on error
 
 
