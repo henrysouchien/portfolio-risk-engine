@@ -79,7 +79,6 @@ import os
 from typing import List
 from dotenv import load_dotenv
 import openai
-import traceback
 
 # ── Load env & set up the shared client ───────────────────────────────
 load_dotenv()
@@ -186,8 +185,8 @@ Industry: {industry}
 
     except Exception as e:
         # Log full traceback so the root cause is visible
-        print(f"⚠️ generate_subindustry_peers failed for {ticker}: {e}")
-        traceback.print_exc()
+        portfolio_logger.error(f"⚠️ generate_subindustry_peers failed for {ticker}: {e}")
+        portfolio_logger.debug(f"generate_subindustry_peers traceback for {ticker}", exc_info=True)
         return ""
 
 
@@ -271,7 +270,7 @@ Examples:
     except Exception as e:
         # Log full traceback for debugging
         portfolio_logger.error(f"GPT asset class classification failed for {ticker}: {e}")
-        traceback.print_exc()
+        portfolio_logger.debug(f"GPT asset class classification traceback for {ticker}", exc_info=True)
         return "mixed,0.50"  # Return structured response format even on error
 
 
