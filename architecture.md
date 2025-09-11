@@ -52,7 +52,7 @@ The Risk Module implements a comprehensive multi-user database system with Postg
 **Database Components:**
 - **Database Session Management** (`database/session.py`): Request-scoped session management
 - **Database Connection Pooling** (`database/pool.py`): PostgreSQL connection pool management
-- **Database Schema** (`database/schema.sql`): Centralized database schema definitions
+- **Database Schema** (`database/schema.sql`): Complete database schema (783 lines) with 50+ optimized indexes
 - **Database Client** (`inputs/database_client.py`): Per-request PostgreSQL helper with no singleton pattern
 - **Multi-Currency Support** (`inputs/database_client.py`): Currency extraction and position mapping
 - **User Management** (`services/auth_service.py`): Authentication, session handling, user isolation
@@ -403,7 +403,7 @@ CREATE TABLE security_types (
 
 ## 🚀 FastAPI & Response Validation
 
-The Risk Module has migrated from Flask to **FastAPI** for enhanced performance, automatic documentation, and type safety.
+The Risk Module has migrated from Flask to **FastAPI 0.116.0** for enhanced performance, automatic documentation, and type safety.
 
 ### FastAPI Implementation
 
@@ -417,7 +417,7 @@ The Risk Module has migrated from Flask to **FastAPI** for enhanced performance,
 **Migration Architecture**:
 ```python
 # FastAPI app with middleware
-app = FastAPI(title="Portfolio Risk Analysis API")
+app = FastAPI(title="Risk Module API", version="2.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"])
 app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
 
@@ -615,7 +615,7 @@ The system follows a **clean 3-layer architecture** with clear separation of con
 ├─────────────────────────────────────────────────────────────┤
 │  ┌─────────────────┐  ┌─────────────────┐  ┌──────────────┐ │
 │  │ CLI Interface   │  │ API Interface   │  │ AI Interface │ │
-│  │ run_risk.py     │  │ routes/api.py   │  │ routes/      │ │
+│  │ run_risk.py     │  │ routes/         │  │ routes/      │ │
 │  │ (CLI Commands)  │  │ (REST API)      │  │ claude.py    │ │
 │  └─────────────────┘  └─────────────────┘  └──────────────┘ │
 │                                                             │
@@ -906,7 +906,7 @@ POST /api/direct/interpret          # AI interpretation → InterpretationResult
    
 2. Routes Layer (Returns Result Objects)
    ├── run_portfolio() → RiskAnalysisResult in run_risk.py
-   ├── api_direct_portfolio() → calls run_portfolio(return_data=True) in routes/api.py
+   ├── api endpoints in routes/ → calls service layer and returns Result Objects
    └── claude_chat() → calls service layer in routes/claude.py
    
 3. Core Layer (Business Logic - Creates Result Objects)
@@ -1231,25 +1231,32 @@ risk_module/
 ├── 📊 LAYER 1: ROUTES LAYER (User Interface)
 │   ├── 🖥️ run_risk.py                     # CLI interface with Result Objects support
 │   ├── 📁 routes/                         # Modular API route structure
-│   │   ├── api.py                         # Core analysis endpoints with Direct API support
+│   │   ├── auth.py                        # Authentication routes with OAuth
 │   │   ├── claude.py                      # Claude AI chat integration
 │   │   ├── plaid.py                       # Plaid brokerage integration
 │   │   ├── snaptrade.py                   # SnapTrade brokerage integration
 │   │   ├── provider_routing_api.py        # Provider routing and institution support
-│   │   ├── auth.py                        # Authentication routes
+│   │   ├── provider_routing.py            # Provider routing logic
 │   │   ├── admin.py                       # Admin dashboard routes
 │   │   └── frontend_logging.py            # Frontend logging routes
 │   ├── 📁 services/                       # Service orchestration
-│   │   ├── portfolio_service.py           # Portfolio analysis service
+│   │   ├── portfolio_service.py           # Portfolio analysis service with caching
 │   │   ├── stock_service.py               # Stock analysis service
 │   │   ├── scenario_service.py            # Scenario analysis service
 │   │   ├── optimization_service.py        # Optimization service
-│   │   ├── auth_service.py                # Authentication service
+│   │   ├── auth_service.py                # Authentication service with session management
+│   │   ├── security_type_service.py       # Security type classification with FMP integration
 │   │   ├── factor_proxy_service.py        # Factor proxy management
+│   │   ├── returns_service.py             # Expected returns service
+│   │   ├── async_service.py               # Non-blocking portfolio operations
 │   │   ├── validation_service.py          # Data validation service
-│   │   └── claude/                        # Claude AI services
-│   │       ├── function_executor.py       # Claude function execution
-│   │       └── chat_service.py            # Claude chat interface
+│   │   ├── cache_mixin.py                 # ServiceCacheMixin for intelligent caching
+│   │   ├── service_manager.py             # Central service orchestration and dependency injection
+│   │   ├── claude/                        # Claude AI services
+│   │   │   ├── function_executor.py       # Claude function execution
+│   │   │   └── chat_service.py            # Claude chat interface
+│   │   └── portfolio/                     # Portfolio-specific services
+│   │       └── context_service.py         # Portfolio context management
 │   └── 📁 frontend/                       # Production-Ready React Frontend
 │       ├── src/ARCHITECTURE.md            # Frontend architecture documentation
 │       ├── src/components/                # UI components and views
@@ -1269,6 +1276,7 @@ risk_module/
 │   │   ├── interpretation.py              # AI interpretation with InterpretationResult
 │   │   ├── result_objects.py              # Unified Result Objects with dual serialization
 │   │   ├── data_objects.py                # Input data structures and validation
+│   │   ├── constants.py                   # Centralized asset class constants and business logic
 │   │   └── exceptions.py                  # Core exception handling
 │   └── 📁 utils/                          # Utility functions
 │       ├── serialization.py               # JSON serialization utilities

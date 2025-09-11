@@ -1,11 +1,11 @@
 # Complete Risk Module Codebase Map
 
 ## Overview
-This document provides a comprehensive map of the entire risk_module codebase, including all directories (even those in .gitignore). Last updated on 2025-09-05 to reflect current codebase state, legacy code organization, SnapTrade integration completion, provider routing implementation, comprehensive testing suite expansion, and latest architectural enhancements.
+This document provides a comprehensive map of the entire risk_module codebase, including all directories (even those in .gitignore). Last updated on 2024-09-10 to reflect current codebase state, asset class extension implementation, constants centralization, legacy code organization, SnapTrade integration completion, provider routing implementation, comprehensive testing suite expansion, and latest architectural enhancements.
 
 ## Directory Structure with Python File Counts
 
-### Root Level Files (19 Python files)
+### Root Level Files (21 Python files)
 Core application files and utilities:
 - `ai_function_registry.py` - Registry for AI/Claude function definitions
 - `app.py` - Main FastAPI application entry point (migrated from Flask)
@@ -28,6 +28,8 @@ Core application files and utilities:
 - `run_risk.py` - Main risk calculation runner
 - `settings.py` - Application settings
 - `snaptrade_loader.py` - SnapTrade brokerage integration loader
+- `test_asset_class_comprehensive.py` - Comprehensive asset class testing
+- `test_asset_class_final.py` - Final asset class validation tests
 
 **Note**: SnapTrade test files have been moved to `/tests/snaptrade/` directory for better organization. Database utility files (`check_db_positions.py`, `create_test_session.py`) have been moved to `/tests/` directory.
 
@@ -80,7 +82,7 @@ FastAPI route definitions:
 - `frontend_logging.py` - Frontend logging routes
 - `__init__.py` - Routes module initialization
 
-**Note**: Main API routes have been migrated directly into `app.py` as part of the FastAPI migration. SnapTrade integration added in August 2025.
+**Note**: Main API routes have been migrated directly into `app.py` as part of the FastAPI migration. SnapTrade integration added in August 2024.
 
 #### `/utils/` (11 Python files) - Utility Layer
 Shared utilities:
@@ -109,8 +111,9 @@ Data input and management:
 - `exceptions.py` - Custom exception definitions
 - `__init__.py` - Inputs module initialization
 
-#### `/core/` (10 Python files) - Core Business Objects
+#### `/core/` (11 Python files) - Core Business Objects
 Core data structures and algorithms:
+- `constants.py` - Centralized asset class and security type constants
 - `data_objects.py` - Core data object definitions
 - `result_objects.py` - Result data structures
 - `exceptions.py` - Core exception definitions
@@ -120,6 +123,7 @@ Core data structures and algorithms:
 - `portfolio_analysis.py` - Portfolio analysis logic
 - `scenario_analysis.py` - Scenario analysis logic
 - `stock_analysis.py` - Stock analysis algorithms
+- `__init__.py` - Core module initialization
 
 ### Frontend Application (React/TypeScript)
 
@@ -427,8 +431,8 @@ Legacy source files:
 - Database connection strings and configuration files
 
 ## File Count Summary
-- Total Python files: 842 (as of 2025-09-05)
-- Core application: ~93 files (19 root + 19 services + 9 routes + 11 utils + 8 inputs + 10 core + 22 models + 4 database)
+- Total Python files: 845 (as of 2024-09-10)
+- Core application: ~95 files (21 root + 19 services + 9 routes + 11 utils + 8 inputs + 11 core + 22 models + 4 database)
 - Tests: Comprehensive suite with 60+ test files across multiple directories
 - Archive/Backup: Extensive files across multiple directories
 - Prototype: 17+ files (Python + Jupyter notebooks)
@@ -438,9 +442,31 @@ Legacy source files:
 - Database: Centralized infrastructure with migration support
 - SnapTrade Integration: 7 test files in `/tests/snaptrade/` and loader implementation
 
-## Architecture Changes Since Last Update (2025-09-05)
+## Architecture Changes Since Last Update (2024-09-10)
 
-### Legacy Code Organization & Frontend Refactoring (September 2025):
+### Asset Class Extension & Constants Centralization (September 2024):
+1. **Constants Module**: New `/core/constants.py` centralizing asset class and security type definitions
+   - `VALID_ASSET_CLASSES`: Canonical asset classes (equity, bond, real_estate, commodity, crypto, cash, mixed, unknown)
+   - `ASSET_CLASS_DISPLAY_NAMES`: Human-readable names for frontend display
+   - `ASSET_CLASS_COLORS`: UI color scheme for charts and visualizations
+   - `SECURITY_TYPE_TO_ASSET_CLASS`: Business logic mappings for classification
+   - Validation functions and helper methods for type safety
+2. **Asset Class Intelligence**: Enhanced 5-tier classification system with intelligent categorization
+   - Tier 1: Cash proxy detection (SGOV, ESTR, IB01 → cash)
+   - Tier 2: Database cache lookup (90-day TTL)
+   - Tier 3: FMP industry mapping (REITs → real_estate, gold mining → commodity)
+   - Tier 4: Security type mapping via constants.py
+   - Tier 5: AI-powered semantic analysis for complex securities
+3. **Cash Mapping Configuration**: Complete overhaul of `cash_map.yaml` with comprehensive documentation
+   - Primary purpose: Cash position proxy mappings for asset classification
+   - Enhanced integration with 5-tier asset class system
+   - Database synchronization with TTL caching
+4. **Extended Industry Mappings**: Enhanced `industry_to_etf.yaml` structure
+   - Old format: `{"Gold": "GDX"}`
+   - New format: `{"Gold": {"etf": "GDX", "asset_class": "commodity"}}`
+   - Backward compatibility maintained during transition
+
+### Legacy Code Organization & Frontend Refactoring (September 2024):
 1. **Legacy Code Reorganization**: Major reorganization of legacy frontend code
    - Moved legacy UI components to `/frontend/src/legacy/` directory  
    - Clear separation between modern and legacy UI patterns
@@ -452,7 +478,7 @@ Legacy source files:
    - Clear separation between `/components/`, `/features/`, `/adapters/`, and `/legacy/`
    - Enhanced TypeScript architecture with comprehensive component organization
 
-### Documentation Synchronization & Cache Architecture Improvements (September 2025):
+### Documentation Synchronization & Cache Architecture Improvements (September 2024):
 1. **Frontend Cache Architecture**: Complete resolution of cache conflicts between legacy and modern UI patterns
    - Fixed performance data conflicts between `usePerformance` and `usePortfolioSummary` hooks
    - Added separate cache keys to prevent data format collisions: `['performance-raw']` vs `['performance']`
@@ -471,7 +497,7 @@ Legacy source files:
    - Added `scripts/run-adapter-validation.sh` and `scripts/validate_adapters.py`
    - Enhanced adapter documentation and validation capabilities
 
-### FastAPI Migration Completion (August 2025):
+### FastAPI Migration Completion (August 2024):
 1. **Framework Migration**: Complete migration from Flask to FastAPI
 2. **Pydantic Integration**: Full Pydantic model validation for all API responses
 3. **Auto Documentation**: Interactive API docs at `/docs` with comprehensive examples
@@ -481,21 +507,21 @@ Legacy source files:
 7. **Session Management**: Updated session handling for FastAPI middleware
 8. **Error Handling**: Standardized error response format maintained across migration
 
-### Risk Limits Manager Refactor (August 2025):
+### Risk Limits Manager Refactor (August 2024):
 1. **File Rename**: `risk_config.py` → `risk_limits_manager.py` for better semantic clarity
 2. **Class Rename**: `RiskConfigManager` → `RiskLimitsManager` with enhanced type safety
 3. **Data Objects Integration**: Full integration with `RiskLimitsData` dataclass from `core/data_objects.py`
 4. **Architecture Improvement**: Clean separation between API layer orchestration and service layer business logic
 5. **User Isolation**: Enhanced user-specific risk limits with database-backed storage
 
-### Database Infrastructure Reorganization (August 2025):
+### Database Infrastructure Reorganization (August 2024):
 1. **Database Module Creation**: New `/database/` directory with centralized infrastructure
 2. **File Moves**: `db_session.py` → `database/session.py`, `db_pool.py` → `database/pool.py`
 3. **Migration Management**: Structured `/database/migrations/` with SQL migration files
 4. **Import Compatibility**: Backward-compatible imports via `database/__init__.py`
 5. **Schema Centralization**: `database/schema.sql` for centralized schema management
 6. **Additional Migration Files**: New user ID migration files for expected returns table
-### Frontend Architecture Maturation (August 2025):
+### Frontend Architecture Maturation (August 2024):
 1. **Modern UI Integration**: Complete ModernDashboardApp implementation with enhanced component architecture
 2. **Chassis Pattern Implementation**: Complete service layer infrastructure with managers, services, and navigation
 3. **Component Architecture**: Well-organized feature-based component structure with apps, auth, dashboard, and shared components
@@ -509,7 +535,7 @@ Legacy source files:
    - Vercel AI SDK integration (@ai-sdk/react, @ai-sdk/anthropic)
    - Real-time streaming with status management and error handling
 
-### SnapTrade Integration (August 2025):
+### SnapTrade Integration (August 2024):
 1. **New Brokerage Integration**: Complete SnapTrade integration for multi-broker portfolio consolidation
 2. **SnapTrade Loader**: New `snaptrade_loader.py` with SDK initialization, authentication, and data normalization
 3. **Route Implementation**: New `/routes/snaptrade.py` with user registration, connection management, and holdings sync
@@ -526,13 +552,13 @@ Legacy source files:
 4. **Proxy Service Maturation**: Established `factor_proxy_service.py` for centralized proxy management
 5. **Cache Management**: Stable `cache_mixin.py` for service-level caching utilities
 
-### API Refactoring Initiative (August 2025):
+### API Refactoring Initiative (August 2024):
 1. **Direct API Refactoring**: Comprehensive refactoring plans for direct API endpoints
 2. **Result Objects Architecture**: Unified result objects architecture across CLI and API
 3. **Schema Management**: Enhanced schema inventory and validation systems
 4. **Template-Based Refactoring**: Standardized refactoring templates for consistency
 
-### Modern UI and Component Enhancement (August 2025):
+### Modern UI and Component Enhancement (August 2024):
 1. **ModernDashboardApp**: Complete modern dashboard implementation with enhanced navigation and UI
 2. **Enhanced Component Structure**: Modern view containers (RiskAnalysisModernContainer, ScenarioAnalysisContainer, StrategyBuilderContainer)
 3. **Comprehensive Adapter System**: Complete data transformation layer with specialized adapters for all data types
