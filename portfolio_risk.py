@@ -22,6 +22,7 @@ from factor_utils import (
     fetch_peer_median_monthly_returns,
     compute_stock_factor_betas,
     calc_weighted_factor_variance,
+    prepare_rate_factors,
 )
 
 from settings import PORTFOLIO_DEFAULTS
@@ -1020,4 +1021,3 @@ def calculate_portfolio_performance_metrics(
         performance_metrics["analysis_notes"] = f"Analysis completed with {len(excluded_tickers)} ticker(s) excluded due to insufficient data"
     
     return performance_metrics
-

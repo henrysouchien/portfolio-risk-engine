@@ -210,6 +210,8 @@ def fetch_monthly_close(
     )
 
 
+
+
 @log_error_handling("high")
 def fetch_monthly_treasury_rates(
     maturity: str = "month3",
@@ -348,7 +350,4 @@ def fetch_monthly_treasury_rates(
 
 
 # In[ ]:
-
-
-
 

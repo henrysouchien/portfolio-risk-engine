@@ -231,6 +231,9 @@ def compute_stock_factor_betas(
     # return only the β column as a plain dict
     return df_metrics["beta"].to_dict()
 
+
+# (key‑rate helpers intentionally omitted pending architecture review)
+
 def calc_factor_vols(
     factor_dict: Dict[str, pd.Series],
     annualize: bool = True
@@ -286,4 +289,3 @@ def calc_weighted_factor_variance(
     weighted_factor_var = weighted_factor_var.mul(w2, axis=0)
     
     return weighted_factor_var
-
