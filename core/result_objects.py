@@ -36,6 +36,7 @@ import json
 import numpy as np
 from dataclasses import dataclass
 from utils.serialization import make_json_safe
+from core.constants import get_asset_class_color, get_asset_class_display_name
 
 
 
@@ -891,6 +892,19 @@ class RiskAnalysisResult:
             # Fail fast - don't hide missing data with fallback business logic
             return []  # Return empty, this is a real error that should be fixed in core analysis
         
+        # Optional performance data for change/changeType
+        perf_meta = (self.analysis_metadata or {}).get('asset_class_performance', {})
+        perf_data = perf_meta.get('performance_data', {}) if isinstance(perf_meta, dict) else {}
+
+        def _classify_change(val: float) -> str:
+            if val is None:
+                return "neutral"
+            if val > 0.005:
+                return "positive"
+            if val < -0.005:
+                return "negative"
+            return "neutral"
+
         # Group by asset class and calculate aggregates
         asset_groups = {}
         total_value = self.total_value or 0
@@ -916,13 +930,15 @@ class RiskAnalysisResult:
         # Build frontend-compatible array
         allocation_breakdown = []
         for asset_class, data in asset_groups.items():
+            period_return = perf_data.get(asset_class)
             allocation_breakdown.append({
-                'category': 'Other' if asset_class == 'unknown' else asset_class.title(),  # "Equity", "Bond", "Other"
+                # Keep category as canonical key (snake_case) for frontend adapters
+                'category': asset_class,
                 'percentage': round(data['total_weight'] * 100, 1),
                 'value': f"${data['total_value']:,.0f}",
-                'change': "+0.0%",  # TODO: Calculate performance change
-                'changeType': "neutral",  # TODO: Determine based on performance
-                'color': self._get_asset_class_color(asset_class),
+                'change': (f"{period_return:+.1%}" if isinstance(period_return, (int, float)) else "+0.0%"),
+                'changeType': _classify_change(period_return if isinstance(period_return, (int, float)) else 0.0),
+                'color': get_asset_class_color(asset_class),
                 'holdings': data['holdings']
             })
         
@@ -939,16 +955,19 @@ class RiskAnalysisResult:
             return "No asset allocation data available"
         
         lines = []
-        lines.append("Asset Class      Allocation    Value        Holdings")
-        lines.append("-" * 55)
+        lines.append("Asset Class      Allocation    Value        Change   Holdings")
+        lines.append("-" * 75)
         
         for item in allocation_data:
-            asset_class = item['category'].ljust(15)
+            # Display friendly name in CLI even though API uses snake_case
+            display_name = get_asset_class_display_name(item.get('category', 'unknown'))
+            asset_class = display_name.ljust(15)
             percentage = f"{item['percentage']:>6.1f}%".ljust(12)
             value = str(item['value']).ljust(12)
+            change_str = str(item.get('change', "+0.0%"))
+            change = f"{change_str:>7}".ljust(9)
             holdings_count = f"({len(item['holdings'])} positions)"
-            
-            lines.append(f"{asset_class} {percentage} {value} {holdings_count}")
+            lines.append(f"{asset_class} {percentage} {value} {change} {holdings_count}")
             
             # Show top holdings for each asset class
             if len(item['holdings']) <= 3:
@@ -1135,6 +1154,18 @@ class RiskAnalysisResult:
         asset_allocation = self._build_asset_allocation_breakdown()
         if asset_allocation:
             sections.append("=== Asset Allocation ===")
+            # Show performance period and data quality when available
+            perf_meta = (self.analysis_metadata or {}).get('asset_class_performance', {}) if hasattr(self, 'analysis_metadata') else {}
+            if perf_meta:
+                period = perf_meta.get('period')
+                quality = perf_meta.get('data_quality')
+                meta_line = ""
+                if period:
+                    meta_line += f"Period: {period}"
+                if quality:
+                    meta_line += ("  " if meta_line else "") + f"Quality: {quality}"
+                if meta_line:
+                    sections.append(meta_line)
             sections.append(self._format_asset_allocation_table(asset_allocation))
         
         # Section 2: Covariance Matrix 
