@@ -6,19 +6,39 @@
 
 # File: portfolio_risk.py
 """
-Portfolio risk analysis core.
+Portfolio risk analysis core with comprehensive performance and dividend analysis.
 
-Updates in this module:
-- Total-return adoption: All asset and factor return series prefer dividend-
-  adjusted (total return) prices where available, with safe fallback to close.
-- Interest rate factor integration: Empirical key‑rate regression against
-  monthly Treasury Δy (2y/5y/10y/30y), immediately aggregated to a single
-  'interest_rate' factor (effective duration). Diagnostics (adj‑R², VIF,
-  condition number) are logged for quality monitoring.
-- Centralized dates and cadence: Rate and equity factor computations share the
-  same start_date/end_date window and use month‑end frequency.
-- Caching: LRU cache key extended with a compact bond mask and version token to
-  segregate analyses with/without rate factor injection.
+This module provides the complete portfolio analysis engine, including risk metrics,
+performance analysis, factor exposures, and comprehensive dividend yield calculations.
+Integrates multiple data sources and analytical methodologies for institutional-grade
+portfolio management and risk assessment.
+
+Core Capabilities:
+- **Risk Analysis**: Comprehensive portfolio risk metrics and factor decomposition
+- **Performance Analysis**: Total return calculations with benchmark comparisons  
+ - **Dividend Analysis**: Current-yield (TTM adjDividend / month-end price) calculations and coverage
+- **Factor Integration**: Multi-factor risk models with interest rate sensitivity
+- **Total Return Methodology**: Preference for dividend-adjusted prices with fallbacks
+
+Key Updates and Features:
+- **Total-Return Adoption**: All asset and factor return series prefer dividend-
+  adjusted (total return) prices where available, with safe fallback to close prices
+- **Interest Rate Factor Integration**: Empirical key-rate regression against
+  monthly Treasury yield changes (2y/5y/10y/30y), aggregated to single 'interest_rate'
+  factor with comprehensive diagnostics (adj-R², VIF, condition number)
+- **Dividend Yield Integration**: Trailing-12-month (TTM) adjDividend / month-end price
+  integrated into performance analysis with portfolio-level yield aggregation and coverage metrics
+- **Centralized Analysis Framework**: Risk, performance, and dividend computations share
+  consistent date windows and month-end frequency for analytical consistency
+- **Advanced Caching**: LRU cache with bond mask and version tokens to segregate
+  analyses with/without rate factor injection and dividend calculations
+
+Dividend Analysis Integration:
+- Portfolio-weighted dividend yield using current-yield (TTM) methodology
+- Individual position dividend contributions and data coverage metrics
+- Top dividend contributors ranked by dollar contribution amounts
+- Data quality assessment including coverage by count and portfolio weight
+- Seamless integration with performance analysis for comprehensive income analysis
 """
 
 import pandas as pd
@@ -30,7 +50,7 @@ import hashlib
 import json
 
 
-from data_loader import fetch_monthly_close, fetch_monthly_total_return_price
+from data_loader import fetch_monthly_close, fetch_monthly_total_return_price, fetch_current_dividend_yield
 from factor_utils import (
     calc_monthly_returns,
     fetch_excess_return,
@@ -984,10 +1004,12 @@ def calculate_portfolio_performance_metrics(
     start_date: str,
     end_date: str,
     benchmark_ticker: str = "SPY",
-    risk_free_rate: float = None
+    risk_free_rate: float = None,
+    total_value: Optional[float] = None
 ) -> Dict[str, Any]:
     """
-    Calculate comprehensive portfolio performance metrics including risk-adjusted returns.
+    Calculate comprehensive portfolio performance metrics including risk-adjusted returns
+    and (optionally) portfolio dividend metrics.
     
     Args:
         weights (Dict[str, float]): Portfolio weights by ticker
@@ -995,6 +1017,8 @@ def calculate_portfolio_performance_metrics(
         end_date (str): Analysis end date (YYYY-MM-DD) 
         benchmark_ticker (str): Benchmark ticker for comparison (default: SPY)
         risk_free_rate (float): Risk-free rate (annual). If None, uses 3-month Treasury yield from FMP
+        total_value (float, optional): Total portfolio value; when provided, enables estimated
+            annual dividends and top contributor calculations in dividend metrics
         
     Returns:
         Dict[str, Any]: Performance metrics including:
@@ -1010,6 +1034,12 @@ def calculate_portfolio_performance_metrics(
             - calmar_ratio: Return / max drawdown
             - benchmark_comparison: Side-by-side metrics vs benchmark
             - monthly_performance: Month-by-month returns for analysis
+            - dividend_metrics: Portfolio dividend yield analysis with fields:
+                • portfolio_dividend_yield (percent)
+                • estimated_annual_dividends (dollars; included when total_value provided)
+                • individual_yields (per‑ticker percent)
+                • dividend_contributions (yield/weight/contribution_pct)
+                • data_quality (coverage_by_count, coverage_by_weight, positions_with_dividends, total_positions, failed_tickers)
             - excluded_tickers: List of tickers excluded due to insufficient data (if any)
             - warnings: List of warnings about data quality issues (if any)
     """
@@ -1210,4 +1240,156 @@ def calculate_portfolio_performance_metrics(
         performance_metrics["warnings"] = warnings
         performance_metrics["analysis_notes"] = f"Analysis completed with {len(excluded_tickers)} ticker(s) excluded due to insufficient data"
     
+    # Dividend metrics integration (current-yield method)
+    try:
+        dividend_metrics = calculate_portfolio_dividend_yield(filtered_weights, total_value)
+        performance_metrics["dividend_metrics"] = dividend_metrics
+    except Exception as e:
+        performance_metrics["dividend_metrics"] = {
+            "error": f"Dividend calculation failed: {str(e)}",
+            "portfolio_dividend_yield": 0.0,
+            "data_quality": {
+                "coverage_by_weight": 0.0,
+                "coverage_by_count": 0.0,
+                "positions_with_dividends": 0,
+                "total_positions": len(filtered_weights),
+                "failed_tickers": list(filtered_weights.keys()),
+            },
+        }
+
     return performance_metrics
+
+
+def calculate_portfolio_dividend_yield(
+    weights: Dict[str, float],
+    portfolio_value: Optional[float] = None,
+) -> Dict[str, Any]:
+    """
+    Calculate comprehensive portfolio dividend analysis including weighted yield and coverage metrics.
+
+    This function computes portfolio-level dividend metrics by combining individual stock
+    dividend yields with portfolio weights, providing both aggregate yield calculations
+    and detailed contribution analysis for income-focused portfolio management.
+
+    Methodology:
+    1. Fetch individual dividend yields for each position using frequency-based TTM
+    2. Calculate weighted portfolio yield based on position sizes
+    3. Compute individual contributions to total dividend income
+    4. Analyze data quality and coverage metrics
+    5. Rank top dividend contributors by dollar contribution
+
+    Args:
+        weights (Dict[str, float]): Portfolio weights by ticker symbol
+            - Positive values = long positions
+            - Negative values = short positions (e.g., cash proxy)
+            - Sum should typically equal ~1.0 for fully invested portfolio
+        portfolio_value (Optional[float]): Total portfolio value in dollars
+            - Used to calculate estimated annual dividend income
+            - If provided, enables top contributor ranking by dollar amounts
+
+    Returns:
+        Dict[str, Any]: Comprehensive dividend analysis containing:
+            - portfolio_dividend_yield (float): Weighted portfolio yield percentage
+            - individual_yields (Dict[str, float]): Per-ticker yield percentages  
+            - dividend_contributions (Dict[str, Dict]): Detailed contribution analysis
+                - yield: Individual stock yield
+                - weight: Portfolio weight percentage
+                - contribution_pct: Percentage of total dividend income
+            - data_quality (Dict): Coverage and quality metrics
+                - coverage_by_count: Percentage of positions with dividends
+                - coverage_by_weight: Percentage of portfolio value with dividends
+                - positions_with_dividends: Count of dividend-paying positions
+                - total_positions: Total position count
+                - failed_tickers: List of positions with data errors
+            - estimated_annual_dividends (float): Total annual dividend income estimate
+            - top_dividend_contributors (List[Dict]): Top 5 contributors by dollar amount
+
+    Example:
+        >>> weights = {"STWD": 0.2, "DSU": 0.3, "BXMT": 0.1, "NVDA": 0.4}
+        >>> result = calculate_portfolio_dividend_yield(weights, 100000)
+        >>> print(f"Portfolio yield: {result['portfolio_dividend_yield']:.2f}%")
+        >>> print(f"Annual income: ${result['estimated_annual_dividends']:,.0f}")
+        Portfolio yield: 6.45%
+        Annual income: $6,450
+
+    Note:
+        Uses frequency-based TTM methodology for accurate yield calculations
+        that closely match financial data provider quotes.
+    """
+    if not weights:
+        return {
+            "portfolio_dividend_yield": 0.0,
+            "individual_yields": {},
+            "dividend_contributions": {},
+            "data_quality": {
+                "coverage_by_count": 0.0,
+                "coverage_by_weight": 0.0,
+                "positions_with_dividends": 0,
+                "total_positions": 0,
+                "failed_tickers": [],
+            },
+        }
+
+    individual_yields: Dict[str, float] = {}
+    failed_tickers: List[str] = []
+
+    for t in weights.keys():
+        try:
+            individual_yields[t] = fetch_current_dividend_yield(t)
+        except Exception:
+            individual_yields[t] = 0.0
+            failed_tickers.append(t)
+
+    # Weighted portfolio yield (weights as fractions)
+    portfolio_yield = 0.0
+    total_weight_sum = sum(weights.values()) if weights else 0.0
+    for t, w in weights.items():
+        y = individual_yields.get(t, 0.0)
+        portfolio_yield += (y * w)
+
+    positions_with_div = sum(1 for y in individual_yields.values() if y > 0)
+    coverage_by_count = (positions_with_div / len(weights)) if weights else 0.0
+    weight_with_div = sum(w for t, w in weights.items() if individual_yields.get(t, 0.0) > 0)
+    coverage_by_weight = (weight_with_div / total_weight_sum) if total_weight_sum else 0.0
+
+    dividend_contributions: Dict[str, Dict[str, float]] = {}
+    for t, w in weights.items():
+        y = individual_yields.get(t, 0.0)
+        contrib_pct = (y * w / portfolio_yield * 100.0) if portfolio_yield > 0 else 0.0
+        dividend_contributions[t] = {
+            "yield": round(y, 4),
+            "weight": round(w * 100.0, 4),
+            "contribution_pct": round(contrib_pct, 1),
+        }
+
+    result: Dict[str, Any] = {
+        "portfolio_dividend_yield": round(portfolio_yield, 4),
+        "individual_yields": {k: round(v, 4) for k, v in individual_yields.items()},
+        "dividend_contributions": dividend_contributions,
+        "data_quality": {
+            "coverage_by_count": round(coverage_by_count, 3),
+            "coverage_by_weight": round(coverage_by_weight, 3),
+            "positions_with_dividends": positions_with_div,
+            "total_positions": len(weights),
+            "failed_tickers": failed_tickers,
+        },
+    }
+
+    if portfolio_value and portfolio_value > 0:
+        est_annual = portfolio_value * (portfolio_yield / 100.0)
+        result["estimated_annual_dividends"] = round(est_annual, 2)
+        # Top contributors by dollar
+        top = []
+        for t, d in dividend_contributions.items():
+            if d["yield"] > 0:
+                dollars = est_annual * (d["contribution_pct"] / 100.0)
+                top.append({
+                    "ticker": t,
+                    "yield": d["yield"],
+                    "annual_dividends": round(dollars, 2),
+                    "contribution_pct": d["contribution_pct"],
+                })
+        top.sort(key=lambda x: x["annual_dividends"], reverse=True)
+        result["top_dividend_contributors"] = top[:5]
+
+    return result

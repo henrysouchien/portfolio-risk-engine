@@ -16,6 +16,13 @@ PORTFOLIO_DEFAULTS = {
     "cash_proxy_fallback_return": 0.02  # Conservative fallback return (2%) for cash proxies when Treasury rates unavailable
 }
 
+# Dividend calculation settings - CURRENT YIELD METHOD ONLY (V1)
+DIVIDEND_DEFAULTS = {
+    "lookback_months": 12,
+    "min_dividend_data_coverage": 0.7,
+    "include_zero_yield_positions": True,
+}
+
 # Rate factor configuration (centralized)
 # Controls maturities, mapping to provider fields, and defaults for rate beta analysis.
 #

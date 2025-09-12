@@ -6,19 +6,32 @@
 
 # File: data_loader.py
 """
-Data loading and caching utilities.
+Data loading and caching utilities for portfolio risk analysis.
 
-Highlights:
-- cache_read/cache_write helpers for parquet-backed disk caching with short
-  deterministic keys.
-- fetch_monthly_close: Month-end close series (fallback path).
-- fetch_monthly_total_return_price: New loader preferring dividend-adjusted
-  (total-return) prices with fallback to close-only.
-- fetch_monthly_treasury_rates: Monthly Treasury yield levels (percentages).
+This module provides data loaders with intelligent caching for:
+- Month-end equity prices (close and dividend-adjusted total return)
+- Monthly Treasury rates (for risk-free calculations)
+- Dividend history and current dividend yield computation
 
-All return computations in the risk engine now prefer total-return series when
-available; close-only series serve as a safe fallback when adjusted data is not
-present.
+Caching model:
+- Disk cache: Parquet-backed with deterministic keys
+- Monthly-stable dividends: Cache keys use month tokens (YYYYMM) so data naturally
+  refreshes on calendar month roll without TTL
+- In-memory LRU: Frequently called helpers are wrapped with lru_cache
+
+Core data loaders:
+- fetch_monthly_close: Month-end close prices (fallback path)
+- fetch_monthly_total_return_price: Dividend-adjusted total return prices (preferred)
+- fetch_monthly_treasury_rates: Treasury yield levels (percent)
+- fetch_dividend_history: Dividend events between month-end bounds using FMP /dividends
+- fetch_current_dividend_yield: Current yield via TTM adjDividend / month-end price
+
+Notes:
+- All return computations prefer total-return series when available; close-only series
+  serve as a safe fallback when adjusted data is unavailable
+- Current dividend yield uses trailing 12 months of adjDividend divided by the latest
+  month-end price (aligned to the same month window); unusually large yields are
+  guarded by a configurable data quality threshold and return 0.0 when exceeded
 """
 
 from __future__ import annotations
@@ -35,7 +48,14 @@ from utils.logging import (
     log_api_health,
     log_error_handling
 )
-from utils.config import DATA_LOADER_LRU_SIZE, TREASURY_RATE_LRU_SIZE
+from utils.config import (
+    DATA_LOADER_LRU_SIZE,
+    TREASURY_RATE_LRU_SIZE,
+    DIVIDEND_LRU_SIZE,
+    DIVIDEND_DATA_QUALITY_THRESHOLD,
+    DIVIDEND_API_TIMEOUT,
+)
+from settings import DIVIDEND_DEFAULTS
 
 # ── internals ──────────────────────────────────────────────────────────
 def _hash(parts: Iterable[str | int | float]) -> str:
@@ -371,10 +391,238 @@ def fetch_monthly_treasury_rates(
         prefix=f"treasury_{maturity}",
     )
 
+
+# ── Dividends (monthly-stable cache) ─────────────────────────────────────────
+
+@log_error_handling("high")
+def fetch_dividend_history(
+    ticker: str,
+    start_date: Optional[Union[str, datetime]] = None,
+    end_date: Optional[Union[str, datetime]] = None,
+) -> pd.DataFrame:
+    """
+    Fetch dividend history for a ticker from FMP using frequency-based TTM calculation.
+
+    This function retrieves all dividend history from FMP and applies intelligent filtering
+    to select the most recent N observations based on dividend payment frequency,
+    ensuring accurate trailing twelve month (TTM) dividend calculations.
+
+    Algorithm:
+    1. Fetch complete dividend history from FMP API (date parameters ignored by API)
+    2. Sort by date (most recent first) 
+    3. Determine payment frequency from data or frequency field
+    4. Select appropriate number of observations:
+       - Quarterly dividends: 4 most recent payments
+       - Monthly dividends: 12 most recent payments  
+       - Annual dividends: 1 most recent payment
+    5. Return sorted by date (oldest first) for consistent processing
+
+    Args:
+        ticker (str): Stock ticker symbol (e.g., "STWD", "DSU")
+        start_date (Optional[Union[str, datetime]]): Deprecated - kept for compatibility
+        end_date (Optional[Union[str, datetime]]): Deprecated - kept for compatibility
+
+    Returns:
+        pd.DataFrame: DataFrame indexed by ex-dividend date with columns:
+            - adjDividend (float): Adjusted dividend amount per share
+            - yield (float): Dividend yield at payment date (informational)
+            - frequency (str): Payment frequency ("Quarterly", "Monthly", etc.)
+
+    Example:
+        >>> df = fetch_dividend_history("STWD")
+        >>> print(f"TTM dividends: ${df['adjDividend'].sum():.2f}")
+        >>> print(f"Records: {len(df)} (quarterly = 4 expected)")
+    """
+
+    def _api_pull() -> pd.DataFrame:
+        params = {"symbol": ticker, "apikey": API_KEY}
+        # Remove date filtering - we want all dividend history to select most recent N observations
+
+        # Basic API call with error handling similar to other loaders
+        import time
+        from utils.logging import log_rate_limit_hit, log_service_health, log_critical_alert
+        t0 = time.time()
+        resp = requests.get(f"{BASE_URL}/dividends", params=params, timeout=DIVIDEND_API_TIMEOUT)
+
+        if resp.status_code == 429:
+            log_rate_limit_hit(None, "dividends", "api_calls", None, "free")
+            log_service_health("FMP_API", "degraded", time.time() - t0, {"error": "rate_limited", "status_code": 429})
+        try:
+            resp.raise_for_status()
+            log_service_health("FMP_API", "healthy", time.time() - t0, user_id=None)
+        except requests.exceptions.HTTPError as e:
+            log_critical_alert("api_connection_failure", "high", f"FMP Dividends API failed for {ticker}", "Retry with backoff", details={"symbol": ticker, "endpoint": "dividends", "status_code": resp.status_code})
+            log_service_health("FMP_API", "down", time.time() - t0, {"error": str(e), "status_code": resp.status_code})
+            raise
+
+        data = resp.json() or []
+        if not data:
+            return pd.DataFrame(columns=["adjDividend", "yield", "frequency"]).set_index(pd.Index([], name="date"))
+
+        df = pd.DataFrame(data)
+        if "date" not in df.columns:
+            return pd.DataFrame(columns=["adjDividend", "yield", "frequency"]).set_index(pd.Index([], name="date"))
+        df["date"] = pd.to_datetime(df["date"])  # ex-dividend / payment date
+        df = df.set_index("date").sort_index()
+
+        # Keep known fields if present
+        for col in ["adjDividend", "yield", "frequency"]:
+            if col not in df.columns:
+                df[col] = pd.NA
+        
+        # CRITICAL FIX: Use frequency-based TTM calculation instead of date filtering
+        # Take the most recent N observations based on dividend frequency
+        if not df.empty:
+            # Sort by date (most recent first) to get latest dividends
+            df_sorted = df.sort_index(ascending=False)
+            
+            # Determine how many observations we need for TTM based on frequency
+            # Use the most recent dividend's frequency, or estimate from data
+            if not df_sorted['frequency'].isna().all() and len(df_sorted) > 0:
+                recent_frequency = df_sorted['frequency'].iloc[0]
+                if pd.isna(recent_frequency):
+                    # Estimate frequency from data spacing if not provided
+                    if len(df_sorted) >= 2:
+                        date_diff = (df_sorted.index[0] - df_sorted.index[1]).days
+                        if date_diff < 40:  # ~Monthly
+                            observations_needed = 12
+                        elif date_diff < 120:  # ~Quarterly  
+                            observations_needed = 4
+                        else:  # ~Annual
+                            observations_needed = 1
+                    else:
+                        observations_needed = 4  # Default to quarterly
+                else:
+                    frequency_lower = str(recent_frequency).lower()
+                    if 'monthly' in frequency_lower or 'month' in frequency_lower:
+                        observations_needed = 12
+                    elif 'quarterly' in frequency_lower or 'quarter' in frequency_lower:
+                        observations_needed = 4
+                    elif 'annual' in frequency_lower or 'year' in frequency_lower:
+                        observations_needed = 1
+                    else:
+                        observations_needed = 4  # Default to quarterly
+            else:
+                # Estimate from data spacing if no frequency info
+                if len(df_sorted) >= 2:
+                    date_diff = (df_sorted.index[0] - df_sorted.index[1]).days
+                    if date_diff < 40:  # ~Monthly
+                        observations_needed = 12
+                    elif date_diff < 120:  # ~Quarterly
+                        observations_needed = 4
+                    else:  # ~Annual
+                        observations_needed = 1
+                else:
+                    observations_needed = 4  # Default to quarterly
+            
+            # Take the most recent N observations for TTM calculation
+            df = df_sorted.head(observations_needed).sort_index()
+        
+        return df[["adjDividend", "yield", "frequency"]]
+
+    return cache_read(
+        key=[ticker, "dividends", "frequency_based", "v2"],
+        loader=_api_pull,
+        cache_dir="cache_dividends", 
+        prefix=f"{ticker}_div",
+    )
+
+
+from functools import lru_cache
+
+@lru_cache(maxsize=DIVIDEND_LRU_SIZE)
+def fetch_current_dividend_yield(ticker: str) -> float:
+    """
+    Calculate current annualized dividend yield using frequency-based TTM methodology.
+
+    This function computes the current dividend yield by taking the most recent
+    dividend payments (based on payment frequency) and annualizing them against
+    the current stock price. Uses the same frequency-based logic as fetch_dividend_history.
+
+    Methodology:
+    1. Get TTM dividend payments using frequency-based selection
+    2. Sum dividend payments for annualized dividend income  
+    3. Fetch current stock price
+    4. Calculate yield = (annual_dividends / current_price) * 100
+
+    Frequency Logic:
+    - Quarterly payers: Sum of last 4 dividends
+    - Monthly payers: Sum of last 12 dividends
+    - Annual payers: Last 1 dividend payment
+
+    Args:
+        ticker (str): Stock ticker symbol (e.g., "STWD", "DSU", "BXMT")
+
+    Returns:
+        float: Current dividend yield as percentage (e.g., 9.47 for 9.47%)
+               Returns 0.0 for non-dividend paying stocks or on API errors
+
+    Example:
+        >>> yield_pct = fetch_current_dividend_yield("STWD")
+        >>> print(f"STWD current yield: {yield_pct:.2f}%")
+        STWD current yield: 9.47%
+
+    Note:
+        Results should closely match FMP quoted yields due to frequency-based 
+        TTM calculation methodology.
+    """
+    try:
+        end_month = (pd.Timestamp.today().to_period("M") - 1).to_timestamp("M")
+        lookback_months = int(DIVIDEND_DEFAULTS.get("lookback_months", 12))
+        start_month = end_month - pd.DateOffset(months=lookback_months - 1)
+
+        div_df = fetch_dividend_history(ticker, start_month, end_month)
+        if isinstance(div_df, pd.Series):
+            # Ensure DataFrame form if cache returns a Series unexpectedly
+            div_df = div_df.to_frame(name="adjDividend")
+        if div_df is None or div_df.empty:
+            return 0.0
+
+        annual_dividends = pd.to_numeric(div_df.get("adjDividend", pd.Series(dtype=float)), errors="coerce").fillna(0).sum()
+
+        # Use month-end close aligned to end_month
+        prices = fetch_monthly_close(ticker, None, end_month.date().isoformat())
+        if prices is None or prices.dropna().empty:
+            return 0.0
+        current_price = float(prices.dropna().iloc[-1])
+        if current_price <= 0:
+            return 0.0
+
+        if annual_dividends <= 0:
+            return 0.0
+
+        dividend_yield = (annual_dividends / current_price) * 100.0
+        if dividend_yield > DIVIDEND_DATA_QUALITY_THRESHOLD * 100.0:
+            from utils.logging import log_portfolio_operation
+            log_portfolio_operation(
+                "dividend_yield_data_quality_warning",
+                {
+                    "ticker": ticker,
+                    "calculated_yield": dividend_yield,
+                    "reason": "unusually_high_yield",
+                    "threshold_pct": DIVIDEND_DATA_QUALITY_THRESHOLD * 100.0,
+                },
+                execution_time=0,
+            )
+            return 0.0
+
+        return round(float(dividend_yield), 4)
+    except Exception as e:
+        from utils.logging import log_portfolio_operation
+        log_portfolio_operation(
+            "dividend_yield_calculation_failed",
+            {
+                "ticker": ticker,
+                "error": str(e),
+                "error_type": type(e).__name__
+            },
+            execution_time=0,
+        )
+        return 0.0
+
 # ----------------------------------------------------------------------
 #  RAM-cache wrapper  (add this at the very bottom of data_loader.py)
 # ----------------------------------------------------------------------
-from functools import lru_cache
 import pandas as pd                                 # already imported above
 
 # 1) private handle to the disk-cached version

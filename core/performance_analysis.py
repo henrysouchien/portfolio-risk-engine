@@ -3,7 +3,12 @@
 
 """
 Core portfolio performance analysis business logic.
-Extracted from run_risk.py as part of the refactoring to create a clean service layer.
+
+This module orchestrates the performance analysis pipeline, loading portfolio
+configuration, standardizing inputs (including total portfolio value), and
+producing a PerformanceResult suitable for API and CLI consumption. Dividend
+metrics are included when available, using a current‑yield method integrated
+into the performance engine.
 """
 
 import pandas as pd
@@ -35,7 +40,9 @@ def analyze_performance(filepath: str, benchmark_ticker: str = "SPY") -> Union[P
     Core portfolio performance analysis business logic.
     
     This function contains the pure business logic extracted from run_portfolio_performance(),
-    without any CLI or dual-mode concerns.
+    without any CLI or dual‑mode concerns. It also forwards total portfolio value to
+    the performance engine so that dividend metrics can include estimated annual
+    dividends and top contributors when available.
     
     Parameters
     ----------
@@ -51,7 +58,7 @@ def analyze_performance(filepath: str, benchmark_ticker: str = "SPY") -> Union[P
         On error: Dict with error information for backward compatibility
         
         Success case contains:
-        - performance_metrics: Complete performance metrics
+        - performance_metrics: Complete performance metrics (including dividend_metrics)
         - analysis_period: Analysis date range and duration  
         - portfolio_summary: Portfolio configuration summary
         - analysis_metadata: Analysis configuration and timestamps
@@ -68,15 +75,18 @@ def analyze_performance(filepath: str, benchmark_ticker: str = "SPY") -> Union[P
         # Load portfolio configuration
         config = load_portfolio_config(filepath)
         
-        # Standardize portfolio weights  
-        weights = standardize_portfolio_input(config["portfolio_input"], latest_price)["weights"]
+        # Standardize portfolio weights and capture total value for dividend estimates
+        standardized_data = standardize_portfolio_input(config["portfolio_input"], latest_price)
+        weights = standardized_data["weights"]
+        total_value = standardized_data.get("total_value")
         
         # Calculate performance metrics
         performance_metrics = calculate_portfolio_performance_metrics(
             weights=weights,
             start_date=config["start_date"],
             end_date=config["end_date"],
-            benchmark_ticker=benchmark_ticker
+            benchmark_ticker=benchmark_ticker,
+            total_value=total_value
         )
         
         # Check for calculation errors

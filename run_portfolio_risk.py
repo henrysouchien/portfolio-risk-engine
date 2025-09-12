@@ -706,12 +706,50 @@ def evaluate_portfolio_risk_limits(
 @log_performance(0.5)
 def display_portfolio_performance_metrics(performance_metrics: Dict[str, Any]) -> None:
     """
-    Display portfolio performance metrics in a formatted, professional layout.
+    Display comprehensive portfolio performance metrics in a formatted, professional layout.
+    
+    Shows complete performance analysis including returns, risk metrics, benchmark analysis,
+    and dividend analysis (if available). Designed for CLI output with professional formatting
+    suitable for portfolio managers and institutional analysis.
+    
+    Display Sections:
+    - Portfolio Performance Analysis header with period and position count
+    - Return Metrics: Total return, annualized return, win rate statistics
+    - Risk Metrics: Volatility, maximum drawdown, downside deviation
+    - Risk-Adjusted Returns: Sharpe, Sortino, Information, Calmar ratios
+    - Benchmark Analysis: Alpha, beta, R-squared vs benchmark (typically SPY)
+    - Portfolio vs Benchmark Comparison: Side-by-side performance table
+    - Monthly Statistics: Average returns, win/loss ratios, period breakdown
+    - Risk-Free Rate: Current Treasury rate used in calculations
+    - Dividend Analysis: Portfolio yield, coverage, and top contributors (if available)
+    - Performance Summary: Overall assessment and category
+    - Key Insights: Bullet-point summary of key findings
     
     Parameters
     ----------
     performance_metrics : Dict[str, Any]
-        Output from calculate_portfolio_performance_metrics()
+        Complete output from calculate_portfolio_performance_metrics() containing:
+        - returns: Return statistics and period analysis
+        - risk_metrics: Volatility and drawdown metrics  
+        - risk_adjusted_returns: Risk-adjusted performance ratios
+        - benchmark_analysis: Benchmark comparison statistics
+        - monthly_stats: Period-by-period performance breakdown
+        - dividend_metrics: Dividend yield analysis and coverage
+        - analysis_period: Time period configuration and metadata
+        
+    Example Output:
+        📊 PORTFOLIO PERFORMANCE ANALYSIS
+        ============================================================
+        📅 Analysis Period: 2019-01-31 to 2025-06-27
+        📊 Total Months: 18 (1.58 years)
+        ...
+        💰 DIVIDEND ANALYSIS
+        ────────────────────────────────────────
+        📈 Portfolio Dividend Yield:   6.45%
+        💵 Est. Annual Dividends:   $     9,784
+        🏆 Top Dividend Contributors:
+           1. DSU: 11.16% yield (54.4% of income)
+           2. STWD: 9.47% yield (21.5% of income)
     """
     
     # Check for errors
@@ -793,6 +831,43 @@ def display_portfolio_performance_metrics(performance_metrics: Dict[str, Any]) -
     print(f"\n🏦 RISK-FREE RATE")
     print("─" * 40)
     print(f"📊 3-Month Treasury:    {performance_metrics['risk_free_rate']:>8.2f}%")
+
+    # Dividend analysis (optional)
+    dividend_data = performance_metrics.get("dividend_metrics")
+    if dividend_data and not isinstance(dividend_data, dict) and hasattr(dividend_data, 'get'):
+        # Just in case a different mapping-like type is used
+        dividend_data = dict(dividend_data)
+    if isinstance(dividend_data, dict) and "error" not in dividend_data:
+        print(f"\n💰 DIVIDEND ANALYSIS")
+        print("─" * 40)
+        port_yield = dividend_data.get("portfolio_dividend_yield", 0.0) or 0.0
+        print(f"📈 Portfolio Dividend Yield: {port_yield:>6.2f}%")
+
+        if "estimated_annual_dividends" in dividend_data and dividend_data["estimated_annual_dividends"] is not None:
+            try:
+                ann_div = float(dividend_data["estimated_annual_dividends"])  # dollars
+                print(f"💵 Est. Annual Dividends:   ${ann_div:>10,.0f}")
+            except Exception:
+                pass
+
+        dq = dividend_data.get("data_quality", {}) or {}
+        try:
+            cov_w = float(dq.get("coverage_by_weight", 0.0)) * 100.0
+        except Exception:
+            cov_w = 0.0
+        pos_with = dq.get("positions_with_dividends", 0) or 0
+        pos_total = dq.get("total_positions", 0) or 0
+        print(f"📊 Dividend Coverage:      {cov_w:>6.1f}% ({pos_with}/{pos_total} positions)")
+
+        # Top contributors (up to 3)
+        top = dividend_data.get("top_dividend_contributors") or []
+        if top:
+            print(f"🏆 Top Dividend Contributors:")
+            for i, c in enumerate(top[:3], 1):
+                tkr = c.get("ticker", "?")
+                yld = c.get("yield", 0.0) or 0.0
+                contrib = c.get("contribution_pct", 0.0) or 0.0
+                print(f"   {i}. {tkr}: {yld:.2f}% yield ({contrib:.1f}% of income)")
     
     # Performance summary
     print(f"\n✅ PERFORMANCE SUMMARY")
@@ -855,5 +930,3 @@ def display_portfolio_performance_metrics(performance_metrics: Dict[str, Any]) -
         print(f"   • Low consistency ({returns['win_rate']:.0f}% win rate)")
     
     print("="*60)
-
-

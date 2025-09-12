@@ -2150,6 +2150,8 @@ class PerformanceResult:
     - **Benchmark Analysis**: Alpha, beta, correlation, and tracking error vs benchmark
     - **Monthly Statistics**: Period-by-period performance breakdown and statistics
     - **Time Series Data**: Monthly returns and cumulative performance over time
+    - **Dividend Metrics**: Portfolio dividend yield, per‑ticker yields, income contributions,
+      data coverage, and dollar estimates when total_value is available (present on successful analyses)
     
     Usage Patterns:
     1. **Structured Data Access**: Use getter methods for programmatic analysis
@@ -2234,6 +2236,9 @@ class PerformanceResult:
     excluded_tickers: Optional[List[str]] = None
     warnings: Optional[List[str]] = None
     analysis_notes: Optional[str] = None
+    
+    # Dividend metrics (optional)
+    dividend_metrics: Optional[Dict[str, Any]] = None
     
     @classmethod  
     def from_core_analysis(cls,
@@ -2350,7 +2355,9 @@ class PerformanceResult:
             # Data quality information
             excluded_tickers=performance_metrics.get("excluded_tickers"), # Tickers excluded due to insufficient data
             warnings=performance_metrics.get("warnings"), # Data quality warnings
-            analysis_notes=performance_metrics.get("analysis_notes") # Analysis notes about data quality
+            analysis_notes=performance_metrics.get("analysis_notes"), # Analysis notes about data quality
+            # Dividend metrics
+            dividend_metrics=performance_metrics.get("dividend_metrics"),
         )
     
     def get_summary(self) -> Dict[str, Any]:
@@ -2608,7 +2615,9 @@ class PerformanceResult:
             # Data quality information
             "excluded_tickers": self.excluded_tickers, # Tickers excluded due to insufficient data
             "warnings": self.warnings, # Data quality warnings
-            "analysis_notes": self.analysis_notes # Analysis notes about data quality
+            "analysis_notes": self.analysis_notes, # Analysis notes about data quality
+            # Dividend metrics (optional)
+            "dividend_metrics": self.dividend_metrics,
         }
 
 
@@ -2690,7 +2699,8 @@ class PerformanceResult:
                 "monthly_stats": self.monthly_stats,
                 "monthly_returns": self.monthly_returns,
                 "risk_free_rate": self.risk_free_rate,
-                "analysis_period": self.analysis_period
+                "analysis_period": self.analysis_period,
+                "dividend_metrics": self.dividend_metrics
             }
             display_portfolio_performance_metrics(performance_metrics)
             return captured.getvalue()
