@@ -35,7 +35,7 @@ from utils.logging import (
 @log_error_handling("high")
 @log_portfolio_operation_decorator("portfolio_analysis")
 @log_performance(3.0)
-def analyze_portfolio(filepath: str, risk_yaml: str = "risk_limits.yaml") -> RiskAnalysisResult:
+def analyze_portfolio(filepath: str, risk_yaml: str = "risk_limits.yaml", *, asset_classes: Optional[Dict[str, str]] = None) -> RiskAnalysisResult:
     """
     Core portfolio analysis business logic.
     
@@ -72,7 +72,8 @@ def analyze_portfolio(filepath: str, risk_yaml: str = "risk_limits.yaml") -> Ris
         config["start_date"],
         config["end_date"],
         config.get("expected_returns"),
-        config.get("stock_factor_proxies")
+        config.get("stock_factor_proxies"),
+        asset_classes=asset_classes,
     )
     
     # ─── 2.1. Add Exposure Metrics to Summary ─────────────────
@@ -127,5 +128,6 @@ def analyze_portfolio(filepath: str, risk_yaml: str = "risk_limits.yaml") -> Ris
             "expected_returns": config.get("expected_returns"),
             "factor_proxies": config.get("stock_factor_proxies"),
             "cash_positions": list(get_cash_positions()),
+            "asset_classes": asset_classes,
         }
     ) 

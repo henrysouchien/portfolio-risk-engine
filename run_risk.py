@@ -233,7 +233,7 @@ def interpret_portfolio_output(portfolio_output: Dict[str, Any], *,
 @log_error_handling("high")
 @log_portfolio_operation_decorator("portfolio_analysis")
 @log_performance(5.0)
-def run_portfolio(filepath: str, risk_yaml: str = "risk_limits.yaml", *, return_data: bool = False) -> Union[None, RiskAnalysisResult]:
+def run_portfolio(filepath: str, risk_yaml: str = "risk_limits.yaml", *, return_data: bool = False, asset_classes: Optional[Dict[str, str]] = None) -> Union[None, RiskAnalysisResult]:
     """
     High-level "one-click" entry-point for a full portfolio risk run.
 
@@ -308,7 +308,19 @@ def run_portfolio(filepath: str, risk_yaml: str = "risk_limits.yaml", *, return_
     # LOGGING: Add resource usage monitoring for analysis process here
     
     # ─── BUSINESS LOGIC: Call extracted core function ─────────
-    result = analyze_portfolio(filepath, risk_yaml=risk_yaml)
+    # If asset_classes not provided, derive them using SecurityTypeService
+    if asset_classes is None:
+        try:
+            from run_portfolio_risk import load_portfolio_config, standardize_portfolio_input, latest_price
+            config = load_portfolio_config(filepath)
+            weights = standardize_portfolio_input(config["portfolio_input"], latest_price)["weights"]
+            tickers = list(weights.keys())
+            from services.security_type_service import SecurityTypeService
+            asset_classes = SecurityTypeService.get_asset_classes(tickers)
+        except Exception:
+            asset_classes = None
+
+    result = analyze_portfolio(filepath, risk_yaml=risk_yaml, asset_classes=asset_classes)
     
     # ─── 5. Dual-Mode Logic ─────────────────────────────────
     if return_data:
@@ -879,7 +891,6 @@ if __name__ == "__main__":
 
 
 # In[ ]:
-
 
 
 

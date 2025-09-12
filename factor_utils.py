@@ -5,14 +5,36 @@
 
 
 # File: factor_utils.py
+"""
+Factor utilities and helpers.
+
+Key capabilities (updated):
+- Total-return preference: All return series fetched via this module now prefer
+  dividend-adjusted (total return) prices when available, with a safe fallback
+  to close-only series.
+- Treasury rate integration: Helpers to aggregate monthly Treasury yield levels
+  and transform them into Δy (changes in yield) in decimal units for key‑rate
+  analysis.
+- Multifactor regression (HAC): Multivariate OLS with Newey–West (HAC) standard
+  errors for key‑rate betas, including diagnostics such as adjusted R²,
+  condition number, and VIF (variance inflation factors) to assess
+  multicollinearity among rate factors.
+
+Notes:
+- Δy scaling: Inputs are in percentages; prepare_rate_factors converts to
+  decimal (0.01 for 1%) before differencing. Regression betas are thus already
+  in “per 1.00 change in yield” terms (a +1% change is 0.01 in the regressor).
+- TR preference does not change shapes or indices; it only improves return
+  accuracy by accounting for distributions.
+"""
 
 import requests
 import pandas as pd
 import numpy as np
 import statsmodels.api as sm
 from datetime import datetime
-from typing import Optional, Union, List, Dict
-from data_loader import fetch_monthly_close
+from typing import Optional, Union, List, Dict, Any
+from data_loader import fetch_monthly_close, fetch_monthly_total_return_price
 from dotenv import load_dotenv
 import os
 
@@ -35,13 +57,13 @@ BASE_URL = "https://financialmodelingprep.com/stable"
 
 def calc_monthly_returns(prices: pd.Series) -> pd.Series:
     """
-    Compute percent-change monthly returns from price series.
+    Compute percent-change monthly returns from a month-end price series.
 
     Args:
         prices (pd.Series): Month-end price series.
 
     Returns:
-        pd.Series: Monthly % change returns, NaNs dropped.
+        pd.Series: Monthly percent-change returns with NaNs dropped.
     """
     prices = prices.ffill() 
     return prices.pct_change(fill_method=None).dropna()
@@ -99,6 +121,13 @@ def fetch_peer_median_monthly_returns(
     """
     Compute the cross-sectional median of peer tickers' monthly returns.
 
+    Uses total-return (dividend-adjusted) prices when available for improved
+    accuracy, with a safe fallback to close-only prices.
+    
+    Robustly handles individual peer failures by dropping peers with no data
+    overlap in the analysis window, but continuing with remaining good peers
+    instead of failing entirely.
+
     Args:
         tickers (List[str]): List of peer ticker symbols.
         start_date (str|datetime, optional): Earliest date for fetch.
@@ -106,19 +135,82 @@ def fetch_peer_median_monthly_returns(
 
     Returns:
         pd.Series: Median of monthly returns across peers.
-                   Returns empty Series if no tickers provided.
+                   Returns empty Series if no tickers provided or all peers fail.
     """
     # Handle empty ticker list
     if not tickers:
         return pd.Series(dtype=float, name='median_returns')
     
-    series_list = []
-    for t in tickers:
-        prices = fetch_monthly_close(t, start_date=start_date, end_date=end_date)
-        rets   = calc_monthly_returns(prices).rename(t)
-        series_list.append(rets)
-    df_peers = pd.concat(series_list, axis=1).dropna()
-    return df_peers.median(axis=1)
+    from utils.logging import log_portfolio_operation
+    
+    valid_series = []
+    dropped_peers = []
+    
+    for ticker in tickers:
+        try:
+            # Prefer total-return prices for peers
+            try:
+                prices = fetch_monthly_total_return_price(ticker, start_date=start_date, end_date=end_date)
+            except Exception:
+                prices = fetch_monthly_close(ticker, start_date=start_date, end_date=end_date)
+                
+            returns = calc_monthly_returns(prices)
+            
+            # Filter returns to analysis window to check for actual data overlap
+            if start_date and end_date:
+                analysis_start = pd.to_datetime(start_date)
+                analysis_end = pd.to_datetime(end_date)
+                windowed_returns = returns.loc[analysis_start:analysis_end]
+            else:
+                windowed_returns = returns
+            
+            # Check for actual data overlap in the analysis window using centralized threshold
+            from settings import DATA_QUALITY_THRESHOLDS
+            min_overlap = DATA_QUALITY_THRESHOLDS["min_peer_overlap_observations"]
+            
+            if len(windowed_returns) >= min_overlap:  # Has sufficient data overlap in analysis window
+                valid_series.append(returns.rename(ticker))  # Use full returns for median calc
+            else:
+                dropped_peers.append(ticker)
+                log_portfolio_operation(
+                    "peer_no_overlap",
+                    {"ticker": ticker, "total_obs": len(returns), "window_obs": len(windowed_returns)},
+                    execution_time=0
+                )
+                
+        except Exception as e:
+            dropped_peers.append(ticker)
+            log_portfolio_operation(
+                "peer_fetch_failed",
+                {"ticker": ticker, "error": str(e)},
+                execution_time=0
+            )
+    
+    # Log summary of peer filtering
+    if dropped_peers:
+        log_portfolio_operation(
+            "peer_filtering_summary",
+            {
+                "total_peers": len(tickers),
+                "valid_peers": len(valid_series), 
+                "dropped_peers": len(dropped_peers),
+                "dropped_tickers": dropped_peers[:5]  # Log first 5 to avoid spam
+            },
+            execution_time=0
+        )
+    
+    if valid_series:
+        # Calculate median with remaining good peers, allowing pandas to handle NaNs
+        df_peers = pd.concat(valid_series, axis=1)
+        return df_peers.median(axis=1, skipna=True)
+    else:
+        # All peers failed
+        log_portfolio_operation(
+            "peer_all_failed",
+            {"attempted_peers": len(tickers)},
+            execution_time=0
+        )
+        return pd.Series(dtype=float, name='median_returns')
 
 
 def fetch_excess_return(
@@ -130,11 +222,24 @@ def fetch_excess_return(
     """
     Compute style-factor excess returns: ETF minus market, aligned by index.
 
+    Uses total-return (dividend-adjusted) prices when available for both legs,
+    with a safe fallback to close-only prices.
+
     Returns:
         pd.Series: Excess monthly returns (etf - market), aligned on date.
     """
-    etf_ret    = calc_monthly_returns(fetch_monthly_close(etf_ticker,    start_date, end_date))
-    market_ret = calc_monthly_returns(fetch_monthly_close(market_ticker, start_date, end_date))
+    # Prefer total-return prices for both ETF and market; fallback to close-only
+    try:
+        etf_prices = fetch_monthly_total_return_price(etf_ticker, start_date, end_date)
+    except Exception:
+        etf_prices = fetch_monthly_close(etf_ticker, start_date, end_date)
+    try:
+        mkt_prices = fetch_monthly_total_return_price(market_ticker, start_date, end_date)
+    except Exception:
+        mkt_prices = fetch_monthly_close(market_ticker, start_date, end_date)
+
+    etf_ret    = calc_monthly_returns(etf_prices)
+    market_ret = calc_monthly_returns(mkt_prices)
 
     # Force strict index alignment before subtraction
     common_idx = etf_ret.index.intersection(market_ret.index)
@@ -176,7 +281,10 @@ def compute_factor_metrics(
         stock = stock_returns.loc[common_idx]
         factor = factor_series.loc[common_idx]
 
-        if len(stock) < 2:
+        from settings import DATA_QUALITY_THRESHOLDS
+        min_obs = DATA_QUALITY_THRESHOLDS["min_observations_for_regression"]
+        
+        if len(stock) < min_obs:
             continue  # Skip if not enough data
 
         # Calculate regression statistics
@@ -289,3 +397,189 @@ def calc_weighted_factor_variance(
     weighted_factor_var = weighted_factor_var.mul(w2, axis=0)
     
     return weighted_factor_var
+
+
+# =========================
+# Rate factor functionality
+# =========================
+
+@log_error_handling("medium")
+@log_performance(1.0)
+def prepare_rate_factors(
+    yields_levels: pd.DataFrame,
+    keys: Optional[List[str]] = None,
+    scale: str = 'pp'
+) -> pd.DataFrame:
+    """
+    Convert Treasury yield levels to Δy in DECIMAL by maturity.
+
+    Inputs are percentage levels (e.g., 4.5 for 4.5%).
+    Output columns named by rate factor keys (e.g., UST2Y, UST5Y) containing
+    period-over-period differences in decimal (0.01 per 1 percentage point).
+
+    Args:
+        yields_levels: DataFrame with month-end yield levels in percentage units.
+        keys: Optional list of desired factor keys; defaults to settings.
+        scale: 'pp' to convert % to decimal first; 'decimal' if already decimal.
+
+    Returns:
+        DataFrame of Δy in decimal with aligned index, NaNs dropped.
+    """
+    from settings import RATE_FACTOR_CONFIG
+
+    if keys is None:
+        keys = RATE_FACTOR_CONFIG.get("default_maturities", ["UST2Y", "UST5Y", "UST10Y", "UST30Y"])
+    colmap = RATE_FACTOR_CONFIG.get("treasury_mapping", {
+        "UST2Y": "year2", "UST5Y": "year5", "UST10Y": "year10", "UST30Y": "year30"
+    })
+
+    out: Dict[str, pd.Series] = {}
+    for k in keys:
+        src = colmap.get(k)
+        if not src or src not in yields_levels.columns:
+            out[k] = pd.Series(dtype=float)
+            continue
+
+        series = yields_levels[src]
+        dec = (series / 100.0) if scale == 'pp' else series
+        out[k] = dec.sort_index().diff()
+
+    df = pd.DataFrame(out)
+    return df.dropna(how="any")
+
+
+@log_error_handling("medium")
+@log_performance(1.5)
+def fetch_monthly_treasury_yield_levels(
+    start_date: Optional[Union[str, datetime]] = None,
+    end_date: Optional[Union[str, datetime]] = None
+) -> pd.DataFrame:
+    """
+    Aggregate monthly Treasury yield levels (percentages) for configured maturities.
+
+    Uses existing data_loader.fetch_monthly_treasury_rates for each maturity name.
+
+    Returns:
+        DataFrame with columns named by maturity names (e.g., year2, year5, ...)
+        containing month-end yield levels (percentages), aligned across maturities
+        and with NaN rows dropped.
+    """
+    from data_loader import fetch_monthly_treasury_rates
+    from settings import RATE_FACTOR_CONFIG
+    from utils.logging import log_portfolio_operation
+
+    treasury_mapping = RATE_FACTOR_CONFIG.get("treasury_mapping", {
+        "UST2Y": "year2", "UST5Y": "year5", "UST10Y": "year10", "UST30Y": "year30"
+    })
+
+    yield_series: Dict[str, pd.Series] = {}
+    for _, maturity_name in treasury_mapping.items():
+        try:
+            s = fetch_monthly_treasury_rates(maturity_name, start_date, end_date)
+            yield_series[maturity_name] = s
+        except Exception as e:
+            log_portfolio_operation(
+                "treasury_yield_fetch_failed",
+                {"maturity": maturity_name, "error": str(e)},
+                execution_time=0
+            )
+
+    if not yield_series:
+        raise ValueError("No Treasury yield data available for configured maturities")
+
+    min_required = RATE_FACTOR_CONFIG.get("min_required_maturities", 2)
+    if len(yield_series) < min_required:
+        log_portfolio_operation(
+            "treasury_yield_insufficient",
+            {"available": len(yield_series), "required": min_required},
+            execution_time=0
+        )
+
+    df = pd.DataFrame(yield_series).dropna()
+    return df
+
+
+@log_error_handling("medium")
+def compute_multifactor_betas(
+    stock_returns: pd.Series,
+    factor_df: pd.DataFrame,
+    hac_lags: int = 3
+) -> Dict[str, Any]:
+    """
+    Multivariate OLS regression with HAC (Newey–West) standard errors.
+
+    Returns per-factor betas from a single multivariate regression along with
+    diagnostics (adjusted R², t/p/std_err, condition number, and VIFs). Use for
+    key‑rate vector regressions where factors may be correlated.
+    """
+    aligned = pd.concat([stock_returns, factor_df], axis=1).dropna()
+    # Require minimum observations for meaningful regression using centralized threshold
+    from settings import DATA_QUALITY_THRESHOLDS
+    min_obs = DATA_QUALITY_THRESHOLDS["min_observations_for_regression"]
+    
+    if aligned.empty or len(aligned) < min_obs:
+        return {
+            'betas': {}, 'alpha': 0.0, 'r2': 0.0, 'r2_adj': 0.0,
+            't': {}, 'p': {}, 'std_err': {}, 'resid': pd.Series(dtype=float),
+            'vif': {}, 'cond_number': None
+        }
+
+    y = aligned.iloc[:, 0]
+    X = sm.add_constant(aligned.iloc[:, 1:])
+
+    try:
+        model = sm.OLS(y, X).fit(cov_type='HAC', cov_kwds={'maxlags': hac_lags})
+    except Exception:
+        model = sm.OLS(y, X).fit()
+
+    factor_names = aligned.columns[1:].tolist()
+    betas = {name: float(model.params.get(name, 0.0)) for name in factor_names}
+
+    try:
+        cond_number = float(np.linalg.cond(X.values))
+    except Exception:
+        cond_number = None
+
+    # VIF diagnostics for multicollinearity among factors
+    def _compute_vif(factors: pd.DataFrame) -> Dict[str, float]:
+        Xf = factors.dropna().copy()
+        if Xf.empty or Xf.shape[1] < 2:
+            return {c: 1.0 for c in factors.columns}
+        std = Xf.std(ddof=1)
+        keep = std[std > 1e-12].index.tolist()
+        Xf = Xf[keep]
+        if Xf.shape[1] < 2:
+            return {c: 1.0 for c in factors.columns}
+        Z = (Xf - Xf.mean()) / Xf.std(ddof=1)
+        try:
+            R = Z.corr().values
+            Rinv = np.linalg.pinv(R)
+            diag = np.diag(Rinv)
+            return {col: float(diag[i]) for i, col in enumerate(Z.columns)}
+        except Exception:
+            vifs: Dict[str, float] = {}
+            for col in Z.columns:
+                yv = Z[col]
+                Xv = sm.add_constant(Z.drop(columns=[col]))
+                try:
+                    r2v = sm.OLS(yv, Xv).fit().rsquared
+                    vifs[col] = float(1.0 / max(1e-8, (1.0 - r2v)))
+                except Exception:
+                    vifs[col] = float('inf')
+            return vifs
+
+    vifs = _compute_vif(aligned.iloc[:, 1:])
+
+    stats: Dict[str, Any] = {
+        'betas': betas,
+        'alpha': float(model.params.get('const', 0.0)),
+        'r2': float(model.rsquared),
+        'r2_adj': float(model.rsquared_adj),
+        't': {f: float(model.tvalues.get(f, 0.0)) for f in factor_names},
+        'p': {f: float(model.pvalues.get(f, 1.0)) for f in factor_names},
+        'std_err': {f: float(model.bse.get(f, 0.0)) for f in factor_names},
+        'resid': model.resid,
+        'vif': vifs,
+        'cond_number': cond_number,
+    }
+    return stats

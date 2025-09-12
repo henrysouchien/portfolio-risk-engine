@@ -16,6 +16,70 @@ PORTFOLIO_DEFAULTS = {
     "cash_proxy_fallback_return": 0.02  # Conservative fallback return (2%) for cash proxies when Treasury rates unavailable
 }
 
+# Rate factor configuration (centralized)
+# Controls maturities, mapping to provider fields, and defaults for rate beta analysis.
+#
+# Notes:
+# - default_maturities define the key‑rate vector used in regressions.
+# - treasury_mapping maps internal keys to provider field names used by the
+#   data_loader/factor_utils aggregators.
+# - scale='pp' indicates input levels are percentages and will be converted to
+#   decimal internally (0.01 per 1%).
+RATE_FACTOR_CONFIG = {
+    "default_maturities": ["UST2Y", "UST5Y", "UST10Y", "UST30Y"],
+    # Mapping from internal factor key → FMP treasury maturity column name
+    "treasury_mapping": {
+        "UST2Y": "year2",
+        "UST5Y": "year5",
+        "UST10Y": "year10",
+        "UST30Y": "year30",
+    },
+    # Minimum number of maturities required to proceed (warn below this)
+    "min_required_maturities": 2,
+    # Internal scaling for Δy preparation ('pp' → percentage points to decimal)
+    "scale": "pp",
+    # Default frequency identifier for monthly data
+    "frequency": "M",
+}
+
+# Optional profiles for future flexibility (not strictly required by core integration)
+RATE_FACTOR_PROFILES = {
+    "standard": ["UST2Y", "UST5Y", "UST10Y", "UST30Y"],
+    "short_term": ["UST2Y", "UST5Y"],
+    "long_term": ["UST10Y", "UST30Y"],
+    "minimal": ["UST10Y"],
+}
+
+# Data Quality Thresholds
+# Minimum observation requirements for various factor calculations and data validation
+DATA_QUALITY_THRESHOLDS = {
+    # Factor beta calculation minimum observations
+    "min_observations_for_factor_betas": 6,     # Minimum monthly observations for reliable beta calculation
+    "min_observations_for_interest_rate_beta": 6,  # Minimum observations for interest rate beta calculation
+    
+    # Peer validation thresholds
+    "min_observations_for_peer_validation": 3,   # Minimum observations for peer ticker validation
+    "min_peer_overlap_observations": 1,          # Minimum observations a peer must have in analysis window
+    
+    # General data quality checks
+    "min_observations_for_returns_calculation": 2,  # Minimum observations needed to calculate returns
+    "min_observations_for_regression": 3,        # Minimum observations for any regression analysis
+    
+    # Subindustry peer filtering
+    "min_valid_peers_for_median": 1,             # Minimum peers needed to calculate subindustry median
+    "max_peer_drop_rate": 0.8,                   # Warning if >80% of peers dropped due to data issues
+    
+    # Expected returns calculation
+    "min_observations_for_expected_returns": 12,  # Minimum months of data for reliable expected return calculation
+    
+    # CAPM regression calculation
+    "min_observations_for_capm_regression": 24,   # Minimum months for reliable alpha/beta calculation (2 years)
+    
+    # Data quality warning thresholds
+    "min_r2_for_rate_factors": 0.3,              # Minimum R² for rate factor regressions before warning
+    "max_reasonable_interest_rate_beta": 25,     # Maximum reasonable interest rate beta before warning
+}
+
 # Risk Analysis Thresholds
 # These constants define the hardcoded limits and thresholds used throughout the risk analysis system
 RISK_ANALYSIS_THRESHOLDS = {
@@ -368,4 +432,3 @@ INSTITUTION_PROVIDER_MAPPING = {
 # 3. Update frontend institution selection UI if needed
 # 4. Add display name mapping in provider_routing_api.py _get_institution_display_name()
 # 5. Consider adding institution logo and categories for UI enhancement
-

@@ -666,8 +666,11 @@ def filter_valid_tickers(
         try:
             prices  = fetch_monthly_close(sym, start, end)
 
-            # Basic validation: ≥3 prices for returns calculation
-            if not (isinstance(prices, pd.Series) and len(prices.dropna()) >= 3):
+            # Basic validation: sufficient prices for returns calculation
+            from settings import DATA_QUALITY_THRESHOLDS
+            min_obs = DATA_QUALITY_THRESHOLDS["min_observations_for_peer_validation"]
+            
+            if not (isinstance(prices, pd.Series) and len(prices.dropna()) >= min_obs):
                 continue
 
             # Enhanced validation: check observation count vs. target ticker

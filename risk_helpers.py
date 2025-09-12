@@ -6,7 +6,7 @@
 
 # === Imports for Risk Helper Functions ===
 
-from data_loader import fetch_monthly_close
+from data_loader import fetch_monthly_close, fetch_monthly_total_return_price
 from factor_utils import calc_monthly_returns
 
 # Import logging decorators for risk helper functions
@@ -30,10 +30,14 @@ def get_worst_monthly_factor_losses(
     end_date: str
 ) -> Dict[str, float]:
     """
-    For each unique factor proxy (ETF or peer group), fetch monthly returns over a historical window,
-    and compute the worst single-month return (min).
+    For each unique factor proxy (ETF or peer group), fetch monthly returns over
+    a historical window and compute the worst single-month return (min).
 
     Only includes factor types: market, momentum, value, and industry.
+
+    Implementation notes (updated):
+    - Returns prefer dividend-adjusted (total-return) prices for improved
+      accuracy, with a safe fallback to close-only series when needed.
 
     Args:
         stock_factor_proxies (Dict): From portfolio.yaml — maps tickers to their factor proxies.
@@ -47,7 +51,7 @@ def get_worst_monthly_factor_losses(
     # LOGGING: Add mathematical operation logging
     # LOGGING: Add validation step logging
     # LOGGING: Add error context logging
-    from data_loader import fetch_monthly_close
+    from data_loader import fetch_monthly_close, fetch_monthly_total_return_price
     from factor_utils import calc_monthly_returns
 
     allowed_factors = {"market", "momentum", "value", "industry"}
@@ -66,7 +70,10 @@ def get_worst_monthly_factor_losses(
 
     for proxy in sorted(unique_proxies):
         try:
-            prices = fetch_monthly_close(proxy, start_date, end_date)
+            try:
+                prices = fetch_monthly_total_return_price(proxy, start_date, end_date)
+            except Exception:
+                prices = fetch_monthly_close(proxy, start_date, end_date)
             returns = calc_monthly_returns(prices)
             if not returns.empty:
                 worst_losses[proxy] = float(returns.min())
@@ -294,4 +301,3 @@ def calc_max_factor_betas(
     }
     
     return max_betas, max_betas_by_proxy, historical_analysis
-

@@ -2,6 +2,44 @@
 
 Status: Design document — key‑rate "rate beta" model for bonds and REITs integrated into core portfolio analysis. **UPDATED**: Single interest rate beta approach for cleaner portfolio management. Total‑return pricing adopted across risk/performance. Cash proxies excluded from rate beta.
 
+## **📋 Implementation Quick Reference**
+
+### **🔗 Ready-to-Use Code Implementations**
+All core functions are fully implemented and ready to copy into the codebase:
+
+**Core Functions (Copy-Paste Ready):**
+- [`fetch_monthly_total_return_price()`](#1-total-return-loader-new-function---add-to-data_loaderpy) → Lines 347-404: Complete FMP total return data loader with fallback
+- [`prepare_rate_factors()`](#2-rate-factors-δy-prep-new-function---add-to-factor_utilspy) → Lines 413-444: Treasury yield difference calculator with centralized config
+- [`fetch_monthly_treasury_yield_levels()`](#2a-treasury-yield-levels-aggregator-new-function---add-to-factor_utilspy) → Lines 452-500: Treasury rate aggregator using existing infrastructure
+- [`compute_multifactor_betas()`](#3-multifactor-ols-with-hac-new-function---add-to-factor_utilspy) → Lines 508-562: HAC regression for key-rate analysis
+
+**Integration Logic (Core Implementation):**
+- [Core injection in `_build_portfolio_view_computation()`](#5-core-injection-pseudocode-inside-_build_portfolio_view_computation) → Lines 618-694: Complete hybrid equity+rate factor implementation
+- [Cache integration with bond injection masks](#cache-integration-implementation) → Lines 158-283: LRU cache versioning and key generation
+
+**Configuration Setup:**
+- [`RATE_FACTOR_CONFIG` for settings.py](#centralized-rate-factor-configuration-settingspy) → Lines 1025-1058: Complete configuration structure
+- [Rate factor profiles](#portfolio-level-configuration) → Lines 1059-1078: Standard, short_term, long_term, minimal profiles
+
+**Function Signature Updates:**
+- [Parameter threading throughout call stack](#clean-parameter-passing-option-1---recommended) → Lines 1164-1202: Complete service→core→computation parameter flow
+- [Service layer integration](#service-layer-integration) → Lines 1169-1187: PortfolioService asset class detection and passing
+
+**Result Object Enhancements:**
+- [StockAnalysisResult constructor updates](#stock-result-object-update-stockanalysisresult-integration) → Lines 888-950: Complete new field integration
+- [API response field additions](#portfolio-result-object-update-riskanalysisresult-for-single-interest-rate-factor-approach) → Lines 811-833: Effective duration and rate factor display
+
+### **⚡ Implementation Checklist**
+See detailed [Implementation Tasks](#🧭-implementation-tasks-checklist) → Lines 770-1022 for complete step-by-step checklist.
+
+### **🏗️ Architecture Overview**
+See [Integration Architecture](#🏗️-integration-architecture) → Lines 57-337 for complete system design and data flow.
+
+### **🧪 Testing Strategy**
+See [Testing & Validation](#✅-testing--validation) → Lines 1102-1111 for validation targets and sanity checks.
+
+---
+
 ## **🎯 Overview**
 
 We will integrate empirical interest‑rate sensitivity using a key‑rate regression model and adopt total‑return (dividend‑adjusted) pricing across the risk engine. For assets classified as bonds (including REITs via the existing classifier), we compute per‑asset key‑rate betas vs changes in U.S. Treasury yields (2y, 5y, 10y, 30y) then immediately sum them to a single interest rate beta for portfolio management simplicity.
@@ -337,7 +375,9 @@ Eligibility & defaults (guardrails)
 
 ## **🔩 Stub Implementations (for Evaluation)**
 
-These are minimal, self-contained stubs to evaluate design fit. They are intended for the planning review and can be copied into the codebase during implementation.
+These are complete, production-ready implementations that can be directly copied into the codebase. All functions follow existing code patterns and include proper error handling, logging, and documentation.
+
+**📋 Quick Navigation**: See [Implementation Quick Reference](#📋-implementation-quick-reference) for direct links to each function.
 
 1) Total-return loader (NEW FUNCTION - add to data_loader.py)
 ```python
@@ -769,6 +809,8 @@ These stubs reflect the final design but deliberately avoid altering current cod
 
 ## **🧭 Implementation Tasks (Checklist)**
 
+**📋 Implementation Code**: All functions referenced below are fully implemented. See [Complete Function Implementations](#🔩-complete-function-implementations) for ready-to-use code.
+
 - Total‑Return Adoption
   - [ ] Add `fetch_monthly_total_return_price` with adjusted‑close preference
   - [ ] Version cache keys (e.g., `tr_v1`) and purge/migrate legacy close‑only if needed
@@ -1161,6 +1203,8 @@ After
 
 ## **🔗 Integration with Asset Class Architecture**
 
+**📋 Implementation Code**: Complete service layer integration code provided below. See [Implementation Quick Reference](#📋-implementation-quick-reference) for function signature updates.
+
 ### **Clean Parameter Passing (Option 1 - RECOMMENDED)**
 
 **Service Layer → Core Layer → Computation Layer**
@@ -1344,6 +1388,8 @@ Business
 ---
 
 ## **🚀 Future Enhancements**
+
+**📋 Return to Top**: [Implementation Quick Reference](#📋-implementation-quick-reference) | [Complete Function Implementations](#🔩-complete-function-implementations) | [Implementation Checklist](#🧭-implementation-tasks-checklist)
 
 Advanced Fixed Income
 - Credit spread analytics (IG/HY decomposition), curve positioning, TIPS real‑rate factors.

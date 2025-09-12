@@ -5,6 +5,21 @@
 
 
 # File: portfolio_risk.py
+"""
+Portfolio risk analysis core.
+
+Updates in this module:
+- Total-return adoption: All asset and factor return series prefer dividend-
+  adjusted (total return) prices where available, with safe fallback to close.
+- Interest rate factor integration: Empirical key‑rate regression against
+  monthly Treasury Δy (2y/5y/10y/30y), immediately aggregated to a single
+  'interest_rate' factor (effective duration). Diagnostics (adj‑R², VIF,
+  condition number) are logged for quality monitoring.
+- Centralized dates and cadence: Rate and equity factor computations share the
+  same start_date/end_date window and use month‑end frequency.
+- Caching: LRU cache key extended with a compact bond mask and version token to
+  segregate analyses with/without rate factor injection.
+"""
 
 import pandas as pd
 import numpy as np
@@ -15,7 +30,7 @@ import hashlib
 import json
 
 
-from data_loader import fetch_monthly_close
+from data_loader import fetch_monthly_close, fetch_monthly_total_return_price
 from factor_utils import (
     calc_monthly_returns,
     fetch_excess_return,
@@ -23,6 +38,8 @@ from factor_utils import (
     compute_stock_factor_betas,
     calc_weighted_factor_variance,
     prepare_rate_factors,
+    compute_multifactor_betas,
+    fetch_monthly_treasury_yield_levels,
 )
 
 from settings import PORTFOLIO_DEFAULTS
@@ -180,6 +197,7 @@ def compute_herfindahl(
 
 
 from typing import Any
+import json
 
 @log_error_handling("high")
 def compute_portfolio_variance_breakdown(
@@ -256,7 +274,9 @@ def _cached_build_portfolio_view(
     start_date: str,
     end_date: str,
     expected_returns_json: Optional[str] = None,
-    stock_factor_proxies_json: Optional[str] = None
+    stock_factor_proxies_json: Optional[str] = None,
+    bond_mask_json: Optional[str] = "[]",
+    cache_version: str = "rbeta_v1",
 ):
     """
     LRU-cached version of build_portfolio_view.
@@ -270,13 +290,22 @@ def _cached_build_portfolio_view(
     - Memory bounded: Max 100 analyses (~50MB)
     - Automatic cleanup: Least recently used analyses evicted
     """
-    # Deserialize parameters
+    # NOTE: bond_mask_json and cache_version are part of the cache key only.
+    # Build minimal asset_classes mapping from bond mask for computation
     weights = json.loads(weights_json)
     expected_returns = json.loads(expected_returns_json) if expected_returns_json else None
     stock_factor_proxies = json.loads(stock_factor_proxies_json) if stock_factor_proxies_json else None
-    
+
+    try:
+        bond_list = json.loads(bond_mask_json or "[]")
+        asset_classes = {t: 'bond' for t in bond_list}
+    except Exception:
+        asset_classes = None
+
     # Call the original computation function
-    return _build_portfolio_view_computation(weights, start_date, end_date, expected_returns, stock_factor_proxies)
+    return _build_portfolio_view_computation(
+        weights, start_date, end_date, expected_returns, stock_factor_proxies, asset_classes
+    )
 
 def clear_portfolio_view_cache():
     """Clear the LRU cache for build_portfolio_view."""
@@ -406,7 +435,10 @@ def get_returns_dataframe(
     """
     rets = {}
     for t in weights:
-        prices = fetch_monthly_close(t, start_date=start_date, end_date=end_date)
+        try:
+            prices = fetch_monthly_total_return_price(t, start_date=start_date, end_date=end_date)
+        except Exception:
+            prices = fetch_monthly_close(t, start_date=start_date, end_date=end_date)
         rets[t] = calc_monthly_returns(prices)
     return pd.DataFrame(rets).dropna()
 
@@ -435,6 +467,21 @@ def compute_target_allocations(
     df["Eq Diff"] = df["Portfolio Weight"] - df["Equal Weight"]
     return df
     
+def _build_bond_injection_mask(
+    asset_classes: Optional[Dict[str, str]],
+    weights: Dict[str, float]
+) -> str:
+    """
+    Build compact cache key mask for bond tickers getting rate factor analysis.
+
+    Returns a JSON array string of sorted bond tickers or '[]' if none/unknown.
+    """
+    if not asset_classes:
+        return "[]"
+    eligible_classes = {'bond', 'real_estate'}  # include REITs/real estate for rate sensitivity
+    bond_tickers = [t for t in sorted(weights.keys()) if asset_classes.get(t) in eligible_classes]
+    return json.dumps(bond_tickers)
+
 @log_error_handling("high")
 @log_portfolio_operation_decorator("portfolio_analysis")
 @log_cache_operations("portfolio_analysis")
@@ -444,7 +491,8 @@ def build_portfolio_view(
     start_date: str,
     end_date: str,
     expected_returns: Optional[Dict[str, float]] = None,
-    stock_factor_proxies: Optional[Dict[str, Dict[str, Union[str, List[str]]]]] = None
+    stock_factor_proxies: Optional[Dict[str, Dict[str, Union[str, List[str]]]]] = None,
+    asset_classes: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     """
     Build comprehensive portfolio view with LRU caching.
@@ -456,15 +504,28 @@ def build_portfolio_view(
     - First call: ~2-3 seconds (full computation)
     - Recent calls: ~10ms (LRU cache hit)
     - Memory: Bounded to 100 most recent analyses
+
+    Notes:
+    - asset_classes enables rate factor injection for holdings classified as
+      'bond' or 'real_estate' (REITs). Cash proxies are excluded by
+      classification. When None, behaves like the
+      pre-integration implementation.
+    - All return series prefer total-return pricing; when adjusted data is
+      unavailable, close-only series are used as a fallback.
     """
     # Serialize parameters for LRU cache
     weights_json = serialize_for_cache(weights)
     expected_returns_json = serialize_for_cache(expected_returns)
     stock_factor_proxies_json = serialize_for_cache(stock_factor_proxies)
-    
-    # Call LRU-cached function
+
+    # Rate beta cache mask and version
+    bond_mask_json = _build_bond_injection_mask(asset_classes, weights)
+    cache_version = "rbeta_v1"
+
+    # Return cached computation keyed by bond mask and version
     return _cached_build_portfolio_view(
-        weights_json, start_date, end_date, expected_returns_json, stock_factor_proxies_json
+        weights_json, start_date, end_date, expected_returns_json, stock_factor_proxies_json,
+        bond_mask_json, cache_version
     )
 
 @log_error_handling("high")
@@ -473,7 +534,8 @@ def _build_portfolio_view_computation(
     start_date: str,
     end_date: str,
     expected_returns: Optional[Dict[str, float]] = None,
-    stock_factor_proxies: Optional[Dict[str, Dict[str, Union[str, List[str]]]]] = None
+    stock_factor_proxies: Optional[Dict[str, Dict[str, Union[str, List[str]]]]] = None,
+    asset_classes: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     # LOGGING: Add portfolio view computation start logging here
     """
@@ -566,9 +628,12 @@ def _build_portfolio_view_computation(
 
             mkt_t = proxies.get("market")
             if mkt_t:
-                mkt_ret = calc_monthly_returns(
-                    fetch_monthly_close(mkt_t, start_date=start_date, end_date=end_date)
-                ).reindex(idx).dropna()
+                # Prefer total return for proxy returns
+                try:
+                    mkt_prices = fetch_monthly_total_return_price(mkt_t, start_date=start_date, end_date=end_date)
+                except Exception:
+                    mkt_prices = fetch_monthly_close(mkt_t, start_date=start_date, end_date=end_date)
+                mkt_ret = calc_monthly_returns(mkt_prices).reindex(idx).dropna()
                 fac_dict["market"] = mkt_ret
 
             mom_t = proxies.get("momentum")
@@ -587,14 +652,21 @@ def _build_portfolio_view_computation(
                     if isinstance(proxy, list):
                         ser = fetch_peer_median_monthly_returns(proxy, start_date, end_date)
                     else:
-                        ser = calc_monthly_returns(
-                            fetch_monthly_close(proxy, start_date=start_date, end_date=end_date)
-                        )
+                        try:
+                            p = fetch_monthly_total_return_price(proxy, start_date=start_date, end_date=end_date)
+                        except Exception:
+                            p = fetch_monthly_close(proxy, start_date=start_date, end_date=end_date)
+                        ser = calc_monthly_returns(p)
                     fac_dict[facname] = ser.reindex(idx).dropna()
 
             # drop rows with any NaN
             factor_df  = pd.DataFrame(fac_dict).dropna(how="any")
-            if factor_df.empty:
+            
+            # Apply centralized data quality threshold for equity factor betas (same as rate factors)
+            from settings import DATA_QUALITY_THRESHOLDS
+            min_obs = DATA_QUALITY_THRESHOLDS["min_observations_for_factor_betas"]
+            
+            if factor_df.empty or len(factor_df) < min_obs:
                 continue # Skip if no usable data
         
             aligned_s = stock_ret.reindex(factor_df.index)
@@ -615,6 +687,89 @@ def _build_portfolio_view_computation(
             annual_idio_var = monthly_idio_var * 12
             idio_var_dict[ticker] = float(annual_idio_var)
 
+    # ─── 1b. Rate Factor Integration (Key-rate → single interest_rate beta) ─────
+    # Compute Treasury Δy once and rate factor volatility; then inject for bonds
+    interest_rate_vol: Optional[float] = None
+    if asset_classes:
+        try:
+            treas_levels = fetch_monthly_treasury_yield_levels(start_date, end_date)
+            dy_df = prepare_rate_factors(treas_levels)
+            if not dy_df.empty:
+                # Portfolio-level interest rate factor volatility (sum of all Δy)
+                interest_rate_series = dy_df.sum(axis=1)
+                interest_rate_vol = float(interest_rate_series.std(ddof=1) * np.sqrt(12))
+
+                # Ensure df_stock_betas has a column for interest_rate
+                if 'interest_rate' not in df_stock_betas.columns:
+                    df_stock_betas['interest_rate'] = 0.0
+
+                # Compute per-bond interest_rate beta via multivariate regression
+                eligible_classes = {'bond', 'real_estate'}
+                for ticker in weights.keys():
+                    if asset_classes.get(ticker) not in eligible_classes:
+                        # Explicitly set 0 for non-bonds to keep shapes consistent
+                        df_stock_betas.loc[ticker, 'interest_rate'] = 0.0
+                        continue
+
+                    # Stock monthly returns for alignment
+                    try:
+                        prices = fetch_monthly_close(ticker, start_date=start_date, end_date=end_date)
+                        stock_ret = calc_monthly_returns(prices)
+                    except Exception:
+                        df_stock_betas.loc[ticker, 'interest_rate'] = 0.0
+                        continue
+
+                    # Apply EXACT same logic as equity factors: individual factor alignment + combined dropna
+                    idx = stock_ret.index
+                    
+                    # Build rate factor dictionary the same way as equity factors
+                    rate_fac_dict: Dict[str, pd.Series] = {}
+                    for rate_factor_col in dy_df.columns:
+                        rate_fac_dict[rate_factor_col] = dy_df[rate_factor_col].reindex(idx).dropna()
+                    
+                    # Apply same DataFrame building and dropna logic as equity factors  
+                    rate_factor_df = pd.DataFrame(rate_fac_dict).dropna(how="any")
+                    
+                    # Apply centralized data quality threshold for interest rate beta calculation
+                    from settings import DATA_QUALITY_THRESHOLDS
+                    min_obs = DATA_QUALITY_THRESHOLDS["min_observations_for_interest_rate_beta"]
+                    
+                    if rate_factor_df.empty or len(rate_factor_df) < min_obs:
+                        df_stock_betas.loc[ticker, 'interest_rate'] = 0.0
+                        continue
+                    
+                    aligned_s = stock_ret.reindex(rate_factor_df.index)
+
+                    rate_res = compute_multifactor_betas(aligned_s, rate_factor_df, hac_lags=3)
+                    rate_betas = rate_res.get('betas', {})
+                    interest_rate_beta = float(sum(rate_betas.values())) if rate_betas else 0.0
+                    df_stock_betas.loc[ticker, 'interest_rate'] = interest_rate_beta
+                    # Data quality validations
+                    try:
+                        r2_adj = float(rate_res.get('r2_adj', 0.0))
+                        min_r2 = DATA_QUALITY_THRESHOLDS["min_r2_for_rate_factors"]
+                        max_beta = DATA_QUALITY_THRESHOLDS["max_reasonable_interest_rate_beta"]
+                        
+                        if r2_adj < min_r2:
+                            from utils.logging import log_portfolio_operation
+                            log_portfolio_operation("rate_factor_low_r2", {"ticker": ticker, "r2_adj": r2_adj}, execution_time=0)
+                        if abs(interest_rate_beta) > max_beta:
+                            from utils.logging import log_portfolio_operation
+                            log_portfolio_operation("rate_factor_extreme_beta", {"ticker": ticker, "beta": interest_rate_beta}, execution_time=0)
+                        vifs = rate_res.get('vif', {}) or {}
+                        if any((v is not None and v > 10) for v in vifs.values()):
+                            from utils.logging import log_portfolio_operation
+                            log_portfolio_operation("rate_factor_high_vif", {"ticker": ticker, "vif": vifs}, execution_time=0)
+                    except Exception:
+                        pass
+        except Exception as e:
+            # If rate factor preparation fails, log and continue without interest rate factors
+            try:
+                from utils.logging import log_portfolio_operation
+                log_portfolio_operation("rate_factor_fetch_failed", {"error": str(e)}, execution_time=0)
+            except Exception:
+                pass
+
     # ─── 2a. Compute Factor Volatility & Weighted Variance ───────────────────────
     df_factor_vols   = pd.DataFrame(index=df_stock_betas.index,
                                     columns=df_stock_betas.columns)   # σ_i,f (annual)
@@ -630,16 +785,20 @@ def _build_portfolio_view_computation(
             proxies = stock_factor_proxies[tkr]
     
             # ----- rebuild this stock’s factor-return dict (same logic as above) --
-            idx_stock = calc_monthly_returns(
-                fetch_monthly_close(tkr, start_date, end_date)
-            ).index
+            try:
+                _p = fetch_monthly_total_return_price(tkr, start_date, end_date)
+            except Exception:
+                _p = fetch_monthly_close(tkr, start_date, end_date)
+            idx_stock = calc_monthly_returns(_p).index
             fac_ret: Dict[str, pd.Series] = {}
     
             mkt = proxies.get("market")
             if mkt:
-                fac_ret["market"] = calc_monthly_returns(
-                    fetch_monthly_close(mkt, start_date, end_date)
-                ).reindex(idx_stock).dropna()
+                try:
+                    _pm = fetch_monthly_total_return_price(mkt, start_date, end_date)
+                except Exception:
+                    _pm = fetch_monthly_close(mkt, start_date, end_date)
+                fac_ret["market"] = calc_monthly_returns(_pm).reindex(idx_stock).dropna()
     
             def _excess(etf: str) -> pd.Series:
                 return fetch_excess_return(etf, mkt, start_date, end_date
@@ -653,10 +812,14 @@ def _build_portfolio_view_computation(
             for fac in ("industry", "subindustry"):
                 proxy = proxies.get(fac)
                 if proxy:
-                    ser = ( fetch_peer_median_monthly_returns(proxy, start_date, end_date)
-                            if isinstance(proxy, list)
-                            else calc_monthly_returns(
-                                    fetch_monthly_close(proxy, start_date, end_date) ) )
+                    if isinstance(proxy, list):
+                        ser = fetch_peer_median_monthly_returns(proxy, start_date, end_date)
+                    else:
+                        try:
+                            _pp = fetch_monthly_total_return_price(proxy, start_date, end_date)
+                        except Exception:
+                            _pp = fetch_monthly_close(proxy, start_date, end_date)
+                        ser = calc_monthly_returns(_pp)
                     fac_ret[fac] = ser.reindex(idx_stock).dropna()
     
             if not fac_ret:         # nothing to measure
@@ -665,6 +828,16 @@ def _build_portfolio_view_computation(
             # ----- annual σ_i,f ----------------------------------------------------
             sigmas = pd.Series({f: r.std(ddof=1) * np.sqrt(12) for f, r in fac_ret.items()})
             df_factor_vols.loc[tkr, sigmas.index] = sigmas
+
+        # Inject interest rate volatility for bonds, if available
+        if interest_rate_vol is not None and 'interest_rate' in df_factor_vols.columns and asset_classes:
+            eligible_classes = {'bond', 'real_estate'}
+            for tkr in df_factor_vols.index:
+                if asset_classes.get(tkr) in eligible_classes:
+                    df_factor_vols.loc[tkr, 'interest_rate'] = interest_rate_vol
+                else:
+                    # ensure non-bonds have 0 in interest_rate column
+                    df_factor_vols.loc[tkr, 'interest_rate'] = df_factor_vols.loc[tkr, 'interest_rate'] if pd.notna(df_factor_vols.loc[tkr, 'interest_rate']) else 0.0
             
         # ---------- after loop: clean tables & build w²·β²·σ² -------------
         
@@ -846,7 +1019,10 @@ def calculate_portfolio_performance_metrics(
     portfolio_returns = compute_portfolio_returns(df_ret, filtered_weights)
     
     # Final safety check (should not trigger after filtering, but just in case)
-    if portfolio_returns.empty or len(portfolio_returns) < 12:
+    from settings import DATA_QUALITY_THRESHOLDS
+    min_obs = DATA_QUALITY_THRESHOLDS["min_observations_for_expected_returns"]
+    
+    if portfolio_returns.empty or len(portfolio_returns) < min_obs:
         return {
             "error": "Insufficient data for performance calculation after filtering",
             "months_available": len(portfolio_returns),
@@ -923,7 +1099,8 @@ def calculate_portfolio_performance_metrics(
     information_ratio = excess_return_vs_benchmark / tracking_error if tracking_error > 0 else 0
     
     # Alpha and Beta (CAPM)
-    if len(aligned_data) >= 24:  # Need sufficient data for regression
+    min_capm_obs = DATA_QUALITY_THRESHOLDS["min_observations_for_capm_regression"]
+    if len(aligned_data) >= min_capm_obs:  # Need sufficient data for regression
         try:
             # Simple linear regression: portfolio_excess = alpha + beta * benchmark_excess
             X = sm.add_constant(benchmark_excess)

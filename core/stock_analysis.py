@@ -3,7 +3,15 @@
 
 """
 Core stock analysis business logic.
-Extracted from run_risk.py as part of the refactoring to create a clean service layer.
+
+Updates:
+- Asset class detection: Optional asset_class parameter (auto-detected when None)
+  enables bond-specific rate factor analysis.
+- Bond analytics: For asset_class='bond', performs key‑rate regression using
+  monthly Treasury Δy (2y/5y/10y/30y) and returns a single interest_rate beta
+  (effective duration), plus diagnostics (adj‑R²) and per‑maturity breakdown.
+- Total-return preference: Stock return series prefer dividend-adjusted prices
+  for improved accuracy, with fallback to close-only.
 """
 
 import pandas as pd
@@ -17,6 +25,13 @@ from risk_summary import (
 )
 from utils.serialization import make_json_safe
 from core.result_objects import StockAnalysisResult
+from data_loader import fetch_monthly_close, fetch_monthly_total_return_price
+from factor_utils import (
+    calc_monthly_returns,
+    fetch_monthly_treasury_yield_levels,
+    prepare_rate_factors,
+    compute_multifactor_betas,
+)
 
 # Import logging decorators for stock analysis
 from utils.logging import (
@@ -79,7 +94,9 @@ def analyze_stock(
     ticker: str,
     start: Optional[str] = None,
     end: Optional[str] = None,
-    factor_proxies: Optional[Dict[str, Union[str, List[str]]]] = None
+    factor_proxies: Optional[Dict[str, Union[str, List[str]]]] = None,
+    *,
+    asset_class: Optional[str] = None
 ) -> 'StockAnalysisResult':
     """
     Core stock analysis business logic.
@@ -110,6 +127,8 @@ def analyze_stock(
         - factor_summary: Factor analysis summary (if applicable)
         - factor_exposures: Structured factor metadata (if applicable)
         - analysis_metadata: Analysis configuration and timestamps
+        - (Bonds) interest_rate_beta, effective_duration (abs years),
+          rate_regression_r2, and key_rate_breakdown
         
         Use .to_cli_report() for CLI output or .to_api_response() for API serialization.
     """
@@ -124,7 +143,15 @@ def analyze_stock(
     start = pd.to_datetime(start) if start else today - pd.DateOffset(years=5)
     end   = pd.to_datetime(end)   if end   else today
 
-    # ─── 2. Auto-generate factor proxies if needed ─────────────────────
+    # ─── 2. Asset class detection & factor proxies ─────────────────────
+    if asset_class is None:
+        try:
+            from services.security_type_service import SecurityTypeService
+            asset_class = SecurityTypeService.get_asset_classes([ticker]).get(ticker, 'equity')
+        except Exception:
+            asset_class = 'equity'
+
+    # Auto-generate factor proxies if needed
     if factor_proxies is None:
         # Use intelligent auto-generation of factor proxies
         from services.factor_proxy_service import get_stock_factor_proxies
@@ -146,6 +173,48 @@ def analyze_stock(
         # Create structured factor exposures with metadata
         factor_exposures = _create_factor_exposures_mapping(profile["factor_summary"], factor_proxies)
         
+        # Optional: rate factor analysis for bonds (single interest_rate beta)
+        rate_kwargs = {}
+        if asset_class == 'bond':
+            try:
+                # Prefer total-return prices for stock
+                try:
+                    prices = fetch_monthly_total_return_price(ticker, start, end)
+                except Exception:
+                    prices = fetch_monthly_close(ticker, start, end)
+                stock_ret = calc_monthly_returns(prices)
+                # Treasury Δy
+                levels = fetch_monthly_treasury_yield_levels(start, end)
+                dy_df = prepare_rate_factors(levels)
+                idx = stock_ret.index
+                rate_df = dy_df.reindex(idx).dropna()
+                aligned = stock_ret.reindex(rate_df.index)
+                # Require sufficient observations for meaningful rate fit using centralized threshold
+                from settings import DATA_QUALITY_THRESHOLDS
+                min_obs = DATA_QUALITY_THRESHOLDS["min_observations_for_interest_rate_beta"]
+                
+                if not rate_df.empty and not aligned.empty and len(rate_df) >= min_obs:
+                    res = compute_multifactor_betas(aligned, rate_df, hac_lags=3)
+                    betas = res.get('betas', {}) or {}
+                    ir_beta = float(sum(betas.values())) if betas else 0.0
+                    rate_kwargs = {
+                        'interest_rate_beta': ir_beta,
+                        'effective_duration': abs(ir_beta),
+                        'rate_regression_r2': float(res.get('r2_adj', 0.0)),
+                        'key_rate_breakdown': {k: float(v) for k, v in betas.items()}
+                    }
+                    # VIF diagnostics
+                    try:
+                        vifs = res.get('vif', {}) or {}
+                        if any((v is not None and v > 10) for v in vifs.values()):
+                            from utils.logging import log_portfolio_operation
+                            log_portfolio_operation("stock_rate_factor_high_vif", {"ticker": ticker, "vif": vifs}, execution_time=0)
+                    except Exception:
+                        pass
+            except Exception:
+                # Skip rate factor if any failure occurs
+                rate_kwargs = {}
+
         # Return StockAnalysisResult object for multi-factor analysis
         return StockAnalysisResult.from_core_analysis(
             ticker=ticker,
@@ -163,7 +232,8 @@ def analyze_stock(
                 "has_factor_analysis": True,
                 "num_factors": len(factor_proxies) if factor_proxies else 0,
                 "analysis_date": datetime.now(UTC).isoformat()
-            }
+            },
+            **rate_kwargs
         )
         
     # ─── 4. Diagnostics path B: simple market regression ────────────────

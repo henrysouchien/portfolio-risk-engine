@@ -10,19 +10,23 @@ API Serialization Patterns:
     • to_cli_report() - Human-readable formatted reports for CLI and Claude AI
       Returns formatted text reports with consistent styling and structure.
 
-ASSET CLASS EXTENSION (Phase 1):
-    Enhanced RiskAnalysisResult with asset allocation breakdown:
+ASSET CLASS & RATE FACTOR EXTENSIONS:
+    Enhanced RiskAnalysisResult with asset allocation breakdown and interest rate
+    duration exposure:
     
     • asset_allocation field in API responses for frontend charts
     • Asset allocation section in CLI reports with formatted tables
     • Automatic categorization using SecurityTypeService asset class data
     • Color mapping for consistent UI presentation
+    • New API field: effective_duration (abs years), derived from aggregated
+      portfolio 'interest_rate' beta (key‑rate regression over monthly Treasury Δy)
 
 Example Usage:
-    # API response with asset allocation
+    # API response with asset allocation and effective duration
     result = analyze_portfolio(portfolio_data)
     api_data = result.to_api_response()
     # api_data['asset_allocation'] contains frontend-ready allocation breakdown
+    # api_data['effective_duration'] contains portfolio duration in years (abs)
     
     # CLI report with asset allocation table
     cli_report = result.to_cli_report()
@@ -391,6 +395,20 @@ class RiskAnalysisResult:
             ```
         """
         return self.risk_contributions.nlargest(n).to_dict()
+
+    @property
+    def effective_duration(self) -> float:
+        """
+        Portfolio effective duration in years (absolute value).
+
+        Derived from the aggregated 'interest_rate' beta in portfolio_factor_betas.
+        Returns 0.0 if unavailable.
+        """
+        try:
+            ir_beta = float(self.portfolio_factor_betas.get("interest_rate", 0.0))
+        except Exception:
+            ir_beta = 0.0
+        return abs(ir_beta)
     
     def get_variance_breakdown(self) -> Dict[str, float]:
         """
@@ -1061,6 +1079,7 @@ class RiskAnalysisResult:
         Returns:
             Dict[str, Any]: Complete portfolio risk analysis with 30+ metrics and compliance data
         """
+        # Compute effective duration if interest_rate factor present
         return {
             # Fields ordered to match CLI section sequence  
             "portfolio_weights": self.portfolio_weights,  # PORTFOLIO ALLOCATIONS (Raw weights)
@@ -1075,6 +1094,7 @@ class RiskAnalysisResult:
             "correlation_matrix": _convert_to_json_serializable(self.correlation_matrix),  # Correlation Matrix
             "stock_betas": _convert_to_json_serializable(self.stock_betas),  # Per-Stock Factor Betas
             "portfolio_factor_betas": _convert_to_json_serializable(self.portfolio_factor_betas),  # Portfolio-Level Factor Betas
+            "effective_duration": self.effective_duration,  # years (abs for intuitive display)
             "industry_group_betas": self._build_industry_group_betas_table(),  # Per-Industry Group Betas
             "asset_vol_summary": _convert_to_json_serializable(self.asset_vol_summary),  # Per-Asset Vol & Var
             "factor_vols": _convert_to_json_serializable(self.factor_vols),  # Factor Annual Volatilities (σ_i,f)
@@ -1221,6 +1241,24 @@ class RiskAnalysisResult:
         if hasattr(self, 'portfolio_factor_betas') and self.portfolio_factor_betas is not None and not self.portfolio_factor_betas.empty:
             sections.append("=== Portfolio-Level Factor Betas ===")
             sections.append(str(self.portfolio_factor_betas))
+            # Display Interest Rate Exposure when present
+            try:
+                ir_beta = float(self.portfolio_factor_betas.get('interest_rate', 0.0))
+            except Exception:
+                ir_beta = 0.0
+            if ir_beta != 0.0:
+                sections.append("— Interest Rate Exposure —")
+                sections.append(f"Interest Rate Beta:   {ir_beta:+.2f}")
+                sections.append(f"Effective Duration:   {self.effective_duration:.2f} years")
+                # Optional CLI notice for activation count
+                try:
+                    ac = (self.analysis_metadata or {}).get('asset_classes', {})
+                    if ac:
+                        n_bonds = sum(1 for t, c in ac.items() if c == 'bond')
+                        if n_bonds > 0:
+                            sections.append(f"✓ Rate factor analysis enabled for {n_bonds} bond holding(s)")
+                except Exception:
+                    pass
         
         # Section 9: Per-Asset Vol & Var
         if hasattr(self, 'asset_vol_summary') and self.asset_vol_summary is not None and not self.asset_vol_summary.empty:
@@ -4328,7 +4366,8 @@ class WhatIfResult:
 
 class StockAnalysisResult:
     """
-    Individual stock analysis results with multi-factor support and volatility metrics.
+    Individual stock analysis results with multi-factor support, volatility metrics,
+    and (for bonds) interest-rate sensitivity derived from key‑rate regression.
     
     Contains comprehensive single-stock risk analysis including volatility characteristics,
     market regression statistics, factor exposures, and risk decomposition. Supports both
@@ -4390,7 +4429,13 @@ class StockAnalysisResult:
     
     def __init__(self, 
                  stock_data: Dict[str, Any],
-                 ticker: str):
+                 ticker: str,
+                 *,
+                 # Optional rate factor fields for bonds (Phase 2-ready)
+                 interest_rate_beta: Optional[float] = None,
+                 effective_duration: Optional[float] = None,
+                 rate_regression_r2: Optional[float] = None,
+                 key_rate_breakdown: Optional[Dict[str, float]] = None):
         # Core stock analysis data
         self.ticker = ticker.upper()
         self.volatility_metrics = stock_data.get("vol_metrics", {})
@@ -4405,6 +4450,12 @@ class StockAnalysisResult:
         
         # Analysis metadata
         self.analysis_date = datetime.now(UTC)
+
+        # Rate factor fields (populated for bonds when available)
+        self.interest_rate_beta = interest_rate_beta
+        self.effective_duration = effective_duration
+        self.rate_regression_r2 = rate_regression_r2
+        self.key_rate_breakdown = key_rate_breakdown or {}
     
     def get_volatility_metrics(self) -> Dict[str, float]:
         """Get stock volatility metrics from run_stock() output."""
@@ -4448,7 +4499,12 @@ class StockAnalysisResult:
                           factor_summary: Optional[Any] = None,
                           factor_exposures: Optional[Dict[str, Any]] = None,
                           factor_proxies: Optional[Dict[str, Any]] = None,
-                          analysis_metadata: Dict[str, Any] = None) -> 'StockAnalysisResult':
+                          analysis_metadata: Dict[str, Any] = None,
+                          *,
+                          interest_rate_beta: Optional[float] = None,
+                          effective_duration: Optional[float] = None,
+                          rate_regression_r2: Optional[float] = None,
+                          key_rate_breakdown: Optional[Dict[str, float]] = None) -> 'StockAnalysisResult':
         """
         Create StockAnalysisResult from core stock analysis function data.
         
@@ -4534,7 +4590,11 @@ class StockAnalysisResult:
         }
         
         # Create the result object
-        result = cls(stock_data=stock_data, ticker=ticker)
+        result = cls(stock_data=stock_data, ticker=ticker,
+                     interest_rate_beta=interest_rate_beta,
+                     effective_duration=effective_duration,
+                     rate_regression_r2=rate_regression_r2,
+                     key_rate_breakdown=key_rate_breakdown)
         
         # Set additional fields that CLI formatting expects
         result.analysis_period = analysis_period
@@ -4583,7 +4643,7 @@ class StockAnalysisResult:
         
     def _format_factor_analysis(self) -> str:
         """Format factor exposures - EXACT copy of run_stock lines ~605-625"""
-        if not self.factor_exposures:
+        if not self.factor_exposures and not self.interest_rate_beta:
             return ""
         lines = ["=== Factor Exposures ==="]
         for factor_name, exposure in self.factor_exposures.items():
@@ -4591,6 +4651,18 @@ class StockAnalysisResult:
             r_sq = exposure.get('r_squared', 0)
             proxy = exposure.get('proxy', 'N/A')
             lines.append(f"{factor_name:<12} β = {beta:+.2f}  R² = {r_sq:.3f}  Proxy: {proxy}")
+        # Add Interest Rate section when available
+        if self.interest_rate_beta is not None:
+            lines.append("")
+            lines.append("— Interest Rate Sensitivity —")
+            lines.append(f"Interest Rate Beta:   {self.interest_rate_beta:+.2f}")
+            if self.effective_duration is not None:
+                lines.append(f"Effective Duration:   {self.effective_duration:.2f} years")
+            if self.rate_regression_r2 is not None:
+                lines.append(f"Rate R²:              {self.rate_regression_r2:.3f}")
+            if self.key_rate_breakdown:
+                for k, v in self.key_rate_breakdown.items():
+                    lines.append(f"{k:<16}: {v:+.2f}")
         return "\n".join(lines)
         
     def _format_regression_metrics(self) -> str:
@@ -4679,6 +4751,12 @@ class StockAnalysisResult:
                 - factor_proxies: ETF/ticker mappings used for each factor
                 - analysis_metadata: Analysis configuration and timestamps
                 - risk_metrics: Additional risk characteristics (if available)
+                
+                🧭 INTEREST RATE (BONDS ONLY):
+                - interest_rate_beta: Aggregated key‑rate beta (sum over Δy factors)
+                - effective_duration: abs(interest_rate_beta) in years
+                - rate_regression_r2: Adjusted R² from multivariate rate regression
+                - key_rate_breakdown: Per-maturity betas (e.g., UST2Y/UST5Y/UST10Y/UST30Y)
         """
         # 🔄 Convert factor_summary from pandas DataFrame to JSON-serializable dict
         # factor_summary is generated by compute_factor_metrics() and contains:
@@ -4710,6 +4788,11 @@ class StockAnalysisResult:
             "factor_proxies": self.factor_proxies,                    # Dict: ETF/ticker mappings used for each factor (e.g., {"market": "SPY", "momentum": "MTUM"})
             "analysis_metadata": self.analysis_metadata,              # Dict: Analysis configuration, timestamps, and settings
             "risk_metrics": self.risk_metrics,                        # Dict: Additional risk characteristics (if available)
+            # 🔹 Interest rate analytics (when available for bonds)
+            "interest_rate_beta": self.interest_rate_beta,
+            "effective_duration": self.effective_duration,
+            "rate_regression_r2": self.rate_regression_r2,
+            "key_rate_breakdown": self.key_rate_breakdown,
         }
 
    

@@ -5,6 +5,21 @@
 
 
 # File: data_loader.py
+"""
+Data loading and caching utilities.
+
+Highlights:
+- cache_read/cache_write helpers for parquet-backed disk caching with short
+  deterministic keys.
+- fetch_monthly_close: Month-end close series (fallback path).
+- fetch_monthly_total_return_price: New loader preferring dividend-adjusted
+  (total-return) prices with fallback to close-only.
+- fetch_monthly_treasury_rates: Monthly Treasury yield levels (percentages).
+
+All return computations in the risk engine now prefer total-return series when
+available; close-only series serve as a safe fallback when adjusted data is not
+present.
+"""
 
 from __future__ import annotations
 from pathlib import Path
@@ -210,6 +225,59 @@ def fetch_monthly_close(
     )
 
 
+@log_error_handling("high")
+def fetch_monthly_total_return_price(
+    ticker: str,
+    start_date: Optional[Union[str, datetime]] = None,
+    end_date: Optional[Union[str, datetime]] = None
+) -> pd.Series:
+    """
+    Fetch dividend-adjusted month-end prices (total return) from FMP.
+
+    Primary: /historical-price-eod/dividend-adjusted (adjClose)
+    Fallback: /historical-price-eod/full (close) – flagged as price-only via name suffix.
+    """
+    def _api_pull() -> pd.Series:
+        params = {"symbol": ticker, "apikey": API_KEY}
+        if start_date:
+            params["from"] = pd.to_datetime(start_date).date().isoformat()
+        if end_date:
+            params["to"] = pd.to_datetime(end_date).date().isoformat()
+
+        try:
+            resp = requests.get(f"{BASE_URL}/historical-price-eod/dividend-adjusted", params=params, timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
+            df = pd.DataFrame(data)
+            df["date"] = pd.to_datetime(df["date"])    
+            df = df.set_index("date").sort_index()
+            ser = df.resample("ME")["adjClose"].last()
+            ser.name = f"{ticker}_total_return"
+            return ser
+        except Exception:
+            # Fallback to close-only path
+            params_fb = dict(params)
+            params_fb["serietype"] = "line"
+            resp = requests.get(f"{BASE_URL}/historical-price-eod/full", params=params_fb, timeout=30)
+            resp.raise_for_status()
+            raw = resp.json()
+            data = raw if isinstance(raw, list) else raw.get("historical", [])
+            df = pd.DataFrame(data)
+            df["date"] = pd.to_datetime(df["date"])    
+            df = df.set_index("date").sort_index()
+            ser = df.resample("ME")["close"].last()
+            ser.name = f"{ticker}_price_only"
+            return ser
+
+    # Separate cache namespace/prefix to avoid collisions with close-only
+    return cache_read(
+        key=[ticker, "dividend_adjusted", start_date or "none", end_date or "none"],
+        loader=_api_pull,
+        cache_dir="cache_prices",
+        prefix=f"{ticker}_tr_v1",
+    )
+
+
 
 
 @log_error_handling("high")
@@ -350,4 +418,3 @@ def fetch_monthly_treasury_rates(
 
 
 # In[ ]:
-
