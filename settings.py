@@ -54,7 +54,7 @@ RATE_FACTOR_PROFILES = {
 # Minimum observation requirements for various factor calculations and data validation
 DATA_QUALITY_THRESHOLDS = {
     # Factor beta calculation minimum observations
-    "min_observations_for_factor_betas": 6,     # Minimum monthly observations for reliable beta calculation
+    "min_observations_for_factor_betas": 2,     # Minimum monthly observations for reliable beta calculation
     "min_observations_for_interest_rate_beta": 6,  # Minimum observations for interest rate beta calculation
     
     # Peer validation thresholds
