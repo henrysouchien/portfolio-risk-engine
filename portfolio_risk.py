@@ -478,7 +478,12 @@ def _build_bond_injection_mask(
     """
     if not asset_classes:
         return "[]"
-    eligible_classes = {'bond', 'real_estate'}  # include REITs/real estate for rate sensitivity
+    # Read eligible asset classes from centralized config
+    try:
+        from settings import RATE_FACTOR_CONFIG
+        eligible_classes = set(RATE_FACTOR_CONFIG.get("eligible_asset_classes", ["bond"]))
+    except Exception:
+        eligible_classes = {"bond"}
     bond_tickers = [t for t in sorted(weights.keys()) if asset_classes.get(t) in eligible_classes]
     return json.dumps(bond_tickers)
 
@@ -704,7 +709,11 @@ def _build_portfolio_view_computation(
                     df_stock_betas['interest_rate'] = 0.0
 
                 # Compute per-bond interest_rate beta via multivariate regression
-                eligible_classes = {'bond', 'real_estate'}
+                try:
+                    from settings import RATE_FACTOR_CONFIG
+                    eligible_classes = set(RATE_FACTOR_CONFIG.get("eligible_asset_classes", ["bond"]))
+                except Exception:
+                    eligible_classes = {"bond"}
                 for ticker in weights.keys():
                     if asset_classes.get(ticker) not in eligible_classes:
                         # Explicitly set 0 for non-bonds to keep shapes consistent
@@ -831,7 +840,11 @@ def _build_portfolio_view_computation(
 
         # Inject interest rate volatility for bonds, if available
         if interest_rate_vol is not None and 'interest_rate' in df_factor_vols.columns and asset_classes:
-            eligible_classes = {'bond', 'real_estate'}
+            try:
+                from settings import RATE_FACTOR_CONFIG
+                eligible_classes = set(RATE_FACTOR_CONFIG.get("eligible_asset_classes", ["bond"]))
+            except Exception:
+                eligible_classes = {"bond"}
             for tkr in df_factor_vols.index:
                 if asset_classes.get(tkr) in eligible_classes:
                     df_factor_vols.loc[tkr, 'interest_rate'] = interest_rate_vol

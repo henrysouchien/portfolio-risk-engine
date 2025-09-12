@@ -40,6 +40,8 @@ RATE_FACTOR_CONFIG = {
     "scale": "pp",
     # Default frequency identifier for monthly data
     "frequency": "M",
+    # Asset classes eligible for interest rate factor injection
+    "eligible_asset_classes": ["bond", "real_estate"],
 }
 
 # Optional profiles for future flexibility (not strictly required by core integration)
