@@ -13,6 +13,8 @@ starlette>=0.27.0
 
 # Legacy Web Framework Support
 flask>=2.3.0  # Used in provider routing
+flask-cors>=4.0.0  # CORS middleware for Flask
+flask-limiter>=3.5.0  # Rate limiting for Flask
 
 # Rate Limiting & Middleware
 slowapi>=0.1.9

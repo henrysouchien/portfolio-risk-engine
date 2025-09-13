@@ -401,6 +401,47 @@ CREATE TABLE security_types (
 - **Operational Monitoring**: Admin tools provide visibility into classification accuracy
 - **Performance**: 90-day caching reduces API calls while ensuring data freshness
 
+### Cache Management Utilities
+
+**Enhanced Cache Administration**:
+The portfolio risk analysis system uses extensive caching for both price data and dividend calculations. The Risk Module includes specialized utilities for managing and maintaining these caches.
+
+**Price Cache Management** (`admin/clear_price_cache.py`):
+- **Selective Clearing**: Clear cache by ticker (AAPL, MSFT) or data type (close, total return, treasury)
+- **Pattern Matching**: Intelligent file pattern recognition for different cache types
+- **Interactive Confirmation**: Safe deletion with user confirmation prompts
+- **Comprehensive Reporting**: Detailed feedback on cache operations and file counts
+
+**Cache File Patterns**:
+- Close prices: `TICKER_hash.parquet` (e.g., `AAPL_abc12345.parquet`)
+- Total return: `TICKER_tr_v1_hash.parquet` (e.g., `AAPL_tr_v1_abc12345.parquet`)
+- Treasury rates: `TREASURY_hash.parquet`, `DGS*_hash.parquet`
+
+**Dividend Cache Management** (`admin/clear_dividend_cache.py`):
+- **Version Management**: Clear cache by version (v1, v2) or specific ticker
+- **Selective Operations**: Target specific dividend data for cache cleanup
+- **Safe Deletion**: Interactive prompts prevent accidental data loss
+
+**Administrative Commands**:
+```bash
+# Price cache management
+python3 admin/clear_price_cache.py --all                    # Clear all price cache
+python3 admin/clear_price_cache.py --ticker AAPL           # Clear only AAPL cache
+python3 admin/clear_price_cache.py --data-type close       # Clear close prices
+python3 admin/clear_price_cache.py --data-type treasury    # Clear treasury data
+
+# Dividend cache management
+python3 admin/clear_dividend_cache.py --all                # Clear all dividend cache
+python3 admin/clear_dividend_cache.py --version v2         # Clear v2 cache files
+python3 admin/clear_dividend_cache.py --ticker DSU         # Clear DSU dividend data
+```
+
+**Use Cases**:
+- **Data Quality Issues**: Fresh data retrieval after pricing discrepancies
+- **Algorithm Changes**: Cache cleanup when calculation methods are updated
+- **Storage Management**: Regular maintenance to prevent disk space issues
+- **Troubleshooting**: Cache clearing for debugging stale data problems
+
 ## 🚀 FastAPI & Response Validation
 
 The Risk Module has migrated from Flask to **FastAPI 0.116.0** for enhanced performance, automatic documentation, and type safety.
@@ -637,10 +678,17 @@ The system follows a **clean 3-layer architecture** with clear separation of con
 │  └─────────────────┘  └─────────────────┘  └──────────────┘ │
 │                                                             │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌──────────────┐ │
-│  │ Scenario        │  │ Performance     │  │ Interpretation│ │
-│  │ Analysis        │  │ Analysis        │  │ core/        │ │
-│  │ core/scenario_  │  │ core/performance│  │ interpretation│ │
-│  │ analysis.py     │  │ _analysis.py    │  │ .py          │ │
+│  │ Scenario        │  │ Performance     │  │ Asset Class  │ │
+│  │ Analysis        │  │ Analysis        │  │ Performance  │ │
+│  │ core/scenario_  │  │ core/performance│  │ core/asset_  │ │
+│  │ analysis.py     │  │ _analysis.py    │  │ class_perf.py│ │
+│  └─────────────────┘  └─────────────────┘  └──────────────┘ │
+│                                                             │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌──────────────┐ │
+│  │ Interpretation  │  │ Constants &     │  │ Data Objects │ │
+│  │ core/           │  │ Validation      │  │ core/data_   │ │
+│  │ interpretation  │  │ core/constants. │  │ objects.py   │ │
+│  │ .py             │  │ py              │  │              │ │
 │  └─────────────────┘  └─────────────────┘  └──────────────┘ │
 └─────────────────────────────────────────────────────────────┘
 ┌─────────────────────────────────────────────────────────────┐
@@ -1995,6 +2043,7 @@ fname = f"{prefix}_{hash(key)}.parquet"
 - Value Factor (IWD, IVLU)
 - Industry Factor (KCE, SOXX, XSW)
 - Sub-industry Factor (Peer group)
+- Interest Rate Factor (Key-rate duration exposure)
 
 **Factor Construction**:
 1. Proxy selection based on stock characteristics
@@ -2018,6 +2067,58 @@ Position Risk Contribution = Weight × Marginal Risk Contribution
 ```
 Herfindahl Index = Σ(Weight²)
 ```
+
+### Interest Rate Exposure Framework
+
+**Key-Rate Duration Analysis**:
+The Risk Module implements comprehensive interest rate risk analysis using empirical key-rate regression methodology for assets sensitive to interest rate movements (bonds, REITs).
+
+**Key-Rate Changes (monthly)**:
+```
+Δy_{m,t} = (y_{m,t} − y_{m,t−1}) / 100
+```
+where yields `y_{m,t}` are percentages for Treasury maturities m ∈ {2y, 5y, 10y, 30y}; we divide by 100 to obtain decimal units (0.01 per 1%).
+
+**Key-Rate Regression (per asset)**:
+```
+R_{i,t} = α_i + Σ_m β_{i,m} · Δy_{m,t} + ε_{i,t}
+```
+Fitted via multivariate OLS with HAC (Newey–West) standard errors. We use total-return prices for asset returns to incorporate distributions.
+
+**Interest Rate Beta (aggregated)**:
+```
+β_{i,IR} = Σ_m β_{i,m}
+```
+This sum corresponds (up to sign) to effective duration in years for asset i.
+
+**Effective Duration (reported)**:
+```
+Duration_i = |β_{i,IR}|   (years)
+```
+We report the magnitude as a positive value (years) for clarity, while the signed β_{i,IR} is still available for analysis (negative for long-duration assets).
+
+**Portfolio Exposure**:
+```
+β_{p,IR} = Σ_i w_i · β_{i,IR}
+Duration_p = |β_{p,IR}|   (years)
+```
+Aggregated through portfolio weights, exactly like other factors.
+
+**Interest Rate Factor Volatility**:
+```
+σ_{IR} = std_t( Σ_m Δy_{m,t} ) × √12
+```
+Used for variance attribution alongside other factor volatilities.
+
+**Diagnostics (logged)**:
+- Adjusted R² per regression
+- VIF per key-rate factor to flag multicollinearity
+- Condition number of the design matrix
+
+**Asset Eligibility**:
+- Applied to assets classified as 'bond' and 'real_estate' (REITs)
+- Cash proxies (e.g., SGOV) excluded from rate beta calculation
+- Equities and other asset classes have interest_rate beta = 0
 
 ## 📐 Mathematical Framework
 
@@ -2472,7 +2573,7 @@ The web interface is organized into 5 specialized route modules for clean separa
 
 | Endpoint | Method | Purpose | Returns |
 |----------|--------|---------|---------|
-| `/api/analyze` | POST | Portfolio risk analysis | Structured data + CLI-style formatted report |
+| `/api/analyze` | POST | Portfolio risk analysis with asset class performance | Structured data + CLI-style formatted report + asset class performance metrics |
 | `/api/risk-score` | POST | Risk scoring analysis | Structured data + CLI-style formatted report |
 | `/api/performance` | POST | Performance metrics | Structured data + CLI-style formatted report |
 | `/api/what-if` | POST | Scenario analysis | Structured data + raw analysis output |
@@ -2494,8 +2595,25 @@ The web interface is organized into 5 specialized route modules for clean separa
 }
 ```
 
+**Enhanced Parameters**:
+- **performance_period**: Optional string parameter for asset class performance analysis
+  - Supported values: "1M", "3M", "6M", "1Y", "YTD"
+  - Default: "1M" if not specified
+  - Enables real-time asset class performance calculation across time periods
+
+**Request Example**:
+```json
+{
+  "portfolio_name": "My Portfolio",
+  "portfolio_data": {...},
+  "performance_period": "3M"
+}
+```
+
 **Features**:
 - **Dual Output Format**: Both structured JSON data AND human-readable formatted reports
+- **Asset Class Performance**: Real-time performance metrics by asset class over selected time periods
+- **Time Period Flexibility**: Support for multiple analysis periods (1M, 3M, 6M, 1Y, YTD)
 - Rate limiting by user tier
 - Input validation and sanitization
 - Comprehensive error handling

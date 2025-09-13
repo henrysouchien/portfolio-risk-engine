@@ -1,11 +1,11 @@
 # Complete Risk Module Codebase Map
 
 ## Overview
-This document provides a comprehensive map of the entire risk_module codebase, including all directories (even those in .gitignore). Last updated on 2024-09-10 to reflect current codebase state, asset class extension implementation, constants centralization, legacy code organization, SnapTrade integration completion, provider routing implementation, comprehensive testing suite expansion, and latest architectural enhancements.
+This document provides a comprehensive map of the entire risk_module codebase, including all directories (even those in .gitignore). Last updated on 2025-09-12 to reflect current codebase state with dividend extension implementation, interest rate exposure analysis integration, cache management utilities, performance period enhancements, and API logging improvements.
 
 ## Directory Structure with Python File Counts
 
-### Root Level Files (21 Python files)
+### Root Level Files (22 Python files)
 Core application files and utilities:
 - `ai_function_registry.py` - Registry for AI/Claude function definitions
 - `app.py` - Main FastAPI application entry point (migrated from Flask)
@@ -30,8 +30,9 @@ Core application files and utilities:
 - `snaptrade_loader.py` - SnapTrade brokerage integration loader
 - `test_asset_class_comprehensive.py` - Comprehensive asset class testing
 - `test_asset_class_final.py` - Final asset class validation tests
+- Various portfolio scenario YAML files (portfolio.yaml, pipeline_test.yaml, etc.)
 
-**Note**: SnapTrade test files have been moved to `/tests/snaptrade/` directory for better organization. Database utility files (`check_db_positions.py`, `create_test_session.py`) have been moved to `/tests/` directory.
+**Note**: SnapTrade test files have been moved to `/tests/snaptrade/` directory for better organization. Database utility files (`check_db_positions.py`, `create_test_session.py`) have been moved to `/tests/` directory. New dividend cache infrastructure added with 30+ cached files and version management.
 
 ### Core Application Layers
 
@@ -309,9 +310,19 @@ Completed feature documentation and plans (136+ markdown files) including:
     - Various refactoring and integration plans
   - **`/migration_baselines/`** - Migration baseline documentation
 
-#### `/admin/` (2 Python files)
+#### `/admin/` (4+ Python files + documentation)
+System administration and cache management tools:
 - `manage_reference_data.py` - Reference data management tool
 - `migrate_reference_data.py` - Reference data migration tool
+- `clear_price_cache.py` - Price cache management utility with selective clearing by ticker/data type
+- `clear_dividend_cache.py` - Dividend cache management utility with version-specific clearing
+- `README.md` - Comprehensive admin utilities documentation with cache management guides
+
+**New Cache Management Features**:
+- **Price Cache Clearing**: Supports selective clearing by ticker (AAPL, MSFT) or data type (close, total, treasury)
+- **Dividend Cache Clearing**: Version-aware clearing (v1, v2) with ticker-specific targeting
+- **Interactive Confirmation**: Safe deletion with user prompts and detailed file listings
+- **Pattern Recognition**: Intelligent file matching for different cache types and versions
 
 ### Database Infrastructure
 
@@ -329,7 +340,16 @@ Centralized database infrastructure:
 ### Data & Cache
 
 #### `/cache_prices/`
-Price data cache (Parquet files) - Over 1000+ cached price files for various tickers
+Price data cache (Parquet files) - Over 4200+ cached price files for various tickers including:
+- Close price data: `{ticker}_{hash}.parquet`
+- Total return data: `{ticker}_tr_v1_{hash}.parquet`
+- Treasury rate data: `TREASURY_{hash}.parquet`, `DGS*_{hash}.parquet`
+
+#### `/cache_dividends/`
+Dividend yield cache (Parquet files) - 30+ cached dividend calculation files:
+- Dividend data: `{ticker}_div_{hash}_{version}.parquet` (e.g., `DSU_div_abc123_v2.parquet`)
+- Version-aware caching for algorithm improvements
+- TTL-based cache invalidation for data freshness
 
 #### `/cache_test/`
 Test cache directory with test key files
@@ -431,18 +451,38 @@ Legacy source files:
 - Database connection strings and configuration files
 
 ## File Count Summary
-- Total Python files: 845 (as of 2024-09-10)
+- Total Python files: 860+ (as of 2025-09-12)
 - Core application: ~95 files (21 root + 19 services + 9 routes + 11 utils + 8 inputs + 11 core + 22 models + 4 database)
 - Tests: Comprehensive suite with 60+ test files across multiple directories
 - Archive/Backup: Extensive files across multiple directories
 - Prototype: 17+ files (Python + Jupyter notebooks)
 - Tools: 18 files
 - Frontend: Full React application (0 Python files, comprehensive TypeScript architecture with 9 adapters)
-- Admin tools: 2 files
+- Admin tools: 4+ files with comprehensive documentation
 - Database: Centralized infrastructure with migration support
 - SnapTrade Integration: 7 test files in `/tests/snaptrade/` and loader implementation
 
-## Architecture Changes Since Last Update (2024-09-10)
+## Architecture Changes Since Last Update (2025-09-12)
+
+### Dividend Extension & Interest Rate Analysis (September 2025):
+1. **Interest Rate Exposure Analysis**: New key-rate duration analysis system integrated into README.md
+   - Empirical interest-rate sensitivity using monthly key-rate changes (2y, 5y, 10y, 30y)
+   - Multivariate regression with HAC (Newey-West) standard errors
+   - Effective duration calculation: `Duration_i = |β_{i,IR}|` (years)
+   - Portfolio-level aggregation through weights: `β_{p,IR} = Σ_i w_i · β_{i,IR}`
+   - Applied to bonds, REITs, with cash proxies excluded
+2. **Cache Management Infrastructure**: New admin utilities for cache lifecycle management
+   - `clear_price_cache.py` - Selective price data cache clearing (ticker, data type)
+   - `clear_dividend_cache.py` - Version-aware dividend cache management (v1, v2)
+   - Enhanced admin documentation with comprehensive cache management guides
+3. **Performance Period Integration**: API enhancements for time period analysis
+   - `performance_period` parameter added to PortfolioAnalysisRequest
+   - Validation for supported periods: "1M", "3M", "6M", "1Y", "YTD"
+   - Consolidated API logging for improved debugging
+4. **Dividend Analysis System**: Enhanced dividend yield calculations with caching
+   - Version-aware dividend cache (v1, v2) with TTL-based invalidation
+   - Frequency-based TTM (trailing twelve months) dividend analysis
+   - Cache directory expansion to 30+ dividend calculation files
 
 ### Asset Class Extension & Constants Centralization (September 2024):
 1. **Constants Module**: New `/core/constants.py` centralizing asset class and security type definitions
@@ -496,6 +536,20 @@ Legacy source files:
 5. **Scripts & Validation**: New adapter validation system
    - Added `scripts/run-adapter-validation.sh` and `scripts/validate_adapters.py`
    - Enhanced adapter documentation and validation capabilities
+
+### API Logging & Performance Enhancements (September 2025):
+1. **Consolidated API Logging**: Streamlined request logging in app.py
+   - Single consolidated log entry per API request with essential information
+   - Removed verbose raw body logging for improved performance
+   - Enhanced debugging capabilities with structured logging format
+2. **Performance Period Validation**: Robust time period handling
+   - Automatic fallback to "1M" for invalid periods
+   - Consistent validation across direct API and portfolio analysis endpoints
+   - Enhanced service layer integration for performance period parameters
+3. **Cache File Management**: Expanded cache infrastructure
+   - Price cache: 4200+ files with organized patterns
+   - Dividend cache: Version-specific caching with intelligent cleanup
+   - Treasury rate integration with dedicated cache patterns
 
 ### FastAPI Migration Completion (August 2024):
 1. **Framework Migration**: Complete migration from Flask to FastAPI
