@@ -121,6 +121,20 @@ RISK_ANALYSIS_THRESHOLDS = {
     "leverage_display_threshold": 1.01,  # Show leverage adjustments above this ratio
 }
 
+# ===========================
+# Factor Intelligence Defaults
+# ===========================
+
+# Default granularity for industry correlations. Options: 'group' | 'industry'
+DEFAULT_INDUSTRY_GRANULARITY = 'group'
+
+# Macro matrix controls used by compute_macro_etf_matrix
+MACRO_DEFAULTS = {
+    'macro_max_per_group': 3,
+    'macro_deduplicate_threshold': 0.95,
+    'macro_min_group_coverage_pct': 0.6,
+}
+
 # Worst-Case Scenario Definitions
 # These scenarios define the stress tests used for risk calculations and limit suggestions
 WORST_CASE_SCENARIOS = {

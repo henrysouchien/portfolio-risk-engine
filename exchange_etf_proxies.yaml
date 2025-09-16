@@ -103,19 +103,19 @@ OTC:
   value: IWD         # iShares Russell 1000 Value
 
 AMEX:
-  market: SPY        
-  momentum: MTUM     
-  value: IWD         
+  market: SPY         # iShares Core S&P 500
+  momentum: MTUM      # iShares MSCI USA Momentum Factor
+  value: IWD          # iShares Russell 1000 Value
 
 NYSE:
-  market: SPY        
-  momentum: MTUM     
+  market: SPY         # iShares Core S&P 500
+  momentum: MTUM      # iShares MSCI USA Momentum Factor
   value: IWD         
 
 Nasdaq:
-  market: SPY
-  momentum: MTUM
-  value: IWD
+  market: SPY        # iShares Core S&P 500
+  momentum: MTUM     # iShares MSCI USA Momentum Factor
+  value: IWD         # iShares Russell 1000 Value
 
 TSX:                  # Canada (developed ex-US bucket)
   market: ACWX       # iShares MSCI ACWI ex USA
@@ -128,14 +128,14 @@ HKEX:                 # Hong Kong (EM sleeve in this framework)
   value: DGS         # WisdomTree EM SmallCap Dividend (Value tilt)
 
 SSE:                  # Shanghai – treat as EM China
-  market: EEM
-  momentum: EEMO     # Invesco S&P EM Momentum LargeMidCap
-  value: EVLU        # iShares MSCI EM Value Factor
+  market: EEM        # iShares MSCI Emerging Markets
+  momentum: EEMO     # Invesco S&P Emerging Markets Momentum ETF
+  value: EMVL.L        # iShares Edge MSCI EM Value Factor UCITS ETF
 
 SZSE:                 # Shenzhen – same China A-share proxies
-  market: EEM
-  momentum: EEMO
-  value: EVLU
+  market: EEM        # iShares MSCI Emerging Markets
+  momentum: EEMO     # Invesco S&P Emerging Markets Momentum ETF
+  value: EMVL.L        # iShares Edge MSCI EM Value Factor UCITS ETF
 
 TSE:                  # Japan (JPX)
   market: EWJ        # iShares MSCI Japan
@@ -144,20 +144,20 @@ TSE:                  # Japan (JPX)
 
 EURONEXT:             # Pan-Europe
   market: VGK        # Vanguard FTSE Europe
-  momentum: IMTM
+  momentum: IMTM     # iShares MSCI Intl Momentum Factor
   value: EFV
 
 NSE:                  # India (EM sleeve)
   market: INDA       # iShares MSCI India
-  momentum: EEMO
-  value: EVLU
+  momentum: EEMO     # Invesco S&P Emerging Markets Momentum ETF
+  value: EMVL.L        # iShares Edge MSCI EM Value Factor UCITS ETF
 
 TADAWUL:              # Saudi Arabia (GCC / EM)
   market: KSA        # iShares MSCI Saudi Arabia
   momentum: GULF     # WisdomTree Middle East Dividend Momentum tilt
-  value: EVLU
+  value: EMVL.L        # iShares Edge MSCI EM Value Factor UCITS ETF
 
 DEFAULT:              # Fallback for any other exchange
-  market: ACWX
-  momentum: IMTM
-  value: EFV
+  market: ACWX       # iShares MSCI ACWI ex USA
+  momentum: IMTM     # iShares MSCI Intl Momentum Factor 
+  value: EFV         # iShares MSCI EAFE Value

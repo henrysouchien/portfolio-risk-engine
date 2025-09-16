@@ -46,7 +46,9 @@ from utils.logging import (
     log_cache_operations,
     log_performance,
     log_api_health,
-    log_error_handling
+    log_portfolio_operation,
+    log_error_handling,
+    log_critical_alert
 )
 from utils.config import (
     DATA_LOADER_LRU_SIZE,
@@ -225,8 +227,11 @@ def fetch_monthly_close(
         
         raw  = resp.json()
         data = raw if isinstance(raw, list) else raw.get("historical", [])
-    
+
         df = pd.DataFrame(data)
+        if df.empty or "date" not in df.columns:
+            log_critical_alert("empty_api_data", "high", f"EMPTY DATA ERROR: Ticker={ticker}, Endpoint=close_price, Columns={list(df.columns)}, Shape={df.shape}", "Check ticker validity and API access")
+            raise ValueError(f"No data or date column found for ticker {ticker} in close price data. Columns: {list(df.columns)}")
         df["date"] = pd.to_datetime(df["date"])
         df.set_index("date", inplace=True)
         monthly = df.sort_index().resample("ME")["close"].last()
@@ -269,25 +274,34 @@ def fetch_monthly_total_return_price(
             resp.raise_for_status()
             data = resp.json()
             df = pd.DataFrame(data)
-            df["date"] = pd.to_datetime(df["date"])    
+            if df.empty or "date" not in df.columns:
+                log_critical_alert("empty_api_data", "high", f"EMPTY DATA ERROR: Ticker={ticker}, Endpoint=dividend-adjusted, Columns={list(df.columns)}, Shape={df.shape}", "Check ticker validity and API access")
+                raise ValueError(f"No data or date column found for ticker {ticker} in dividend-adjusted data. Columns: {list(df.columns)}")
+            df["date"] = pd.to_datetime(df["date"])
             df = df.set_index("date").sort_index()
             ser = df.resample("ME")["adjClose"].last()
             ser.name = f"{ticker}_total_return"
             return ser
-        except Exception:
+        except Exception as e:
             # Fallback to close-only path
-            params_fb = dict(params)
-            params_fb["serietype"] = "line"
-            resp = requests.get(f"{BASE_URL}/historical-price-eod/full", params=params_fb, timeout=30)
-            resp.raise_for_status()
-            raw = resp.json()
-            data = raw if isinstance(raw, list) else raw.get("historical", [])
-            df = pd.DataFrame(data)
-            df["date"] = pd.to_datetime(df["date"])    
-            df = df.set_index("date").sort_index()
-            ser = df.resample("ME")["close"].last()
-            ser.name = f"{ticker}_price_only"
-            return ser
+            try:
+                params_fb = dict(params)
+                params_fb["serietype"] = "line"
+                resp = requests.get(f"{BASE_URL}/historical-price-eod/full", params=params_fb, timeout=30)
+                resp.raise_for_status()
+                raw = resp.json()
+                data = raw if isinstance(raw, list) else raw.get("historical", [])
+                df = pd.DataFrame(data)
+                if df.empty or "date" not in df.columns:
+                    log_critical_alert("empty_api_data", "high", f"EMPTY DATA ERROR: Ticker={ticker}, Endpoint=fallback_full, Columns={list(df.columns)}, Shape={df.shape}", "Check ticker validity and API access")
+                    raise ValueError(f"No data or date column found for ticker {ticker} in fallback data. Columns: {list(df.columns)}")
+                df["date"] = pd.to_datetime(df["date"])
+                df = df.set_index("date").sort_index()
+                ser = df.resample("ME")["close"].last()
+                ser.name = f"{ticker}_price_only"
+                return ser
+            except Exception as fallback_error:
+                raise ValueError(f"Both primary and fallback data fetch failed for ticker {ticker}. Primary error: {str(e)}. Fallback error: {str(fallback_error)}")
 
     # Separate cache namespace/prefix to avoid collisions with close-only
     return cache_read(
@@ -460,7 +474,7 @@ def fetch_dividend_history(
             return pd.DataFrame(columns=["adjDividend", "yield", "frequency"]).set_index(pd.Index([], name="date"))
 
         df = pd.DataFrame(data)
-        if "date" not in df.columns:
+        if df.empty or "date" not in df.columns:
             return pd.DataFrame(columns=["adjDividend", "yield", "frequency"]).set_index(pd.Index([], name="date"))
         df["date"] = pd.to_datetime(df["date"])  # ex-dividend / payment date
         df = df.set_index("date").sort_index()

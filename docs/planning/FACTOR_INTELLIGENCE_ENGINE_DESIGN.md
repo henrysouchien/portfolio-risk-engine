@@ -48,7 +48,7 @@ Your system already has significant factor intelligence components:
 **1. Factor Universe Mapping (EXISTING)**
 - **Market Factors**: Exchange-based proxies (SPY, ACWX, EEM, etc.) via `exchange_etf_proxies.yaml`
 - **Style Factors**: Momentum (MTUM, IMTM, etc.) and Value (IWD, EFV, etc.) per exchange
-- **Industry Factors**: 180+ industry-to-ETF mappings via `industry_to_etf.yaml`
+- **Industry Factors**: ~16 industry-to-ETF mappings via `industry_to_etf.yaml`
 - **Sub-industry Factors**: Peer ticker groups for granular analysis
 - **Database Storage**: `factor_proxies` table with per-portfolio factor assignments
 
@@ -95,6 +95,239 @@ Your system already has significant factor intelligence components:
 - **AI Context Enhancement**: Provide factor intelligence to Claude for sophisticated reasoning
 - **Dynamic Rebalancing Logic**: Algorithmic suggestions based on current factor relationships
 
+### 4. Core Data Processing Functions
+
+#### `fetch_factor_universe() -> Dict[str, List[str]]`
+
+**Purpose**: Load complete ETF universe from multiple data sources with database-first pattern.
+
+**Implementation**:
+```python
+@lru_cache(maxsize=DATA_LOADER_LRU_SIZE)
+def fetch_factor_universe() -> Dict[str, List[str]]:
+    """
+    Fetch complete factor ETF universe categorized by asset class.
+
+    Returns:
+        Dict mapping asset class to ETF list:
+        {
+            "industry": ["XLK", "XLV", "XLF", "XLY", "XLP", ...],
+            "style": ["MTUM", "IWD", "IMTM", "EFV", ...],
+            "market": ["SPY", "ACWX", "EEM", "VTI", ...],
+            "fixed_income": ["AGG", "TLT", "SHY", "IEI", ...],
+            "commodity": ["GLD", "SLV", "DBC", "USO", ...],
+            "crypto": ["BITO", "GBTC", ...],
+            "cash": ["BIL", "SGOV", "SHV", ...]
+        }
+    """
+    universe = {}
+
+    # 1. Load from database (primary source)
+    with get_db_session() as conn:
+        db_client = DatabaseClient(conn)
+
+        # Industry ETFs from industry_proxies table (DB-first)
+        industry_map = db_client.get_industry_mappings()
+        universe["industry"] = list(set(industry_map.values()))
+
+        # Exchange-based ETFs (market/style) from exchange_proxies
+        exchange_map = db_client.get_exchange_mappings()
+        style_etfs = []
+        market_etfs = []
+        for exchange_data in exchange_map.values():
+            # DB rows are stored by factor_type keys (e.g., 'market','momentum','value')
+            market_etfs.extend([exchange_data.get("market")])
+            style_etfs.extend([exchange_data.get("momentum"), exchange_data.get("value")])
+        universe["market"] = [etf for etf in set(market_etfs) if etf]
+        universe["style"] = [etf for etf in set(style_etfs) if etf]
+
+        # Asset ETFs from asset_etf_proxies table (fixed_income, commodity, crypto)
+        asset_proxies = db_client.get_asset_etf_proxies()
+        for asset_class, proxy_mapping in asset_proxies.items():
+            universe[asset_class] = list(proxy_mapping.values())
+
+    # 2. YAML fallback for missing categories or empty DB results
+    if not universe.get("industry"):
+        industry_yaml = load_industry_etf_map()  # from proxy_builder.py
+        universe["industry"] = list(set(industry_yaml.values()))
+
+    if not universe.get("market") or not universe.get("style"):
+        exchange_yaml = load_exchange_proxy_map()  # from proxy_builder.py
+        if not universe.get("market"):
+            universe["market"] = [data["market"] for data in exchange_yaml.values() if "market" in data]
+        if not universe.get("style"):
+            style_etfs = []
+            for data in exchange_yaml.values():
+                style_etfs.extend([data.get("momentum"), data.get("value")])
+            universe["style"] = [etf for etf in set(style_etfs) if etf]
+
+    # 3. Cash proxies via DB-first loader, YAML fallback, then minimal set
+    cash_etfs = []
+    try:
+        if 'db_client' in locals() and hasattr(db_client, 'get_cash_mappings'):
+            cash_mappings = db_client.get_cash_mappings() or {}
+            cash_etfs = list(set(cash_mappings.get("proxy_by_currency", {}).values()))
+    except Exception:
+        cash_etfs = []
+    if not cash_etfs:
+        try:
+            import yaml
+            from pathlib import Path
+            cash_yaml = Path("cash_map.yaml")
+            if cash_yaml.exists():
+                with open(cash_yaml, 'r') as f:
+                    cash_data = yaml.safe_load(f)
+                if isinstance(cash_data, dict):
+                    for mapping in cash_data.values():
+                        if isinstance(mapping, str):
+                            cash_etfs.append(mapping)
+                        elif isinstance(mapping, dict) and 'ticker' in mapping:
+                            cash_etfs.append(mapping['ticker'])
+        except Exception:
+            pass
+    if not cash_etfs:
+        cash_etfs = ["SGOV", "BIL", "SHV"]
+    universe["cash"] = sorted(list(set(cash_etfs)))
+
+    # 4. Apply SecurityTypeService enrichment and validation
+    all_etfs = [etf for etf_list in universe.values() for etf in etf_list]
+    asset_class_mappings = SecurityTypeService.get_asset_classes(all_etfs, None)
+
+    # 5. Clean and deduplicate per category
+    for category in list(universe.keys()):
+        tickers = universe.get(category, []) or []
+        universe[category] = sorted(list(set(etf for etf in tickers if etf and str(etf).strip())))
+
+    # 6. Minimal fallbacks for non-equity asset classes if empty
+    if not universe.get("fixed_income"):
+        universe["fixed_income"] = ["SHY", "TLT"]
+    if not universe.get("commodity"):
+        universe["commodity"] = ["GLD", "DBC"]
+    if not universe.get("crypto"):
+        universe["crypto"] = ["IBIT"]
+
+    return universe
+```
+
+#### `build_factor_returns_panel(etf_universe_hash: str, start_date: str, end_date: str, total_return: bool = True) -> pd.DataFrame`
+
+**Purpose**: Build aligned monthly returns matrix for entire ETF universe with parallel loading.
+
+**Implementation**:
+```python
+@lru_cache(maxsize=DATA_LOADER_LRU_SIZE)
+def build_factor_returns_panel(etf_universe_hash: str, start_date: str, end_date: str, total_return: bool = True) -> pd.DataFrame:
+    """
+    Build aligned monthly returns panel for all ETFs in universe.
+
+    Args:
+        etf_universe_hash: Hash of ETF universe dict (for caching)
+        start_date: Start date in YYYY-MM-DD format
+        end_date: End date in YYYY-MM-DD format
+        total_return: Use dividend-adjusted prices if True
+
+    Returns:
+        DataFrame with ETFs as columns, month-end dates as index
+        Returns are decimal (0.05 = 5% return)
+    """
+    import concurrent.futures
+    from functools import partial
+    import pandas as pd
+    from data_loader import fetch_monthly_total_return_price, fetch_monthly_close
+    from settings import DATA_QUALITY_THRESHOLDS
+    from factor_utils import calc_monthly_returns
+
+    # Reconstruct ETF universe from hash (passed separately to maintain cache compatibility)
+    etf_universe = fetch_factor_universe()
+    all_etfs = []
+    for category, etf_list in etf_universe.items():
+        all_etfs.extend(etf_list)
+    all_etfs = sorted(list(set(all_etfs)))  # Deterministic ordering
+
+    # Configure data fetcher based on total_return preference
+    data_fetcher = fetch_monthly_total_return_price if total_return else fetch_monthly_close
+    fetch_func = partial(data_fetcher, start_date=start_date, end_date=end_date)
+
+    # Parallel loading with ThreadPoolExecutor
+    returns_series = {}
+    failed_etfs = []
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        # Submit all ETF fetch tasks
+        future_to_etf = {executor.submit(fetch_func, etf): etf for etf in all_etfs}
+
+        for future in concurrent.futures.as_completed(future_to_etf):
+            etf = future_to_etf[future]
+            try:
+                prices = future.result()
+                if len(prices) > 0:
+                    # Calculate monthly returns (prefer shared helper)
+                    returns = calc_monthly_returns(prices)
+                    if len(returns) >= DATA_QUALITY_THRESHOLDS.get("min_observations_for_returns_calculation", 12):
+                        returns_series[etf] = returns
+                    else:
+                        failed_etfs.append(f"{etf}:insufficient_data")
+                else:
+                    failed_etfs.append(f"{etf}:no_data")
+            except Exception as e:
+                # Graceful fallback for individual ETF failures
+                if total_return:
+                    try:
+                        # Fallback to close prices
+                        prices = fetch_monthly_close(etf, start_date, end_date)
+                        returns = calc_monthly_returns(prices)
+                        if len(returns) >= DATA_QUALITY_THRESHOLDS.get("min_observations_for_returns_calculation", 12):
+                            returns_series[etf] = returns
+                        else:
+                            failed_etfs.append(f"{etf}:fallback_insufficient")
+                    except:
+                        failed_etfs.append(f"{etf}:fallback_failed")
+                else:
+                    failed_etfs.append(f"{etf}:fetch_error:{str(e)[:50]}")
+
+    # Build aligned DataFrame
+    if not returns_series:
+        raise ValueError("No ETF data could be loaded for the specified date range")
+
+    returns_panel = pd.DataFrame(returns_series)
+
+    # Optional: forward-fill small gaps (up to 2 periods) to stabilize corr
+    returns_panel = returns_panel.fillna(method='ffill', limit=2)
+
+    # Drop ETFs with too many missing values (centralized threshold)
+    min_coverage = 0.7  # default; can be lifted to a setting later
+    coverage_threshold = int(len(returns_panel) * min_coverage)
+    returns_panel = returns_panel.dropna(axis=1, thresh=coverage_threshold)
+
+    # Log data quality metrics
+    if failed_etfs:
+        portfolio_logger.warning(f"⚠️  Failed to load {len(failed_etfs)} ETFs: {failed_etfs[:5]}{'...' if len(failed_etfs) > 5 else ''}")
+
+    portfolio_logger.info(f"✅ Built returns panel: {len(returns_panel)} periods × {len(returns_panel.columns)} ETFs")
+
+    return returns_panel
+
+def generate_universe_hash(etf_universe: Dict[str, List[str]]) -> str:
+    """Generate deterministic hash for ETF universe for caching."""
+    import hashlib
+    import json
+
+    # Sort everything for deterministic hashing
+    sorted_universe = {}
+    for category in sorted(etf_universe.keys()):
+        sorted_universe[category] = sorted(etf_universe[category])
+
+    universe_str = json.dumps(sorted_universe, sort_keys=True)
+    return hashlib.md5(universe_str.encode()).hexdigest()[:12]
+```
+
+**Integration Notes**:
+- Both functions use `@lru_cache` for global cross-user caching
+- `fetch_factor_universe()` integrates with existing database and YAML infrastructure
+- `build_factor_returns_panel()` leverages existing `data_loader.py` functions
+- Error handling provides graceful degradation for missing ETF data
+- Functions emit performance and data quality metrics for monitoring
+
 ## Integration Points
 - **Portfolio Risk Analyzer**: Leverage factor intelligence for offset recommendations
 - **AI Integration**: Provide market context for sophisticated reasoning
@@ -134,11 +367,23 @@ Once core logic is designed, integrate into existing system:
 **Purpose**: Calculate and maintain correlations between all factor proxies to enable intelligent offset recommendations.
 
 **Input Data Sources**:
-- Industry factors from `industry_to_etf.yaml` (~180 ETFs)
+- Industry factors from `industry_to_etf.yaml` (~16 ETFs)
 - Style factors from `exchange_etf_proxies.yaml` (momentum, value)
 - Market factors from `exchange_etf_proxies.yaml` (SPY, ACWX, EEM, etc.)
+- Rate (Interest Rate) factors via `fetch_monthly_treasury_yield_levels()` and `prepare_rate_factors()` (Δy series)
+- Additional asset‑class factors (ETF proxies) via database‑first loader with YAML fallback:
+  canonical ETF proxies for fixed_income (duration sleeves), commodity (GLD, SLV, DBC), and crypto (spot BTC/ETH ETFs)
+  to provide total‑return series for cross‑asset analysis.
+  Loader order: Database (asset_etf_proxies table) → YAML (`asset_etf_proxies.yaml`) → hardcoded minimal set.
+- Cash asset proxies via existing cash mapping system (DB → YAML → hardcoded): `cash_map.yaml` and
+  `cash` tables/APIs already used by the platform (e.g., SGOV/BIL/SHV). These provide investable, total‑return
+  proxies for the cash asset class.
 
-**Core Functionality**:
+Canonical asset class names:
+- Use the canonical set from `core/constants.py` (e.g., `real_estate`, not `reit`). All tagging and
+  documentation should follow these names for consistency across the platform.
+
+**Core Functionality (Segmented by Category)**:
 
 ```python
 class FactorCorrelationEngine:
@@ -199,18 +444,95 @@ class FactorCorrelationEngine:
 
 1. **Factor Universe Construction**:
    - Extract all unique ETFs from existing YAML files
-   - Group by category (industry, style, market) for analysis
+   - Group by category (industry, style, market, fixed_income, cash, commodity, crypto) for analysis (extensible)
    - Handle overlapping factors (e.g., multiple real estate ETFs)
+   - Tag each factor ETF with an `asset_class` using the centralized SecurityTypeService
+     (database → YAML → hardcoded) to enable filtering (e.g., exclude `cash`, `unknown`) and
+     portfolio‑aware recommendations
+   - Industry bucketing: Support multiple levels of industry granularity for Factor Intelligence views:
+     • group (default): major sectors explicitly provided via an optional `group` field in industry mappings  
+     • industry: standard industry names  
+     • subindustry: most granular (may be large/noisy)  
+     Group is sourced DB‑first from `industry_proxies.sector_group`, with YAML (`industry_to_etf.yaml`) fallback via an
+     optional `group:` field in the extended mapping. If `group` is not provided for an industry, we fall back to the
+     `industry` level for that entry. This avoids inferring sectors from ETFs and keeps the mapping explicit.
 
 2. **Correlation Calculation**:
    - Use monthly returns for stability (consistent with existing system)
-   - Support configurable time windows (1Y, 3Y, 5Y)
+   - Prefer dividend‑adjusted total‑return prices via `fetch_monthly_total_return_price()` with
+     safe fallback to `fetch_monthly_close()` to align with the platform’s total‑return methodology
+   - Support configurable time windows (1Y, 3Y, 5Y); default windows are centralized in settings (e.g.,
+     `PORTFOLIO_DEFAULTS` or a dedicated `INTELLIGENCE_WINDOWS`), ensuring consistent analysis across sections
    - Handle missing data gracefully
+   - Compute matrices per category (industry/style/market/fixed_income/cash/commodity/crypto) and optionally a small
+     cross‑category matrix by correlating category composite returns (e.g., average of
+     factors within category)
+     • When `industry_granularity='group'`, build a group‑level correlation matrix from group composite return series
+       (equal‑weight of member industries' ETF returns by default). No canonical group ETF is required.
+   - Compute a separate Rate Sensitivity matrix: corr(ETF return series, Δy columns)
+     using maturities from `RATE_FACTOR_CONFIG` (e.g., UST2Y/5Y/10Y/30Y)
+   - Compute a separate Market Sensitivity overlay: corr(ETF return series, market benchmarks) using
+     total‑return benchmark ETFs (e.g., SPY, ACWX, EEM) or a category equity composite; this remains
+     an overlay (correlations only) and does not replace per‑ETF beta reported in performance profiles
+   - Rolling windows (optional): Provide rolling 12/24/36‑month correlation snapshots (or a stability score) to
+     improve robustness and detect regime shifts; controlled by request flags and centralized defaults
+   - Regime toggles (future): When a clean regime classifier is available (e.g., stress/calm/normal), add optional
+     regime filters to compute correlations on subsets (e.g., high‑vol periods); until then, keep this disabled by default
+   - Recommended defaults:
+     • market_sensitivity: apply to ['industry','style'] by default; exclude 'market' category and any ETF used
+       as a benchmark (e.g., SPY). Default benchmarks = ['SPY'] with optional ACWX/EEM.
+     • rate_sensitivity: apply to ['fixed_income','industry','market','cash'] by default. Default maturities come
+       from RATE_FACTOR_CONFIG (e.g., ['UST2Y','UST5Y','UST10Y','UST30Y']).
+   - Provide Macro Views (cross‑asset):
+     • Macro Composite Matrix: small, square matrix of composites for major asset groups
+       (equity, fixed_income, cash, commodity, crypto). Highest readability for “stocks vs bonds vs cash”.
+     • Macro ETF Matrix: single square matrix including a curated set of ETFs from those groups (e.g., top N per group),
+       with optional de‑duplication (drop |corr| above threshold within a group). Heavier but more granular.
+     • Do not include rate (Δy) in macro matrices; rate_sensitivity remains a separate overlay.
+     • Data quality enforcement: For macro matrices, drop series that fail minimum coverage thresholds and
+       deduplicate near‑identical ETFs within a group. Reuse centralized thresholds from
+       `settings.DATA_QUALITY_THRESHOLDS` (e.g., `min_observations_for_returns_calculation`,
+       `min_observations_for_regression`) and the request’s `macro_deduplicate_threshold` (default guided by
+       settings). Emit data_quality notes for dropped/merged tickers.
 
 3. **Offset Logic**:
    - Negative correlation candidates for hedging
    - Low correlation candidates for diversification
    - Exclude highly correlated factors (would amplify risk)
+   - Incorporate `asset_class` tags and optional dividend yield preferences to preserve
+     portfolio income while hedging risk
+   - Include cash as a first‑class asset via cash ETF proxies (SGOV/BIL/SHV) from the cash mapping system
+     for total‑return based analytics; still exclude raw currency tickers (e.g., CUR:USD) and any
+     zero‑variance placeholders that would break correlation math
+
+4. **Rate (Interest Rate) Category**:
+   - Treat interest rates as their own category (`rate`) because they are macro drivers with
+     Δy units, not ETF returns. Do not mix into ETF→ETF matrices.
+   - Build a dedicated Rate Sensitivity matrix: corr(ETF monthly returns, Δy) for maturities from
+     `RATE_FACTOR_CONFIG` (e.g., UST2Y/5Y/10Y/30Y) prepared via `fetch_monthly_treasury_yield_levels()`
+     and `prepare_rate_factors()`.
+   - Do not compute betas in Factor Intelligence (betas are part of the portfolio risk engine). Factor Intelligence
+     only reports correlations, including ETF↔Δy correlations when requested.
+   - Recommendations remain correlation‑based; the rate category can be included in correlation views and
+     cross‑category correlations, but no betas are produced here.
+   - Cash remains included via its ETF proxies in other matrices; raw currency tickers are excluded
+
+5. **Cross‑Asset Intelligence View**:
+   - Preserve segmented infra (industry/style/market/fixed_income/commodity/crypto/...), but expose
+     explicit cross‑asset relationships for intuition (e.g., stocks vs bonds vs commodities vs crypto).
+   - Cross‑Asset Correlation Matrix (ETF↔ETF): configurable submatrix across selected asset‑class groups
+     (e.g., equities rows × fixed_income columns; or a square matrix across multiple groups). Uses total‑return monthly
+     series for all ETFs and centralized data‑quality thresholds.
+   - Category Composites: produce equal‑weight (or cap‑weight) composite monthly series per asset‑class group and return a
+     compact cross‑category matrix (e.g., corr(equity_composite, fixed_income_composite, commodity_composite, crypto_composite)).
+   - Rate Overlay remains separate (ETF↔Δy) for clarity and unit safety.
+
+6. **Additional Asset‑Class Proxies (Required for Inclusion)**:
+   - To include non‑equity asset classes in Factor Intelligence, provide ETF proxies to obtain total‑return series.
+   - Single mapping file: `asset_etf_proxies.yaml` with sections for `fixed_income`, `commodity`, and `crypto`.
+   - Database‑first loading: prefer `asset_etf_proxies` table, fall back to YAML, then hardcoded minimal set.
+   - Load alongside industry/style/market maps; tag with `asset_class` via SecurityTypeService and assign a `category`
+     such as `fixed_income`, `commodity`, or `crypto` for segmented matrices.
 
 **Example Usage**:
 ```python
@@ -225,6 +547,15 @@ offsets = engine.get_offset_candidates("IYR")  # Real estate ETF
 # Get full relationship map
 relationships = engine.get_factor_relationships("IYR")
 # Returns: {"hedges": ["XLU", "XLP"], "complements": [...], "amplifiers": [...]}
+
+# Rate Sensitivity (Δy) Example Output Shape
+# correlations["rate_sensitivity"] might look like:
+# {
+#   "XLU":  {"UST2Y": -0.35, "UST5Y": -0.42, "UST10Y": -0.48, "UST30Y": -0.41},
+#   "XLRE": {"UST2Y": -0.22, "UST5Y": -0.29, "UST10Y": -0.36, "UST30Y": -0.33}
+# }
+
+# Macro views replace the old cross-asset overlays and tiny composites.
 ```
 
 ### 2. Factor Performance Profiles Engine
@@ -238,30 +569,32 @@ class FactorPerformanceEngine:
     def calculate_factor_profiles(
         self,
         start_date: str,
-        end_date: str
-    ) -> Dict[str, Dict[str, float]]:
+        end_date: str,
+        factor_categories: Optional[List[str]] = None
+    ) -> Dict[str, Dict[str, Dict[str, float]]]:
         """
-        Calculate performance metrics for all factor proxies.
+        Calculate performance metrics for all factor proxies, segmented by category.
         
         Returns:
             {
-                "IYR": {
-                    "annual_return": 0.085,
-                    "volatility": 0.22,
-                    "sharpe_ratio": 0.38,
-                    "max_drawdown": -0.45,
-                    "beta_to_market": 1.15
-                },
-                "XLU": {
-                    "annual_return": 0.065,
-                    "volatility": 0.16,
-                    "sharpe_ratio": 0.41,
-                    "max_drawdown": -0.28,
-                    "beta_to_market": 0.75
-                },
+              "industry": {
+                "IYR": { "annual_return": ..., "volatility": ..., "sharpe_ratio": ..., "max_drawdown": ..., "beta_to_market": ..., "dividend_yield": ... },
                 ...
+              },
+              "style": { ... },
+              "market": { ... }
             }
         """
+
+    # (Note: Betas are not computed in Factor Intelligence; correlations only.)
+    
+    # Composite Performance (Macro + Category)
+    # In addition to per‑ETF profiles, compute composite performance tables:
+    #  - Macro composites across equity/fixed_income/cash/commodity/crypto
+    #  - Per‑category composites (industry/style/market buckets)
+    # Metrics: annualized_return, volatility, sharpe_ratio, max_drawdown, dividend_yield
+    # Weighting: equal‑weight by default; cap‑weight/custom optionally
+    # These composites provide quick comparative context for broad sleeves and factor buckets.
         
     def rank_factors_by_metric(
         self,
@@ -292,7 +625,7 @@ class FactorPerformanceEngine:
         """
 ```
 
-### 3. Offset Recommendation Logic
+### 3. Offset Recommendation Logic (Within vs Cross Category)
 
 **Purpose**: Combine correlation and performance data to generate intelligent offset suggestions.
 
@@ -306,7 +639,11 @@ class OffsetRecommendationEngine:
         self,
         overexposed_factor: str,
         target_allocation_reduction: float,
-        risk_tolerance: str = "moderate"
+        risk_tolerance: str = "moderate",
+        asset_class_filters: Optional[Dict[str, List[str]]] = None,
+        factor_categories: Optional[List[str]] = None,
+        prefer_income: bool = False,
+        min_dividend_yield: Optional[float] = None
     ) -> List[Dict[str, Any]]:
         """
         Generate ranked offset recommendations.
@@ -317,18 +654,19 @@ class OffsetRecommendationEngine:
             risk_tolerance: "conservative", "moderate", "aggressive"
             
         Returns:
-            [
-                {
-                    "factor": "XLU",
-                    "allocation_suggestion": 0.06,
-                    "rationale": "Strong negative correlation (-0.32) with real estate, lower volatility",
-                    "correlation": -0.32,
-                    "risk_score": "low",
-                    "performance_rank": 3
-                },
-                ...
-            ]
+            {
+              "within_category": [ ... ],   # candidates in same category as overexposed factor
+              "cross_category":  [ ... ]    # diversified candidates from other categories
+            }
         """
+
+    # Scoring Note:
+    # Final rank combines correlation strength (more negative better), Sharpe (higher better),
+    # and dividend_yield (when prefer_income/min_dividend_yield set). Liquidity/fee penalties can
+    # be applied in later phases. Rate category data is available via correlations only and is not
+    # used as betas in this module. Dividend yield is only considered for asset classes where it is
+    # meaningful (equity, fixed_income, cash). Commodity/crypto ETF yields are typically zero and are
+    # ignored by default for income ranking unless explicitly whitelisted.
         
     def generate_ai_context(
         self,
@@ -365,77 +703,92 @@ class OffsetRecommendationEngine:
 
 ```python
 class FactorIntelligenceEngine:
-    def __init__(self, use_database: bool = True):
+    def __init__(self, use_database: bool = True, user_id: Optional[int] = None):
         # Load factor universe using existing database-first pattern
         self.use_database = use_database
+        self.user_id = user_id  # Store for multi-user isolation
         self.industry_factors = self._load_industry_factors()  # Database → YAML fallback
         self.style_factors = self._load_style_factors()        # Database → YAML fallback
         self.all_factors = {**self.industry_factors, **self.style_factors}
-        
+
     def _load_industry_factors(self) -> Dict[str, str]:
         """Load industry factors using existing database-first pattern."""
         if self.use_database:
+            # Note: Need to verify load_industry_etf_map() supports database-first mode
             return load_industry_etf_map()  # Uses DatabaseClient.get_industry_mappings()
         else:
             return load_industry_etf_map("industry_to_etf.yaml")  # YAML fallback
-            
+
     def _load_style_factors(self) -> Dict[str, str]:
-        """Load style factors using existing database-first pattern.""" 
+        """Load style factors using existing database-first pattern."""
         if self.use_database:
+            # Note: Need to verify load_exchange_proxy_map() supports database-first mode
             exchange_map = load_exchange_proxy_map()  # Uses DatabaseClient.get_exchange_mappings()
         else:
             exchange_map = load_exchange_proxy_map("exchange_etf_proxies.yaml")
-            
+
         # Extract unique style factors from all exchanges
         style_factors = {}
         for exchange, proxies in exchange_map.items():
             if exchange != "DEFAULT":
                 style_factors[f"{exchange}_market"] = proxies.get("market")
-                style_factors[f"{exchange}_momentum"] = proxies.get("momentum") 
+                style_factors[f"{exchange}_momentum"] = proxies.get("momentum")
                 style_factors[f"{exchange}_value"] = proxies.get("value")
         return {k: v for k, v in style_factors.items() if v}
-        
+
     def calculate_factor_correlations(
-        self, 
-        start_date: str, 
-        end_date: str,
-        return_table: bool = False
-    ) -> Union[pd.DataFrame, Dict[str, Union[pd.DataFrame, str]]]:
+        self,
+        analysis_data: 'FactorAnalysisData'
+    ) -> 'FactorCorrelationResult':
         """
         Calculate factor-to-factor correlation matrix using existing functions.
-        
+
         Args:
-            start_date: Analysis start date
-            end_date: Analysis end date  
-            return_table: If True, return both DataFrame and formatted table
-            
+            analysis_data: Factor analysis configuration with date range and settings
+
         Returns:
-            DataFrame of correlations, or Dict with DataFrame and formatted table
+            FactorCorrelationResult with correlation matrix and metadata
         """
-        # 1. Fetch returns for all factors using existing data loading
+        # 1. Fetch returns for all factors (prefer total‑return series)
         factor_returns = {}
+        excluded_factors = []
+
         for factor_name, etf_ticker in self.all_factors.items():
-            returns = calc_monthly_returns(
-                fetch_monthly_close(etf_ticker, start_date, end_date)
-            )
-            factor_returns[factor_name] = returns
-            
+            try:
+                price_series = fetch_monthly_total_return_price(etf_ticker, analysis_data.start_date, analysis_data.end_date)
+            except Exception:
+                try:
+                    price_series = fetch_monthly_close(etf_ticker, analysis_data.start_date, analysis_data.end_date)
+                except Exception as e:
+                    excluded_factors.append(f"{factor_name} ({etf_ticker}): {str(e)}")
+                    continue
+
+            returns = calc_monthly_returns(price_series)
+            if returns is not None and len(returns) > 0:
+                factor_returns[factor_name] = returns
+            else:
+                excluded_factors.append(f"{factor_name} ({etf_ticker}): No valid returns")
+
         # 2. Align all return series to common dates
         returns_df = pd.DataFrame(factor_returns).dropna()
-        
+
         # 3. Use existing correlation function
         correlation_matrix = compute_correlation_matrix(returns_df)
-        
-        if not return_table:
-            return correlation_matrix
-            
-        # 4. Generate formatted table for display/Claude context
-        table = self._format_correlation_matrix_table(correlation_matrix, start_date, end_date)
-        
-        return {
-            "correlation_matrix": correlation_matrix,
-            "formatted_table": table
+
+        # 4. Build analysis metadata
+        analysis_metadata = {
+            "start_date": analysis_data.start_date,
+            "end_date": analysis_data.end_date,
+            "analysis_date": datetime.now().isoformat(),
+            "user_id": self.user_id,
+            "factors_analyzed": len(factor_returns)
         }
+
+        # 5. Return Result Object following existing pattern
+        return FactorCorrelationResult(
+            correlation_matrix=correlation_matrix,
+            analysis_metadata=analysis_metadata
+        )
         
     def _format_correlation_matrix_table(
         self, 
@@ -502,51 +855,66 @@ class FactorIntelligenceEngine:
         
     def calculate_factor_performance_profiles(
         self,
-        start_date: str,
-        end_date: str,
-        return_table: bool = False
-    ) -> Union[Dict[str, Dict[str, float]], Dict[str, Union[Dict[str, Dict[str, float]], str]]]:
+        analysis_data: 'FactorAnalysisData'
+    ) -> 'FactorPerformanceResult':
         """
         Calculate performance metrics for each factor using existing performance functions.
-        
+
         Args:
             start_date: Analysis start date
             end_date: Analysis end date
-            return_table: If True, return both data and formatted table
-            
+            benchmark_ticker: Benchmark for performance comparison
+
         Returns:
-            Dict of factor performance profiles, or Dict with data and formatted table
+            FactorPerformanceResult with performance profiles and metadata
         """
         factor_profiles = {}
-        
+        excluded_factors = []
+
         for factor_name, etf_ticker in self.all_factors.items():
-            # Create mini "portfolio" with 100% allocation to this factor
-            weights = {etf_ticker: 1.0}
-            
-            # Use existing performance analysis (simplified call)
-            performance_metrics = calculate_portfolio_performance_metrics(
-                weights, start_date, end_date, benchmark_ticker="SPY"
-            )
-            
-            # Extract key metrics
-            factor_profiles[factor_name] = {
-                "annual_return": performance_metrics["returns"]["annualized_return"],
-                "volatility": performance_metrics["risk_metrics"]["volatility"], 
-                "sharpe_ratio": performance_metrics["risk_adjusted_returns"]["sharpe_ratio"],
-                "max_drawdown": performance_metrics["risk_metrics"]["maximum_drawdown"],
-                "beta_to_market": performance_metrics.get("benchmark_analysis", {}).get("beta", 1.0)
-            }
-            
-        if not return_table:
-            return factor_profiles
-            
-        # Generate formatted table for display/Claude context
-        table = self._format_performance_profiles_table(factor_profiles, start_date, end_date)
-        
-        return {
-            "performance_profiles": factor_profiles,
-            "formatted_table": table
+            try:
+                # Create mini "portfolio" with 100% allocation to this factor
+                weights = {etf_ticker: 1.0}
+
+                # Use existing performance analysis with complete signature
+                performance_metrics = calculate_portfolio_performance_metrics(
+                    weights=weights,
+                    start_date=start_date,
+                    end_date=end_date,
+                    benchmark_ticker=benchmark_ticker,
+                    risk_free_rate=None,  # Use default
+                    total_value=None      # Use default
+                )
+
+                # Extract key metrics
+                factor_profiles[factor_name] = {
+                    "annual_return": performance_metrics["returns"]["annualized_return"],
+                    "volatility": performance_metrics["risk_metrics"]["volatility"],
+                    "sharpe_ratio": performance_metrics["risk_adjusted_returns"]["sharpe_ratio"],
+                    "max_drawdown": performance_metrics["risk_metrics"]["maximum_drawdown"],
+                    "beta_to_market": performance_metrics.get("benchmark_analysis", {}).get("beta", 1.0),
+                    "dividend_yield": performance_metrics.get("dividend_metrics", {}).get("portfolio_dividend_yield", 0.0)
+                }
+
+            except Exception as e:
+                excluded_factors.append(f"{factor_name} ({etf_ticker}): {str(e)}")
+                continue
+
+        # Build analysis metadata
+        analysis_metadata = {
+            "start_date": start_date,
+            "end_date": end_date,
+            "benchmark_ticker": benchmark_ticker,
+            "analysis_date": datetime.now().isoformat(),
+            "user_id": self.user_id,
+            "factors_analyzed": len(factor_profiles)
         }
+
+        # Return Result Object following existing pattern
+        return FactorPerformanceResult(
+            performance_profiles=factor_profiles,
+            analysis_metadata=analysis_metadata
+        )
         
     def _format_performance_profiles_table(
         self,
@@ -571,7 +939,7 @@ class FactorIntelligenceEngine:
         table_lines.append(f"Period: {start_date} to {end_date}")
         table_lines.append(f"Sorted by: {sort_by} (descending)")
         table_lines.append("")
-        table_lines.append(f"{'Factor':<25} {'ETF':<8} {'Ann Return':<10} {'Volatility':<10} {'Sharpe':<8} {'Max DD':<8} {'Beta':<8}")
+        table_lines.append(f"{'Factor':<25} {'ETF':<8} {'Ann Return':<10} {'Volatility':<10} {'Sharpe':<8} {'Max DD':<8} {'Beta':<8} {'Yield':<8}")
         table_lines.append("-" * 120)
         
         # Sort factors by specified metric
@@ -590,7 +958,8 @@ class FactorIntelligenceEngine:
                 f"{perf.get('volatility', 0):>8.1%} "
                 f"{perf.get('sharpe_ratio', 0):>6.2f} "
                 f"{perf.get('max_drawdown', 0):>6.1%} "
-                f"{perf.get('beta_to_market', 0):>6.2f}"
+                f"{perf.get('beta_to_market', 0):>6.2f} "
+                f"{perf.get('dividend_yield', 0):>6.2%}"
             )
             
         table_lines.append("")
@@ -616,41 +985,89 @@ class FactorIntelligenceEngine:
     def generate_offset_recommendations(
         self,
         overexposed_factor: str,
-        correlation_threshold: float = -0.2
-    ) -> List[Dict[str, Any]]:
+        start_date: str,
+        end_date: str,
+        correlation_threshold: float = -0.2,
+        max_recommendations: int = 10
+    ) -> 'OffsetRecommendationResult':
         """
         Generate offset recommendations using correlation and performance data.
+
+        Args:
+            overexposed_factor: Factor that needs hedging/offset
+            start_date: Analysis period start
+            end_date: Analysis period end
+            correlation_threshold: Maximum correlation for offset candidates
+            max_recommendations: Maximum number of recommendations to return
+
+        Returns:
+            OffsetRecommendationResult with ranked recommendations and metadata
         """
-        # Get correlations and performance profiles
-        correlations = self.calculate_factor_correlations("2019-01-01", "2024-01-01")
-        performance_profiles = self.calculate_factor_performance_profiles("2019-01-01", "2024-01-01")
-        
+        # Get correlations and performance profiles using Result Objects
+        correlation_result = self.calculate_factor_correlations(start_date, end_date)
+        performance_result = self.calculate_factor_performance_profiles(start_date, end_date)
+
         # Find factors with low/negative correlation to overexposed factor
-        if overexposed_factor not in correlations.index:
-            return []
-            
-        factor_corrs = correlations.loc[overexposed_factor]
+        correlation_matrix = correlation_result.correlation_matrix
+        if overexposed_factor not in correlation_matrix.index:
+            return OffsetRecommendationResult(
+                overexposed_factor=overexposed_factor,
+                recommendations=[],
+                analysis_metadata={
+                    "error": f"Factor '{overexposed_factor}' not found in correlation matrix",
+                    "user_id": self.user_id
+                }
+            )
+
+        factor_corrs = correlation_matrix.loc[overexposed_factor]
         offset_candidates = factor_corrs[factor_corrs <= correlation_threshold].sort_values()
-        
+
         # Combine with performance data
         recommendations = []
+        performance_profiles = performance_result.performance_profiles
+
         for factor, correlation in offset_candidates.items():
             if factor == overexposed_factor:
                 continue
-                
+
             perf = performance_profiles.get(factor, {})
+            if not perf:  # Skip factors without performance data
+                continue
+
             recommendations.append({
                 "factor": factor,
-                "etf_ticker": self.all_factors[factor],
-                "correlation": correlation,
-                "sharpe_ratio": perf.get("sharpe_ratio", 0),
-                "volatility": perf.get("volatility", 0),
+                "etf_ticker": self.all_factors.get(factor, "Unknown"),
+                "correlation": float(correlation),
+                "sharpe_ratio": perf.get("sharpe_ratio", 0.0),
+                "volatility": perf.get("volatility", 0.0),
+                "annual_return": perf.get("annual_return", 0.0),
+                "max_drawdown": perf.get("max_drawdown", 0.0),
+                "dividend_yield": perf.get("dividend_yield", 0.0),
                 "rationale": f"Negative correlation ({correlation:.2f}) with {overexposed_factor}, Sharpe: {perf.get('sharpe_ratio', 0):.2f}"
             })
-            
+
         # Sort by combination of correlation (more negative better) and Sharpe ratio (higher better)
         recommendations.sort(key=lambda x: (x["correlation"], -x["sharpe_ratio"]))
-        return recommendations
+
+        # Limit to max_recommendations
+        recommendations = recommendations[:max_recommendations]
+
+        # Build analysis metadata
+        analysis_metadata = {
+            "overexposed_factor": overexposed_factor,
+            "start_date": start_date,
+            "end_date": end_date,
+            "correlation_threshold": correlation_threshold,
+            "analysis_date": datetime.now().isoformat(),
+            "user_id": self.user_id,
+            "recommendations_found": len(recommendations)
+        }
+
+        return OffsetRecommendationResult(
+            overexposed_factor=overexposed_factor,
+            recommendations=recommendations,
+            analysis_metadata=analysis_metadata
+        )
 ```
 
 ### **Key Benefits of This Approach**:
@@ -802,6 +1219,7 @@ Pure functions for factor correlation analysis, performance profiling, and offse
 import pandas as pd
 from typing import Dict, Any, Optional, List, Union
 from datetime import datetime
+import functools
 
 from data_loader import fetch_monthly_close
 from factor_utils import calc_monthly_returns
@@ -810,6 +1228,8 @@ from proxy_builder import load_industry_etf_map, load_exchange_proxy_map
 from core.result_objects import FactorCorrelationResult, FactorPerformanceResult, OffsetRecommendationResult
 from core.data_objects import FactorAnalysisData
 from settings import PORTFOLIO_DEFAULTS
+from utils.config import DATA_LOADER_LRU_SIZE
+from utils.logging import portfolio_logger
 
 # Import logging decorators
 from utils.logging import (
@@ -892,6 +1312,7 @@ def _load_factor_universe_with_fallback(use_database: bool = True) -> Dict[str, 
             "Communication Services": "XLC"
         }
 
+@functools.lru_cache(maxsize=DATA_LOADER_LRU_SIZE)  # Global cache for shared market data
 def _fetch_factor_returns_with_fallback(ticker: str, start_date: str, end_date: str):
     """
     Fetch factor returns with multiple fallback strategies.
@@ -933,7 +1354,7 @@ def _fetch_factor_returns_with_fallback(ticker: str, start_date: str, end_date: 
     
     # Fallback 2: FMP API (if available)
     try:
-        if hasattr(settings, 'FMP_API_KEY') and settings.FMP_API_KEY:
+        if os.getenv('FMP_API_KEY'):
             # Use FMP historical data endpoint
             fmp_data = fetch_fmp_historical_data(ticker, start_date, end_date)
             if fmp_data is not None and len(fmp_data) > 0:
@@ -1073,9 +1494,11 @@ def analyze_factor_performance(
     for factor_name, etf_ticker in factor_universe.items():
         try:
             # Check data availability first (following existing pattern)
-            returns = calc_monthly_returns(
-                fetch_monthly_close(etf_ticker, start_date, end_date)
-            )
+            try:
+                _prices = fetch_monthly_total_return_price(etf_ticker, start_date, end_date)
+            except Exception:
+                _prices = fetch_monthly_close(etf_ticker, start_date, end_date)
+            returns = calc_monthly_returns(_prices)
             
             if returns is None or len(returns) < min_observations:
                 excluded_factors.append(factor_name)
@@ -1623,16 +2046,19 @@ class FactorIntelligenceService(ServiceCacheMixin):
         ```
     """
     
-    def __init__(self, cache_results: bool = True):
+    def __init__(self, cache_results: bool = True, user_id: Optional[int] = None):
         """
         Initialize the factor intelligence service.
-        
+
         Args:
             cache_results: Whether to cache analysis results (default: True)
                           Uses SERVICE_CACHE_MAXSIZE=500, SERVICE_CACHE_TTL=1800 (30min)
+            user_id: User ID for multi-user isolation and logging
         """
         self.cache_results = cache_results
-        self._init_service_cache()  # Creates TTLCache with maxsize=500, ttl=1800
+        self.user_id = user_id
+        if cache_results:
+            self._init_service_cache()  # Creates TTLCache with maxsize=500, ttl=1800
     
     @log_error_handling("high")
     @log_portfolio_operation_decorator("service_factor_correlation_analysis")
@@ -2276,7 +2702,7 @@ def get_market_cap_weights(
                     
         except Exception as e:
             # Log warning but continue with other tickers
-            print(f"Warning: Could not get market cap for {ticker}: {e}")
+            portfolio_logger.warning(f"Warning: Could not get market cap for {ticker}: {e}")
             continue
     
     if not market_caps:
@@ -2579,3 +3005,29 @@ This enhanced approach gives you the flexibility to create realistic factor indi
    - Factor momentum and mean reversion indicators
 
 *Note: These enhancements can be implemented incrementally based on user feedback and usage patterns. The core Factor Intelligence Engine design is complete and production-ready.*
+# Market Sensitivity Example Output Shape
+# correlations["market_sensitivity"] might look like:
+# {
+#   "XLU":  {"SPY": 0.62, "ACWX": 0.55},
+#   "XLRE": {"SPY": 0.74, "ACWX": 0.60},
+#   "IEF":  {"SPY": -0.28, "ACWX": -0.22}
+# }
+# Macro Composite Matrix Example
+# correlations["macro_composite_matrix"] might look like:
+# {
+#   "groups": ["equity","fixed_income","cash","commodity","crypto"],
+#   "matrix": {
+#     "equity_composite":      {"fixed_income_composite": -0.36, "cash_composite": -0.05, "commodity_composite": 0.08, "crypto_composite": 0.21},
+#     "fixed_income_composite": {"equity_composite": -0.36, ...}
+#   }
+# }
+
+# Macro ETF Matrix Example (curated ETFs from macro groups)
+# correlations["macro_etf_matrix"] might look like:
+# {
+#   "groups": {"equity": ["SPY","XLK"], "fixed_income": ["IEF","TLT"], "cash": ["SGOV"], "commodity": ["GLD"], "crypto": ["BTC_SPOT_ETF"]},
+#   "matrix": {
+#     "SPY": {"XLK": 0.89, "IEF": -0.32, "TLT": -0.41, "SGOV": -0.06, "GLD": 0.05, "BTC_SPOT_ETF": 0.28},
+#     "XLK": {"IEF": -0.27, ...}
+#   }
+# }

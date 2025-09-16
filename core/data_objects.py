@@ -948,3 +948,106 @@ class RiskLimitsData:
 
 
  
+@dataclass
+class FactorAnalysisData:
+    """
+    Input data object for Factor Intelligence analyses.
+
+    Encapsulates the analysis window and optional flags used by
+    factor intelligence service methods. Provides convenience
+    constructors that respect global defaults when dates are omitted.
+    """
+
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    options: Dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_dates(cls, start_date: Optional[str] = None, end_date: Optional[str] = None, **kwargs) -> 'FactorAnalysisData':
+        from settings import PORTFOLIO_DEFAULTS
+        return cls(
+            start_date or PORTFOLIO_DEFAULTS.get("start_date"),
+            end_date or PORTFOLIO_DEFAULTS.get("end_date"),
+            options=kwargs or {}
+        )
+
+    @classmethod
+    def from_defaults(cls, **kwargs) -> 'FactorAnalysisData':
+        from settings import PORTFOLIO_DEFAULTS
+        return cls(
+            PORTFOLIO_DEFAULTS.get("start_date"),
+            PORTFOLIO_DEFAULTS.get("end_date"),
+            options=kwargs or {}
+        )
+
+    def get_cache_key(self) -> str:
+        """Build a deterministic cache key for this analysis input."""
+        base = json.dumps({
+            "start": self.start_date,
+            "end": self.end_date,
+            "options": self.options,
+        }, sort_keys=True)
+        return hashlib.md5(base.encode()).hexdigest()
+
+
+@dataclass
+class PortfolioOffsetsData:
+    """
+    Centralized input for portfolio-aware factor offset recommendations.
+
+    Encapsulates portfolio weights and analysis parameters with convenience
+    helpers for normalization and cache-key hashing.
+
+    Parameters
+    ----------
+    weights : Dict[str, float]
+        Portfolio weights by ticker (not required to sum to 1.0).
+    start_date, end_date : Optional[str]
+        Analysis window; when None, service defaults apply.
+    correlation_threshold : float
+        Maximum correlation allowed for offset candidates (≤ 0.0).
+    max_recs_per_driver : int
+        Maximum recommendations to return for each detected driver (industry/factor).
+    industry_granularity : str
+        'group' or 'industry' – controls industry driver detection and label mapping.
+    """
+
+    weights: Dict[str, float]
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    correlation_threshold: float = -0.2
+    max_recs_per_driver: int = 5
+    industry_granularity: str = "group"
+
+    _cache_key: Optional[str] = None
+    _last_updated: Optional[datetime] = None
+
+    def __post_init__(self):
+        if not isinstance(self.weights, dict) or not self.weights:
+            raise ValueError("weights must be a non-empty {ticker: weight} mapping")
+        self.weights = {str(k).upper(): float(v) for k, v in self.weights.items()}
+        if self.industry_granularity not in ("group", "industry"):
+            self.industry_granularity = "group"
+        self._cache_key = self._generate_cache_key()
+        self._last_updated = datetime.now()
+
+    def normalized_weights(self) -> Dict[str, float]:
+        total = sum(abs(v) for v in self.weights.values())
+        if total <= 0:
+            return {k: 0.0 for k in self.weights}
+        return {k: v / total for k, v in self.weights.items()}
+
+    def _generate_cache_key(self) -> str:
+        payload = {
+            "weights": self.weights,
+            "start_date": self.start_date,
+            "end_date": self.end_date,
+            "corr": round(float(self.correlation_threshold), 4),
+            "max": int(self.max_recs_per_driver),
+            "gran": self.industry_granularity,
+        }
+        js = json.dumps(payload, sort_keys=True)
+        return hashlib.md5(js.encode()).hexdigest()
+
+    def get_cache_key(self) -> str:
+        return self._cache_key

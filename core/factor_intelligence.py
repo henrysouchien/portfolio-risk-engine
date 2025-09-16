@@ -1,0 +1,1116 @@
+"""
+Factor Intelligence Core
+
+Core helpers for building the factor ETF universe and the aligned monthly
+returns panel with robust caching. These functions are shared by services and
+routers to avoid re-implementing data assembly logic.
+
+Key functions
+-------------
+- load_asset_class_proxies(): DB‑first loader for asset class → ETF proxies
+- load_industry_buckets(): DB‑first loader for industry → sector_group mapping
+- fetch_factor_universe(): Build deterministic, categorized ETF universe
+- build_factor_returns_panel(): Construct aligned monthly returns matrix
+
+Notes
+-----
+- Prefers dividend‑adjusted total‑return series; falls back to close.
+- Deterministic universe hashing aids cache keys and debugging.
+- Uses global LRU cache sizes from utils.config.
+"""
+
+from __future__ import annotations
+
+from typing import Dict, List, Tuple, Optional, Any
+from functools import lru_cache
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+import time
+import json
+import hashlib
+import numpy as np
+
+import pandas as pd
+
+from utils.config import DATA_LOADER_LRU_SIZE
+from utils.logging import log_portfolio_operation, log_critical_alert
+
+
+def _get_ticker_source_file(ticker: str, category: str) -> str:
+    """Determine which configuration file a ticker likely comes from based on category."""
+    if category == "industry":
+        return "industry_to_etf.yaml"
+    elif category in ["style", "market"]:
+        return "exchange_etf_proxies.yaml"
+    elif category == "cash":
+        return "cash_map.yaml"
+    elif category in ["bond", "commodity", "crypto"]:
+        return "asset_etf_proxies.yaml"
+    else:
+        return "unknown_source"
+
+
+from portfolio_risk import calculate_portfolio_performance_metrics
+
+from data_loader import (
+    fetch_monthly_total_return_price,
+    fetch_monthly_close,
+)
+from factor_utils import calc_monthly_returns
+from settings import RATE_FACTOR_CONFIG
+
+# Reuse existing DB‑first YAML loaders for exchange/industry maps
+from proxy_builder import load_exchange_proxy_map, load_industry_etf_map
+
+
+@lru_cache(maxsize=DATA_LOADER_LRU_SIZE)
+def load_asset_class_proxies() -> Tuple[Dict[str, Dict[str, str]], str]:
+    """
+    Load asset class → ETF proxies using DB‑first approach, with YAML and
+    hardcoded fallbacks.
+
+    Returns
+    -------
+    (proxies, source):
+        proxies: {asset_class: {proxy_key: etf_ticker}}
+        source:  'database' | 'yaml' | 'hardcoded'
+    """
+    # DB‑first
+    try:
+        from inputs.database_client import DatabaseClient
+        from database import get_db_session
+        with get_db_session() as conn:
+            db_client = DatabaseClient(conn)
+            proxies = db_client.get_asset_etf_proxies()
+        if proxies:
+            return proxies, 'database'
+    except Exception as e:
+        log_portfolio_operation("asset_proxy_loader_db_failed", {"error": str(e)}, execution_time=0)
+
+    # YAML fallback
+    try:
+        import yaml
+        yaml_path = Path("asset_etf_proxies.yaml")
+        if yaml_path.exists():
+            with open(yaml_path, 'r') as f:
+                data = yaml.safe_load(f) or {}
+            # Expect structure {asset_classes: {class: {canonical: {key: ticker}}}}
+            out: Dict[str, Dict[str, str]] = {}
+            classes = (data or {}).get('asset_classes', {})
+            for aclass, section in classes.items():
+                canon = section.get('canonical', {}) if isinstance(section, dict) else {}
+                if canon:
+                    out[aclass] = {k: str(v) for k, v in canon.items()}
+            if out:
+                return out, 'yaml'
+    except Exception as e:
+        log_portfolio_operation("asset_proxy_loader_yaml_failed", {"error": str(e)}, execution_time=0)
+
+    # Minimal hardcoded fallback
+    return {
+        'bond':      {'UST2Y': 'SHY', 'UST10Y': 'IEF', 'UST30Y': 'TLT'},
+        'commodity': {'broad': 'DBC', 'gold': 'GLD'},
+        'crypto':    {'BTC': 'IBIT'}
+    }, 'hardcoded'
+
+
+@lru_cache(maxsize=DATA_LOADER_LRU_SIZE)
+def load_industry_buckets() -> Dict[str, str]:
+    """
+    Load industry → sector_group buckets (DB‑first). Industries with NULL bucket
+    are omitted; callers can fall back to per‑industry granularity.
+    """
+    try:
+        from inputs.database_client import DatabaseClient
+        from database import get_db_session
+        with get_db_session() as conn:
+            db_client = DatabaseClient(conn)
+            return db_client.get_industry_sector_groups()
+    except Exception:
+        # No YAML for buckets by design; return empty mapping
+        return {}
+
+
+@lru_cache(maxsize=DATA_LOADER_LRU_SIZE)
+def load_cash_proxies() -> Tuple[Dict[str, str], str]:
+    """
+    Load cash currency → ETF proxy mappings (DB‑first, YAML fallback).
+
+    Returns (mapping, source) where mapping is {currency: proxy_etf}.
+    """
+    # DB-first
+    try:
+        from inputs.database_client import DatabaseClient
+        from database import get_db_session
+        with get_db_session() as conn:
+            db_client = DatabaseClient(conn)
+            mapping = db_client.get_cash_proxies()
+        if mapping:
+            return mapping, 'database'
+    except Exception as e:
+        log_portfolio_operation("cash_proxy_loader_db_failed", {"error": str(e)}, execution_time=0)
+
+    # YAML fallback: cash_map.yaml (existing)
+    try:
+        import yaml
+        yaml_path = Path("cash_map.yaml")
+        if yaml_path.exists():
+            with open(yaml_path, 'r') as f:
+                data = yaml.safe_load(f) or {}
+            # Expect structure {USD: SGOV, EUR: ESTR, ...} OR nested with key 'cash_proxies'
+            if isinstance(data, dict) and 'USD' in data or 'cash_proxies' in data:
+                if 'cash_proxies' in data and isinstance(data['cash_proxies'], dict):
+                    return {k: str(v) for k, v in data['cash_proxies'].items()}, 'yaml'
+                else:
+                    return {k: str(v) for k, v in data.items()}, 'yaml'
+    except Exception as e:
+        log_portfolio_operation("cash_proxy_loader_yaml_failed", {"error": str(e)}, execution_time=0)
+
+    return {"USD": "SGOV"}, 'hardcoded'
+
+
+def _deterministic_universe_hash(universe: Dict[str, List[str]]) -> str:
+    items: List[Tuple[str, str]] = []
+    for category, tickers in universe.items():
+        for t in sorted(set(tickers)):
+            items.append((category, t))
+    items.sort(key=lambda x: (x[0], x[1]))
+    s = json.dumps(items, separators=(",", ":"))
+    return hashlib.md5(s.encode()).hexdigest()
+
+
+@lru_cache(maxsize=DATA_LOADER_LRU_SIZE)
+def _build_factor_returns_panel_cached(
+    universe_hash: str,
+    start_date: str,
+    end_date: str,
+    total_return: bool = True,
+    max_workers: int = 8
+) -> pd.DataFrame:
+    """
+    Build aligned monthly returns panel using cached computation.
+
+    This is the cached implementation that takes a universe hash as a cache key.
+    The universe is reconstructed from the global fetch_factor_universe() function.
+
+    Parameters
+    ----------
+    universe_hash : str
+        Deterministic hash of the ETF universe (for caching).
+    start_date, end_date : str
+        Analysis window (YYYY-MM-DD).
+    total_return : bool
+        Prefer dividend-adjusted price series when True (fallback to close).
+    max_workers : int
+        ThreadPoolExecutor worker count for parallel ETF fetching.
+
+    Returns
+    -------
+    pd.DataFrame
+        Monthly returns panel with ETFs as columns, month-end dates as index.
+        Returns are decimal (0.05 = 5% return).
+        Added attributes: universe_hash, build_ms, categories, start/end dates.
+
+    NaN handling and overlap policy
+    -------------------------------
+    This function intentionally does not perform a global dropna() across all
+    ETFs when building the panel. The returned DataFrame preserves NaNs so that
+    downstream analyses (e.g., per-category correlation matrices and overlays)
+    can align only the relevant subset of series and drop NaNs at that scope.
+
+    As a result, correlations are computed on the overlapping time periods for
+    the tickers involved in each specific analysis, rather than the often much
+    smaller global intersection across the entire universe.
+    """
+    # Reconstruct universe from the cached fetch_factor_universe() function
+    universe = fetch_factor_universe()
+
+    # Verify hash matches to ensure cache consistency
+    computed_hash = _deterministic_universe_hash(universe)
+    if computed_hash != universe_hash:
+        log_critical_alert("universe_hash_mismatch", "medium", f"Universe hash mismatch: expected {universe_hash}, got {computed_hash}", "Verify universe consistency")
+        log_critical_alert("universe_hash_mismatch", "medium", "This may indicate universe changes. Proceeding with current universe.", "Monitor for data consistency issues")
+
+    # Perform the actual computation (copied from original implementation)
+    t0 = time.time()
+
+    # Flatten universe to unique tickers and remember category per ticker
+    ticker_to_category: Dict[str, str] = {}
+    tickers: List[str] = []
+    for cat, lst in universe.items():
+        for t in lst:
+            tu = str(t).upper()
+            if tu not in ticker_to_category:
+                ticker_to_category[tu] = cat
+                tickers.append(tu)
+
+    def _load_returns(ticker: str) -> Optional[pd.Series]:
+        # Determine source category for better error reporting
+        ticker_category = ticker_to_category.get(ticker, "unknown")
+        source_file = _get_ticker_source_file(ticker, ticker_category)
+
+        try:
+            prices = (
+                fetch_monthly_total_return_price(ticker, start_date, end_date)
+                if total_return else
+                fetch_monthly_close(ticker, start_date, end_date)
+            )
+            # LOG: Check if API returned empty data
+            if prices.empty:
+                log_critical_alert("factor_empty_api_data", "high", f"EMPTY API DATA: Ticker={ticker}, Category={ticker_category}, Source={source_file}, Shape={prices.shape}", "Check ticker validity and API access")
+                return None
+        except Exception:
+            try:
+                prices = fetch_monthly_close(ticker, start_date, end_date)
+                # LOG: Check if fallback API returned empty data
+                if prices.empty:
+                    log_critical_alert("factor_empty_api_data", "high", f"EMPTY FALLBACK API DATA: Ticker={ticker}, Category={ticker_category}, Source={source_file}, Shape={prices.shape}", "Check ticker validity and API access")
+                    return None
+            except Exception as e:
+                log_critical_alert("factor_api_fetch_failed", "high", f"API FETCH FAILED: Ticker={ticker}, Category={ticker_category}, Source={source_file}, Error={str(e)}", "Check ticker validity and API access")
+                return None
+        try:
+            rets = calc_monthly_returns(prices)
+            if not isinstance(rets, pd.Series) or rets.empty:
+                log_critical_alert("factor_returns_calc_empty", "medium", f"RETURNS CALCULATION EMPTY: Ticker={ticker}, Category={ticker_category}, Source={source_file}, PriceLength={len(prices)}", "Check price data quality")
+                return None
+            return rets
+        except Exception as e:
+            log_critical_alert("factor_returns_calc_failed", "medium", f"RETURNS CALCULATION FAILED: Ticker={ticker}, Category={ticker_category}, Source={source_file}, Error={str(e)}", "Check price data format")
+            return None
+
+    series_map: Dict[str, pd.Series] = {}
+    failed_tickers = []
+
+    if tickers:
+        with ThreadPoolExecutor(max_workers=max_workers) as ex:
+            futures = {ex.submit(_load_returns, t): t for t in tickers}
+            for fut in as_completed(futures):
+                tkr = futures[fut]
+                ser = fut.result()
+                if ser is not None and len(ser) >= 2:
+                    series_map[tkr] = ser.rename(tkr)
+                else:
+                    failed_tickers.append(tkr)
+                    ticker_category = ticker_to_category.get(tkr, "unknown")
+                    source_file = _get_ticker_source_file(tkr, ticker_category)
+                    log_critical_alert("factor_ticker_failed", "medium", f"TICKER FAILED: Ticker={tkr}, Category={ticker_category}, Source={source_file}, DataLength={len(ser) if ser is not None else 0}", "Check ticker validity or replace with working ticker")
+
+
+    if not series_map:
+        return pd.DataFrame()
+
+    # LOG: Analyze individual ticker date ranges for the analysis period
+    analysis_start = pd.to_datetime(start_date)
+    analysis_end = pd.to_datetime(end_date)
+    short_range_tickers = []
+
+    for ticker, series in series_map.items():
+        if not series.empty:
+            ticker_start = series.index.min()
+            ticker_end = series.index.max()
+            ticker_category = ticker_to_category.get(ticker, "unknown")
+            source_file = _get_ticker_source_file(ticker, ticker_category)
+
+            # Check if ticker has insufficient coverage for the analysis period
+            # Only flag tickers that significantly miss the analysis period
+            if ticker_end < analysis_start or ticker_start > analysis_end:
+                log_critical_alert("factor_ticker_outside_period", "high", f"TICKER OUTSIDE ANALYSIS PERIOD: Ticker={ticker}, Category={ticker_category}, Source={source_file}, Data range={ticker_start.strftime('%Y-%m')} to {ticker_end.strftime('%Y-%m')}, Analysis period={analysis_start.strftime('%Y-%m')} to {analysis_end.strftime('%Y-%m')}", "Replace ticker or adjust analysis period")
+                short_range_tickers.append(ticker)
+            elif ticker_end < analysis_end - pd.DateOffset(months=6) or ticker_start > analysis_start + pd.DateOffset(months=6):
+                # Only flag if ticker ends more than 6 months before analysis end OR starts more than 6 months after analysis start
+                coverage_start = max(ticker_start, analysis_start)
+                coverage_end = min(ticker_end, analysis_end)
+                months_missing = 0
+                if ticker_end < analysis_end:
+                    months_missing = (analysis_end.year - ticker_end.year) * 12 + (analysis_end.month - ticker_end.month)
+                elif ticker_start > analysis_start:
+                    months_missing = (ticker_start.year - analysis_start.year) * 12 + (ticker_start.month - analysis_start.month)
+
+                log_critical_alert("factor_ticker_insufficient_coverage", "medium", f"TICKER INSUFFICIENT COVERAGE: Ticker={ticker}, Category={ticker_category}, Source={source_file}, Data range={ticker_start.strftime('%Y-%m')} to {ticker_end.strftime('%Y-%m')}, Analysis period={analysis_start.strftime('%Y-%m')} to {analysis_end.strftime('%Y-%m')}, Missing {months_missing} months", "Consider replacing for better overlap")
+                short_range_tickers.append(ticker)
+
+    # Concat and compute a diagnostic global-overlap view (for logging only)
+    df_raw = pd.concat(series_map.values(), axis=1)
+    overlap_df = df_raw.dropna()
+
+    # LOG: Check for data overlap issues (diagnostic only)
+    if overlap_df.empty:
+        log_critical_alert("factor_no_overlap", "high", f"NO DATA OVERLAP: Raw shape={df_raw.shape}, After dropna shape={overlap_df.shape}, Successful tickers={len(series_map)}, Failed tickers={len(failed_tickers)}, Short range tickers={len(short_range_tickers)}", "Check ticker data quality and date ranges")
+    elif len(overlap_df) < 12:
+        log_critical_alert("factor_insufficient_overlap", "medium", f"INSUFFICIENT OVERLAP: After dropna shape={overlap_df.shape}, Overlap periods={len(overlap_df)}, Min recommended=12", "Consider adjusting date range or ticker selection")
+
+    # Attach metadata for downstream consumers and debugging
+    df_raw.attrs["universe_hash"] = universe_hash  # Use provided hash for consistency
+    df_raw.attrs["build_ms"] = int((time.time() - t0) * 1000)
+    df_raw.attrs["categories"] = ticker_to_category
+    df_raw.attrs["start_date"] = start_date
+    df_raw.attrs["end_date"] = end_date
+    df_raw.attrs["total_return"] = bool(total_return)
+    df_raw.attrs["cache_key"] = f"factor_returns_panel_{universe_hash}_{start_date}_{end_date}_{total_return}"
+
+    # Return panel with NaNs retained; downstream steps will align and drop per scope
+    return df_raw
+
+
+@lru_cache(maxsize=DATA_LOADER_LRU_SIZE)
+def fetch_factor_universe(use_database: bool = True) -> Dict[str, List[str]]:
+    """
+    Build the factor ETF universe categorized by factor/asset classes.
+
+    Returns
+    -------
+    Dict[str, List[str]]
+        {
+          'industry': [...],
+          'style':    [...],  # momentum/value ETFs
+          'market':   [...],  # market proxies
+          'bond':     [...],
+          'commodity': [...],
+          'crypto':    [...]
+        }
+    """
+    # Industry proxies (DB‑first via proxy_builder loader)
+    industry_map = load_industry_etf_map()
+    industry_etfs = sorted(set(industry_map.values())) if isinstance(industry_map, dict) else []
+
+    # Exchange proxies (DB‑first)
+    exch_map = load_exchange_proxy_map()
+    style_set, market_set = set(), set()
+    if isinstance(exch_map, dict):
+        for exch, factors in exch_map.items():
+            if not isinstance(factors, dict):
+                continue
+            # market
+            mkt = factors.get('market')
+            if mkt:
+                market_set.add(str(mkt))
+            # style
+            mom = factors.get('momentum')
+            val = factors.get('value')
+            if mom:
+                style_set.add(str(mom))
+            if val:
+                style_set.add(str(val))
+
+    # Asset class proxies
+    asset_proxies, _src = load_asset_class_proxies()
+    bond_etfs = sorted(set(asset_proxies.get('bond', {}).values()))
+    commodity_etfs = sorted(set(asset_proxies.get('commodity', {}).values()))
+    crypto_etfs = sorted(set(asset_proxies.get('crypto', {}).values()))
+
+    # Cash proxies (DB-first): include in universe for macro composites
+    cash_map, _cash_src = load_cash_proxies()
+    cash_etfs = sorted(set(str(v).upper() for v in cash_map.values())) if isinstance(cash_map, dict) else []
+
+    universe: Dict[str, List[str]] = {
+        'industry': industry_etfs,
+        'style':    sorted(style_set),
+        'market':   sorted(market_set),
+        'bond':      bond_etfs,
+        'commodity': commodity_etfs,
+        'crypto':    crypto_etfs,
+        'cash':      cash_etfs,
+    }
+
+    # Remove empties for cleanliness
+    universe = {k: v for k, v in universe.items() if v}
+    return universe
+
+
+def build_factor_returns_panel(
+    universe: Dict[str, List[str]],
+    start_date: str,
+    end_date: str,
+    total_return: bool = True,
+    max_workers: int = 8
+) -> pd.DataFrame:
+    """
+    Build aligned monthly returns panel for the provided ETF universe.
+
+    This is the public API function that maintains backward compatibility.
+    It computes a hash of the universe and delegates to the cached implementation.
+
+    Parameters
+    ----------
+    universe : Dict[str, List[str]]
+        Mapping of category → list of ETF tickers.
+    start_date, end_date : str
+        Analysis window (YYYY-MM-DD).
+    total_return : bool
+        Prefer dividend-adjusted price series when True (fallback to close).
+    max_workers : int
+        ThreadPoolExecutor worker count for parallel ETF fetching.
+
+    Returns
+    -------
+    pd.DataFrame
+        Monthly returns panel with ETFs as columns, month-end dates as index.
+        Returns are decimal (0.05 = 5% return).
+        Added attributes: universe_hash, build_ms, categories, start/end dates.
+    """
+    # Compute deterministic hash for caching
+    universe_hash = _deterministic_universe_hash(universe)
+
+    # Delegate to the cached implementation
+    return _build_factor_returns_panel_cached(
+        universe_hash, start_date, end_date, total_return, max_workers
+    )
+
+
+def _equal_weight(series_list: List[pd.Series]) -> Optional[pd.Series]:
+    if not series_list:
+        return None
+    df = pd.concat(series_list, axis=1).dropna()
+    if df.empty:
+        return None
+    return df.mean(axis=1)
+
+
+def _build_industry_series_by_granularity(
+    returns_panel: pd.DataFrame,
+    granularity: str = 'industry'
+) -> Tuple[Dict[str, pd.Series], Dict[str, Any]]:
+    """
+    Construct label → returns series for industry category according to requested granularity.
+
+    granularity:
+      - 'industry': one series per industry (using its ETF proxy)
+      - 'group':    composites per sector_group (equal-weight of member industry ETFs),
+                    with industries lacking a sector_group kept as individual entries
+    """
+    info: Dict[str, Any] = {"granularity": granularity}
+
+    # Reverse mapping: industry -> ETF
+    industry_map = load_industry_etf_map()
+    if not isinstance(industry_map, dict):
+        return {}, {**info, "error": "industry_map_unavailable"}
+
+    # Build returns per industry label (only if ETF exists in the panel)
+    label_to_series: Dict[str, pd.Series] = {}
+    etf_to_series: Dict[str, pd.Series] = {t: returns_panel[t] for t in returns_panel.columns}
+
+    # Sector groups from DB (industry -> group)
+    groups_map = load_industry_buckets() if granularity == 'group' else {}
+
+    if granularity == 'industry':
+        used = 0
+        for industry, etf in industry_map.items():
+            etf_u = str(etf).upper()
+            if etf_u in etf_to_series:
+                label_to_series[industry] = etf_to_series[etf_u]
+                used += 1
+        info.update({"industries_total": len(industry_map), "industries_used": used})
+        return label_to_series, info
+
+    # granularity == 'group'
+    # Compose composites per group
+    group_members: Dict[str, List[str]] = {}
+    for industry, group in groups_map.items():
+        if not group:
+            continue
+        etf = industry_map.get(industry)
+        if not etf:
+            continue
+        etf_u = str(etf).upper()
+        if etf_u not in etf_to_series:
+            continue
+        group_members.setdefault(group, [])
+        # Avoid duplicates of the same ETF within a group
+        if etf_u not in group_members[group]:
+            group_members[group].append(etf_u)
+
+    group_sizes = {g: len(tks) for g, tks in group_members.items()}
+    composites_built = 0
+    for group, tks in group_members.items():
+        ser_list = [etf_to_series[t] for t in tks if t in etf_to_series]
+        comp = _equal_weight(ser_list)
+        if comp is not None:
+            comp.name = group
+            label_to_series[group] = comp
+            composites_built += 1
+
+    # Industries without a sector_group → keep individually
+    unlabeled_industries = 0
+    for industry, etf in industry_map.items():
+        if groups_map.get(industry):
+            continue  # already in a group
+        etf_u = str(etf).upper()
+        if etf_u in etf_to_series:
+            label_to_series[industry] = etf_to_series[etf_u]
+            unlabeled_industries += 1
+
+    info.update({
+        "groups_total": len(group_members),
+        "group_sizes": group_sizes,
+        "group_composites_built": composites_built,
+        "unlabeled_industries": unlabeled_industries
+    })
+    return label_to_series, info
+
+
+def compute_per_category_correlation_matrices(
+    returns_panel: pd.DataFrame,
+    industry_granularity: str = 'industry',
+    include_categories: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """
+    Compute correlation matrices per category with optional industry granularity control.
+
+    Returns
+    -------
+    dict with keys:
+      - matrices: {category: pd.DataFrame}
+      - data_quality: {category: {...}}
+      - performance: timing information (ms)
+      - analysis_metadata: echo of panel attrs
+    """
+    t0 = time.time()
+    categories = returns_panel.attrs.get("categories", {})
+    uniq_categories = sorted(set(categories.values()))
+    wanted = include_categories or uniq_categories
+
+    matrices: Dict[str, pd.DataFrame] = {}
+    dq: Dict[str, Any] = {}
+    per_cat_ms: Dict[str, int] = {}
+
+    for cat in wanted:
+        c0 = time.time()
+        if cat == 'industry':
+            label_series, info = _build_industry_series_by_granularity(returns_panel, granularity=industry_granularity)
+            if not label_series:
+                dq[cat] = {**info, "status": "skipped", "reason": "no_series"}
+                per_cat_ms[cat] = int((time.time() - c0) * 1000)
+                continue
+            df = pd.concat(label_series.values(), axis=1)
+            df.columns = list(label_series.keys())
+            df = df.dropna()
+            if df.shape[1] < 2:
+                dq[cat] = {**info, "status": "skipped", "reason": "insufficient_labels", "labels": df.columns.tolist()}
+                per_cat_ms[cat] = int((time.time() - c0) * 1000)
+                continue
+            matrices[cat] = df.corr()
+            dq[cat] = {**info, "status": "ok", "labels": df.columns.tolist(), "observations": int(df.shape[0])}
+            per_cat_ms[cat] = int((time.time() - c0) * 1000)
+            continue
+
+        # Other categories: filter by panel attrs
+        tickers = [t for t, k in categories.items() if k == cat]
+        if len(tickers) < 2:
+            dq[cat] = {"status": "skipped", "reason": "insufficient_tickers", "tickers": tickers}
+            per_cat_ms[cat] = int((time.time() - c0) * 1000)
+            continue
+        df = returns_panel.reindex(columns=tickers).dropna()
+        if df.shape[1] < 2 or df.empty:
+            dq[cat] = {"status": "skipped", "reason": "no_overlap", "tickers": tickers}
+            per_cat_ms[cat] = int((time.time() - c0) * 1000)
+            continue
+        matrices[cat] = df.corr()
+        dq[cat] = {"status": "ok", "tickers_used": df.columns.tolist(), "observations": int(df.shape[0])}
+        per_cat_ms[cat] = int((time.time() - c0) * 1000)
+
+    out = {
+        "matrices": matrices,
+        "data_quality": dq,
+        "performance": {
+            "per_category_corr_ms": per_cat_ms,
+            "total_corr_ms": int((time.time() - t0) * 1000),
+        },
+        "analysis_metadata": {
+            "start_date": returns_panel.attrs.get("start_date"),
+            "end_date": returns_panel.attrs.get("end_date"),
+            "universe_hash": returns_panel.attrs.get("universe_hash"),
+            "total_return": returns_panel.attrs.get("total_return", True),
+        },
+    }
+    return out
+
+
+def compute_rate_sensitivity(
+    returns_panel: pd.DataFrame,
+    maturities: Optional[List[str]] = None,
+    categories: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """
+    Compute correlation between ETF returns and Δy (changes in Treasury yields).
+
+    Parameters
+    ----------
+    returns_panel : pd.DataFrame
+        Monthly returns panel with attrs populated by build_factor_returns_panel().
+    maturities : Optional[List[str]]
+        Desired rate factor keys (e.g., ["UST2Y","UST5Y"]). Defaults to settings.
+    categories : Optional[List[str]]
+        Subset of categories to include (default: ['bond','industry','market']).
+
+    Returns
+    -------
+    dict with keys:
+      - matrix: pd.DataFrame (index=tickers, columns=rate factors)
+      - data_quality: {used_maturities, available_maturities, per_ticker_obs}
+      - performance: {rate_sensitivity_ms}
+      - analysis_metadata: echo of panel attrs
+    """
+    t0 = time.time()
+    cats = returns_panel.attrs.get("categories", {})
+    all_tickers = list(returns_panel.columns)
+
+    included_cats = categories or ["bond", "industry", "market"]
+    chosen = [t for t in all_tickers if cats.get(t) in included_cats]
+
+    # Load monthly yield levels and convert to Δy in decimal
+    from factor_utils import fetch_monthly_treasury_yield_levels, prepare_rate_factors
+    yl = fetch_monthly_treasury_yield_levels(
+        start_date=returns_panel.attrs.get("start_date"),
+        end_date=returns_panel.attrs.get("end_date"),
+    )
+    rate_keys = maturities or RATE_FACTOR_CONFIG.get("default_maturities", ["UST2Y", "UST5Y", "UST10Y", "UST30Y"])
+    dy = prepare_rate_factors(yl, keys=rate_keys)
+
+    # Compute correlations per ticker
+    rows: Dict[str, Dict[str, float]] = {}
+    per_ticker_obs: Dict[str, int] = {}
+    used_maturities: List[str] = [c for c in dy.columns if c in rate_keys]
+
+    for t in chosen:
+        # Align
+        df = pd.concat([returns_panel[t], dy], axis=1).dropna()
+        per_ticker_obs[t] = int(df.shape[0])
+        if df.shape[0] < 2:
+            continue
+        corr = df.corr()
+        # first column is ticker vs the rest (rate factors)
+        out_row: Dict[str, float] = {}
+        for rk in used_maturities:
+            if rk in corr.columns:
+                val = float(corr.loc[t, rk]) if t in corr.index else float('nan')
+            else:
+                val = float('nan')
+            out_row[rk] = val
+        rows[t] = out_row
+
+    matrix = pd.DataFrame.from_dict(rows, orient='index').reindex(columns=used_maturities)
+
+    result = {
+        "matrix": matrix,
+        "data_quality": {
+            "available_maturities": list(dy.columns),
+            "used_maturities": used_maturities,
+            "per_ticker_obs": per_ticker_obs,
+            "included_categories": included_cats,
+        },
+        "performance": {
+            "rate_sensitivity_ms": int((time.time() - t0) * 1000)
+        },
+        "analysis_metadata": {
+            "start_date": returns_panel.attrs.get("start_date"),
+            "end_date": returns_panel.attrs.get("end_date"),
+            "universe_hash": returns_panel.attrs.get("universe_hash"),
+        },
+    }
+    return result
+
+
+def compute_market_sensitivity(
+    returns_panel: pd.DataFrame,
+    benchmarks: Optional[List[str]] = None,
+    categories: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """
+    Compute correlation between ETF returns and market benchmark returns.
+
+    Parameters
+    ----------
+    returns_panel : pd.DataFrame
+        Monthly returns panel with attrs populated by build_factor_returns_panel().
+    benchmarks : Optional[List[str]]
+        List of benchmark tickers (default: ["SPY"]).
+    categories : Optional[List[str]]
+        Subset of categories to include (default: ['industry','style']).
+
+    Returns
+    -------
+    dict with keys:
+      - matrix: pd.DataFrame (index=tickers, columns=benchmarks)
+      - data_quality: {benchmarks_used, per_ticker_obs}
+      - performance: {market_sensitivity_ms}
+      - analysis_metadata: echo of panel attrs
+    """
+    t0 = time.time()
+    cats = returns_panel.attrs.get("categories", {})
+    all_tickers = list(returns_panel.columns)
+
+    included_cats = categories or ["industry", "style"]
+    chosen = [t for t in all_tickers if cats.get(t) in included_cats]
+
+    bench_list = benchmarks or ["SPY"]
+
+    # Build benchmark returns
+    bench_series: Dict[str, pd.Series] = {}
+    for b in bench_list:
+        bu = str(b).upper()
+        if bu in returns_panel.columns:
+            bench_series[bu] = returns_panel[bu]
+            continue
+        # fetch
+        try:
+            prices = fetch_monthly_total_return_price(bu, returns_panel.attrs.get("start_date"), returns_panel.attrs.get("end_date"))
+        except Exception:
+            prices = fetch_monthly_close(bu, returns_panel.attrs.get("start_date"), returns_panel.attrs.get("end_date"))
+        try:
+            bench_series[bu] = calc_monthly_returns(prices).rename(bu)
+        except Exception:
+            # skip if can't compute
+            continue
+
+    if not bench_series:
+        return {
+            "matrix": pd.DataFrame(),
+            "data_quality": {"benchmarks_used": [], "error": "no_benchmarks_available"},
+            "performance": {"market_sensitivity_ms": int((time.time() - t0) * 1000)},
+            "analysis_metadata": {
+                "start_date": returns_panel.attrs.get("start_date"),
+                "end_date": returns_panel.attrs.get("end_date"),
+                "universe_hash": returns_panel.attrs.get("universe_hash"),
+            },
+        }
+
+    bench_df = pd.concat(bench_series.values(), axis=1).dropna()
+    benchmarks_used = list(bench_df.columns)
+
+    rows: Dict[str, Dict[str, float]] = {}
+    per_ticker_obs: Dict[str, int] = {}
+    for t in chosen:
+        if t in benchmarks_used:
+            # skip ETFs used as benchmarks
+            continue
+        df = pd.concat([returns_panel[t], bench_df], axis=1).dropna()
+        per_ticker_obs[t] = int(df.shape[0])
+        if df.shape[0] < 2:
+            continue
+        corr = df.corr()
+        out_row = {b: float(corr.loc[t, b]) if (t in corr.index and b in corr.columns) else float('nan') for b in benchmarks_used}
+        rows[t] = out_row
+
+    matrix = pd.DataFrame.from_dict(rows, orient='index').reindex(columns=benchmarks_used)
+
+    result = {
+        "matrix": matrix,
+        "data_quality": {
+            "benchmarks_used": benchmarks_used,
+            "per_ticker_obs": per_ticker_obs,
+            "included_categories": included_cats,
+        },
+        "performance": {
+            "market_sensitivity_ms": int((time.time() - t0) * 1000)
+        },
+        "analysis_metadata": {
+            "start_date": returns_panel.attrs.get("start_date"),
+            "end_date": returns_panel.attrs.get("end_date"),
+            "universe_hash": returns_panel.attrs.get("universe_hash"),
+        },
+    }
+    return result
+
+
+def _perf_pick_fields(perf: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Extract a compact, consistent set of performance fields from the
+    calculate_portfolio_performance_metrics() result.
+    """
+    if not isinstance(perf, dict) or 'returns' not in perf:
+        return {"error": perf.get("error", "unknown_error") if isinstance(perf, dict) else "invalid_result"}
+    out = {
+        "annual_return": perf["returns"].get("annualized_return"),
+        "volatility": perf["risk_metrics"].get("volatility"),
+        "sharpe_ratio": perf["risk_adjusted_returns"].get("sharpe_ratio"),
+        "max_drawdown": perf["risk_metrics"].get("maximum_drawdown"),
+        "beta_to_market": perf.get("benchmark_analysis", {}).get("beta"),
+    }
+    dy = perf.get("dividend_metrics", {}).get("portfolio_dividend_yield")
+    if dy is not None:
+        out["dividend_yield"] = dy
+    return out
+
+
+def compute_factor_performance_profiles(
+    returns_panel: pd.DataFrame,
+    benchmark_ticker: str = "SPY",
+) -> Dict[str, Any]:
+    """
+    Compute per-ETF performance profiles using the existing performance engine.
+
+    Returns a dict with profiles keyed by ticker and timing/metadata blocks.
+    """
+    t0 = time.time()
+    start = returns_panel.attrs.get("start_date")
+    end = returns_panel.attrs.get("end_date")
+
+    profiles: Dict[str, Dict[str, Any]] = {}
+    errors: Dict[str, str] = {}
+
+    for t in returns_panel.columns:
+        weights = {t: 1.0}
+        try:
+            perf = calculate_portfolio_performance_metrics(weights, start, end, benchmark_ticker=benchmark_ticker)
+            profiles[t] = _perf_pick_fields(perf)
+        except Exception as e:
+            errors[t] = str(e)
+
+    result = {
+        "profiles": profiles,
+        "data_quality": {
+            "tickers_analyzed": len(profiles),
+            "tickers_failed": list(errors.keys()),
+        },
+        "performance": {
+            "factor_performance_ms": int((time.time() - t0) * 1000)
+        },
+        "analysis_metadata": {
+            "start_date": start,
+            "end_date": end,
+            "universe_hash": returns_panel.attrs.get("universe_hash"),
+            "benchmark_ticker": benchmark_ticker,
+        },
+    }
+    return result
+
+
+def compute_composite_performance(
+    returns_panel: pd.DataFrame,
+    include_macro: bool = True,
+    include_factor_categories: bool = True,
+    composite_weighting: str = "equal",
+    benchmark_ticker: str = "SPY",
+) -> Dict[str, Any]:
+    """
+    Compute composite performance for macro groups and factor categories.
+
+    - Macro composites:
+        equity (market+industry+style), fixed_income (bond), cash (cash), commodity, crypto
+    - Factor categories:
+        industry, style, market, bond, commodity, crypto
+    """
+    t0 = time.time()
+    start = returns_panel.attrs.get("start_date")
+    end = returns_panel.attrs.get("end_date")
+    cats = returns_panel.attrs.get("categories", {})
+
+    def _weights_for_tickers(tks: List[str]) -> Dict[str, float]:
+        if not tks:
+            return {}
+        w = 1.0 / len(tks)
+        return {t: w for t in tks}
+
+    # Build macro groups from categories available in the panel
+    tickers_by_cat: Dict[str, List[str]] = {}
+    for t, c in cats.items():
+        tickers_by_cat.setdefault(c, []).append(t)
+
+    macro_defs = {
+        "equity": tickers_by_cat.get("market", []) + tickers_by_cat.get("industry", []) + tickers_by_cat.get("style", []),
+        "fixed_income": tickers_by_cat.get("bond", []),
+        "cash": tickers_by_cat.get("cash", []),
+        "commodity": tickers_by_cat.get("commodity", []),
+        "crypto": tickers_by_cat.get("crypto", []),
+    }
+
+    macro_perf: Dict[str, Dict[str, Any]] = {}
+    if include_macro:
+        for name, tks in macro_defs.items():
+            if len(tks) < 1:
+                continue
+            try:
+                perf = calculate_portfolio_performance_metrics(_weights_for_tickers(tks), start, end, benchmark_ticker=benchmark_ticker)
+                macro_perf[name] = _perf_pick_fields(perf)
+            except Exception:
+                continue
+
+    # Factor category composites
+    category_perf: Dict[str, Dict[str, Any]] = {}
+    if include_factor_categories:
+        for cat_name, tks in tickers_by_cat.items():
+            if len(tks) < 1:
+                continue
+            try:
+                perf = calculate_portfolio_performance_metrics(_weights_for_tickers(tks), start, end, benchmark_ticker=benchmark_ticker)
+                category_perf[cat_name] = _perf_pick_fields(perf)
+            except Exception:
+                continue
+
+    result = {
+        "macro_composites": macro_perf,
+        "factor_category_composites": category_perf,
+        "data_quality": {
+            "macro_coverage": {k: len(v) if isinstance(v, dict) else 0 for k, v in macro_defs.items()},
+            "categories_present": {k: len(v) for k, v in tickers_by_cat.items()},
+        },
+        "performance": {"composite_performance_ms": int((time.time() - t0) * 1000)},
+        "analysis_metadata": {
+            "start_date": start,
+            "end_date": end,
+            "universe_hash": returns_panel.attrs.get("universe_hash"),
+            "benchmark_ticker": benchmark_ticker,
+        },
+    }
+    return result
+
+
+def compute_macro_composite_matrix(
+    returns_panel: pd.DataFrame,
+) -> Dict[str, Any]:
+    """
+    Compute a compact correlation matrix across macro composites:
+    equity, fixed_income, cash, commodity, crypto.
+    """
+    t0 = time.time()
+    cats = returns_panel.attrs.get("categories", {})
+    tickers_by_cat: Dict[str, List[str]] = {}
+    for t, c in cats.items():
+        tickers_by_cat.setdefault(c, []).append(t)
+
+    def _ew_series(tickers: List[str]) -> Optional[pd.Series]:
+        if not tickers:
+            return None
+        df = returns_panel.reindex(columns=tickers).dropna()
+        if df.empty:
+            return None
+        return df.mean(axis=1)
+
+    composites: Dict[str, Optional[pd.Series]] = {
+        "equity": _ew_series((tickers_by_cat.get("market", []) + tickers_by_cat.get("industry", []) + tickers_by_cat.get("style", []))),
+        "fixed_income": _ew_series(tickers_by_cat.get("bond", [])),
+        "cash": _ew_series(tickers_by_cat.get("cash", [])),
+        "commodity": _ew_series(tickers_by_cat.get("commodity", [])),
+        "crypto": _ew_series(tickers_by_cat.get("crypto", [])),
+    }
+
+    valid = {k: v for k, v in composites.items() if isinstance(v, pd.Series) and not v.empty}
+    if len(valid) < 2:
+        return {
+            "groups": list(composites.keys()),
+            "matrix": pd.DataFrame(),
+            "data_quality": {"available_groups": list(valid.keys())},
+            "performance": {"macro_composite_ms": int((time.time() - t0) * 1000)},
+        }
+
+    df = pd.concat(valid.values(), axis=1)
+    df.columns = list(valid.keys())
+    df = df.dropna()
+    mat = df.corr()
+    return {
+        "groups": list(valid.keys()),
+        "matrix": mat,
+        "data_quality": {"available_groups": list(valid.keys()), "obs": int(df.shape[0])},
+        "performance": {"macro_composite_ms": int((time.time() - t0) * 1000)},
+        "analysis_metadata": {
+            "start_date": returns_panel.attrs.get("start_date"),
+            "end_date": returns_panel.attrs.get("end_date"),
+            "universe_hash": returns_panel.attrs.get("universe_hash"),
+        },
+    }
+
+
+def compute_macro_etf_matrix(
+    returns_panel: pd.DataFrame,
+    macro_max_per_group: int = 3,
+    macro_deduplicate_threshold: float = 0.95,
+    macro_min_group_coverage_pct: float = 0.6,
+) -> Dict[str, Any]:
+    """
+    Compute a curated ETF correlation matrix across macro groups with budget
+    and de-duplication controls.
+
+    Selection heuristic (deterministic, simple):
+      - Sort tickers within each macro group and take up to macro_max_per_group.
+      - Build the pool by iterating groups and adding tickers whose correlation to
+        already selected ones is below the de-dup threshold.
+    """
+    t0 = time.time()
+    cats = returns_panel.attrs.get("categories", {})
+    per_group: Dict[str, List[str]] = {
+        "equity": [t for t, c in cats.items() if c in ("market", "industry", "style")],
+        "fixed_income": [t for t, c in cats.items() if c == "bond"],
+        "cash": [t for t, c in cats.items() if c == "cash"],
+        "commodity": [t for t, c in cats.items() if c == "commodity"],
+        "crypto": [t for t, c in cats.items() if c == "crypto"],
+    }
+
+    selected: List[str] = []
+    coverage: Dict[str, Dict[str, Any]] = {}
+
+    # Precompute full correlation for quick de-dup checks
+    df_full = returns_panel.dropna()
+    corr_full = df_full.corr() if df_full.shape[1] >= 2 else pd.DataFrame()
+
+    for group, tickers in per_group.items():
+        tks = sorted(set(tickers))
+        coverage[group] = {
+            "total": len(tks),
+            "selected": 0,
+            "quota": macro_max_per_group,
+        }
+        if not tks:
+            continue
+        for t in tks:
+            if coverage[group]["selected"] >= macro_max_per_group:
+                break
+            # check de-dup vs already selected
+            if selected and not corr_full.empty and t in corr_full.index:
+                max_corr = 0.0
+                for s in selected:
+                    if s in corr_full.columns:
+                        try:
+                            val = float(corr_full.loc[t, s])
+                            if np.isnan(val):
+                                continue
+                            max_corr = max(max_corr, abs(val))
+                        except Exception:
+                            continue
+                if max_corr >= macro_deduplicate_threshold:
+                    continue  # too similar
+            # add
+            selected.append(t)
+            coverage[group]["selected"] += 1
+
+    # Compute correlation matrix for selected set
+    if len(selected) < 2:
+        return {
+            "groups": per_group,
+            "matrix": pd.DataFrame(),
+            "data_quality": {"selected_count": len(selected), "coverage": coverage},
+            "performance": {"macro_etf_ms": int((time.time() - t0) * 1000)},
+        }
+
+    df_sel = returns_panel.reindex(columns=selected).dropna()
+    mat = df_sel.corr()
+
+    # Coverage stats
+    total_groups = len([g for g, stats in coverage.items() if stats["total"] > 0])
+    covered_groups = len([g for g, stats in coverage.items() if stats["selected"] > 0])
+    coverage_pct = covered_groups / total_groups if total_groups else 0.0
+
+    result = {
+        "groups": per_group,
+        "matrix": mat,
+        "data_quality": {
+            "coverage": coverage,
+            "selected_count": len(selected),
+            "covered_groups": covered_groups,
+            "total_groups": total_groups,
+            "coverage_pct": round(coverage_pct, 3),
+            "dedup_threshold": macro_deduplicate_threshold,
+        },
+        "performance": {"macro_etf_ms": int((time.time() - t0) * 1000)},
+        "analysis_metadata": {
+            "start_date": returns_panel.attrs.get("start_date"),
+            "end_date": returns_panel.attrs.get("end_date"),
+            "universe_hash": returns_panel.attrs.get("universe_hash"),
+        },
+    }
+
+    # Warn if macro coverage below minimum
+    if result["data_quality"]["coverage_pct"] < macro_min_group_coverage_pct:
+        result["data_quality"]["warning"] = "low_macro_group_coverage"
+
+    return result

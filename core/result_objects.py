@@ -33,7 +33,7 @@ Example Usage:
     # Contains "=== Asset Allocation ===" section with formatted table
 """
 
-from typing import Dict, Any, Optional, List, Union
+from typing import Dict, Any, Optional, List, Union, Tuple
 import pandas as pd
 from datetime import datetime, UTC
 import json
@@ -4989,3 +4989,503 @@ class InterpretationResult:
 
 
  
+# -----------------------------
+# Factor Intelligence results
+# -----------------------------
+
+class FactorCorrelationResult:
+    """
+    Structured result for factor correlation analysis.
+
+    Attributes
+    ----------
+    matrices : Dict[str, Any]
+        Per-category correlation matrices (pandas DataFrames).
+    overlays : Dict[str, Any]
+        Optional overlay matrices and metadata (rate/market/macro views).
+    data_quality : Dict[str, Any]
+        Coverage and exclusion info by category.
+    performance : Dict[str, Any]
+        Timing metrics (ms) for correlation construction.
+    analysis_metadata : Dict[str, Any]
+        Echo of analysis window and universe hash.
+    """
+
+    def __init__(self, matrices: Dict[str, Any], overlays: Dict[str, Any], data_quality: Dict[str, Any], performance: Dict[str, Any], analysis_metadata: Dict[str, Any]):
+        self.matrices = matrices or {}
+        self.overlays = overlays or {}
+        self.data_quality = data_quality or {}
+        self.performance = performance or {}
+        self.analysis_metadata = analysis_metadata or {}
+
+    @classmethod
+    def from_core_analysis(cls,
+                          core_matrices: Dict[str, Any],
+                          overlays: Dict[str, Any],
+                          data_quality: Dict[str, Any],
+                          performance: Dict[str, Any],
+                          analysis_metadata: Dict[str, Any]) -> 'FactorCorrelationResult':
+        """
+        Create FactorCorrelationResult from core factor intelligence analysis data.
+
+        ARCHITECTURE CONTEXT:
+        This is the primary factory method for creating FactorCorrelationResult objects from
+        core factor intelligence functions (compute_per_category_correlation_matrices, etc.).
+        It transforms raw correlation analysis data into a structured result object ready for API responses.
+
+        DATA FLOW:
+        factor_intelligence_service.analyze_correlations() → core analysis data → from_core_analysis() → FactorCorrelationResult
+
+        INPUT DATA STRUCTURE:
+        - core_matrices: Output from compute_per_category_correlation_matrices() containing:
+          • Per-category correlation matrices (Dict[str, pd.DataFrame])
+        - overlays: Rate/market sensitivity and macro matrices (Dict[str, Any])
+        - data_quality: Coverage and exclusion info by category (Dict[str, Any])
+        - performance: Timing metrics (ms) for correlation construction (Dict[str, Any])
+        - analysis_metadata: Analysis window, universe hash, and configuration (Dict[str, Any])
+
+        Returns
+        -------
+        FactorCorrelationResult
+            Structured result object ready for API serialization
+        """
+        return cls(
+            matrices=core_matrices,
+            overlays=overlays,
+            data_quality=data_quality,
+            performance=performance,
+            analysis_metadata=analysis_metadata
+        )
+
+    @staticmethod
+    def _df_to_nested(df) -> Dict[str, Dict[str, float]]:
+        try:
+            return {r: {c: float(v) for c, v in row.items()} for r, row in df.round(4).to_dict(orient='index').items()}
+        except Exception:
+            return {}
+
+    def to_dict(self) -> Dict[str, Any]:
+        mats = {}
+        for name, df in self.matrices.items():
+            mats[name] = self._df_to_nested(df) if hasattr(df, 'to_dict') else {}
+        return {
+            'matrices': mats,
+            'overlays': self.overlays,
+            'data_quality': self.data_quality,
+            'performance': self.performance,
+            'analysis_metadata': self.analysis_metadata,
+        }
+
+    def to_api_response(self) -> Dict[str, Any]:
+        """
+        Convert FactorCorrelationResult to comprehensive API response format.
+
+        CONSUMER ANALYSIS:
+        - Direct API: Uses full structured response for factor analysis and visualization
+        - Claude/AI: Uses formatted_report (to_cli_report) for human-readable analysis
+        - Frontend: Uses matrices and overlays for correlation heatmaps and charts
+
+        Returns structured data suitable for JSON serialization and API responses.
+        This method provides complete factor correlation analysis including matrices,
+        overlays, performance metrics, and data quality information.
+
+        Returns
+        -------
+        Dict[str, Any]
+            Dictionary containing all factor correlation data with the following fields:
+
+            - matrices: Dict[str, Dict[str, Dict[str, float]]] - Per-category correlation matrices
+            - overlays: Dict[str, Any] - Rate/market sensitivity and macro matrices
+            - data_quality: Dict[str, Any] - Coverage and exclusion info by category
+            - performance: Dict[str, Any] - Timing metrics (ms) for correlation construction
+            - analysis_metadata: Dict[str, Any] - Analysis window, universe hash, and configuration
+            - formatted_report: str - Human-readable CLI report (identical to to_cli_report)
+
+        Example
+        -------
+        ```python
+        result = service.analyze_correlations(start_date="2020-01-01", end_date="2024-12-31")
+        api_data = result.to_api_response()
+
+        # Access correlation matrices
+        industry_matrix = api_data["matrices"]["industry"]
+
+        # Access sensitivity overlays
+        rate_sensitivity = api_data["overlays"]["rate_sensitivity"]
+
+        # Access performance metrics
+        timing = api_data["performance"]
+        ```
+        """
+        # Convert matrices to nested format for JSON serialization
+        matrices_serialized = {}
+        for name, df in self.matrices.items():
+            matrices_serialized[name] = self._df_to_nested(df) if hasattr(df, 'to_dict') else {}
+
+        return {
+            "matrices": matrices_serialized,                                    # DICT: Per-category correlation matrices (nested format)
+            "overlays": _convert_to_json_serializable(self.overlays),          # DICT: Rate/market sensitivity and macro matrices
+            "data_quality": _convert_to_json_serializable(self.data_quality),  # DICT: Coverage and exclusion info
+            "performance": _convert_to_json_serializable(self.performance),    # DICT: Timing metrics
+            "analysis_metadata": _convert_to_json_serializable(self.analysis_metadata),  # DICT: Analysis configuration
+            "formatted_report": self.to_cli_report(),                          # STR: Human-readable report
+        }
+
+    def to_cli_report(self, max_rows: int = 10) -> str:
+        """Human-readable summary for CLI/AI contexts.
+
+        Includes:
+        - Per-category correlation matrices (top-left submatrix)
+        - Macro overlays when present:
+          • Macro composite matrix (equity/fixed_income/cash/commodity/crypto)
+          • Macro ETF matrix (curated), if computed
+        """
+        lines: List[str] = []
+        lines.append("FACTOR CORRELATIONS (summary)")
+        for name, df in self.matrices.items():
+            lines.append(f"\n[{name}]\n" + ("(empty)" if getattr(df, "empty", True) else ""))
+            if getattr(df, "empty", True):
+                continue
+            # Show top-left submatrix up to max_rows
+            sub = df.copy()
+            rows = list(sub.index)[:max_rows]
+            cols = list(sub.columns)[:min(max_rows, len(sub.columns))]
+            header = "        " + " ".join([c[:8].ljust(9) for c in cols])
+            lines.append(header)
+            for r in rows:
+                rowvals = [f"{float(sub.loc[r, c]):>+0.2f}" if c in sub.columns else "" for c in cols]
+                lines.append(f"{r[:8].ljust(8)}  " + " ".join(v.rjust(6) for v in rowvals))
+
+        # Overlays: Macro composite and curated macro ETF matrices (if present)
+        def _format_matrix_block(title: str, df: Any) -> List[str]:
+            out: List[str] = []
+            out.append(f"\n{title}")
+            if df is None or getattr(df, 'empty', True):
+                out.append("(empty)")
+                return out
+            # Limit for readability
+            rows = list(df.index)[:max_rows]
+            cols = list(df.columns)[:min(max_rows, len(df.columns))]
+            sub = df.reindex(index=rows, columns=cols).copy()
+            header = "        " + " ".join([str(c)[:10].ljust(11) for c in sub.columns])
+            out.append(header)
+            for r in sub.index:
+                rowvals = []
+                for c in sub.columns:
+                    try:
+                        v = float(sub.loc[r, c])
+                        rowvals.append(f"{v:+0.2f}")
+                    except Exception:
+                        rowvals.append("   nan")
+                out.append(f"{str(r)[:10].ljust(10)}  " + " ".join(v.rjust(6) for v in rowvals))
+            return out
+
+        try:
+            ov = self.overlays or {}
+            if isinstance(ov, dict):
+                mc = ov.get('macro_composite_matrix')
+                if isinstance(mc, dict) and hasattr(mc.get('matrix'), 'corr'):
+                    lines.extend(_format_matrix_block("MACRO COMPOSITE MATRIX (equity/fixed_income/cash/commodity/crypto)", mc.get('matrix')))
+
+                me = ov.get('macro_etf_matrix')
+                if isinstance(me, dict) and hasattr(me.get('matrix'), 'corr'):
+                    # group sizes (optional)
+                    groups = me.get('groups') or {}
+                    if isinstance(groups, dict) and groups:
+                        lines.append("\nMacro ETF groups:")
+                        for g, etfs in groups.items():
+                            lines.append(f"  - {g}: {len(etfs)} ETFs")
+                    lines.extend(_format_matrix_block("MACRO ETF MATRIX (curated)", me.get('matrix')))
+        except Exception:
+            # Overlays are optional; keep CLI resilient
+            pass
+        return "\n".join(lines)
+
+
+class FactorPerformanceResult:
+    """
+    Structured result for factor performance analysis.
+
+    Attributes
+    ----------
+    per_factor : Dict[str, Any]
+        Performance metrics per ETF.
+    composites : Dict[str, Any]
+        Composite performance across macro and factor categories.
+    data_quality : Dict[str, Any]
+        Coverage of tickers/groups used in composites.
+    performance : Dict[str, Any]
+        Timing metrics (ms).
+    analysis_metadata : Dict[str, Any]
+        Echo of analysis window and universe hash.
+    """
+
+    def __init__(self, per_factor: Dict[str, Any], composites: Dict[str, Any], data_quality: Dict[str, Any], performance: Dict[str, Any], analysis_metadata: Dict[str, Any]):
+        self.per_factor = per_factor or {}
+        self.composites = composites or {}
+        self.data_quality = data_quality or {}
+        self.performance = performance or {}
+        self.analysis_metadata = analysis_metadata or {}
+
+    @classmethod
+    def from_core_analysis(cls,
+                          per_factor_metrics: Dict[str, Any],
+                          composite_performance: Dict[str, Any],
+                          data_quality: Dict[str, Any],
+                          performance: Dict[str, Any],
+                          analysis_metadata: Dict[str, Any]) -> 'FactorPerformanceResult':
+        """
+        Create FactorPerformanceResult from core factor intelligence performance analysis data.
+
+        ARCHITECTURE CONTEXT:
+        This is the primary factory method for creating FactorPerformanceResult objects from
+        core factor intelligence functions (compute_factor_performance_profiles, compute_composite_performance).
+        It transforms raw performance analysis data into a structured result object ready for API responses.
+
+        DATA FLOW:
+        factor_intelligence_service.analyze_performance() → core analysis data → from_core_analysis() → FactorPerformanceResult
+
+        INPUT DATA STRUCTURE:
+        - per_factor_metrics: Output from compute_factor_performance_profiles() containing:
+          • Performance metrics per ETF (Sharpe, volatility, returns) (Dict[str, Any])
+        - composite_performance: Output from compute_composite_performance() containing:
+          • Composite performance across macro and factor categories (Dict[str, Any])
+        - data_quality: Coverage of tickers/groups used in composites (Dict[str, Any])
+        - performance: Timing metrics (ms) for performance calculations (Dict[str, Any])
+        - analysis_metadata: Analysis window, universe hash, and configuration (Dict[str, Any])
+
+        Returns
+        -------
+        FactorPerformanceResult
+            Structured result object ready for API serialization
+        """
+        return cls(
+            per_factor=per_factor_metrics,
+            composites=composite_performance,
+            data_quality=data_quality,
+            performance=performance,
+            analysis_metadata=analysis_metadata
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'per_factor': self.per_factor,
+            'composites': self.composites,
+            'data_quality': self.data_quality,
+            'performance': self.performance,
+            'analysis_metadata': self.analysis_metadata,
+        }
+
+    def to_api_response(self) -> Dict[str, Any]:
+        """
+        Convert FactorPerformanceResult to comprehensive API response format.
+
+        CONSUMER ANALYSIS:
+        - Direct API: Uses full structured response for performance analysis and charts
+        - Claude/AI: Uses formatted_report (to_cli_report) for human-readable summaries
+        - Frontend: Uses per_factor and composites for performance visualization
+
+        Returns structured data suitable for JSON serialization and API responses.
+        This method provides complete factor performance analysis including per-ETF
+        metrics, composite performance, and data quality information.
+
+        Returns
+        -------
+        Dict[str, Any]
+            Dictionary containing all factor performance data with the following fields:
+
+            - per_factor: Dict[str, Any] - Performance metrics per ETF (Sharpe, volatility, returns)
+            - composites: Dict[str, Any] - Composite performance across macro and factor categories
+            - data_quality: Dict[str, Any] - Coverage of tickers/groups used in composites
+            - performance: Dict[str, Any] - Timing metrics (ms) for performance calculations
+            - analysis_metadata: Dict[str, Any] - Analysis window, universe hash, and configuration
+            - formatted_report: str - Human-readable report (identical to to_cli_report)
+        """
+        return {
+            "per_factor": _convert_to_json_serializable(self.per_factor),        # DICT: Performance metrics per ETF
+            "composites": _convert_to_json_serializable(self.composites),        # DICT: Composite performance data
+            "data_quality": _convert_to_json_serializable(self.data_quality),    # DICT: Coverage and quality info
+            "performance": _convert_to_json_serializable(self.performance),      # DICT: Timing metrics
+            "analysis_metadata": _convert_to_json_serializable(self.analysis_metadata),  # DICT: Analysis configuration
+            "formatted_report": self.to_cli_report(),                           # STR: Human-readable report
+        }
+
+    def to_cli_report(self, top_n: int = 10) -> str:
+        """Human-readable summary highlighting top Sharpe factors and macro composites."""
+        lines: List[str] = []
+        lines.append("FACTOR PERFORMANCE (summary)")
+        pf = self.per_factor or {}
+        # Sort by Sharpe where available
+        try:
+            ranked = sorted(pf.items(), key=lambda kv: (-(kv[1].get('sharpe_ratio') or float('-inf'))))[:top_n]
+        except Exception:
+            ranked = list(pf.items())[:top_n]
+        if ranked:
+            lines.append("\nTop factors by Sharpe:")
+            for k, v in ranked:
+                sr = v.get('sharpe_ratio')
+                vol = v.get('volatility')
+                ar = v.get('annual_return')
+                lines.append(f"  {k:<10}  Sharpe={sr!s:<6}  Vol={vol!s:<6}  AnnRet={ar!s:<6}")
+        comps = self.composites or {}
+        macro = comps.get('macro') or {}
+        if macro:
+            lines.append("\nMacro composites:")
+            for name, metrics in macro.items():
+                sr = metrics.get('sharpe_ratio'); vol = metrics.get('volatility'); ar = metrics.get('annual_return')
+                lines.append(f"  {name:<12}  Sharpe={sr!s:<6}  Vol={vol!s:<6}  AnnRet={ar!s:<6}")
+        return "\n".join(lines)
+
+
+class OffsetRecommendationResult:
+    """
+    Structured result for correlation‑based offset recommendations.
+    """
+
+    def __init__(self, overexposed_label: str, recommendations: List[Dict[str, Any]], analysis_metadata: Dict[str, Any]):
+        self.overexposed_label = overexposed_label
+        self.recommendations = recommendations or []
+        self.analysis_metadata = analysis_metadata or {}
+
+    @classmethod
+    def from_core_analysis(cls,
+                          overexposed_label: str,
+                          offset_recommendations: List[Dict[str, Any]],
+                          analysis_metadata: Dict[str, Any]) -> 'OffsetRecommendationResult':
+        """
+        Create OffsetRecommendationResult from core factor intelligence offset analysis data.
+
+        ARCHITECTURE CONTEXT:
+        This is the primary factory method for creating OffsetRecommendationResult objects from
+        core factor intelligence offset recommendation functions.
+        It transforms raw offset analysis data into a structured result object ready for API responses.
+
+        DATA FLOW:
+        factor_intelligence_service.recommend_offsets() → core analysis data → from_core_analysis() → OffsetRecommendationResult
+
+        INPUT DATA STRUCTURE:
+        - overexposed_label: The factor/category that is overexposed (str)
+        - offset_recommendations: List of offset recommendations with correlation data (List[Dict[str, Any]])
+        - analysis_metadata: Analysis window, universe hash, and configuration (Dict[str, Any])
+
+        Returns
+        -------
+        OffsetRecommendationResult
+            Structured result object ready for API serialization
+        """
+        return cls(
+            overexposed_label=overexposed_label,
+            recommendations=offset_recommendations,
+            analysis_metadata=analysis_metadata
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'overexposed_label': self.overexposed_label,
+            'recommendations': self.recommendations,
+            'analysis_metadata': self.analysis_metadata,
+        }
+
+    def to_api_response(self) -> Dict[str, Any]:
+        """
+        Convert OffsetRecommendationResult to comprehensive API response format.
+
+        CONSUMER ANALYSIS:
+        - Direct API: Uses full structured response for offset recommendations and portfolio rebalancing
+        - Claude/AI: Uses formatted_report (to_cli_report) for human-readable recommendations
+        - Frontend: Uses recommendations list for displaying offset suggestions with correlations
+
+        Returns structured data suitable for JSON serialization and API responses.
+        This method provides complete offset recommendation analysis including correlation-based
+        suggestions for portfolio rebalancing.
+
+        Returns
+        -------
+        Dict[str, Any]
+            Dictionary containing all offset recommendation data with the following fields:
+
+            - overexposed_label: str - The overexposed factor/ETF being analyzed
+            - recommendations: List[Dict] - Ranked offset recommendations with correlations and metrics
+            - analysis_metadata: Dict[str, Any] - Analysis configuration and metadata
+            - formatted_report: str - Human-readable report (identical to to_cli_report)
+        """
+        return {
+            "overexposed_label": self.overexposed_label,                        # STR: Overexposed factor identifier
+            "recommendations": _convert_to_json_serializable(self.recommendations),  # LIST: Offset recommendations
+            "analysis_metadata": _convert_to_json_serializable(self.analysis_metadata),  # DICT: Analysis metadata
+            "formatted_report": self.to_cli_report(),                          # STR: Human-readable report
+        }
+
+    def to_cli_report(self, top_n: int = 10) -> str:
+        """Human-readable recommendations list with basic ranking fields."""
+        lines: List[str] = []
+        lines.append(f"OFFSET RECOMMENDATIONS for {self.overexposed_label}")
+        recs = (self.recommendations or [])[:top_n]
+        if not recs:
+            lines.append("(none)")
+            return "\n".join(lines)
+        for i, r in enumerate(recs, 1):
+            lab = r.get('label') or r.get('factor') or r.get('ticker') or 'unknown'
+            corr = r.get('correlation')
+            sh = r.get('sharpe_ratio')
+            cat = r.get('category')
+            lines.append(f"  {i:>2}. {lab:<12}  Corr={corr!s:<6}  Sharpe={sh!s:<6}  Cat={cat!s:<10}")
+        return "\n".join(lines)
+
+
+class PortfolioOffsetRecommendationResult:
+    """
+    Portfolio-aware offset recommendations with detected drivers and suggested sizing.
+
+    Attributes
+    ----------
+    drivers : List[Dict[str, Any]]
+        Detected risk drivers (e.g., industries/factors) with metrics.
+    recommendations : List[Dict[str, Any]]
+        Recommended hedges with correlation, Sharpe, category, suggested_weight, and rationale.
+    analysis_metadata : Dict[str, Any]
+        Portfolio snapshot and configuration used for analysis.
+    """
+
+    def __init__(self, drivers: List[Dict[str, Any]], recommendations: List[Dict[str, Any]], analysis_metadata: Dict[str, Any]):
+        self.drivers = drivers or []
+        self.recommendations = recommendations or []
+        self.analysis_metadata = analysis_metadata or {}
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'drivers': self.drivers,
+            'recommendations': self.recommendations,
+            'analysis_metadata': self.analysis_metadata,
+        }
+
+    def to_api_response(self) -> Dict[str, Any]:
+        return {
+            'drivers': _convert_to_json_serializable(self.drivers),
+            'recommendations': _convert_to_json_serializable(self.recommendations),
+            'analysis_metadata': _convert_to_json_serializable(self.analysis_metadata),
+            'formatted_report': self.to_cli_report(),
+        }
+
+    def to_cli_report(self, top_n: int = 10) -> str:
+        lines: List[str] = []
+        lines.append("PORTFOLIO-AWARE OFFSET RECOMMENDATIONS")
+        if self.drivers:
+            lines.append("\nTop risk drivers:")
+            for d in self.drivers:
+                lab = d.get('label') or d.get('id')
+                pct = d.get('percent_of_portfolio') or d.get('factor_pct')
+                lines.append(f"  • {lab}: {pct!s}")
+        recs = (self.recommendations or [])[:top_n]
+        lines.append("\nRecommended hedges:")
+        if not recs:
+            lines.append("  (none)")
+            return "\n".join(lines)
+        for i, r in enumerate(recs, 1):
+            lab = r.get('label') or r.get('ticker')
+            cat = r.get('category')
+            corr = r.get('correlation')
+            sh = r.get('sharpe_ratio')
+            w = r.get('suggested_weight')
+            lines.append(f"  {i:>2}. {lab:<10}  Cat={cat!s:<10} Corr={corr!s:<6} Sharpe={sh!s:<6} Wgt={w!s:<6}")
+        return "\n".join(lines)

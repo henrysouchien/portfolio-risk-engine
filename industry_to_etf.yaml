@@ -73,10 +73,11 @@
 # Simple format (ETF only):
 #   Industry Name: ETF_TICKER
 #
-# Extended format (ETF + asset class override):
+# Extended format (ETF + asset class override + optional sector group):
 #   Industry Name:
 #     etf: ETF_TICKER
 #     asset_class: ASSET_CLASS
+#     group: SECTOR_GROUP
 #
 # ASSET CLASS OVERRIDES:
 # =====================
@@ -96,10 +97,12 @@
 # Gold:                              # Gold mining companies:
 #   etf: GLD                         #   - Use GLD as industry proxy ETF  
 #   asset_class: commodity           #   - Override asset class to commodity (not equity)
+#   group: defensive                 #   - Optional sector group bucket (defensive / cyclical / sensitive)
 #
 # Real Estate Investment Trusts:     # REITs:
 #   etf: VNQ                         #   - Use VNQ as industry proxy ETF
 #   asset_class: real_estate         #   - Override asset class to real_estate (not equity)
+#   group: defensive
 #
 # ============================================================================
 
@@ -128,6 +131,7 @@ Other Precious Metals:
 Gold:
   etf: GDX
   asset_class: commodity
+  group: defensive
 Copper:
   etf: XME
   asset_class: commodity
@@ -218,6 +222,7 @@ Asset Management: KCE
 Asset Management - Bonds:
   etf: KCE
   asset_class: bond
+  group: sensitive
 Asset Management - Income: KCE
 Asset Management - Leveraged: KCE
 Asset Management - Cryptocurrency:
@@ -333,5 +338,3 @@ Regulated Electric: XLU
 Independent Power Producers: XLU
 Diversified Utilities: XLU
 General Utilities: XLU
-
-

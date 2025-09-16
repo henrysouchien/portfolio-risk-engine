@@ -26,7 +26,669 @@ The Factor Intelligence Engine will be implemented as **separate endpoints** fol
 
 This approach ensures clean separation of concerns and maintains the established domain-based routing pattern.
 
+### Factor Universe Enrichment
+- Enrich factor ETFs with `asset_class` via SecurityTypeService (DB → YAML → hardcoded) to support
+  include/exclude filters and portfolio‑aware offsets; exclude `cash` and currency proxies from analysis.
+- Prefer dividend‑adjusted total‑return prices (fallback to close) across correlation and performance paths.
+
 ## **Implementation Components**
+
+### Appendix: Asset ETF Proxies (Recommended)
+
+To align non‑equity asset classes with total‑return methodology in Factor Intelligence, define
+canonical ETFs per asset class in a single mapping file and load them into the factor universe.
+
+Mapping source (DB‑first): `asset_etf_proxies` table with YAML fallback (`asset_etf_proxies.yaml`)
+
+Example YAML (fallback if DB unavailable):
+```yaml
+# asset_etf_proxies.yaml
+asset_classes:
+  fixed_income:
+    canonical:
+      UST2Y: SHY    # 1–3Y Treasuries (short)
+      UST5Y: IEI    # 3–7Y Treasuries
+      UST10Y: IEF   # 7–10Y Treasuries
+      UST30Y: TLT   # 20+Y Treasuries
+    alternates:
+      UST30Y_alt: EDV   # Zero‑coupon long duration (optional)
+      CASH: SGOV        # Bills (cash‑like; optional)
+
+  commodity:
+    canonical:
+      broad: DBC
+      gold: GLD
+      silver: SLV
+    # alternates: { energy: XLE, base_metals: DBB }  # optional
+
+  crypto:
+    canonical:
+      BTC: BTC_SPOT_ETF  # e.g., IBIT/FBTC; use actual ticker in deployment
+      ETH: ETH_SPOT_ETF  # e.g., ETHA/other; use actual ticker in deployment
+```
+
+Integration notes:
+- Database‑first loader: Factor universe builder first queries `asset_etf_proxies` table, then falls back to YAML,
+  and finally to a hardcoded minimal set if both are unavailable.
+- Categorize as `fixed_income`, `commodity`, and `crypto` when loading into the universe.
+- Tag with asset_class via SecurityTypeService for consistency (bond, commodity, crypto).
+- Use in standard ETF→ETF matrices/performance (with dividend_yield).
+- Keep macro Δy series for the separate `rate_sensitivity` correlations; do not mix Δy into ETF→ETF matrices.
+
+### Database Migration: `/database/migrations/20250901_add_asset_etf_proxies.sql`
+
+```sql
+-- Create canonical asset ETF proxy catalog (database‑first loader with YAML fallback)
+CREATE TABLE IF NOT EXISTS asset_etf_proxies (
+    id SERIAL PRIMARY KEY,
+    asset_class VARCHAR(50) NOT NULL,         -- 'fixed_income', 'commodity', 'crypto'
+    proxy_key   VARCHAR(100) NOT NULL,        -- e.g., 'UST10Y', 'gold', 'BTC'
+    etf_ticker  VARCHAR(20) NOT NULL,         -- canonical ETF ticker
+    is_canonical BOOLEAN DEFAULT TRUE,        -- allow alternates with lower priority
+    priority    INT DEFAULT 100,              -- lower number = higher priority
+    description TEXT,
+    updated_at  TIMESTAMP DEFAULT NOW(),
+    UNIQUE(asset_class, proxy_key, etf_ticker)
+);
+
+CREATE INDEX IF NOT EXISTS idx_asset_etf_proxies_class ON asset_etf_proxies(asset_class);
+CREATE INDEX IF NOT EXISTS idx_asset_etf_proxies_priority ON asset_etf_proxies(asset_class, priority);
+```
+
+### Database Migration: `/database/migrations/20250902_alter_industry_proxies_add_sector_group.sql`
+
+```sql
+-- Add explicit sector/group bucketing for industries (DB‑first, YAML fallback)
+ALTER TABLE IF EXISTS industry_proxies
+    ADD COLUMN IF NOT EXISTS sector_group VARCHAR(100);
+
+CREATE INDEX IF NOT EXISTS idx_industry_proxies_sector_group ON industry_proxies(sector_group);
+```
+
+### Database Client Additions (planned)
+
+```python
+# inputs/database_client.py (new/extended methods)
+def get_asset_etf_proxies(self) -> Dict[str, Dict[str, str]]:
+    """Return {asset_class: {proxy_key: etf_ticker}} from database (canonical only)."""
+    with self.get_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                """
+                SELECT asset_class, proxy_key, etf_ticker
+                FROM asset_etf_proxies
+                WHERE is_canonical = TRUE
+                ORDER BY asset_class, priority DESC, proxy_key
+                """
+            )
+            proxies: Dict[str, Dict[str, str]] = {}
+            for row in cursor.fetchall():
+                proxies.setdefault(row["asset_class"], {})[row["proxy_key"]] = row["etf_ticker"]
+            return proxies
+        except Exception as e:
+            raise DatabaseError(f"Failed to fetch asset ETF proxies: {e}")
+
+def upsert_asset_etf_proxy(
+    self,
+    asset_class: str,
+    proxy_key: str,
+    etf_ticker: str,
+    is_canonical: bool = True,
+    priority: int = 100,
+    description: str | None = None,
+):
+    """Insert/update a single proxy row using INSERT ... ON CONFLICT."""
+    from core.constants import VALID_ASSET_CLASSES
+    if asset_class not in VALID_ASSET_CLASSES:
+        raise ValueError(f"Invalid asset_class: {asset_class}. Must be one of: {VALID_ASSET_CLASSES}")
+
+    with self.get_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                """
+                INSERT INTO asset_etf_proxies (asset_class, proxy_key, etf_ticker, is_canonical, priority, description, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, NOW())
+                ON CONFLICT (asset_class, proxy_key, etf_ticker)
+                DO UPDATE SET
+                    is_canonical = EXCLUDED.is_canonical,
+                    priority     = EXCLUDED.priority,
+                    description  = EXCLUDED.description,
+                    updated_at   = NOW()
+                """,
+                (asset_class, proxy_key, etf_ticker.upper(), is_canonical, priority, description),
+            )
+            # Optional: enforce single canonical per (asset_class, proxy_key)
+            # cursor.execute(
+            #     """
+            #     UPDATE asset_etf_proxies
+            #     SET is_canonical = FALSE, updated_at = NOW()
+            #     WHERE asset_class = %s AND proxy_key = %s AND etf_ticker <> %s AND is_canonical = TRUE
+            #     """,
+            #     (asset_class, proxy_key, etf_ticker.upper()),
+            # )
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            raise DatabaseError(f"Failed to upsert asset ETF proxy {asset_class}.{proxy_key}: {e}")
+
+def update_industry_proxy(
+    self,
+    industry: str,
+    proxy_etf: str,
+    asset_class: str | None = None,
+    sector_group: str | None = None,
+) -> None:
+    """Upsert industry proxy with optional asset_class and sector_group (ON CONFLICT)."""
+    with self.get_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                """
+                INSERT INTO industry_proxies (industry, proxy_etf, asset_class, sector_group, updated_at)
+                VALUES (%s, %s, %s, %s, NOW())
+                ON CONFLICT (industry) DO UPDATE SET
+                    proxy_etf    = EXCLUDED.proxy_etf,
+                    asset_class  = EXCLUDED.asset_class,
+                    sector_group = EXCLUDED.sector_group,
+                    updated_at   = NOW()
+                """,
+                (industry, proxy_etf.upper(), asset_class, sector_group),
+            )
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            raise DatabaseError(f"Failed to update industry proxy {industry}: {e}")
+```
+
+### Factor Universe Loader (update)
+
+```python
+# Pseudocode
+@functools.lru_cache(maxsize=128)  # Global cache for shared reference data
+def load_asset_class_proxies() -> Dict[str, Dict[str, str]]:
+    try:
+        proxies = db_client.get_asset_etf_proxies()  # DB‑first
+        source = 'database'
+    except Exception:
+        proxies = load_yaml('asset_etf_proxies.yaml')  # YAML fallback
+        source = 'yaml'
+    if not proxies:
+        proxies = HARD_CODED_MINIMAL_ASSET_PROXIES
+        source = 'hardcoded'
+    return proxies, source
+
+@functools.lru_cache(maxsize=128)  # Global cache for shared reference data
+def load_industry_buckets() -> Dict[str, str]:
+    """Return {industry_name: sector_group} DB‑first from industry_proxies.sector_group; no YAML required.
+    Industries without a sector_group are omitted; callers fall back to 'industry' for those entries.
+    """
+```
+
+### Admin Tooling: Reference Data Sync (planned)
+
+Add admin commands to keep database and YAML in sync for asset class ETF proxies, mirroring existing
+patterns used for cash, exchange, and industry mappings.
+
+Files:
+- `admin/manage_reference_data.py` (extend)
+- `admin/migrate_reference_data.py` (extend)
+- `admin/README.md` (document commands)
+
+Admin tool commands (manage_reference_data.py extensions):
+
+```python
+# New asset-proxy command group implementation
+
+@click.group(name="asset-proxy")
+def asset_proxy_commands():
+    """Manage asset ETF proxies (fixed_income, commodity, crypto, etc.)"""
+    pass
+
+@asset_proxy_commands.command("list")
+@click.option("--asset-class", help="Filter by specific asset class")
+@click.option("--format", type=click.Choice(["table", "json"]), default="table", help="Output format")
+def list_asset_proxies(asset_class, format):
+    """Lists all proxies grouped by asset_class using get_asset_etf_proxies()."""
+    try:
+        from database import get_db_session
+        with get_db_session() as conn:
+            db_client = DatabaseClient(conn)
+            proxies = db_client.get_asset_etf_proxies()
+
+        if asset_class:
+            proxies = {k: v for k, v in proxies.items() if k == asset_class}
+
+        if format == "json":
+            click.echo(json.dumps(proxies, indent=2))
+            return
+
+        # Table format
+        if not proxies:
+            click.echo("No asset ETF proxies found.")
+            return
+
+        for asset_cls, proxy_dict in proxies.items():
+            click.echo(f"\n📁 {asset_cls.upper()}")
+            click.echo("─" * (len(asset_cls) + 4))
+
+            for proxy_key, etf_ticker in proxy_dict.items():
+                click.echo(f"  {proxy_key:<20} → {etf_ticker}")
+
+        total_proxies = sum(len(proxies_dict) for proxies_dict in proxies.values())
+        click.echo(f"\nTotal: {total_proxies} proxies across {len(proxies)} asset classes")
+
+    except Exception as e:
+        click.echo(f"❌ Failed to list asset proxies: {e}", err=True)
+        raise click.Abort()
+
+@asset_proxy_commands.command("add")
+@click.argument("asset_class")
+@click.argument("proxy_key")
+@click.argument("etf_ticker")
+@click.option("--alt", is_flag=True, help="Set as alternative (non-canonical) proxy")
+@click.option("--priority", type=int, default=100, help="Priority (higher = preferred)")
+@click.option("--desc", help="Optional description")
+@click.option("--force", is_flag=True, help="Skip confirmation prompt")
+def add_asset_proxy(asset_class, proxy_key, etf_ticker, alt, priority, desc, force):
+    """UPSERT a single proxy row via upsert_asset_etf_proxy()."""
+    try:
+        is_canonical = not alt  # --alt flag sets is_canonical=False
+
+        # Confirmation unless --force
+        if not force:
+            canonical_info = "canonical" if is_canonical else "alternative"
+            click.echo(f"Adding {canonical_info} proxy:")
+            click.echo(f"  Asset class: {asset_class}")
+            click.echo(f"  Proxy key: {proxy_key}")
+            click.echo(f"  ETF ticker: {etf_ticker}")
+            click.echo(f"  Priority: {priority}")
+            if desc:
+                click.echo(f"  Description: {desc}")
+
+            if not click.confirm("Continue?"):
+                click.echo("Cancelled.")
+                return
+
+        from database import get_db_session
+        with get_db_session() as conn:
+            db_client = DatabaseClient(conn)
+            db_client.upsert_asset_etf_proxy(
+                asset_class=asset_class,
+                proxy_key=proxy_key,
+                etf_ticker=etf_ticker,
+                is_canonical=is_canonical,
+                priority=priority,
+                description=desc
+            )
+
+        status = "canonical" if is_canonical else "alternative"
+        click.echo(f"✅ Added {status} proxy: {asset_class}.{proxy_key} → {etf_ticker}")
+
+    except Exception as e:
+        click.echo(f"❌ Failed to add proxy: {e}", err=True)
+        raise click.Abort()
+
+@asset_proxy_commands.command("sync-from-yaml")
+@click.argument("yaml_path", default="asset_etf_proxies.yaml")
+@click.option("--dry-run", is_flag=True, help="Show what would be done without making changes")
+def sync_from_yaml(yaml_path, dry_run):
+    """Loads YAML and bulk UPSERTs into DB; prints summary of added/updated/unchanged entries."""
+    import yaml
+    from pathlib import Path
+
+    try:
+        yaml_file = Path(yaml_path)
+        if not yaml_file.exists():
+            click.echo(f"❌ File not found: {yaml_path}")
+            raise click.Abort()
+
+        with open(yaml_file, 'r') as f:
+            data = yaml.safe_load(f)
+
+        if 'asset_etf_proxies' not in data:
+            click.echo(f"❌ No 'asset_etf_proxies' section found in {yaml_path}")
+            raise click.Abort()
+
+        proxies_data = data['asset_etf_proxies']
+        total_count = 0
+        success_count = 0
+
+        if dry_run:
+            click.echo(f"🔍 DRY RUN - Would sync from {yaml_path}:")
+        else:
+            click.echo(f"🔄 Syncing asset ETF proxies from {yaml_path}...")
+
+        from database import get_db_session
+        db_client = None if dry_run else DatabaseClient(get_db_session().__enter__())  # ensure a live conn in non-dry mode
+
+        for asset_class, proxies in proxies_data.items():
+            click.echo(f"\n📁 {asset_class.upper()}")
+
+            for proxy_key, etf_ticker in proxies.items():
+                total_count += 1
+
+                if dry_run:
+                    click.echo(f"  [DRY RUN] Would upsert: {proxy_key} → {etf_ticker}")
+                    success_count += 1
+                else:
+                    try:
+                        db_client.upsert_asset_etf_proxy(
+                            asset_class=asset_class,
+                            proxy_key=proxy_key,
+                            etf_ticker=etf_ticker,
+                            is_canonical=True,
+                            priority=100,
+                            description=f"Synced from {yaml_path}"
+                        )
+                        success_count += 1
+                        click.echo(f"  ✅ {proxy_key} → {etf_ticker}")
+                    except Exception as e:
+                        click.echo(f"  ❌ Failed {proxy_key}: {e}")
+
+        status = "Would sync" if dry_run else "Synced"
+        click.echo(f"\n{status}: {success_count}/{total_count} proxies")
+
+    except Exception as e:
+        click.echo(f"❌ Sync failed: {e}", err=True)
+        raise click.Abort()
+
+@asset_proxy_commands.command("export-yaml")
+@click.argument("yaml_path", default="asset_etf_proxies.yaml")
+@click.option("--force", is_flag=True, help="Overwrite existing file")
+def export_yaml(yaml_path, force):
+    """Exports DB state to YAML in canonical schema."""
+    import yaml
+    from pathlib import Path
+
+    try:
+        yaml_file = Path(yaml_path)
+
+        if yaml_file.exists() and not force:
+            if not click.confirm(f"File {yaml_path} exists. Overwrite?"):
+                click.echo("Cancelled.")
+                return
+
+        from database import get_db_session
+        with get_db_session() as conn:
+            db_client = DatabaseClient(conn)
+            proxies = db_client.get_asset_etf_proxies()
+
+        if not proxies:
+            click.echo("No asset ETF proxies found in database.")
+            return
+
+        # Structure for YAML export
+        export_data = {
+            "asset_etf_proxies": proxies,
+            "_metadata": {
+                "exported_at": datetime.now().isoformat(),
+                "total_asset_classes": len(proxies),
+                "total_proxies": sum(len(proxy_dict) for proxy_dict in proxies.values())
+            }
+        }
+
+        with open(yaml_file, 'w') as f:
+            yaml.dump(export_data, f, default_flow_style=False, sort_keys=True)
+
+        total_proxies = export_data["_metadata"]["total_proxies"]
+        click.echo(f"✅ Exported {total_proxies} proxies to {yaml_path}")
+
+    except Exception as e:
+        click.echo(f"❌ Export failed: {e}", err=True)
+        raise click.Abort()
+
+@asset_proxy_commands.command("clear-class")
+@click.argument("asset_class")
+@click.option("--force", is_flag=True, help="Skip safety prompt")
+def clear_class(asset_class, force):
+    """Deletes all proxies for an asset class (safety prompt unless --force)."""
+    try:
+        db_client = DatabaseClient()
+
+        # Check what would be deleted
+        proxies = db_client.get_asset_etf_proxies()
+
+        if asset_class not in proxies:
+            click.echo(f"No proxies found for asset class: {asset_class}")
+            return
+
+        proxy_count = len(proxies[asset_class])
+
+        # Safety prompt unless --force
+        if not force:
+            click.echo(f"⚠️  This will DELETE {proxy_count} proxies for asset class '{asset_class}':")
+            for proxy_key, etf_ticker in proxies[asset_class].items():
+                click.echo(f"  - {proxy_key} → {etf_ticker}")
+
+            click.echo(f"\n❗ This action cannot be undone!")
+            if not click.confirm("Are you sure you want to continue?"):
+                click.echo("Cancelled.")
+                return
+
+        # Execute deletion
+        from database import get_db_session
+        with get_db_session() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM asset_etf_proxies WHERE asset_class = %s", (asset_class,))
+            deleted_count = cursor.rowcount
+            conn.commit()
+            click.echo(f"✅ Deleted {deleted_count} proxies for asset class '{asset_class}'")
+
+    except Exception as e:
+        click.echo(f"❌ Clear failed: {e}", err=True)
+        raise click.Abort()
+
+# Extended industry command
+@industry_commands.command("add")  # Extends existing industry command group
+@click.argument("industry_name")
+@click.argument("proxy_etf")
+@click.option("--asset-class", help="Optional asset class override")
+@click.option("--group", help="Optional sector group for granularity")
+@click.option("--force", is_flag=True, help="Skip confirmation prompt")
+def add_industry_with_group(industry_name, proxy_etf, asset_class, group, force):
+    """Upserts industry proxy with optional asset_class and sector_group (DB-first)."""
+    try:
+        # Confirmation unless --force
+        if not force:
+            click.echo(f"Adding/updating industry proxy:")
+            click.echo(f"  Industry: {industry_name}")
+            click.echo(f"  Proxy ETF: {proxy_etf}")
+            if asset_class:
+                click.echo(f"  Asset class: {asset_class}")
+            if group:
+                click.echo(f"  Sector group: {group}")
+
+            if not click.confirm("Continue?"):
+                click.echo("Cancelled.")
+                return
+
+        from database import get_db_session
+        with get_db_session() as conn:
+            db_client = DatabaseClient(conn)
+            db_client.update_industry_proxy(
+                industry=industry_name,
+                proxy_etf=proxy_etf,
+                asset_class=asset_class,
+                sector_group=group
+            )
+
+        group_info = f" (group: {group})" if group else ""
+        asset_info = f" (asset_class: {asset_class})" if asset_class else ""
+        click.echo(f"✅ Updated industry: {industry_name} → {proxy_etf}{group_info}{asset_info}")
+
+    except Exception as e:
+        click.echo(f"❌ Failed to add industry: {e}", err=True)
+        raise click.Abort()
+```
+
+Industry commands (extend existing):
+- `industry add <industry_name> <proxy_etf> [--asset-class <name>] [--group <sector_group>]`
+  - Upserts industry proxy with optional asset_class override and sector_group (DB‑first). YAML edits can include an
+    optional `group:` field, which the migration tool will upsert into `industry_proxies.sector_group`.
+
+Migration script extension:
+
+```python
+def migrate_asset_etf_proxies(db_client):
+    """
+    Reads asset_etf_proxies.yaml and UPSERTs rows into asset_etf_proxies table.
+
+    Expected YAML structure:
+    asset_etf_proxies:
+      fixed_income:
+        duration_short: "SHY"
+        duration_long: "TLT"
+        credit_investment_grade: "LQD"
+      commodity:
+        gold: "GLD"
+        silver: "SLV"
+        broad_commodity: "DBC"
+      crypto:
+        btc_spot: "IBIT"
+        eth_spot: "ETHA"
+    """
+    import yaml
+    import os
+    from pathlib import Path
+
+    yaml_path = Path("asset_etf_proxies.yaml")
+
+    try:
+        if not yaml_path.exists():
+            portfolio_logger.warning(f"⚠️  {yaml_path} not found, skipping asset ETF proxy migration")
+            return
+
+        with open(yaml_path, 'r') as f:
+            data = yaml.safe_load(f)
+
+        if 'asset_etf_proxies' not in data:
+            portfolio_logger.warning(f"⚠️  No 'asset_etf_proxies' section in {yaml_path}, skipping")
+            return
+
+        proxies_data = data['asset_etf_proxies']
+        total_count = 0
+        success_count = 0
+
+        portfolio_logger.info(f"🔄 Migrating asset ETF proxies from {yaml_path}...")
+
+        from core.constants import VALID_ASSET_CLASSES
+        for asset_class, proxies in proxies_data.items():
+            if asset_class not in VALID_ASSET_CLASSES:
+                portfolio_logger.warning(f"    ⚠️  Skipping invalid asset_class '{asset_class}' in YAML")
+                continue
+            portfolio_logger.info(f"  📁 Processing {asset_class}...")
+
+            for proxy_key, etf_ticker in proxies.items():
+                try:
+                    # Use the new DatabaseClient method
+                    db_client.upsert_asset_etf_proxy(
+                        asset_class=asset_class,
+                        proxy_key=proxy_key,
+                        etf_ticker=etf_ticker,
+                        is_canonical=True,
+                        priority=100,
+                        description=f"Migrated from {yaml_path}"
+                    )
+                    success_count += 1
+                    portfolio_logger.info(f"    ✅ {asset_class}.{proxy_key} -> {etf_ticker}")
+
+                except Exception as e:
+                    portfolio_logger.error(f"    ❌ Failed {asset_class}.{proxy_key}: {e}")
+
+                total_count += 1
+
+        portfolio_logger.info(f"✅ Asset ETF proxy migration complete: {success_count}/{total_count} successful")
+
+    except Exception as e:
+        portfolio_logger.error(f"❌ Asset ETF proxy migration failed: {e}")
+        raise
+
+def migrate_industry_mappings(db_client):
+    """
+    Extended version of existing function to handle optional 'group:' field.
+
+    Updated YAML structure supports:
+    industry_to_etf:
+      "Technology":
+        proxy: "XLK"
+        group: "growth"  # Optional sector_group
+      "Healthcare":
+        proxy: "XLV"
+        group: "defensive"  # Optional sector_group
+      "Energy":
+        proxy: "XLE"
+        # No group specified - sector_group remains NULL
+    """
+    import yaml
+    from pathlib import Path
+
+    yaml_path = Path("industry_to_etf.yaml")
+
+    try:
+        if not yaml_path.exists():
+            portfolio_logger.warning(f"⚠️  {yaml_path} not found, skipping industry mapping migration")
+            return
+
+        with open(yaml_path, 'r') as f:
+            data = yaml.safe_load(f)
+
+        if 'industry_to_etf' not in data:
+            portfolio_logger.warning(f"⚠️  No 'industry_to_etf' section in {yaml_path}, skipping")
+            return
+
+        industry_data = data['industry_to_etf']
+        total_count = 0
+        success_count = 0
+
+        portfolio_logger.info(f"🔄 Migrating industry mappings from {yaml_path}...")
+
+        for industry, mapping_info in industry_data.items():
+            try:
+                # Handle both old format (string) and new format (dict)
+                if isinstance(mapping_info, str):
+                    # Old format: "Technology": "XLK"
+                    proxy_etf = mapping_info
+                    sector_group = None
+                else:
+                    # New format: "Technology": {"proxy": "XLK", "group": "growth"}
+                    proxy_etf = mapping_info.get('proxy')
+                    sector_group = mapping_info.get('group')  # Optional
+
+                if not proxy_etf:
+                    portfolio_logger.warning(f"    ⚠️  No proxy specified for {industry}, skipping")
+                    continue
+
+                # Use the extended DatabaseClient method
+                db_client.update_industry_proxy(
+                    industry=industry,
+                    proxy_etf=proxy_etf,
+                    asset_class="equity",  # Default for industries
+                    sector_group=sector_group  # Will be None if not specified
+                )
+
+                success_count += 1
+                group_info = f" (group: {sector_group})" if sector_group else ""
+                portfolio_logger.info(f"    ✅ {industry} -> {proxy_etf}{group_info}")
+
+            except Exception as e:
+                portfolio_logger.error(f"    ❌ Failed {industry}: {e}")
+
+            total_count += 1
+
+        portfolio_logger.info(f"✅ Industry mapping migration complete: {success_count}/{total_count} successful")
+
+    except Exception as e:
+        portfolio_logger.error(f"❌ Industry mapping migration failed: {e}")
+        raise
+```
+
+Validation & safety:
+- Validate `asset_class` against `VALID_ASSET_CLASSES`.
+- Validate ticker format; keep DB‑first precedence in loaders (DB → YAML → hardcoded).
+- Do not auto‑delete DB entries not present in YAML during sync (no destructive ops by default).
+
 
 ### **1. 📁 New Router Module: `/routes/factor_intelligence.py`**
 
@@ -63,11 +725,14 @@ Security Model:
 - Factor group data stored with user_id foreign key for strict isolation
 - Automatic 401 HTTPException for invalid authentication
 
-API Endpoints:
+API Endpoints (Segmented Outputs + Cross‑Asset Views):
 =============
 Factor Intelligence Analysis:
-- GET  /api/factor-intelligence/correlations - Factor correlation matrix analysis
-- GET  /api/factor-intelligence/performance - Factor performance profiles
+- POST /api/factor-intelligence/correlations - Per‑category correlation matrices (industry/style/market/fixed_income/cash/commodity/crypto) + optional cross‑category mini‑matrix and a separate rate‑sensitivity matrix (ETF returns vs Δy)
+ - Also returns macro matrices:
+  • macro_composite_matrix (small, square composites across equity/fixed_income/cash/commodity/crypto)
+  • macro_etf_matrix (square, curated ETFs across macro groups; optional and heavier)
+- POST /api/factor-intelligence/performance - Per‑category performance profiles with yield (including fixed_income ETFs)
 - POST /api/factor-intelligence/recommendations - Portfolio-aware offset recommendations
 
 Factor Group Management:
@@ -86,6 +751,7 @@ Dependencies:
 - PostgreSQL: User and factor group data persistence
 - FastAPI: Modern async web framework with automatic validation
 - Pydantic: Data validation and serialization
+- Existing SlowAPI limiter: Uses established rate limiting from app.py
 
 Usage:
 =====
@@ -118,28 +784,130 @@ from services.auth_service import auth_service
 from core.data_objects import FactorAnalysisData, PortfolioData
 from core.exceptions import ServiceError, FactorAnalysisError
 
+# Import existing rate limiter from app.py following established pattern
+from app import limiter
+
+# Import logging infrastructure
+from utils.logging import portfolio_logger
+
+# === RATE LIMITING ARCHITECTURE ===
+#
+# Uses existing SlowAPI limiter from app.py following established patterns.
+# The limiter is already configured with tier-based key function and works
+# perfectly with all existing routes.
+#
+# Import pattern for new routes:
+# ```python
+# from app import limiter
+# ```
+#
+# Route decorators use existing tier-based limits:
+# - Format: "public_limit;registered_limit;paid_limit"
+# - Example: @limiter.limit("50/day;100/day;200/day")
+
+# === PYDANTIC MODELS FOR REQUEST/RESPONSE VALIDATION ===
+
+class FactorCorrelationRequest(BaseModel):
+    """Request model for factor correlation analysis.
+
+    Attributes:
+        start_date: Analysis start date (YYYY-MM-DD format, defaults to PORTFOLIO_DEFAULTS)
+        end_date: Analysis end date (YYYY-MM-DD format, defaults to PORTFOLIO_DEFAULTS)
+        max_factors: Maximum factors to include in formatted table (default: 15, range: 5-100)
+
+    Example:
+        {
+            "start_date": "2019-01-01",
+            "end_date": "2024-12-31",
+            "max_factors": 20
+        }
+    """
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    max_factors: int = Field(default=15, ge=5, le=100, description="Maximum factors in formatted table")
+
+class FactorCorrelationResponse(BaseModel):
+    """Response model for factor correlation analysis.
+
+    Attributes:
+        success: Whether the analysis completed successfully
+        correlation_matrix: Factor-to-factor correlation matrix (JSON serializable)
+        formatted_table: Human-readable correlation table for Claude/display
+        analysis_metadata: Analysis configuration and timing information
+        error: Error message if analysis failed
+
+    Example:
+        {
+            "success": true,
+            "correlation_matrix": {"XLK": {"XLF": -0.12, "XLU": -0.34}, ...},
+            "formatted_table": "FACTOR CORRELATION MATRIX\n...",
+            "analysis_metadata": {"start_date": "2019-01-01", "factors_analyzed": 187}
+        }
+    """
+    success: bool
+    correlation_matrix: Optional[Dict[str, Any]] = None
+    formatted_table: Optional[str] = None
+    analysis_metadata: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+
+class FactorPerformanceRequest(BaseModel):
+    """Request model for factor performance profiling.
+
+    Attributes:
+        start_date: Analysis start date (YYYY-MM-DD format)
+        end_date: Analysis end date (YYYY-MM-DD format)
+        benchmark_ticker: Benchmark for performance comparison (default: SPY)
+        sort_by: Metric to sort results by (sharpe_ratio, annual_return, volatility)
+    """
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    benchmark_ticker: str = "SPY"
+    sort_by: str = Field(default="sharpe_ratio", regex="^(sharpe_ratio|annual_return|volatility)$")
+
+class FactorPerformanceResponse(BaseModel):
+    """Response model for factor performance profiling."""
+    success: bool
+    performance_profiles: Optional[Dict[str, Dict[str, float]]] = None
+    formatted_table: Optional[str] = None
+    analysis_metadata: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+
+class OffsetRecommendationRequest(BaseModel):
+    """Request model for offset recommendations.
+
+    Attributes:
+        overexposed_factor: Factor that needs hedging/offset
+        start_date: Analysis period start date
+        end_date: Analysis period end date
+        correlation_threshold: Maximum correlation for offset candidates (default: -0.2)
+        max_recommendations: Maximum number of recommendations (default: 10)
+    """
+    overexposed_factor: str
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    correlation_threshold: float = Field(default=-0.2, ge=-1.0, le=0.0)
+    max_recommendations: int = Field(default=10, ge=1, le=50)
+
+class OffsetRecommendationResponse(BaseModel):
+    """Response model for offset recommendations."""
+    success: bool
+    overexposed_factor: Optional[str] = None
+    recommendations: Optional[List[Dict[str, Any]]] = None
+    formatted_table: Optional[str] = None
+    analysis_metadata: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+
 # Import logging decorators following existing patterns
 from utils.logging import (
     log_portfolio_operation_decorator,
     log_performance,
     log_error_handling,
-    log_cache_operations,
-    log_api_health,
-    log_resource_usage_decorator,
-    log_workflow_state_decorator,
-    portfolio_logger,
-    log_service_health,
-    log_performance_metric,
-    log_workflow_state
+    log_resource_usage_decorator
 )
-
-# Import rate limiting following existing patterns
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 
 # Create routers following existing pattern
 factor_intelligence_router = APIRouter(
-    prefix='/api/factor-intelligence', 
+    prefix='/api/factor-intelligence',
     tags=['factor-intelligence']
 )
 
@@ -149,34 +917,60 @@ factor_groups_router = APIRouter(
 )
 
 # Authentication dependency following existing pattern
-def get_current_user():
+def get_current_user(request: Request):
     """Get current authenticated user - follows existing auth pattern"""
-    return auth_service.get_current_user()
+    session_id = request.cookies.get('session_id')
+    user = auth_service.get_user_by_session(session_id)
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    return user
 
-# Service dependency following existing pattern
-def get_factor_intelligence_service(user: dict = Depends(get_current_user)) -> FactorIntelligenceService:
-    """Get factor intelligence service instance for authenticated user"""
-    return FactorIntelligenceService(cache_results=True)
+# User-scoped service management following existing pattern
+import threading
+from typing import Dict
+
+_user_factor_intelligence_services: Dict[int, FactorIntelligenceService] = {}
+_user_services_lock = threading.Lock()
+
+def get_user_factor_intelligence_service(user: dict) -> FactorIntelligenceService:
+    """
+    Get or create a FactorIntelligenceService instance for the current user.
+
+    Each user gets their own FactorIntelligenceService instance with isolated caching.
+    This prevents data leakage between users while maintaining per-user cache performance.
+
+    Args:
+        user: Current authenticated user from FastAPI dependency
+
+    Returns:
+        FactorIntelligenceService: User-specific service instance with isolated cache
+    """
+    user_id = user['user_id']
+
+    with _user_services_lock:
+        if user_id not in _user_factor_intelligence_services:
+            _user_factor_intelligence_services[user_id] = FactorIntelligenceService(cache_results=True)
+            portfolio_logger.info(f"🔐 Created FactorIntelligenceService for user {user_id}")
+
+        return _user_factor_intelligence_services[user_id]
+
+# Import limiter for rate limiting
+from app import limiter
 
 # === FACTOR INTELLIGENCE ANALYSIS ENDPOINTS ===
 
-@factor_intelligence_router.get("/correlations")
-@limiter.limit("50 per day;100 per day;200 per day")  # Following existing rate limit pattern
-@log_api_health("FactorIntelligence", "correlations")
-@log_error_handling("high")
-@log_portfolio_operation_decorator("api_factor_correlations")
-@log_cache_operations("factor_correlations")
-@log_resource_usage_decorator(monitor_memory=True, monitor_cpu=True)
+@log_portfolio_operation_decorator("factor_correlations")
+@log_resource_usage_decorator(monitor_memory=True, monitor_cpu=False)
 @log_performance(10.0)
-@log_workflow_state_decorator("factor_correlation_analysis")
+@log_error_handling("high")
+@limiter.limit("100 per day;200 per day;500 per day")  # public;registered;paid
+@factor_intelligence_router.post("/correlations", response_model=FactorCorrelationResponse)
 async def analyze_factor_correlations(
+    correlation_request: FactorCorrelationRequest,
     request: Request,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    max_factors: int = 15,
     user: dict = Depends(get_current_user),
-    service: FactorIntelligenceService = Depends(get_factor_intelligence_service)
-):
+    service: FactorIntelligenceService = Depends(lambda user=Depends(get_current_user): get_user_factor_intelligence_service(user))
+) -> FactorCorrelationResponse:
     """
     Analyze Factor Correlations with Enhanced Security & Monitoring
     
@@ -199,13 +993,15 @@ async def analyze_factor_correlations(
     
     Returns:
     =======
-    JSON Response:
+    JSON Response (segmented):
         success (bool): Operation success indicator
-        correlation_matrix (dict): Factor-to-factor correlation matrix
+        matrices (dict): Per‑category correlation matrices (including 'rate' when requested),
+          e.g. {"industry": {...}, "style": {...}, "market": {...}, "rate": {"UST2Y": {"UST5Y": 0.92, ...}, ...}}
+        rate_sensitivity (dict): Cross‑category correlations: corr(ETF returns, Δy) with keys as ETFs and columns as maturities
         data_quality (dict): Information about excluded factors and data coverage
         formatted_table (str): CLI-formatted table for Claude AI integration
         analysis_metadata (dict): Analysis configuration and timing information
-        
+    
     Performance:
     ===========
     - First call: ~5-8 seconds (calculates 200+ factor correlations)
@@ -216,86 +1012,71 @@ async def analyze_factor_correlations(
     ================
     ```json
     {
-        "success": true,
-        "correlation_matrix": {
-            "Technology": {"Real Estate": -0.15, "Utilities": -0.32, ...},
-            "Real Estate": {"Technology": -0.15, "Utilities": 0.08, ...}
+      "success": true,
+      "matrices": {
+        "industry": {
+          "Real Estate": {"Utilities": -0.32, "Technology": 0.15, ...},
+          "Utilities": {"Real Estate": -0.32, "Technology": -0.18, ...}
         },
-        "data_quality": {
-            "factors_analyzed": 187,
-            "factors_excluded": 13,
-            "excluded_factor_list": ["FACTOR_X (insufficient data)", ...],
-            "observations": 72,
-            "data_coverage_pct": 93.5
+        "style": {
+          "Momentum_US": {"Value_US": -0.12, ...}
         },
-        "formatted_table": "FACTOR CORRELATION MATRIX\\n...",
-        "analysis_metadata": {
-            "start_date": "2019-01-31",
-            "end_date": "2025-06-27", 
-            "analysis_date": "2024-01-15T10:30:00Z",
-            "user_id": 123
+        "market": {
+          "US_Market": {"Developed ex-US": 0.76, ...}
         }
+      },
+      "rate_sensitivity": {
+        "XLU":  {"UST2Y": -0.35, "UST5Y": -0.42, "UST10Y": -0.48, "UST30Y": -0.41},
+        "XLRE": {"UST2Y": -0.22, "UST5Y": -0.29, "UST10Y": -0.36, "UST30Y": -0.33}
+      },
+      "data_quality": {
+        "factors_analyzed": 187,
+        "factors_excluded": 13,
+        "excluded_factor_list": ["FACTOR_X (insufficient data)", ...],
+        "observations": 72,
+        "data_coverage_pct": 93.5
+      },
+      "formatted_table": "FACTOR CORRELATIONS (segmented)\\n...",
+      "analysis_metadata": {
+        "start_date": "2019-01-31",
+        "end_date": "2025-06-27",
+        "analysis_date": "2024-01-15T10:30:00Z",
+        "categories": ["industry","style","market","rate"],
+        "user_id": 123
+      }
     }
     ```
     """
     
-    # Enhanced security logging
-    log_auth_event(
-        user_id=user['id'],
-        event_type="factor_analysis_access",
-        provider="session",
-        success=True,
-        details={
-            'endpoint': '/api/factor-intelligence/correlations',
-            'analysis_period': f"{start_date} to {end_date}",
-            'max_factors': max_factors,
-            'user_agent': request.headers.get('user-agent', 'unknown'),
-            'ip_address': request.client.host
-        },
-        user_email=user.get('email')
-    )
-    
     try:
-        # Input validation and sanitization
-        if max_factors > 100:
-            raise HTTPException(status_code=400, detail="Maximum 100 factors allowed")
-        
-        # Log workflow state
-        log_workflow_state("validation_started", "factor_correlation_analysis", {
-            "user_id": user['id'],
-            "start_date": start_date,
-            "end_date": end_date,
-            "max_factors": max_factors
-        })
-        
-        # Create analysis data object using centralized defaults
-        analysis_data = FactorAnalysisData.from_dates(
-            start_date=start_date,
-            end_date=end_date
+        # Business validation (in addition to Pydantic field validation)
+        if correlation_request.max_factors > 100:
+            raise HTTPException(status_code=400, detail="Maximum 100 factors allowed for performance reasons")
+
+        # Extract user identifiers for logging
+        user_id = user['user_id']
+        user_email = user.get('email', 'unknown')
+
+        # Log the request
+        portfolio_logger.info(f"🔗 Factor correlation analysis requested by user {user_id} ({user_email})")
+
+        # Create analysis data object from request
+        analysis_data = FactorAnalysisData(
+            start_date=correlation_request.start_date,
+            end_date=correlation_request.end_date,
+            use_database=True
         )
-        
-        log_workflow_state("validation_completed", "factor_correlation_analysis", {
-            "user_id": user['id'],
-            "analysis_period_days": (analysis_data.end_date - analysis_data.start_date).days
-        })
-        
+
         # Call service layer for factor correlation analysis
         result = service.analyze_factor_correlations(analysis_data)
-        
-        log_workflow_state("analysis_completed", "factor_correlation_analysis", {
-            "user_id": user['id'],
-            "factors_analyzed": len(result.correlation_matrix),
-            "data_quality_score": result.data_quality.get('data_quality_score', 0)
-        })
-        
+
         # Return structured response following existing pattern
-        return {
-            "success": True,
-            "correlation_matrix": result.correlation_matrix.to_dict(),
-            "data_quality": result.data_quality,
-            "formatted_table": result.to_formatted_table(max_factors=max_factors),
-            "analysis_metadata": result.analysis_metadata
-        }
+        return FactorCorrelationResponse(
+            success=True,
+            correlation_matrix=result.correlation_matrix.to_dict(),
+            formatted_table=result.to_cli_report(),
+            analysis_metadata=result.analysis_metadata
+        )
         
     except HTTPException:
         # Re-raise HTTP exceptions without modification
@@ -303,7 +1084,7 @@ async def analyze_factor_correlations(
     except Exception as e:
         # Log security-relevant errors
         log_auth_event(
-            user_id=user['id'],
+            user_id=user['user_id'],
             event_type="factor_analysis_error",
             provider="session",
             success=False,
@@ -316,7 +1097,7 @@ async def analyze_factor_correlations(
         
         # Log workflow failure
         log_workflow_state("correlation_analysis_failed", "factor_correlation_analysis", {
-            "user_id": user['id'],
+            "user_id": user['user_id'],
             "error_type": type(e).__name__,
             "error_message": str(e)
         })
@@ -346,7 +1127,7 @@ async def analyze_factor_performance(
     end_date: Optional[str] = None,
     benchmark_ticker: str = "SPY",
     user: dict = Depends(get_current_user),
-    service: FactorIntelligenceService = Depends(get_factor_intelligence_service)
+    service: FactorIntelligenceService = Depends(lambda user=Depends(get_current_user): get_user_factor_intelligence_service(user))
 ):
     """
     Analyze Factor Performance Profiles
@@ -370,11 +1151,14 @@ async def analyze_factor_performance(
     
     Returns:
     =======
-    JSON Response:
+    JSON Response (segmented):
         success (bool): Operation success indicator
-        performance_profiles (dict): Risk/return metrics for each factor
+        performance_profiles (dict): Per‑category metrics, e.g. {"industry": {...}, "style": {...}, "market": {...}}
+        composite_performance (dict, optional): Composite performance tables
+            - macro: equity/fixed_income/cash/commodity/crypto composites
+            - category: per‑category composites (industry/style/market/etc.)
         data_quality (dict): Information about excluded factors and data coverage
-        formatted_table (str): CLI-formatted table for Claude AI integration
+        formatted_table (str): CLI-formatted table for Claude AI integration (can be per‑category or combined)
         analysis_metadata (dict): Analysis configuration and timing information
         
     Performance Metrics Included:
@@ -385,24 +1169,54 @@ async def analyze_factor_performance(
     - Maximum Drawdown: Largest peak-to-trough decline
     - Beta vs Benchmark: Market sensitivity measure
     - Alpha vs Benchmark: Excess return measure
+    - Dividend Yield: Trailing current yield of factor ETF (when available)
+
+    Dividend Yield Signal Quality (applied when ranking with prefer_income/min_dividend_yield):
+    - Asset-class aware usage:
+      • Consider yields for equity, fixed_income, and cash ETFs.
+      • Ignore commodity/crypto ETF yields by default (treat as 0) unless explicitly whitelisted.
+    - Sanity checks:
+      • Clamp negative yields to 0.0; drop implausible outliers (reuse existing outlier guards in data layer).
+      • For cash ETFs, expect short‑rate range; for bond ETFs, prefer reasonable ranges (e.g., 0–15%).
+      • If multiple sources become available later (e.g., SEC yield vs TTM), prefer SEC yield for fixed_income if exposed.
+    - Data quality:
+      • Missing or filtered yields default to 0.0 and are reported in data_quality warnings.
     
     Example Response:
     ================
     ```json
     {
-        "success": true,
-        "performance_profiles": {
-            "Technology": {
-                "annual_return": 0.142,
-                "volatility": 0.234,
-                "sharpe_ratio": 0.61,
-                "max_drawdown": -0.187,
-                "beta_vs_benchmark": 1.23,
-                "alpha_vs_benchmark": 0.028
-            }
+      "success": true,
+      "performance_profiles": {
+        "industry": {
+          "Real Estate": {"annual_return": 0.085, "volatility": 0.22, "sharpe_ratio": 0.38, "max_drawdown": -0.45, "beta_vs_benchmark": 1.15, "dividend_yield": 0.032},
+          "Utilities":   {"annual_return": 0.065, "volatility": 0.16, "sharpe_ratio": 0.41, "max_drawdown": -0.28, "beta_vs_benchmark": 0.75, "dividend_yield": 0.036}
         },
-        "formatted_table": "FACTOR PERFORMANCE PROFILES\\n...",
-        "analysis_metadata": {...}
+        "style": {
+          "Momentum_US": {"annual_return": 0.102, "volatility": 0.19, "sharpe_ratio": 0.54, "max_drawdown": -0.31, "beta_vs_benchmark": 1.08, "dividend_yield": 0.009}
+        },
+        "market": {
+          "US_Market":   {"annual_return": 0.115, "volatility": 0.18, "sharpe_ratio": 0.62, "max_drawdown": -0.34, "beta_vs_benchmark": 1.00, "dividend_yield": 0.015}
+        }
+      },
+      "composite_performance": {
+        "macro": {
+          "equity": {"annual_return": 0.118, "volatility": 0.185, "sharpe_ratio": 0.64, "max_drawdown": -0.33, "dividend_yield": 0.015},
+          "fixed_income": {"annual_return": 0.034, "volatility": 0.065, "sharpe_ratio": 0.42, "max_drawdown": -0.09, "dividend_yield": 0.028},
+          "cash": {"annual_return": 0.045, "volatility": 0.010, "sharpe_ratio": 0.50, "max_drawdown": -0.01, "dividend_yield": 0.045}
+        },
+        "category": {
+          "industry": {
+            "Real Estate": {"annual_return": 0.072, "volatility": 0.162, "sharpe_ratio": 0.35, "max_drawdown": -0.29, "dividend_yield": 0.032},
+            "Utilities":   {"annual_return": 0.065, "volatility": 0.140, "sharpe_ratio": 0.40, "max_drawdown": -0.24, "dividend_yield": 0.036}
+          },
+          "style": {
+            "Momentum_US": {"annual_return": 0.102, "volatility": 0.190, "sharpe_ratio": 0.54, "max_drawdown": -0.31, "dividend_yield": 0.009}
+          }
+        }
+      },
+      "formatted_table": "FACTOR PERFORMANCE PROFILES (segmented)\n...",
+      "analysis_metadata": {"categories": ["industry","style","market"], ...}
     }
     ```
     """
@@ -458,7 +1272,7 @@ async def generate_offset_recommendations(
     request: Request,
     recommendation_request: "OffsetRecommendationRequest",
     user: dict = Depends(get_current_user),
-    service: FactorIntelligenceService = Depends(get_factor_intelligence_service)
+    service: FactorIntelligenceService = Depends(lambda user=Depends(get_current_user): get_user_factor_intelligence_service(user))
 ):
     """
     Generate Portfolio-Aware Offset Recommendations
@@ -913,7 +1727,98 @@ class FactorCorrelationRequest(BaseModel):
     max_factors: int = Field(default=15, ge=5, le=100, description="Maximum factors in formatted table")
     min_observations: int = Field(default=24, ge=12, le=120, description="Minimum observations required per factor")
     correlation_threshold: float = Field(default=0.05, ge=0.0, le=1.0, description="Minimum correlation threshold for recommendations")
-    
+    asset_class_filters: Optional[Dict[str, List[str]]] = Field(
+        default=None,
+        description="Optional asset class filters: {'include': [...], 'exclude': [...]}"
+    )
+    factor_categories: Optional[List[str]] = Field(
+        default=None,
+        description="Subset of categories to analyze (e.g., ['industry','style','market'])"
+    )
+    include_rate_sensitivity: bool = Field(
+        default=True,
+        description="Include rate-sensitivity matrix (ETF returns vs Δy)"
+    )
+    rate_maturities: Optional[List[str]] = Field(
+        default=None,
+        description="Key-rate maturities to include (defaults from RATE_FACTOR_CONFIG)"
+    )
+    include_market_sensitivity: bool = Field(
+        default=True,
+        description="Include market-sensitivity overlay (ETF returns vs market benchmarks)"
+    )
+    market_benchmarks: Optional[List[str]] = Field(
+        default=["SPY"],
+        description="Market benchmark tickers for sensitivity overlay (total-return series)"
+    )
+    market_sensitivity_categories: Optional[List[str]] = Field(
+        default=None,
+        description="Categories to include for market_sensitivity. Defaults to ['industry','style'] if not provided. 'market' is excluded by default and ETFs used as benchmarks are skipped."
+    )
+    include_macro_composite: bool = Field(
+        default=True,
+        description="Include macro composite matrix across equity/fixed_income/cash/commodity/crypto"
+    )
+    include_macro_etf: bool = Field(
+        default=False,
+        description="Include macro ETF matrix (curated ETFs across macro groups; heavier)"
+    )
+    macro_groups: Optional[List[str]] = Field(
+        default=["equity","bond","cash","commodity","crypto"],
+        description="Macro groups to include in macro matrices"
+    )
+    macro_max_per_group: int = Field(
+        default=5, ge=1, le=20,
+        description="Max ETFs per macro group for macro_etf_matrix"
+    )
+    macro_deduplicate_threshold: float = Field(
+        default=0.95, ge=0.0, le=1.0,
+        description="Within-group deduplication threshold (drop |corr| ≥ threshold)"
+    )
+    macro_min_group_coverage_pct: Optional[float] = Field(
+        default=None,
+        description="Minimum fraction of eligible ETFs per macro group that must pass data-quality filters to include the group (defaults read from settings.DATA_QUALITY_THRESHOLDS if omitted)"
+    )
+    # Output/customization controls
+    sections: Optional[List[str]] = Field(
+        default=None,
+        description="Explicit list of sections to compute/return, e.g., ['matrices:industry','overlays:rate','macro:composite']"
+    )
+    format: Optional[str] = Field(
+        default='json',
+        regex='^(json|table|both)$',
+        description="Output format preference for table-capable views: json, table, or both"
+    )
+    top_n_per_matrix: Optional[int] = Field(
+        default=15, ge=5, le=100,
+        description="Limit rendered table size for matrices (does not affect JSON payloads)"
+    )
+    rate_sensitivity_categories: Optional[List[str]] = Field(
+        default=None,
+        description="Categories to include for rate_sensitivity. Defaults to ['fixed_income','industry','market','cash'] if not provided."
+    )
+
+    # Industry granularity controls
+    industry_granularity: str = Field(
+        default="group",
+        regex="^(group|industry|subindustry)$",
+        description="Industry granularity level: 'group' uses sector_group, 'industry' uses standard industry names, 'subindustry' is most granular"
+    )
+
+    # Rolling/stability and regime (future)
+    include_rolling_summaries: bool = Field(
+        default=False,
+        description="Include rolling window correlation summaries for stability analysis"
+    )
+    rolling_windows: Optional[List[int]] = Field(
+        default=None,
+        description="Rolling window periods in months (e.g., [12,24,36]). Defaults to [12,24,36] if include_rolling_summaries is True"
+    )
+    regime: Optional[str] = Field(
+        default=None,
+        description="Reserved for future regime classifier integration"
+    )
+
     @validator('end_date')
     def validate_date_range(cls, v, values):
         """Validate date range is logical and sufficient."""
@@ -939,6 +1844,20 @@ class FactorCorrelationRequest(BaseModel):
                     raise ValueError(f"Invalid ticker format for factor '{factor}': {ticker}")
         return v
 
+    @validator('rolling_windows')
+    def validate_rolling_windows(cls, v, values):
+        """Ensure rolling_windows is provided when include_rolling_summaries is True."""
+        include_rolling = values.get('include_rolling_summaries', False)
+        if include_rolling and not v:
+            # Set default rolling windows
+            return [12, 24, 36]
+        if v:
+            # Validate window periods are reasonable
+            for window in v:
+                if not isinstance(window, int) or window < 6 or window > 120:
+                    raise ValueError("Rolling windows must be integers between 6 and 120 months")
+        return v
+
 class FactorPerformanceRequest(BaseModel):
     """Enhanced request model for factor performance analysis with robust validation"""
     start_date: Optional[str] = Field(None, regex=r'^\d{4}-\d{2}-\d{2}$', description="Analysis start date (YYYY-MM-DD)")
@@ -946,7 +1865,44 @@ class FactorPerformanceRequest(BaseModel):
     benchmark_ticker: str = Field(default="SPY", description="Benchmark ticker for relative performance")
     factor_universe: Optional[Dict[str, str]] = Field(None, description="Custom factor universe mapping")
     min_observations: int = Field(default=24, ge=12, le=120, description="Minimum observations required per factor")
+    asset_class_filters: Optional[Dict[str, List[str]]] = Field(
+        default=None,
+        description="Optional asset class filters: {'include': [...], 'exclude': [...]}"
+    )
+    factor_categories: Optional[List[str]] = Field(
+        default=None,
+        description="Subset of categories to analyze (e.g., ['industry','style','market'])"
+    )
+    # Note: Performance endpoint is returns-based; no rate betas are computed here.
     
+    # Composite performance options
+    include_macro_composite_performance: bool = Field(
+        default=True,
+        description="Include macro composite performance (equity/fixed_income/cash/commodity/crypto)"
+    )
+    include_factor_composite_performance: bool = Field(
+        default=True,
+        description="Include per-category composite performance tables (industry/style/market/etc.)"
+    )
+    composite_weighting_method: str = Field(
+        default="equal",
+        regex="^(equal|cap|custom)$",
+        description="Composite weighting method: equal, cap (cap-weighted), or custom"
+    )
+    composite_max_per_group: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=100,
+        description="Optional cap on ETFs per group when building composites"
+    )
+
+    # Industry granularity controls (for composite performance)
+    industry_granularity: str = Field(
+        default="group",
+        regex="^(group|industry|subindustry)$",
+        description="Industry granularity level for composite performance calculation"
+    )
+
     @validator('end_date')
     def validate_date_range(cls, v, values):
         """Validate date range is logical and sufficient."""
@@ -980,6 +1936,16 @@ class OffsetRecommendationRequest(BaseModel):
         ge=-1.0, 
         le=0.0, 
         description="Maximum correlation for offset candidates (-1.0 to 0.0)"
+    )
+    asset_class_filters: Optional[Dict[str, List[str]]] = Field(
+        default=None,
+        description="Optional asset class filters for hedges: {'include': [...], 'exclude': [...]}"
+    )
+    prefer_income: bool = Field(default=False, description="Bias hedges toward higher dividend yield")
+    min_dividend_yield: Optional[float] = Field(default=None, ge=0.0, le=1.0, description="Minimum dividend yield for candidates (0.00-1.00)")
+    factor_categories: Optional[List[str]] = Field(
+        default=None,
+        description="Subset of categories for candidate hedges (e.g., ['industry','style'])"
     )
 
 class CreateFactorGroupRequest(BaseModel):
@@ -1097,6 +2063,7 @@ class ServiceManager:
         # ... existing service initialization ...
         
         # Add Factor Intelligence Service with enhanced monitoring
+        # Note: ServiceManager creates system-wide instance; user-specific instances created via dependency injection
         self.factor_intelligence_service = FactorIntelligenceService(cache_results)
         
         # Update async service if enabled
@@ -1254,13 +2221,13 @@ class ServiceManager:
         }
 ```
 
-### **4. 🗄️ Database Migration: `/database/migrations/20250101_add_factor_intelligence.sql`**
+### **4. 🗄️ Database Migration: `/database/migrations/20250903_add_factor_intelligence.sql`**
 
 ```sql
 -- ============================================================================
 -- FACTOR INTELLIGENCE ENGINE DATABASE MIGRATION
 -- ============================================================================
--- Migration: 20250101_add_factor_intelligence.sql
+-- Migration: 20250903_add_factor_intelligence.sql
 -- Purpose: Add support for user-defined factor groups and factor intelligence
 -- 
 -- Features Added:
@@ -1585,7 +2552,7 @@ export class FactorIntelligenceManager {
  * and event-driven invalidation across all cache layers, following the RiskScoreAdapter pattern.
  * 
  * BACKEND ENDPOINT INTEGRATION:
- * - Source Endpoint: GET /api/factor-intelligence/correlations
+ * - Source Endpoint: POST /api/factor-intelligence/correlations
  * - Dedicated Endpoint: Factor correlation matrix analysis
  * - API Request: { start_date?, end_date?, max_factors?, factor_universe? }
  * - Response Cache: Multi-layer caching via coordinated caching system
@@ -1801,7 +2768,7 @@ export class FactorCorrelationAdapter {
  * 
  * BACKEND ENDPOINT INTEGRATION:
  * - Manager Method: manager.analyzeFactorCorrelations(portfolioId, options)
- * - Backend Endpoint: GET /api/factor-intelligence/correlations (via FactorIntelligenceService)
+ * - Backend Endpoint: POST /api/factor-intelligence/correlations (via FactorIntelligenceService)
  * - Cache Strategy: HOOK_QUERY_CONFIG.useFactorCorrelations.staleTime + TanStack Query
  * - API Response: FactorCorrelationApiResponse (generated types)
  * 
@@ -1855,6 +2822,8 @@ export interface FactorCorrelationOptions {
   end_date?: string;
   max_factors?: number;
   factor_universe?: Record<string, string>;
+  asset_class_filters?: { include?: string[]; exclude?: string[] };
+  factor_categories?: string[]; // ['industry','style','market']
 }
 
 export const useFactorCorrelations = (options: FactorCorrelationOptions = {}) => {
@@ -1954,6 +2923,32 @@ export interface FactorCorrelationRequest {
   end_date?: string;
   factor_universe?: Record<string, string>;
   max_factors?: number;
+  asset_class_filters?: { include?: string[]; exclude?: string[] };
+  factor_categories?: string[]; // e.g., ['industry','style','market','fixed_income','cash','commodity','crypto','rate']
+  include_rate_sensitivity?: boolean;
+  rate_maturities?: string[];
+  // Macro-only cross-asset views are provided via macro_composite_matrix and macro_etf_matrix
+  include_market_sensitivity?: boolean;
+  market_benchmarks?: string[]; // e.g., ['SPY','ACWX','EEM']
+  market_sensitivity_categories?: string[]; // defaults to ['industry','style'] if omitted
+  include_macro_composite?: boolean;
+  include_macro_etf?: boolean;
+  macro_groups?: string[]; // e.g., ['equity','bond','cash','commodity','crypto']
+  macro_max_per_group?: number; // e.g., 5
+  macro_deduplicate_threshold?: number; // e.g., 0.95
+  macro_min_group_coverage_pct?: number; // falls back to settings when omitted
+  rate_sensitivity_categories?: string[]; // defaults to ['fixed_income','industry','market','cash'] if omitted
+  // Output/customization controls
+  sections?: string[]; // e.g., ['matrices:industry','overlays:rate','macro:composite']
+  format?: 'json' | 'table' | 'both'; // default 'json'
+  top_n_per_matrix?: number; // default 15
+  // Industry granularity controls
+  industry_granularity?: 'group' | 'industry' | 'subindustry'; // default 'group'
+  industry_group_source?: 'sector_etf' | 'bucket_file'; // default 'sector_etf'
+  // Rolling/stability and regime (future)
+  include_rolling_summaries?: boolean; // default false
+  rolling_windows?: number[]; // e.g., [12,24,36]
+  regime?: string | null; // reserved for future regime classifier
 }
 
 export interface FactorPerformanceRequest {
@@ -1961,6 +2956,13 @@ export interface FactorPerformanceRequest {
   end_date?: string;
   benchmark_ticker?: string;
   factor_universe?: Record<string, string>;
+  asset_class_filters?: { include?: string[]; exclude?: string[] };
+  factor_categories?: string[];
+  // Note: no rate betas in factor intelligence performance
+  include_macro_composite_performance?: boolean; // default true
+  include_factor_composite_performance?: boolean; // default true
+  composite_weighting_method?: 'equal' | 'cap' | 'custom'; // default 'equal'
+  composite_max_per_group?: number; // optional cap
 }
 
 export interface OffsetRecommendationRequest {
@@ -1968,7 +2970,66 @@ export interface OffsetRecommendationRequest {
   overexposed_factor: string;
   target_allocation_reduction?: number;
   correlation_threshold?: number;
+  asset_class_filters?: { include?: string[]; exclude?: string[] };
+  prefer_income?: boolean;
+  min_dividend_yield?: number; // 0.00 - 1.00
+  factor_categories?: string[];
 }
+
+
+## Post‑Implementation Considerations (Parking Lot)
+
+The core design is ready. Below are pragmatic enhancements and guardrails to consider after initial implementation. These are not in scope now but serve as a checklist for future hardening.
+
+- Universe hygiene and quality
+  - De‑duplication: Drop or coalesce near‑duplicate ETFs (|corr| ≥ 0.95 within a group) with a rule (prefer higher ADV/lower fee).
+  - Liquidity/fees: Optional screens/penalties to keep matrices practical and recommendations investable.
+  - Survivorship bias: Minimal versioning/audit for `asset_etf_proxies` updates.
+
+- Stability and regimes
+  - Rolling windows: Optional 12/24/36m correlation summaries (or stability score) to avoid over‑fitting a single window.
+  - Stress slicing: Optional “large Δy move” subsets to surface behavior in rate shocks.
+
+- Composite methodology
+  - Weighting: Equal‑weight default; cap‑weight/custom require data sources and a reconstitution cadence (e.g., quarterly). Document cadence.
+  - Inclusion rules: Cap constituents per composite; log exclusions/coverage.
+
+- Yield nuances
+  - Bond yields: TTM distribution vs SEC yield; stick with current yield for consistency but consider optional SEC yield column if available.
+  - Cash ETFs: Confirm TR series capture distributions; align monthly accrual with yield reporting.
+
+- Currency and benchmarks
+  - Currency effects: Note USD base; if local‑currency assets appear later, document conversion policy.
+  - Benchmarks: Avoid self‑correlation (skip ETFs used as benchmarks); allow discovery via exchange map when user omits benchmarks.
+
+- Caching and cost control
+  - Returns panel cache: Cache aligned monthly panel per (universe_hash, start, end) and share across sections.
+  - Heavy sections opt‑in: Keep macro ETF matrix opt‑in; enforce `macro_max_per_group` and time budgets; return partials with notes.
+
+- API ergonomics and payload size
+  - Table caps: `top_n_per_matrix` defaults conservatively; consistent across renderers.
+  - Large payloads: Support `format='table'` to avoid giant JSON matrices for AI/CLI; consider trimming rarely‑used fields when not requested.
+
+- Admin and governance
+  - `asset_etf_proxies` audit: Consider updated_by/updated_reason; simple history if frequent edits expected.
+  - Sync safety: DB↔YAML sync never silently deletes; require `--force` for removals.
+
+- Defaults and presets
+  - Provide preset views (overview, equity_factors, macro_focus, income_focus, light) mapped to `sections` + options.
+  - Label clearly: “sensitivity = correlation overlay” vs “beta in profiles”.
+
+- Testing
+  - Golden snapshots for a fixed universe/window (per‑category matrices, macro composites, overlays, sample profiles).
+  - Property tests: correlations in [-1,1], symmetry for square matrices, stable behavior with missing data.
+  - Performance tests: 200+ factors ceiling; verify cache effectiveness.
+
+- Error handling and fallbacks
+  - Partial success: Return available sections with explicit `data_quality` reasons for skipped parts (timeouts, data gaps).
+  - Provider outage: Log which tier (DB/YAML/hardcoded) was used per section in `analysis_metadata`.
+
+- Documentation polish
+  - Add “Top Insights” summaries (e.g., strongest diversifier vs SPY; most negative corr to UST10Y among equities).
+  - Small glossary: category, asset_class, sensitivity vs beta, macro composites, etc.
 
 export interface CreateFactorGroupRequest {
   group_name: string;
@@ -2691,7 +3752,7 @@ Add monitoring endpoints to `/routes/factor_intelligence.py`:
 async def factor_intelligence_health(
     request: Request,
     user: dict = Depends(get_current_user),
-    service: FactorIntelligenceService = Depends(get_factor_intelligence_service)
+    service: FactorIntelligenceService = Depends(lambda user=Depends(get_current_user): get_user_factor_intelligence_service(user))
 ):
     """Health check with cache statistics and configuration info"""
     try:
@@ -2945,3 +4006,117 @@ def test_factor_intelligence_cache_hit_rates():
 
 
 This implementation architecture provides a complete blueprint for integrating the Factor Intelligence Engine into your existing system while maintaining all established patterns and ensuring production-ready quality with comprehensive testing, monitoring, and configuration management.
+    Defaults:
+    =========
+    - market_sensitivity: Applies to ['industry','style'] by default; excludes 'market' category and any ETF used
+      as a benchmark (e.g., SPY). Benchmarks default to ['SPY'] with optional ACWX/EEM.
+    - rate_sensitivity: Applies to ['fixed_income','industry','market','cash'] by default. Maturities default to
+      RATE_FACTOR_CONFIG (e.g., ['UST2Y','UST5Y','UST10Y','UST30Y']).
+    - Windows: Correlations use centralized default windows from settings (e.g., PORTFOLIO_DEFAULTS or a dedicated
+      INTELLIGENCE_WINDOWS). All sections use the same start/end unless overridden, ensuring consistency across views.
+    - Rolling snapshots: Optional rolling summaries (e.g., 12/24/36 months) can be enabled to provide stability context.
+    - Industry granularity:
+      • Default 'group' uses `industry_proxies.sector_group` (DB‑first) when present; entries without a sector_group fall
+        back to 'industry' for that entry. No ETF inference is used.
+      • When 'group' is selected, the correlation matrix and sensitivity overlays for “industry” are computed from
+        group composite return series (equal‑weight of member industries' ETF returns by default). No canonical group ETF
+        is required.
+### Performance & Scalability Notes
+
+Goal: Keep ~25 ETFs (+ macro assets) responsive by caching and grouping strategies.
+
+- Shared returns panel cache
+  - Build a single aligned monthly returns panel for the requested universe/window and cache it by
+    `f"factor_returns_panel_{universe_hash}_{start_date}_{end_date}_{total_return_flag}"`. Reuse for all sections (matrices, overlays, profiles).
+  - TTL configurable; invalidate on universe change (e.g., proxies update) via a simple version token.
+
+- Section‑level caches
+  - Cache each computed section (per‑category matrices, macro composites/ETFs, overlays) with keys like
+    `f"factor_{section_type}_{universe_hash}_{start_date}_{end_date}_{section_params_hash}"`.
+
+- Curated macro ETF matrix
+  - Opt‑in, disabled by default. Control size via:
+    • `macro_max_per_group` (default 5)
+    • `macro_deduplicate_threshold` (default 0.95) to drop near‑duplicates within a group
+    • `macro_min_group_coverage_pct` to require minimum data coverage before including a group
+  - If the matrix would exceed budget (N_groups * max_per_group^2 too large), fall back to macro composites
+    and return a `data_quality` note.
+
+- Tuning parameters (already exposed)
+  - `macro_max_per_group`, `macro_deduplicate_threshold`, `macro_min_group_coverage_pct`, `top_n_per_matrix`.
+  - Defaults chosen to balance fidelity and speed; callers can override.
+
+- Fetching/batching
+  - Batch price requests and reuse existing disk/cache layers from data_loader.
+  - Respect provider rate limits; prefer cached total‑return series; fallback to close only when needed.
+
+- Concurrency & budgets
+  - Use constrained concurrency for computations; apply a time budget per heavy section.
+  - Return partial results with clear `data_quality` messages when a budget is exceeded.
+
+### Performance Monitoring
+
+Instrument correlation and performance calculations with timing and size metrics to catch regressions,
+especially when expanded beyond current ~25 ETF universe.
+
+- Decorators
+  - Keep using `@log_performance` and `@log_resource_usage_decorator` on service methods.
+
+- Section timers (recorded per request and in service counters)
+  - returns_panel_build_ms
+  - per_category_corr_ms (per category), and total_corr_ms
+  - macro_composite_ms, macro_etf_ms (if enabled)
+  - rate_sensitivity_ms, market_sensitivity_ms
+  - performance_profiles_ms, composite_performance_ms
+
+- Size and coverage metrics
+  - factors_count_total, factors_count_per_category
+  - macro_groups_included, macro_constituents_used, macro_constituents_dropped
+  - deduplicated_pairs_count (macro), coverage_pct_per_group
+
+- Exposure in responses
+  - Add `analysis_metadata.performance` with timing summaries and sizes (non-PII) so clients can surface performance data.
+  - Keep service health counters (cache_hits/requests, analyses, errors, total_exec_time, peak_mem) in FactorIntelligenceService.
+
+- Alerting (optional later)
+  - Define soft thresholds for total_corr_ms and macro_etf_ms; emit warnings to logs when exceeded.
+
+### Deployment Note: Moving End Date Defaults
+
+- For production, set the default analysis end date to a moving latest month‑end so caches naturally refresh as data rolls.
+- Centralize via settings (e.g., resolve end_date='latest_month_end' at runtime in AnalysisData). Start date may remain a
+  fixed default (e.g., '2019-01-31') or a preset window (e.g., 3Y/5Y).
+
+### Factor Lifecycle Management (Delistings / Ticker Changes)
+
+Plan for ETF delistings, ticker changes, and stale proxies in the factor universe.
+
+- Detection & Signals
+  - During returns panel build, if a proxy has no data or chronically fails (e.g., no observations ≥ min threshold),
+    record it under `data_quality.stale_factor_candidates` with reason (no_data, fetch_failed, thin_history).
+  - Maintain a simple counter for consecutive failures per proxy (in memory or DB) to avoid transient flags.
+
+- Data-quality thresholds (centralized)
+  - Reuse `settings.DATA_QUALITY_THRESHOLDS` (e.g., `min_observations_for_returns_calculation`) to decide when to
+    exclude a proxy and flag as stale.
+
+- Universe loader behavior
+  - Skip excluded (stale) proxies for calculations; include them in `excluded_factor_list` with reasons.
+  - For macro/group composites, report coverage impact per group.
+
+- Database (optional extensions)
+  - `asset_etf_proxies`: consider adding `active BOOLEAN DEFAULT TRUE`, `last_verified_at TIMESTAMP`, `notes TEXT`.
+  - `industry_proxies`: consider adding `last_verified_at TIMESTAMP`.
+  - These are optional; v1 can rely on runtime `data_quality` signals and admin review.
+
+- Admin workflows
+  - Extend `manage_reference_data.py` with:
+    • `asset-proxy replace <asset_class> <proxy_key> <old_etf> <new_etf>`
+    • `asset-proxy deactivate <asset_class> <proxy_key> <etf>`
+    • `industry add <industry> <etf> [--asset-class] [--group]` (already planned)
+  - Add a `verify_proxies` utility (CLI) that attempts a lightweight price fetch for all active proxies and prints a
+    summary report of stale candidates.
+
+- Analysis metadata
+  - Include `analysis_metadata.lifecycle` with: `stale_factor_candidates`, `excluded_for_no_data`, and optional
+    `last_universe_refresh` timestamps to surface lifecycle health to clients.

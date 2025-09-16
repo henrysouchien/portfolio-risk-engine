@@ -96,9 +96,9 @@
 # ============================================================================
 
 proxy_by_currency:        # ① Which ETF to use for each ISO currency
-  USD: SGOV
-  EUR: ESTR
-  GBP: IB01
+  USD: SGOV               #iShares 0-3 Month Treasury Bond ETF
+  EUR: IBGE.L             #iShares € Govt Bond 0-1yr UCITS ETF
+  GBP: ERNS.L             #iShares £ Ultrashort Bond UCITS ETFF  
 
 alias_to_currency:        # ② Any broker cash tickers → currency code
   CUR:USD: USD            # Interactive Brokers
