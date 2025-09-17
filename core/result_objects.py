@@ -130,7 +130,8 @@ def _format_df_as_text(df: pd.DataFrame,
                        row_label_min: int = 10,
                        row_label_max: int = 16,
                        col_min: int = 8,
-                       col_max: int = 12) -> List[str]:
+                       col_max: int = 12,
+                       wrap_header: bool = False) -> List[str]:
     """Format a correlation-like DataFrame as aligned text for CLI.
 
     The formatter auto-adjusts column and row-label widths (within limits) so most
@@ -183,8 +184,37 @@ def _format_df_as_text(df: pd.DataFrame,
 
     # Header
     header_indent = " " * (row_label_w + 2)
-    header = header_indent + " ".join([str(c)[:col_w].rjust(col_w) for c in cols])
-    lines.append(header)
+    # Build one or two header lines
+    def _split_header(label: str) -> Tuple[str, str]:
+        s = str(label)
+        # Prefer splitting tokens before ticker in parentheses
+        pos = s.find(" (")
+        if pos != -1:
+            first = s[:pos].strip()
+            second = s[pos:].strip()
+        else:
+            first = s
+            second = s[col_w:]
+        return first, second
+
+    if wrap_header:
+        first_line_parts: List[str] = []
+        second_line_parts: List[str] = []
+        any_second = False
+        for c in cols:
+            f1, f2 = _split_header(c)
+            f1 = f1[:col_w]
+            f2 = f2[:col_w]
+            if f2.strip():
+                any_second = True
+            first_line_parts.append(f1.rjust(col_w))
+            second_line_parts.append(f2.rjust(col_w) if f2 else "".rjust(col_w))
+        lines.append(header_indent + " ".join(first_line_parts))
+        if any_second:
+            lines.append(header_indent + " ".join(second_line_parts))
+    else:
+        header = header_indent + " ".join([str(c)[:col_w].rjust(col_w) for c in cols])
+        lines.append(header)
 
     # Rows
     for r in rows:
@@ -5129,12 +5159,14 @@ class FactorCorrelationResult:
         Echo of analysis window and universe hash.
     """
 
-    def __init__(self, matrices: Dict[str, Any], overlays: Dict[str, Any], data_quality: Dict[str, Any], performance: Dict[str, Any], analysis_metadata: Dict[str, Any]):
+    def __init__(self, matrices: Dict[str, Any], overlays: Dict[str, Any], data_quality: Dict[str, Any], performance: Dict[str, Any], analysis_metadata: Dict[str, Any], labels: Optional[Dict[str, str]] = None, market_exchanges: Optional[Dict[str, str]] = None):
         self.matrices = matrices or {}
         self.overlays = overlays or {}
         self.data_quality = data_quality or {}
         self.performance = performance or {}
         self.analysis_metadata = analysis_metadata or {}
+        self.labels = labels or {}
+        self.market_exchanges = market_exchanges or {}
 
     @classmethod
     def from_core_analysis(cls,
@@ -5142,7 +5174,9 @@ class FactorCorrelationResult:
                           overlays: Dict[str, Any],
                           data_quality: Dict[str, Any],
                           performance: Dict[str, Any],
-                          analysis_metadata: Dict[str, Any]) -> 'FactorCorrelationResult':
+                          analysis_metadata: Dict[str, Any],
+                          labels: Optional[Dict[str, str]] = None,
+                          market_exchanges: Optional[Dict[str, str]] = None) -> 'FactorCorrelationResult':
         """
         Create FactorCorrelationResult from core factor intelligence analysis data.
 
@@ -5172,7 +5206,9 @@ class FactorCorrelationResult:
             overlays=overlays,
             data_quality=data_quality,
             performance=performance,
-            analysis_metadata=analysis_metadata
+            analysis_metadata=analysis_metadata,
+            labels=labels or {},
+            market_exchanges=market_exchanges or {}
         )
 
     @staticmethod
@@ -5240,12 +5276,23 @@ class FactorCorrelationResult:
         for name, df in self.matrices.items():
             matrices_serialized[name] = self._df_to_nested(df) if hasattr(df, 'to_dict') else {}
 
+        # Build resolved labels: apply market exchange prettifying for market tickers
+        resolved_labels = dict(self.labels or {})
+        if isinstance(self.market_exchanges, dict):
+            def _pretty_exch(s: str) -> str:
+                p = str(s).replace('_', ' ').strip()
+                return p.title()
+            for tkr, exch in self.market_exchanges.items():
+                pretty = _pretty_exch(exch)
+                resolved_labels[tkr] = f"{pretty} Market ({tkr})"
+
         return {
             "matrices": matrices_serialized,                                    # DICT: Per-category correlation matrices (nested format)
             "overlays": _convert_to_json_serializable(self.overlays),          # DICT: Rate/market sensitivity and macro matrices
             "data_quality": _convert_to_json_serializable(self.data_quality),  # DICT: Coverage and exclusion info
             "performance": _convert_to_json_serializable(self.performance),    # DICT: Timing metrics
             "analysis_metadata": _convert_to_json_serializable(self.analysis_metadata),  # DICT: Analysis configuration
+            "labels": _convert_to_json_serializable(resolved_labels),          # DICT: Optional ticker → display label mapping
             "formatted_report": self.to_cli_report(),                          # STR: Human-readable report
         }
 
@@ -5273,7 +5320,25 @@ class FactorCorrelationResult:
                     display_df.index = [row_map.get(str(r), str(r)) for r in df.index]
                 except Exception:
                     display_df = df
-            block = _format_df_as_text(display_df, title=title, max_rows=max_rows, max_cols=max_rows)
+            # Apply ticker display labels (non-industry categories only)
+            elif df is not None and not getattr(df, 'empty', True) and (self.labels or self.market_exchanges):
+                try:
+                    display_df = df.copy()
+                    # Build resolved labels for market tickers
+                    def _pretty_exch(s: str) -> str:
+                        p = str(s).replace('_', ' ').strip()
+                        return p.title()
+                    resolved = dict(self.labels or {})
+                    if isinstance(self.market_exchanges, dict):
+                        for tkr, exch in self.market_exchanges.items():
+                            resolved[tkr] = f"{_pretty_exch(exch)} Market ({tkr})"
+                    display_df.columns = [resolved.get(str(c), str(c)) for c in df.columns]
+                    display_df.index = [resolved.get(str(r), str(r)) for r in df.index]
+                except Exception:
+                    display_df = df
+            # Wrap headers for non-industry categories to avoid truncation; industry uses abbreviations
+            block = _format_df_as_text(display_df, title=title, max_rows=max_rows, max_cols=max_rows,
+                                       wrap_header=(name != 'industry'))
             lines.extend(block)
 
         # Overlays: Macro composite and curated macro ETF matrices (if present)
@@ -5308,7 +5373,8 @@ class FactorCorrelationResult:
                     lines.extend(_format_df_as_text(mc.get('matrix'),
                                                     title="MACRO COMPOSITE MATRIX (equity/fixed_income/cash/commodity/crypto)",
                                                     max_rows=max_rows,
-                                                    max_cols=max_rows))
+                                                    max_cols=max_rows,
+                                                    wrap_header=False))
 
                 me = ov.get('macro_etf_matrix')
                 if isinstance(me, dict) and hasattr(me.get('matrix'), 'corr'):
@@ -5321,7 +5387,8 @@ class FactorCorrelationResult:
                     lines.extend(_format_df_as_text(me.get('matrix'),
                                                     title="MACRO ETF MATRIX (curated)",
                                                     max_rows=max_rows,
-                                                    max_cols=max_rows))
+                                                    max_cols=max_rows,
+                                                    wrap_header=False))
         except Exception:
             # Overlays are optional; keep CLI resilient
             pass

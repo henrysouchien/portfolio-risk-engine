@@ -355,6 +355,74 @@ def _build_factor_returns_panel_cached(
     df_raw.attrs["total_return"] = bool(total_return)
     df_raw.attrs["cache_key"] = f"factor_returns_panel_{universe_hash}_{start_date}_{end_date}_{total_return}"
 
+    # Build user-friendly labels for tickers (ticker → display label) using DB-first loaders
+    try:
+        label_map: Dict[str, str] = {}
+
+        # Helper: prettify UST keys like 'UST10Y' → 'UST 10Y'
+        def _pretty_ust(key: str) -> str:
+            s = str(key).upper().replace("UST", "UST ")
+            if s.endswith(" Y"):
+                s = s[:-2] + "Y"
+            return s.strip()
+
+        # Exchange proxies (market/momentum/value) → generic factor names
+        try:
+            exch_map = load_exchange_proxy_map()
+            if isinstance(exch_map, dict):
+                for _ex, ftypes in exch_map.items():
+                    if not isinstance(ftypes, dict):
+                        continue
+                    for ftype in ("market", "momentum", "value"):
+                        t = ftypes.get(ftype)
+                        if t:
+                            tt = str(t).upper()
+                            fname = "Market" if ftype == "market" else ("Momentum" if ftype == "momentum" else "Value")
+                            label_map.setdefault(tt, f"{fname} ({tt})")
+        except Exception:
+            pass
+
+        # Asset-class proxies (bond/commodity/crypto)
+        try:
+            asset_proxies, _src = load_asset_class_proxies()
+            if isinstance(asset_proxies, dict):
+                for acls, proxy_map in asset_proxies.items():
+                    if not isinstance(proxy_map, dict):
+                        continue
+                    for pkey, t in proxy_map.items():
+                        if not t:
+                            continue
+                        tt = str(t).upper()
+                        pk = str(pkey)
+                        if acls == 'bond':
+                            label_map.setdefault(tt, f"{_pretty_ust(pk)} ({tt})")
+                        elif acls == 'commodity':
+                            label_map.setdefault(tt, f"{pk.title()} ({tt})")
+                        elif acls == 'crypto':
+                            label_map.setdefault(tt, f"{pk.upper()} ({tt})")
+                        else:
+                            label_map.setdefault(tt, f"{pk.title()} ({tt})")
+        except Exception:
+            pass
+
+        # Cash proxies (currency → ticker)
+        try:
+            cash_map, _csrc = load_cash_proxies()
+            if isinstance(cash_map, dict):
+                inv = {str(v).upper(): str(k).upper() for k, v in cash_map.items() if v}
+                for tt, curr in inv.items():
+                    label_map.setdefault(tt, f"{curr} Cash ({tt})")
+        except Exception:
+            pass
+
+        # Keep only labels for tickers actually in panel; fallback to ticker itself
+        present = set(df_raw.columns)
+        labels_final = {t: label_map.get(t, t) for t in present}
+        df_raw.attrs["labels"] = labels_final
+    except Exception:
+        # Labels are optional; ignore failures
+        df_raw.attrs["labels"] = {t: t for t in df_raw.columns}
+
     # Return panel with NaNs retained; downstream steps will align and drop per scope
     return df_raw
 
