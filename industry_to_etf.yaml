@@ -36,6 +36,44 @@
 # - Factor regression models use these ETFs as industry exposure proxies
 # - Risk analysis calculates portfolio industry exposures via proxy ETFs
 #
+# CORE SECTOR ETFs (matches database bootstrap)
+# ============================================
+# Keep these high-level sectors in YAML so database + YAML stay aligned.
+# They mirror the seed rows inserted into industry_proxies via schema.sql.
+Technology:
+  etf: XLK
+  asset_class: equity
+Healthcare:
+  etf: XLV
+  asset_class: equity
+Financial Services:
+  etf: XLF
+  asset_class: equity
+Consumer Discretionary:
+  etf: XLY
+  asset_class: equity
+Consumer Staples:
+  etf: XLP
+  asset_class: equity
+Energy:
+  etf: XLE
+  asset_class: equity
+Industrials:
+  etf: XLI
+  asset_class: equity
+Materials:
+  etf: XLB
+  asset_class: equity
+Real Estate:
+  etf: XLRE
+  asset_class: real_estate
+Utilities:
+  etf: XLU
+  asset_class: equity
+Communication Services:
+  etf: XLC
+  asset_class: equity
+
 # **Secondary Usage - Asset Classification:**
 # - SecurityTypeService._classify_asset_class_from_fmp_industry() (Tier 3)
 # - proxy_builder.map_industry_asset_class() (uses database asset_class overrides)

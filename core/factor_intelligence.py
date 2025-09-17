@@ -419,6 +419,68 @@ def _build_factor_returns_panel_cached(
         present = set(df_raw.columns)
         labels_final = {t: label_map.get(t, t) for t in present}
         df_raw.attrs["labels"] = labels_final
+
+        # Market ticker → exchange key mapping for richer labels downstream
+        try:
+            categories_map = df_raw.attrs.get("categories", {})
+            market_tickers = {t for t, cat in categories_map.items() if cat == "market"}
+            if present:
+                market_exchanges: Dict[str, str] = {}
+
+                def _extract_ticker(entry: Any) -> Optional[str]:
+                    """Support plain strings or structured mappings."""
+                    if isinstance(entry, dict):
+                        return (
+                            entry.get("ticker")
+                            or entry.get("etf")
+                            or entry.get("symbol")
+                            or entry.get("proxy")
+                        )
+                    return entry
+
+                def _extract_exchange_key(entry: Any, default_key: str) -> Optional[str]:
+                    if isinstance(entry, dict):
+                        return (
+                            entry.get("exchange_key")
+                            or entry.get("exchange")
+                            or entry.get("label")
+                        )
+                    return default_key
+
+                exch_map = load_exchange_proxy_map()
+                if isinstance(exch_map, dict):
+                    # Prefer explicit exchanges; process DEFAULT last
+                    items = list(exch_map.items())
+                    items.sort(key=lambda kv: (str(kv[0]).upper() == "DEFAULT", str(kv[0]).lower()))
+                    for exch_key, factors in items:
+                        if not isinstance(factors, dict):
+                            continue
+                        raw_market = factors.get("market")
+                        ticker_val = _extract_ticker(raw_market)
+                        if not ticker_val:
+                            continue
+                        tt = str(ticker_val).upper()
+                        if tt not in present:
+                            continue
+                        if tt in market_exchanges:
+                            continue  # Keep the first (non-default) exchange we saw
+                        resolved_key = _extract_exchange_key(raw_market, str(exch_key))
+                        key_clean = str(resolved_key).strip() if resolved_key else str(exch_key).strip()
+                        if not key_clean:
+                            continue
+                        if key_clean.upper() == "DEFAULT":
+                            key_clean = "Global"
+                        market_exchanges[tt] = key_clean
+
+                if market_exchanges:
+                    df_raw.attrs["market_exchanges"] = market_exchanges
+                    # Ensure market tickers are categorized correctly (override earlier assignments)
+                    categories_map = df_raw.attrs.get("categories", {})
+                    if isinstance(categories_map, dict):
+                        for tt in market_exchanges:
+                            categories_map[tt] = "market"
+        except Exception:
+            pass
     except Exception:
         # Labels are optional; ignore failures
         df_raw.attrs["labels"] = {t: t for t in df_raw.columns}
@@ -446,7 +508,16 @@ def fetch_factor_universe(use_database: bool = True) -> Dict[str, List[str]]:
     """
     # Industry proxies (DB‑first via proxy_builder loader)
     industry_map = load_industry_etf_map()
-    industry_etfs = sorted(set(industry_map.values())) if isinstance(industry_map, dict) else []
+    industry_set = set()
+    if isinstance(industry_map, dict):
+        for entry in industry_map.values():
+            if isinstance(entry, dict):
+                etf = entry.get("etf")
+                if etf:
+                    industry_set.add(str(etf))
+            elif entry:
+                industry_set.add(str(entry))
+    industry_etfs = sorted(industry_set)
 
     # Exchange proxies (DB‑first)
     exch_map = load_exchange_proxy_map()
@@ -605,20 +676,23 @@ def _build_industry_series_by_granularity(
             composites_built += 1
 
     # Industries without a sector_group → keep individually
-    unlabeled_industries = 0
+    ungrouped: List[str] = []
     for industry, etf in industry_map.items():
         if groups_map.get(industry):
-            continue  # already in a group
+            continue  # already included via group composite
         etf_u = str(etf).upper()
         if etf_u in etf_to_series:
-            label_to_series[industry] = etf_to_series[etf_u]
-            unlabeled_industries += 1
+            if granularity != 'group':
+                label_to_series[industry] = etf_to_series[etf_u]
+            else:
+                ungrouped.append(industry)
 
     info.update({
         "groups_total": len(group_members),
         "group_sizes": group_sizes,
         "group_composites_built": composites_built,
-        "unlabeled_industries": unlabeled_industries
+        "unlabeled_industries": len(ungrouped),
+        "unlabeled_industry_labels": ungrouped if granularity == 'group' else None,
     })
     return label_to_series, info
 
@@ -651,21 +725,30 @@ def compute_per_category_correlation_matrices(
     for cat in wanted:
         c0 = time.time()
         if cat == 'industry':
-            label_series, info = _build_industry_series_by_granularity(returns_panel, granularity=industry_granularity)
-            if not label_series:
-                dq[cat] = {**info, "status": "skipped", "reason": "no_series"}
-                per_cat_ms[cat] = int((time.time() - c0) * 1000)
-                continue
-            df = pd.concat(label_series.values(), axis=1)
-            df.columns = list(label_series.keys())
-            df = df.dropna()
-            if df.shape[1] < 2:
-                dq[cat] = {**info, "status": "skipped", "reason": "insufficient_labels", "labels": df.columns.tolist()}
-                per_cat_ms[cat] = int((time.time() - c0) * 1000)
-                continue
-            matrices[cat] = df.corr()
-            dq[cat] = {**info, "status": "ok", "labels": df.columns.tolist(), "observations": int(df.shape[0])}
-            per_cat_ms[cat] = int((time.time() - c0) * 1000)
+            # When granularity="group", emit both aggregate groups and raw industries
+            modes = [('industry', 'industry')]
+            if (industry_granularity or '').lower() == 'group':
+                modes.insert(0, ('industry_groups', 'group'))
+
+            for out_key, gran in modes:
+                c0_mode = time.time()
+                label_series, info = _build_industry_series_by_granularity(returns_panel, granularity=gran)
+                if not label_series:
+                    dq[out_key] = {**info, "status": "skipped", "reason": "no_series"}
+                    per_cat_ms[out_key] = int((time.time() - c0_mode) * 1000)
+                    continue
+                df = pd.concat(label_series.values(), axis=1)
+                df.columns = list(label_series.keys())
+                df = df.dropna()
+                if df.shape[1] < 2:
+                    dq[out_key] = {**info, "status": "skipped", "reason": "insufficient_labels", "labels": df.columns.tolist()}
+                    per_cat_ms[out_key] = int((time.time() - c0_mode) * 1000)
+                    continue
+                matrices[out_key] = df.corr()
+                dq[out_key] = {**info, "status": "ok", "labels": df.columns.tolist(), "observations": int(df.shape[0])}
+                per_cat_ms[out_key] = int((time.time() - c0_mode) * 1000)
+
+            # Skip default processing since we handled industry separately
             continue
 
         # Other categories: filter by panel attrs

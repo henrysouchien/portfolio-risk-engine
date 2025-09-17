@@ -229,6 +229,12 @@ def _format_df_as_text(df: pd.DataFrame,
             row_vals.append(cell)
         lines.append(f"{row_label}  " + " ".join(row_vals))
 
+    if df.shape[0] > max_rows or df.shape[1] > max_cols:
+        lines.append(
+            f"… showing {min(df.shape[0], max_rows)} of {df.shape[0]} rows, "
+            f"{min(df.shape[1], max_cols)} of {df.shape[1]} columns"
+        )
+
     return lines
 
 
@@ -5284,7 +5290,7 @@ class FactorCorrelationResult:
                 return p.title()
             for tkr, exch in self.market_exchanges.items():
                 pretty = _pretty_exch(exch)
-                resolved_labels[tkr] = f"{pretty} Market ({tkr})"
+                resolved_labels[tkr] = f"{pretty} ({tkr})"
 
         return {
             "matrices": matrices_serialized,                                    # DICT: Per-category correlation matrices (nested format)
@@ -5331,7 +5337,7 @@ class FactorCorrelationResult:
                     resolved = dict(self.labels or {})
                     if isinstance(self.market_exchanges, dict):
                         for tkr, exch in self.market_exchanges.items():
-                            resolved[tkr] = f"{_pretty_exch(exch)} Market ({tkr})"
+                            resolved[tkr] = f"{_pretty_exch(exch)} ({tkr})"
                     display_df.columns = [resolved.get(str(c), str(c)) for c in df.columns]
                     display_df.index = [resolved.get(str(r), str(r)) for r in df.index]
                 except Exception:
