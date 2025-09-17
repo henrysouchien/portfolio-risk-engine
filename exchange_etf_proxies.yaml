@@ -154,7 +154,7 @@ NSE:                  # India (EM sleeve)
 
 TADAWUL:              # Saudi Arabia (GCC / EM)
   market: KSA        # iShares MSCI Saudi Arabia
-  momentum: GULF     # WisdomTree Middle East Dividend Momentum tilt
+  momentum: EEMO     # Invesco S&P Emerging Markets Momentum ETF
   value: EMVL.L        # iShares Edge MSCI EM Value Factor UCITS ETF
 
 DEFAULT:              # Fallback for any other exchange

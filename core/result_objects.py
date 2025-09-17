@@ -123,6 +123,124 @@ def _clean_nan_values(obj):
         return obj
 
 
+def _format_df_as_text(df: pd.DataFrame,
+                       title: Optional[str] = None,
+                       max_rows: int = 10,
+                       max_cols: Optional[int] = None,
+                       row_label_min: int = 10,
+                       row_label_max: int = 16,
+                       col_min: int = 8,
+                       col_max: int = 12) -> List[str]:
+    """Format a correlation-like DataFrame as aligned text for CLI.
+
+    The formatter auto-adjusts column and row-label widths (within limits) so most
+    labels can be shown without truncation while keeping the table compact.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Matrix to render.
+    title : Optional[str]
+        Optional section title.
+    max_rows : int
+        Maximum number of rows to display.
+    max_cols : Optional[int]
+        Maximum number of columns to display (defaults to max_rows if None).
+    row_label_min, row_label_max : int
+        Min/max width for row labels.
+    col_min, col_max : int
+        Min/max width for column headers and numeric cells.
+
+    Returns
+    -------
+    List[str]
+        Lines of text ready for printing.
+    """
+    lines: List[str] = []
+    if title:
+        lines.append(f"\n{title}")
+
+    if df is None or getattr(df, 'empty', True):
+        lines.append("(empty)")
+        return lines
+
+    if max_cols is None:
+        max_cols = max_rows
+
+    cols_full = list(df.columns)
+    rows_full = list(df.index)
+    cols = [str(c) for c in cols_full[:max_cols]]
+    rows = [str(r) for r in rows_full[:max_rows]]
+
+    sub = df.reindex(index=rows_full[:max_rows], columns=cols_full[:max_cols]).copy()
+
+    # Auto widths within limits
+    max_col_label_len = max((len(str(c)) for c in cols), default=col_min)
+    col_w = max(col_min, min(col_max, max_col_label_len))
+
+    max_row_label_len = max((len(str(r)) for r in rows), default=row_label_min)
+    row_label_w = max(row_label_min, min(row_label_max, max_row_label_len))
+
+    # Header
+    header_indent = " " * (row_label_w + 2)
+    header = header_indent + " ".join([str(c)[:col_w].rjust(col_w) for c in cols])
+    lines.append(header)
+
+    # Rows
+    for r in rows:
+        row_label = str(r)[:row_label_w].ljust(row_label_w)
+        row_vals: List[str] = []
+        for c in cols:
+            try:
+                v = float(sub.loc[r, c])
+                cell = f"{v:+0.2f}".rjust(col_w)
+            except Exception:
+                cell = "nan".rjust(col_w)
+            row_vals.append(cell)
+        lines.append(f"{row_label}  " + " ".join(row_vals))
+
+    return lines
+
+
+# Common human-readable abbreviations for long industry labels
+_DEFAULT_INDUSTRY_ABBR_MAP = {
+    "Consumer Discretionary": "Cons Disc",
+    "Consumer Staples": "Cons Stap",
+    "Financial Services": "Fin Services",
+    "Communication Services": "Comm Serv",
+    "Information Technology": "Info Tech",
+}
+
+
+def _abbreviate_label(label: str, max_width: int, mapping: Optional[Dict[str, str]] = None) -> str:
+    """Abbreviate a single label to fit within max_width using mapping and heuristics."""
+    s = str(label)
+    if mapping and s in mapping:
+        s = mapping[s]
+    if len(s) <= max_width:
+        return s
+    words = s.split()
+    if not words:
+        return s[:max_width]
+    if len(words) == 1:
+        return s[:max_width]
+    # Iteratively reduce the per-word segment length
+    for seg in (4, 3, 2):
+        parts = [w[:seg] if len(w) > seg else w for w in words]
+        candidate = " ".join(parts)
+        if len(candidate) <= max_width:
+            return candidate
+    return s[:max_width]
+
+
+def _abbreviate_labels(labels: List[str], max_width: int, mapping: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    """Return a mapping of original → abbreviated labels constrained to max_width."""
+    out: Dict[str, str] = {}
+    for lab in labels:
+        out[str(lab)] = _abbreviate_label(str(lab), max_width, mapping)
+    return out
+
+
 @dataclass
 class RiskAnalysisResult:
     """
@@ -5143,18 +5261,20 @@ class FactorCorrelationResult:
         lines: List[str] = []
         lines.append("FACTOR CORRELATIONS (summary)")
         for name, df in self.matrices.items():
-            lines.append(f"\n[{name}]\n" + ("(empty)" if getattr(df, "empty", True) else ""))
-            if getattr(df, "empty", True):
-                continue
-            # Show top-left submatrix up to max_rows
-            sub = df.copy()
-            rows = list(sub.index)[:max_rows]
-            cols = list(sub.columns)[:min(max_rows, len(sub.columns))]
-            header = "        " + " ".join([c[:8].ljust(9) for c in cols])
-            lines.append(header)
-            for r in rows:
-                rowvals = [f"{float(sub.loc[r, c]):>+0.2f}" if c in sub.columns else "" for c in cols]
-                lines.append(f"{r[:8].ljust(8)}  " + " ".join(v.rjust(6) for v in rowvals))
+            title = f"[{name}]"
+            display_df = df
+            if name == 'industry' and df is not None and not getattr(df, 'empty', True):
+                # Abbreviate industry labels to fit typical widths (col_max=12, row_label_max=16)
+                try:
+                    col_map = _abbreviate_labels([str(c) for c in df.columns], max_width=12, mapping=_DEFAULT_INDUSTRY_ABBR_MAP)
+                    row_map = _abbreviate_labels([str(r) for r in df.index], max_width=16, mapping=_DEFAULT_INDUSTRY_ABBR_MAP)
+                    display_df = df.copy()
+                    display_df.columns = [col_map.get(str(c), str(c)) for c in df.columns]
+                    display_df.index = [row_map.get(str(r), str(r)) for r in df.index]
+                except Exception:
+                    display_df = df
+            block = _format_df_as_text(display_df, title=title, max_rows=max_rows, max_cols=max_rows)
+            lines.extend(block)
 
         # Overlays: Macro composite and curated macro ETF matrices (if present)
         def _format_matrix_block(title: str, df: Any) -> List[str]:
@@ -5185,7 +5305,10 @@ class FactorCorrelationResult:
             if isinstance(ov, dict):
                 mc = ov.get('macro_composite_matrix')
                 if isinstance(mc, dict) and hasattr(mc.get('matrix'), 'corr'):
-                    lines.extend(_format_matrix_block("MACRO COMPOSITE MATRIX (equity/fixed_income/cash/commodity/crypto)", mc.get('matrix')))
+                    lines.extend(_format_df_as_text(mc.get('matrix'),
+                                                    title="MACRO COMPOSITE MATRIX (equity/fixed_income/cash/commodity/crypto)",
+                                                    max_rows=max_rows,
+                                                    max_cols=max_rows))
 
                 me = ov.get('macro_etf_matrix')
                 if isinstance(me, dict) and hasattr(me.get('matrix'), 'corr'):
@@ -5195,7 +5318,10 @@ class FactorCorrelationResult:
                         lines.append("\nMacro ETF groups:")
                         for g, etfs in groups.items():
                             lines.append(f"  - {g}: {len(etfs)} ETFs")
-                    lines.extend(_format_matrix_block("MACRO ETF MATRIX (curated)", me.get('matrix')))
+                    lines.extend(_format_df_as_text(me.get('matrix'),
+                                                    title="MACRO ETF MATRIX (curated)",
+                                                    max_rows=max_rows,
+                                                    max_cols=max_rows))
         except Exception:
             # Overlays are optional; keep CLI resilient
             pass

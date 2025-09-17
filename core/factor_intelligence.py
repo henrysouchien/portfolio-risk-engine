@@ -312,22 +312,28 @@ def _build_factor_returns_panel_cached(
             ticker_category = ticker_to_category.get(ticker, "unknown")
             source_file = _get_ticker_source_file(ticker, ticker_category)
 
-            # Check if ticker has insufficient coverage for the analysis period
-            # Only flag tickers that significantly miss the analysis period
-            if ticker_end < analysis_start or ticker_start > analysis_end:
-                log_critical_alert("factor_ticker_outside_period", "high", f"TICKER OUTSIDE ANALYSIS PERIOD: Ticker={ticker}, Category={ticker_category}, Source={source_file}, Data range={ticker_start.strftime('%Y-%m')} to {ticker_end.strftime('%Y-%m')}, Analysis period={analysis_start.strftime('%Y-%m')} to {analysis_end.strftime('%Y-%m')}", "Replace ticker or adjust analysis period")
-                short_range_tickers.append(ticker)
-            elif ticker_end < analysis_end - pd.DateOffset(months=6) or ticker_start > analysis_start + pd.DateOffset(months=6):
-                # Only flag if ticker ends more than 6 months before analysis end OR starts more than 6 months after analysis start
-                coverage_start = max(ticker_start, analysis_start)
-                coverage_end = min(ticker_end, analysis_end)
-                months_missing = 0
-                if ticker_end < analysis_end:
-                    months_missing = (analysis_end.year - ticker_end.year) * 12 + (analysis_end.month - ticker_end.month)
-                elif ticker_start > analysis_start:
-                    months_missing = (ticker_start.year - analysis_start.year) * 12 + (ticker_start.month - analysis_start.month)
+            # Use utility function for ticker coverage analysis
+            from utils.ticker_validation import analyze_ticker_coverage
 
-                log_critical_alert("factor_ticker_insufficient_coverage", "medium", f"TICKER INSUFFICIENT COVERAGE: Ticker={ticker}, Category={ticker_category}, Source={source_file}, Data range={ticker_start.strftime('%Y-%m')} to {ticker_end.strftime('%Y-%m')}, Analysis period={analysis_start.strftime('%Y-%m')} to {analysis_end.strftime('%Y-%m')}, Missing {months_missing} months", "Consider replacing for better overlap")
+            coverage_analysis = analyze_ticker_coverage(
+                ticker=ticker,
+                ticker_start=ticker_start,
+                ticker_end=ticker_end,
+                analysis_start=analysis_start,
+                analysis_end=analysis_end,
+                category=ticker_category,
+                source_file=source_file,
+                start_buffer_months=6,
+                end_buffer_months=6,
+                high_priority_threshold_months=24
+            )
+
+            # Log issues based on analysis results
+            if coverage_analysis['gap_type'] != 'sufficient':
+                if coverage_analysis['is_outside_period']:
+                    log_critical_alert("factor_ticker_outside_period", coverage_analysis['priority'], coverage_analysis['log_message'], coverage_analysis['recovery_action'])
+                else:
+                    log_critical_alert("factor_ticker_insufficient_coverage", coverage_analysis['priority'], coverage_analysis['log_message'], coverage_analysis['recovery_action'])
                 short_range_tickers.append(ticker)
 
     # Concat and compute a diagnostic global-overlap view (for logging only)
