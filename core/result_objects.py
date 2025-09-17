@@ -128,9 +128,9 @@ def _format_df_as_text(df: pd.DataFrame,
                        max_rows: int = 10,
                        max_cols: Optional[int] = None,
                        row_label_min: int = 10,
-                       row_label_max: int = 16,
+                       row_label_max: int = 20,
                        col_min: int = 8,
-                       col_max: int = 12,
+                       col_max: int = 16,
                        wrap_header: bool = False) -> List[str]:
     """Format a correlation-like DataFrame as aligned text for CLI.
 
