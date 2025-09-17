@@ -5165,7 +5165,7 @@ class FactorCorrelationResult:
         Echo of analysis window and universe hash.
     """
 
-    def __init__(self, matrices: Dict[str, Any], overlays: Dict[str, Any], data_quality: Dict[str, Any], performance: Dict[str, Any], analysis_metadata: Dict[str, Any], labels: Optional[Dict[str, str]] = None, market_exchanges: Optional[Dict[str, str]] = None):
+    def __init__(self, matrices: Dict[str, Any], overlays: Dict[str, Any], data_quality: Dict[str, Any], performance: Dict[str, Any], analysis_metadata: Dict[str, Any], labels: Optional[Dict[str, str]] = None, market_exchanges: Optional[Dict[str, str]] = None, style_exchanges: Optional[Dict[str, Dict[str, str]]] = None):
         self.matrices = matrices or {}
         self.overlays = overlays or {}
         self.data_quality = data_quality or {}
@@ -5173,6 +5173,7 @@ class FactorCorrelationResult:
         self.analysis_metadata = analysis_metadata or {}
         self.labels = labels or {}
         self.market_exchanges = market_exchanges or {}
+        self.style_exchanges = style_exchanges or {}
 
     @classmethod
     def from_core_analysis(cls,
@@ -5182,7 +5183,8 @@ class FactorCorrelationResult:
                           performance: Dict[str, Any],
                           analysis_metadata: Dict[str, Any],
                           labels: Optional[Dict[str, str]] = None,
-                          market_exchanges: Optional[Dict[str, str]] = None) -> 'FactorCorrelationResult':
+                          market_exchanges: Optional[Dict[str, str]] = None,
+                          style_exchanges: Optional[Dict[str, Dict[str, str]]] = None) -> 'FactorCorrelationResult':
         """
         Create FactorCorrelationResult from core factor intelligence analysis data.
 
@@ -5214,7 +5216,8 @@ class FactorCorrelationResult:
             performance=performance,
             analysis_metadata=analysis_metadata,
             labels=labels or {},
-            market_exchanges=market_exchanges or {}
+            market_exchanges=market_exchanges or {},
+            style_exchanges=style_exchanges or {}
         )
 
     @staticmethod
@@ -5284,13 +5287,35 @@ class FactorCorrelationResult:
 
         # Build resolved labels: apply market exchange prettifying for market tickers
         resolved_labels = dict(self.labels or {})
+        style_tickers: set = set()
+        if isinstance(self.style_exchanges, dict):
+            for mapping in self.style_exchanges.values():
+                if isinstance(mapping, dict):
+                    for tk in mapping.values():
+                        if tk:
+                            style_tickers.add(str(tk))
+
         if isinstance(self.market_exchanges, dict):
             def _pretty_exch(s: str) -> str:
                 p = str(s).replace('_', ' ').strip()
                 return p.title()
             for tkr, exch in self.market_exchanges.items():
+                if str(tkr) in style_tickers:
+                    continue
                 pretty = _pretty_exch(exch)
                 resolved_labels[tkr] = f"{pretty} ({tkr})"
+        if isinstance(self.style_exchanges, dict):
+            def _pretty_exch(s: str) -> str:
+                p = str(s).replace('_', ' ').strip()
+                return p.title()
+            for exch, factors in self.style_exchanges.items():
+                pretty = _pretty_exch(exch)
+                if isinstance(factors, dict):
+                    for ftype, tkr in factors.items():
+                        if not tkr:
+                            continue
+                        label = f"{pretty} Market ({tkr})" if ftype == 'market' else f"{pretty} {ftype.title()} ({tkr})"
+                        resolved_labels[str(tkr)] = label
 
         return {
             "matrices": matrices_serialized,                                    # DICT: Per-category correlation matrices (nested format)
@@ -5299,6 +5324,7 @@ class FactorCorrelationResult:
             "performance": _convert_to_json_serializable(self.performance),    # DICT: Timing metrics
             "analysis_metadata": _convert_to_json_serializable(self.analysis_metadata),  # DICT: Analysis configuration
             "labels": _convert_to_json_serializable(resolved_labels),          # DICT: Optional ticker → display label mapping
+            "style_exchanges": _convert_to_json_serializable(self.style_exchanges),
             "formatted_report": self.to_cli_report(),                          # STR: Human-readable report
         }
 
@@ -5313,7 +5339,10 @@ class FactorCorrelationResult:
         """
         lines: List[str] = []
         lines.append("FACTOR CORRELATIONS (summary)")
+        style_group_available = isinstance(self.style_exchanges, dict) and len(self.style_exchanges) > 0
         for name, df in self.matrices.items():
+            if name == 'style' and style_group_available:
+                continue
             title = f"[{name}]"
             display_df = df
             if name == 'industry' and df is not None and not getattr(df, 'empty', True):
@@ -5335,9 +5364,21 @@ class FactorCorrelationResult:
                         p = str(s).replace('_', ' ').strip()
                         return p.title()
                     resolved = dict(self.labels or {})
+                    style_tickers_cli = set(style_tickers)
                     if isinstance(self.market_exchanges, dict):
                         for tkr, exch in self.market_exchanges.items():
+                            if str(tkr) in style_tickers_cli:
+                                continue
                             resolved[tkr] = f"{_pretty_exch(exch)} ({tkr})"
+                    if isinstance(self.style_exchanges, dict):
+                        for exch, factors in self.style_exchanges.items():
+                            pretty = _pretty_exch(exch)
+                            if isinstance(factors, dict):
+                                for ftype, tkr in factors.items():
+                                    if not tkr:
+                                        continue
+                                    label = f"{pretty} Market ({tkr})" if ftype == 'market' else f"{pretty} {ftype.title()} ({tkr})"
+                                    resolved[str(tkr)] = label
                     display_df.columns = [resolved.get(str(c), str(c)) for c in df.columns]
                     display_df.index = [resolved.get(str(r), str(r)) for r in df.index]
                 except Exception:

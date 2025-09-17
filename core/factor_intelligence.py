@@ -426,6 +426,7 @@ def _build_factor_returns_panel_cached(
             market_tickers = {t for t, cat in categories_map.items() if cat == "market"}
             if present:
                 market_exchanges: Dict[str, str] = {}
+                style_exchange_map: Dict[str, Dict[str, str]] = {}
 
                 def _extract_ticker(entry: Any) -> Optional[str]:
                     """Support plain strings or structured mappings."""
@@ -457,20 +458,32 @@ def _build_factor_returns_panel_cached(
                             continue
                         raw_market = factors.get("market")
                         ticker_val = _extract_ticker(raw_market)
-                        if not ticker_val:
-                            continue
-                        tt = str(ticker_val).upper()
-                        if tt not in present:
-                            continue
-                        if tt in market_exchanges:
-                            continue  # Keep the first (non-default) exchange we saw
                         resolved_key = _extract_exchange_key(raw_market, str(exch_key))
                         key_clean = str(resolved_key).strip() if resolved_key else str(exch_key).strip()
                         if not key_clean:
                             continue
                         if key_clean.upper() == "DEFAULT":
                             key_clean = "Global"
-                        market_exchanges[tt] = key_clean
+                        entry = style_exchange_map.setdefault(key_clean, {})
+
+                        if ticker_val:
+                            tt = str(ticker_val).upper()
+                            if tt in present and tt not in market_exchanges:
+                                market_exchanges[tt] = key_clean
+                                entry.setdefault('market', tt)
+                                label_map.setdefault(tt, f"{key_clean} ({tt})")
+
+                        for ftype, raw in factors.items():
+                            if ftype == 'market' or not raw:
+                                continue
+                            style_ticker = _extract_ticker(raw)
+                            if not style_ticker:
+                                continue
+                            ts = str(style_ticker).upper()
+                            if ts not in present:
+                                continue
+                            entry.setdefault(ftype, ts)
+                            label_map.setdefault(ts, f"{key_clean} {ftype.title()} ({ts})")
 
                 if market_exchanges:
                     df_raw.attrs["market_exchanges"] = market_exchanges
@@ -479,6 +492,29 @@ def _build_factor_returns_panel_cached(
                     if isinstance(categories_map, dict):
                         for tt in market_exchanges:
                             categories_map[tt] = "market"
+
+                if style_exchange_map:
+                    cleaned_style = {}
+                    seen_signatures = set()
+                    for exch_label, mapping in style_exchange_map.items():
+                        if not isinstance(mapping, dict):
+                            continue
+                        market_raw = mapping.get('market')
+                        if not market_raw:
+                            continue
+                        unique_tickers = [str(v).upper() for v in mapping.values() if v]
+                        if len(set(unique_tickers)) < 2:
+                            continue
+                        market_ticker = str(market_raw).upper()
+                        others = tuple(sorted(str(mapping[k]).upper() for k in mapping if k != 'market' and mapping.get(k)))
+                        signature = (market_ticker, others)
+                        if signature in seen_signatures:
+                            continue
+                        seen_signatures.add(signature)
+                        cleaned_style[exch_label] = mapping
+                    if cleaned_style:
+                        df_raw.attrs["style_exchanges"] = cleaned_style
+
         except Exception:
             pass
     except Exception:
@@ -721,6 +757,17 @@ def compute_per_category_correlation_matrices(
     matrices: Dict[str, pd.DataFrame] = {}
     dq: Dict[str, Any] = {}
     per_cat_ms: Dict[str, int] = {}
+    labels_map = returns_panel.attrs.get("labels", {}) if hasattr(returns_panel, 'attrs') else {}
+
+    def _apply_labels(df: pd.DataFrame) -> pd.DataFrame:
+        if not isinstance(df, pd.DataFrame):
+            return df
+        if isinstance(labels_map, dict) and labels_map:
+            df = df.rename(
+                index=lambda x: labels_map.get(str(x), str(x)),
+                columns=lambda x: labels_map.get(str(x), str(x))
+            )
+        return df
 
     for cat in wanted:
         c0 = time.time()
@@ -744,11 +791,65 @@ def compute_per_category_correlation_matrices(
                     dq[out_key] = {**info, "status": "skipped", "reason": "insufficient_labels", "labels": df.columns.tolist()}
                     per_cat_ms[out_key] = int((time.time() - c0_mode) * 1000)
                     continue
-                matrices[out_key] = df.corr()
+                matrices[out_key] = _apply_labels(df.corr())
                 dq[out_key] = {**info, "status": "ok", "labels": df.columns.tolist(), "observations": int(df.shape[0])}
                 per_cat_ms[out_key] = int((time.time() - c0_mode) * 1000)
 
             # Skip default processing since we handled industry separately
+            continue
+
+        if cat == 'style':
+            tickers = [t for t, k in categories.items() if k == cat]
+            if len(tickers) < 2:
+                dq[cat] = {"status": "skipped", "reason": "insufficient_tickers", "tickers": tickers}
+                per_cat_ms[cat] = int((time.time() - c0) * 1000)
+            else:
+                df = returns_panel.reindex(columns=tickers).dropna()
+                if df.shape[1] < 2 or df.empty:
+                    dq[cat] = {"status": "skipped", "reason": "no_overlap", "tickers": tickers}
+                    per_cat_ms[cat] = int((time.time() - c0) * 1000)
+                else:
+                    matrices[cat] = _apply_labels(df.corr())
+                    dq[cat] = {"status": "ok", "tickers_used": df.columns.tolist(), "observations": int(df.shape[0])}
+                    per_cat_ms[cat] = int((time.time() - c0) * 1000)
+
+            style_exchanges = returns_panel.attrs.get("style_exchanges")
+            if isinstance(style_exchanges, dict) and style_exchanges:
+                for exch_name in sorted(style_exchanges.keys(), key=str):
+                    entry = style_exchanges.get(exch_name) or {}
+                    ordered: List[str] = []
+                    seen: set = set()
+                    if isinstance(entry, dict):
+                        keys = ['market'] + sorted(k for k in entry.keys() if k != 'market')
+                        for kf in keys:
+                            tk = entry.get(kf)
+                            if not tk:
+                                continue
+                            tk_u = str(tk).upper()
+                            if tk_u in returns_panel.columns and tk_u not in seen:
+                                ordered.append(tk_u)
+                                seen.add(tk_u)
+
+                    key_name = f"style:{exch_name}"
+                    c0_ex = time.time()
+                    if len(ordered) < 2:
+                        dq[key_name] = {"status": "skipped", "reason": "insufficient_tickers", "tickers": ordered}
+                        per_cat_ms[key_name] = int((time.time() - c0_ex) * 1000)
+                        continue
+                    df_ex = returns_panel.reindex(columns=ordered).dropna()
+                    if df_ex.shape[1] < 2 or df_ex.empty:
+                        dq[key_name] = {"status": "skipped", "reason": "no_overlap", "tickers": ordered}
+                        per_cat_ms[key_name] = int((time.time() - c0_ex) * 1000)
+                        continue
+                    matrices[key_name] = _apply_labels(df_ex.corr())
+                    dq[key_name] = {
+                        "status": "ok",
+                        "tickers_used": df_ex.columns.tolist(),
+                        "observations": int(df_ex.shape[0]),
+                        "factors": {k: entry.get(k) for k in sorted(entry.keys())},
+                    }
+                    per_cat_ms[key_name] = int((time.time() - c0_ex) * 1000)
+
             continue
 
         # Other categories: filter by panel attrs
@@ -762,7 +863,7 @@ def compute_per_category_correlation_matrices(
             dq[cat] = {"status": "skipped", "reason": "no_overlap", "tickers": tickers}
             per_cat_ms[cat] = int((time.time() - c0) * 1000)
             continue
-        matrices[cat] = df.corr()
+        matrices[cat] = _apply_labels(df.corr())
         dq[cat] = {"status": "ok", "tickers_used": df.columns.tolist(), "observations": int(df.shape[0])}
         per_cat_ms[cat] = int((time.time() - c0) * 1000)
 
@@ -780,6 +881,21 @@ def compute_per_category_correlation_matrices(
             "total_return": returns_panel.attrs.get("total_return", True),
         },
     }
+
+    market_exchanges = returns_panel.attrs.get("market_exchanges") if hasattr(returns_panel, 'attrs') else None
+    if isinstance(market_exchanges, dict) and 'market' in matrices:
+        market_df = matrices['market']
+        rename_map = {}
+        for tkr, exch in market_exchanges.items():
+            if not exch:
+                continue
+            pretty = str(exch).replace('_', ' ').strip().title()
+            new_label = f"{pretty} ({tkr})"
+            current_label = labels_map.get(str(tkr), str(tkr)) if isinstance(labels_map, dict) else str(tkr)
+            rename_map[current_label] = new_label
+        if rename_map:
+            matrices['market'] = market_df.rename(index=rename_map, columns=rename_map)
+
     return out
 
 
