@@ -135,6 +135,46 @@ MACRO_DEFAULTS = {
     'macro_min_group_coverage_pct': 0.6,
 }
 
+# Core defaults used by Factor Intelligence analyses.
+FACTOR_INTELLIGENCE_DEFAULTS = {
+    "start_date": "2010-01-31",
+    "correlations": {
+        "max_factors": 15,
+        "min_observations": 24,
+        "correlation_threshold": 0.05,
+        "industry_granularity": "industry",
+        "include_rate_sensitivity": True,
+        "include_market_sensitivity": True,
+        "include_macro_composite": True,
+        "include_macro_etf": False,
+        "market_benchmarks": ["SPY"],
+        "macro_groups": ["equity", "bond", "cash", "commodity", "crypto"],
+        "format": "json",
+        "top_n_per_matrix": 15,
+        "include_rolling_summaries": False,
+    },
+    "performance": {
+        "benchmark_ticker": "SPY",
+        "min_observations": 24,
+        "industry_granularity": DEFAULT_INDUSTRY_GRANULARITY,
+        "include_macro": True,
+        "include_factor_categories": True,
+        "composite_weighting_method": "equal",
+        "composite_max_per_group": None,
+    },
+    "offsets": {
+        "correlation_threshold": -0.2,
+        "max_recommendations": 10,
+        "industry_granularity": "industry",
+    },
+    "portfolio_offsets": {
+        "correlation_threshold": -0.2,
+        "max_recs_per_driver": 5,
+        "industry_granularity": DEFAULT_INDUSTRY_GRANULARITY,
+        "driver_budget": 0.06,
+    },
+}
+
 # Worst-Case Scenario Definitions
 # These scenarios define the stress tests used for risk calculations and limit suggestions
 WORST_CASE_SCENARIOS = {
