@@ -5536,6 +5536,30 @@ class FactorCorrelationResult:
                         wrap_header=False,
                     ))
 
+                # Add industry group rate betas
+                rate_groups_payload = ov_dict.get('rate_sensitivity', {}).get('industry_groups') if ov_dict else None
+                rate_groups_df = _extract_matrix(rate_groups_payload)
+                if rate_groups_df is not None:
+                    lines.extend(_format_df_as_text(
+                        rate_groups_df,
+                        title="RATE BETA (industry_groups vs Δy)",
+                        max_rows=max_rows,
+                        max_cols=max_rows,
+                        wrap_header=False,
+                    ))
+
+                # Add industry group market betas
+                market_groups_payload = ov_dict.get('market_sensitivity', {}).get('industry_groups') if ov_dict else None
+                market_groups_df = _extract_matrix(market_groups_payload)
+                if market_groups_df is not None:
+                    lines.extend(_format_df_as_text(
+                        market_groups_df,
+                        title="MARKET BETA (industry_groups vs benchmarks)",
+                        max_rows=max_rows,
+                        max_cols=max_rows,
+                        wrap_header=False,
+                    ))
+
                 mc = ov_dict.get('macro_composite_matrix')
                 if isinstance(mc, dict) and hasattr(mc.get('matrix'), 'corr'):
                     lines.extend(_format_df_as_text(mc.get('matrix'),

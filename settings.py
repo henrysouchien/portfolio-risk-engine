@@ -137,38 +137,76 @@ MACRO_DEFAULTS = {
 
 # Core defaults used by Factor Intelligence analyses.
 FACTOR_INTELLIGENCE_DEFAULTS = {
+    # Analysis time window - default start date for factor analysis
     "start_date": "2010-01-31",
+
+    # Core sector ETFs: 11 high-level SPDR sector ETFs used for portfolio-level sector analysis
+    # These represent the major S&P 500 sector breakdowns and are used for:
+    # - Individual ETF rate/market sensitivity calculations
+    # - Sector preference resolution and display ordering
+    # - High-level sector correlation matrices
     "core_sector_tickers": [
-        "XLK", "XLV", "XLF", "XLY", "XLP", "XLE",
-        "XLI", "XLB", "XLRE", "XLU", "XLC",
+        "XLK", "XLV", "XLF", "XLY", "XLP", "XLE",  # Technology, Healthcare, Financial Services, Consumer Discretionary, Consumer Staples, Energy
+        "XLI", "XLB", "XLRE", "XLU", "XLC",       # Industrials, Materials, Real Estate, Utilities, Communication Services
     ],
+
+    # Display labels for core sector ETFs - used in CLI output and API responses
+    # Maps 1:1 with core_sector_tickers above for consistent labeling across all factor intelligence features
     "core_sector_labels": [
-        "Technology",
-        "Healthcare",
-        "Financial Services",
-        "Consumer Discretionary",
-        "Consumer Staples",
-        "Energy",
-        "Industrials",
-        "Materials",
-        "Real Estate",
-        "Utilities",
-        "Communication Services",
+        "Technology",               # XLK
+        "Healthcare",               # XLV
+        "Financial Services",       # XLF
+        "Consumer Discretionary",   # XLY
+        "Consumer Staples",         # XLP
+        "Energy",                   # XLE
+        "Industrials",              # XLI
+        "Materials",                # XLB
+        "Real Estate",              # XLRE
+        "Utilities",                # XLU
+        "Communication Services",   # XLC
     ],
+
+    # Default asset categories for different types of factor analysis
+    # These control which ETF categories get included when no explicit categories are specified
+    "default_categories": {
+        # Rate sensitivity analysis: How assets respond to interest rate changes (Δy)
+        # - bond: Treasury ETFs, corporate bonds, TIPS (primary rate-sensitive assets)
+        # - industry: Sector ETFs (secondary rate sensitivity via duration/growth profiles)
+        # - market: Broad market ETFs (market-wide rate sensitivity)
+        "rate_sensitivity": ["bond", "industry", "market"],
+
+        # Market sensitivity analysis: How assets respond to equity market movements (beta)
+        # - industry: Sector ETFs (primary market sensitivity analysis)
+        # - style: Value/Growth/Momentum ETFs (style factor market sensitivity)
+        "market_sensitivity": ["industry", "style"],
+
+        # Correlation matrix analysis: Comprehensive cross-asset correlations
+        # - All major asset classes for complete factor correlation picture
+        "correlations": ["bond", "commodity", "crypto", "industry", "market", "style", "cash"],
+    },
+
+    # Correlation analysis configuration - controls behavior of factor correlation matrices
     "correlations": {
-        "max_factors": 15,
-        "min_observations": 24,
-        "correlation_threshold": 0.05,
-        "industry_granularity": "industry",
-        "include_rate_sensitivity": True,
-        "include_market_sensitivity": True,
-        "include_macro_composite": True,
-        "include_macro_etf": False,
-        "market_benchmarks": ["SPY"],
-        "macro_groups": ["equity", "bond", "cash", "commodity", "crypto"],
-        "format": "json",
-        "top_n_per_matrix": 15,
-        "include_rolling_summaries": False,
+        # Matrix sizing and filtering
+        "max_factors": 15,                    # Maximum number of factors to include per correlation matrix
+        "min_observations": 24,               # Minimum monthly observations required for correlation calculation (2 years)
+        "correlation_threshold": 0.05,       # Minimum correlation magnitude to include in analysis
+        "top_n_per_matrix": 15,              # Top N correlations to highlight in each matrix
+
+        # Analysis scope and granularity
+        "industry_granularity": "industry",  # Level of industry analysis: "industry" (detailed) vs "group" (high-level)
+        "format": "json",                    # Output format for API responses
+
+        # Overlay analysis toggles - additional matrices beyond core correlations
+        "include_rate_sensitivity": True,    # Calculate ETF sensitivity to interest rate changes (rate betas)
+        "include_market_sensitivity": True,  # Calculate ETF sensitivity to market movements (market betas)
+        "include_macro_composite": True,     # Generate macro-level asset class correlation matrix
+        "include_macro_etf": False,          # Generate ETF-level macro correlation matrix (resource intensive)
+        "include_rolling_summaries": False,  # Include time-series rolling correlation summaries
+
+        # Benchmark and grouping configuration
+        "market_benchmarks": ["SPY"],                                              # Market benchmarks for beta calculations
+        "macro_groups": ["equity", "bond", "cash", "commodity", "crypto"],       # Asset classes for macro composite analysis
     },
     "performance": {
         "benchmark_ticker": "SPY",

@@ -898,6 +898,61 @@ def compute_per_category_correlation_matrices(
 
     return out
 
+def _calculate_group_rate_betas(
+    returns_panel: pd.DataFrame,
+    dy: pd.DataFrame,
+    used_maturities: List[str]
+) -> Dict[str, Dict[str, float]]:
+    """
+    Calculate rate betas for industry groups using equal-weighted composites.
+
+    Parameters
+    ----------
+    returns_panel : pd.DataFrame
+        Monthly returns panel with category information
+    dy : pd.DataFrame
+        Treasury yield changes (Δy) for rate factors
+    used_maturities : List[str]
+        Rate factor keys to calculate betas for
+
+    Returns
+    -------
+    Dict[str, Dict[str, float]]
+        Group betas: {group_name: {rate_key: beta_value}}
+    """
+    try:
+        # Build group composites using same logic as correlation calculation
+        label_series, _ = _build_industry_series_by_granularity(returns_panel, granularity='group')
+
+        if not label_series:
+            return {}
+
+        group_betas = {}
+        from factor_utils import compute_multifactor_betas
+
+        for group_name, group_series in label_series.items():
+            aligned = pd.concat([group_series, dy[used_maturities]], axis=1).dropna()
+            if aligned.shape[0] < 2:
+                continue
+
+            group_betas[group_name] = {}
+            for rate_key in used_maturities:
+                try:
+                    result = compute_multifactor_betas(
+                        aligned.iloc[:, 0],  # group composite returns
+                        aligned[[rate_key]]  # single rate factor
+                    )
+                    coefficient = result.get('betas', {}).get(rate_key, 0.0)
+                    group_betas[group_name][rate_key] = float(coefficient)
+                except Exception:
+                    group_betas[group_name][rate_key] = 0.0
+
+        return group_betas
+
+    except Exception:
+        # Graceful fallback if group calculation fails
+        return {}
+
 
 def compute_rate_sensitivity(
     returns_panel: pd.DataFrame,
@@ -928,7 +983,8 @@ def compute_rate_sensitivity(
     cats = returns_panel.attrs.get("categories", {})
     all_tickers = list(returns_panel.columns)
 
-    included_cats = categories or ["bond", "industry", "market"]
+    default_cats = FACTOR_INTELLIGENCE_DEFAULTS.get("default_categories", {}).get("rate_sensitivity", ["bond", "industry", "market"])
+    included_cats = categories or default_cats
     chosen = [t for t in all_tickers if cats.get(t) in included_cats]
 
     # Load monthly yield levels and convert to Δy in decimal
@@ -983,7 +1039,77 @@ def compute_rate_sensitivity(
             "preferred_labels": preferred_labels,
         },
     }
+
+    # Add industry group rate betas if industry category is included
+    if 'industry' in included_cats:
+        group_betas = _calculate_group_rate_betas(returns_panel, dy, used_maturities)
+        if group_betas:
+            group_matrix = pd.DataFrame.from_dict(group_betas, orient='index').reindex(columns=used_maturities)
+            result['industry_groups'] = {
+                'matrix': group_matrix,
+                'analysis_metadata': {
+                    'preferred_tickers': list(group_betas.keys()),
+                    'preferred_labels': {k: k for k in group_betas.keys()}
+                }
+            }
+
     return result
+
+
+def _calculate_group_market_betas(
+    returns_panel: pd.DataFrame,
+    bench_df: pd.DataFrame,
+    benchmarks_used: List[str]
+) -> Dict[str, Dict[str, float]]:
+    """
+    Calculate market betas for industry groups using equal-weighted composites.
+
+    Parameters
+    ----------
+    returns_panel : pd.DataFrame
+        Monthly returns panel with category information
+    bench_df : pd.DataFrame
+        Benchmark returns data
+    benchmarks_used : List[str]
+        List of benchmark tickers to calculate betas against
+
+    Returns
+    -------
+    Dict[str, Dict[str, float]]
+        Group betas: {group_name: {benchmark_key: beta_value}}
+    """
+    try:
+        # Build group composites using same logic as correlation calculation
+        label_series, _ = _build_industry_series_by_granularity(returns_panel, granularity='group')
+
+        if not label_series:
+            return {}
+
+        group_betas = {}
+        from factor_utils import compute_multifactor_betas
+
+        for group_name, group_series in label_series.items():
+            aligned = pd.concat([group_series, bench_df], axis=1).dropna()
+            if aligned.shape[0] < 2:
+                continue
+
+            group_betas[group_name] = {}
+            for benchmark in benchmarks_used:
+                try:
+                    result = compute_multifactor_betas(
+                        aligned.iloc[:, 0],  # group composite returns
+                        aligned[[benchmark]]  # single benchmark
+                    )
+                    coefficient = result.get('betas', {}).get(benchmark, 0.0)
+                    group_betas[group_name][benchmark] = float(coefficient)
+                except Exception:
+                    group_betas[group_name][benchmark] = 0.0
+
+        return group_betas
+
+    except Exception:
+        # Graceful fallback if group calculation fails
+        return {}
 
 
 def compute_market_sensitivity(
@@ -1015,7 +1141,8 @@ def compute_market_sensitivity(
     cats = returns_panel.attrs.get("categories", {})
     all_tickers = list(returns_panel.columns)
 
-    included_cats = categories or ["industry", "style"]
+    default_cats = FACTOR_INTELLIGENCE_DEFAULTS.get("default_categories", {}).get("market_sensitivity", ["industry", "style"])
+    included_cats = categories or default_cats
     chosen = [t for t in all_tickers if cats.get(t) in included_cats]
 
     bench_list = benchmarks or ["SPY"]
@@ -1094,6 +1221,20 @@ def compute_market_sensitivity(
             "preferred_labels": preferred_labels,
         },
     }
+
+    # Add industry group market betas if industry category is included
+    if 'industry' in included_cats:
+        group_betas = _calculate_group_market_betas(returns_panel, bench_df, benchmarks_used)
+        if group_betas:
+            group_matrix = pd.DataFrame.from_dict(group_betas, orient='index').reindex(columns=benchmarks_used)
+            result['industry_groups'] = {
+                'matrix': group_matrix,
+                'analysis_metadata': {
+                    'preferred_tickers': list(group_betas.keys()),
+                    'preferred_labels': {k: k for k in group_betas.keys()}
+                }
+            }
+
     return result
 
 
