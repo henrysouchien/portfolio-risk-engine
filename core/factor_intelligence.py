@@ -57,7 +57,7 @@ from data_loader import (
     fetch_monthly_close,
 )
 from factor_utils import calc_monthly_returns
-from settings import RATE_FACTOR_CONFIG
+from settings import RATE_FACTOR_CONFIG, FACTOR_INTELLIGENCE_DEFAULTS
 
 # Reuse existing DB‑first YAML loaders for exchange/industry maps
 from proxy_builder import load_exchange_proxy_map, load_industry_etf_map
@@ -905,7 +905,7 @@ def compute_rate_sensitivity(
     categories: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """
-    Compute correlation between ETF returns and Δy (changes in Treasury yields).
+    Estimate rate betas via OLS regressions between ETF returns and Treasury Δy.
 
     Parameters
     ----------
@@ -940,29 +940,28 @@ def compute_rate_sensitivity(
     rate_keys = maturities or RATE_FACTOR_CONFIG.get("default_maturities", ["UST2Y", "UST5Y", "UST10Y", "UST30Y"])
     dy = prepare_rate_factors(yl, keys=rate_keys)
 
-    # Compute correlations per ticker
-    rows: Dict[str, Dict[str, float]] = {}
+    # Compute regression betas per ticker
+    beta_rows: Dict[str, Dict[str, float]] = {}
     per_ticker_obs: Dict[str, int] = {}
+    per_ticker_r2: Dict[str, float] = {}
     used_maturities: List[str] = [c for c in dy.columns if c in rate_keys]
 
-    for t in chosen:
-        # Align
-        df = pd.concat([returns_panel[t], dy], axis=1).dropna()
-        per_ticker_obs[t] = int(df.shape[0])
-        if df.shape[0] < 2:
-            continue
-        corr = df.corr()
-        # first column is ticker vs the rest (rate factors)
-        out_row: Dict[str, float] = {}
-        for rk in used_maturities:
-            if rk in corr.columns:
-                val = float(corr.loc[t, rk]) if t in corr.index else float('nan')
-            else:
-                val = float('nan')
-            out_row[rk] = val
-        rows[t] = out_row
+    from factor_utils import compute_multifactor_betas
+    from utils.sector_config import resolve_sector_preferences
 
-    matrix = pd.DataFrame.from_dict(rows, orient='index').reindex(columns=used_maturities)
+    core_tickers, preferred_labels = resolve_sector_preferences()
+
+    for t in chosen:
+        aligned = pd.concat([returns_panel[t], dy[used_maturities]], axis=1).dropna()
+        per_ticker_obs[t] = int(aligned.shape[0])
+        if aligned.shape[0] < 2:
+            continue
+        res = compute_multifactor_betas(aligned.iloc[:, 0], aligned.iloc[:, 1:])
+        betas = res.get('betas', {}) or {}
+        per_ticker_r2[t] = float(res.get('r2_adj') or res.get('r2') or 0.0)
+        beta_rows[t] = {rk: float(betas.get(rk, float('nan'))) for rk in used_maturities}
+
+    matrix = pd.DataFrame.from_dict(beta_rows, orient='index').reindex(columns=used_maturities)
 
     result = {
         "matrix": matrix,
@@ -970,6 +969,7 @@ def compute_rate_sensitivity(
             "available_maturities": list(dy.columns),
             "used_maturities": used_maturities,
             "per_ticker_obs": per_ticker_obs,
+            "per_ticker_r2": per_ticker_r2,
             "included_categories": included_cats,
         },
         "performance": {
@@ -979,6 +979,8 @@ def compute_rate_sensitivity(
             "start_date": returns_panel.attrs.get("start_date"),
             "end_date": returns_panel.attrs.get("end_date"),
             "universe_hash": returns_panel.attrs.get("universe_hash"),
+            "preferred_tickers": core_tickers,
+            "preferred_labels": preferred_labels,
         },
     }
     return result
@@ -1051,27 +1053,34 @@ def compute_market_sensitivity(
     bench_df = pd.concat(bench_series.values(), axis=1).dropna()
     benchmarks_used = list(bench_df.columns)
 
-    rows: Dict[str, Dict[str, float]] = {}
+    beta_rows: Dict[str, Dict[str, float]] = {}
     per_ticker_obs: Dict[str, int] = {}
+    per_ticker_r2: Dict[str, float] = {}
+    from factor_utils import compute_multifactor_betas
+    from utils.sector_config import resolve_sector_preferences
+
+    core_tickers, preferred_labels = resolve_sector_preferences()
+
     for t in chosen:
         if t in benchmarks_used:
-            # skip ETFs used as benchmarks
             continue
-        df = pd.concat([returns_panel[t], bench_df], axis=1).dropna()
-        per_ticker_obs[t] = int(df.shape[0])
-        if df.shape[0] < 2:
+        aligned = pd.concat([returns_panel[t], bench_df], axis=1).dropna()
+        per_ticker_obs[t] = int(aligned.shape[0])
+        if aligned.shape[0] < 2:
             continue
-        corr = df.corr()
-        out_row = {b: float(corr.loc[t, b]) if (t in corr.index and b in corr.columns) else float('nan') for b in benchmarks_used}
-        rows[t] = out_row
+        res = compute_multifactor_betas(aligned.iloc[:, 0], aligned.iloc[:, 1:])
+        betas = res.get('betas', {}) or {}
+        per_ticker_r2[t] = float(res.get('r2_adj') or res.get('r2') or 0.0)
+        beta_rows[t] = {b: float(betas.get(b, float('nan'))) for b in benchmarks_used}
 
-    matrix = pd.DataFrame.from_dict(rows, orient='index').reindex(columns=benchmarks_used)
+    matrix = pd.DataFrame.from_dict(beta_rows, orient='index').reindex(columns=benchmarks_used)
 
     result = {
         "matrix": matrix,
         "data_quality": {
             "benchmarks_used": benchmarks_used,
             "per_ticker_obs": per_ticker_obs,
+            "per_ticker_r2": per_ticker_r2,
             "included_categories": included_cats,
         },
         "performance": {
@@ -1081,6 +1090,8 @@ def compute_market_sensitivity(
             "start_date": returns_panel.attrs.get("start_date"),
             "end_date": returns_panel.attrs.get("end_date"),
             "universe_hash": returns_panel.attrs.get("universe_hash"),
+            "preferred_tickers": core_tickers,
+            "preferred_labels": preferred_labels,
         },
     }
     return result

@@ -5346,15 +5346,44 @@ class FactorCorrelationResult:
             title = f"[{name}]"
             display_df = df
             if name == 'industry' and df is not None and not getattr(df, 'empty', True):
-                # Abbreviate industry labels to fit typical widths (col_max=12, row_label_max=16)
+                from utils.sector_config import resolve_sector_preferences
+                preferred_tickers, preferred_labels = resolve_sector_preferences()
+                preferred_names: List[str] = []
+                for ticker in preferred_tickers:
+                    label = preferred_labels.get(ticker)
+                    if label and label not in preferred_names:
+                        preferred_names.append(label)
+                ordered: List[str] = []
+                seen: set[str] = set()
+                for name in preferred_names:
+                    if name in df.columns and name not in seen:
+                        ordered.append(name)
+                        seen.add(name)
+                for name in df.columns:
+                    if name not in seen:
+                        ordered.append(name)
+                        seen.add(name)
+
+                display_df = df.reindex(index=ordered, columns=ordered)
                 try:
-                    col_map = _abbreviate_labels([str(c) for c in df.columns], max_width=12, mapping=_DEFAULT_INDUSTRY_ABBR_MAP)
-                    row_map = _abbreviate_labels([str(r) for r in df.index], max_width=16, mapping=_DEFAULT_INDUSTRY_ABBR_MAP)
-                    display_df = df.copy()
-                    display_df.columns = [col_map.get(str(c), str(c)) for c in df.columns]
-                    display_df.index = [row_map.get(str(r), str(r)) for r in df.index]
+                    display_df.columns = [
+                        _abbreviate_labels([str(c)], max_width=12, mapping=_DEFAULT_INDUSTRY_ABBR_MAP).get(str(c), str(c))
+                        for c in display_df.columns
+                    ]
+                    display_df.index = [
+                        _abbreviate_labels([str(r)], max_width=16, mapping=_DEFAULT_INDUSTRY_ABBR_MAP).get(str(r), str(r))
+                        for r in display_df.index
+                    ]
                 except Exception:
-                    display_df = df
+                    pass
+
+                block = _format_df_as_text(
+                    display_df,
+                    title=title,
+                    max_rows=max_rows,
+                    max_cols=max_rows,
+                    wrap_header=False,
+                )
             # Apply ticker display labels (non-industry categories only)
             elif df is not None and not getattr(df, 'empty', True) and (self.labels or self.market_exchanges):
                 try:
@@ -5383,24 +5412,60 @@ class FactorCorrelationResult:
                     display_df.index = [resolved.get(str(r), str(r)) for r in df.index]
                 except Exception:
                     display_df = df
-            # Wrap headers for non-industry categories to avoid truncation; industry uses abbreviations
-            block = _format_df_as_text(display_df, title=title, max_rows=max_rows, max_cols=max_rows,
-                                       wrap_header=(name != 'industry'))
+                block = _format_df_as_text(
+                    display_df,
+                    title=title,
+                    max_rows=max_rows,
+                    max_cols=max_rows,
+                    wrap_header=True,
+                )
+            else:
+                block = _format_df_as_text(
+                    display_df,
+                    title=title,
+                    max_rows=max_rows,
+                    max_cols=max_rows,
+                    wrap_header=(name != 'industry'),
+                )
             lines.extend(block)
 
-        # Overlays: Macro composite and curated macro ETF matrices (if present)
-        def _format_matrix_block(title: str, df: Any) -> List[str]:
+        # Overlays: Rate/market sensitivity plus macro matrices (if present)
+        ov_dict = self.overlays or {}
+
+        def _extract_matrix(payload: Any):
+            if isinstance(payload, dict):
+                mat = payload.get("matrix")
+                if hasattr(mat, "empty") and not getattr(mat, "empty", True):
+                    return mat
+            return None
+
+        def _format_matrix_block(
+            title: str,
+            df: Any,
+            preferred_rows: Optional[List[str]] = None,
+            label_map: Optional[Dict[str, str]] = None,
+        ) -> List[str]:
             out: List[str] = []
             out.append(f"\n{title}")
             if df is None or getattr(df, 'empty', True):
                 out.append("(empty)")
                 return out
             # Limit for readability
-            rows = list(df.index)[:max_rows]
+            rows_all = list(df.index)
+            if preferred_rows:
+                preferred_upper = [str(r).upper() for r in preferred_rows]
+                index_map = {str(r).upper(): r for r in rows_all}
+                ordered = [index_map[t] for t in preferred_upper if t in index_map]
+                if ordered:
+                    rows_all = ordered
+            rows = rows_all[:max_rows]
             cols = list(df.columns)[:min(max_rows, len(df.columns))]
             sub = df.reindex(index=rows, columns=cols).copy()
-            header = "        " + " ".join([str(c)[:10].ljust(11) for c in sub.columns])
+            col_width = 8
+            header = " " * 12 + " ".join(f"{str(c)[:col_width].rjust(col_width)}" for c in sub.columns)
             out.append(header)
+            label_map_upper = {str(k).upper(): str(v) for k, v in (label_map or {}).items()}
+            row_label_width = 22
             for r in sub.index:
                 rowvals = []
                 for c in sub.columns:
@@ -5408,14 +5473,70 @@ class FactorCorrelationResult:
                         v = float(sub.loc[r, c])
                         rowvals.append(f"{v:+0.2f}")
                     except Exception:
-                        rowvals.append("   nan")
-                out.append(f"{str(r)[:10].ljust(10)}  " + " ".join(v.rjust(6) for v in rowvals))
+                        rowvals.append(" nan")
+                display_label = label_map_upper.get(str(r).upper(), str(r))
+                out.append(f"{display_label[:row_label_width].ljust(row_label_width)}  " + " ".join(val.rjust(col_width) for val in rowvals))
             return out
 
         try:
-            ov = self.overlays or {}
-            if isinstance(ov, dict):
-                mc = ov.get('macro_composite_matrix')
+            if isinstance(ov_dict, dict):
+                rate_payload = ov_dict.get('rate_sensitivity')
+                rate_df = _extract_matrix(rate_payload)
+                if rate_df is not None:
+                    display_df = rate_df.copy()
+                    if isinstance(rate_payload, dict):
+                        preferred = rate_payload.get('analysis_metadata', {}).get('preferred_tickers')
+                        label_map = rate_payload.get('analysis_metadata', {}).get('preferred_labels')
+                        if preferred:
+                            ordered_rows = []
+                            for ticker in preferred:
+                                if ticker in display_df.index:
+                                    ordered_rows.append(ticker)
+                            for idx in display_df.index:
+                                if idx not in ordered_rows:
+                                    ordered_rows.append(idx)
+                            display_df = display_df.reindex(index=ordered_rows)
+                        if label_map:
+                            display_df = display_df.rename(
+                                index=lambda x: label_map.get(str(x), str(x))
+                            )
+                    lines.extend(_format_df_as_text(
+                        display_df,
+                        title="RATE BETA (ETF vs Δy)",
+                        max_rows=max_rows,
+                        max_cols=max_rows,
+                        wrap_header=False,
+                    ))
+
+                market_payload = ov_dict.get('market_sensitivity')
+                market_df = _extract_matrix(market_payload)
+                if market_df is not None:
+                    display_df = market_df.copy()
+                    if isinstance(market_payload, dict):
+                        preferred = market_payload.get('analysis_metadata', {}).get('preferred_tickers')
+                        label_map = market_payload.get('analysis_metadata', {}).get('preferred_labels')
+                        if preferred:
+                            ordered_rows = []
+                            for ticker in preferred:
+                                if ticker in display_df.index:
+                                    ordered_rows.append(ticker)
+                            for idx in display_df.index:
+                                if idx not in ordered_rows:
+                                    ordered_rows.append(idx)
+                            display_df = display_df.reindex(index=ordered_rows)
+                        if label_map:
+                            display_df = display_df.rename(
+                                index=lambda x: label_map.get(str(x), str(x))
+                            )
+                    lines.extend(_format_df_as_text(
+                        display_df,
+                        title="MARKET BETA (ETF vs benchmarks)",
+                        max_rows=max_rows,
+                        max_cols=max_rows,
+                        wrap_header=False,
+                    ))
+
+                mc = ov_dict.get('macro_composite_matrix')
                 if isinstance(mc, dict) and hasattr(mc.get('matrix'), 'corr'):
                     lines.extend(_format_df_as_text(mc.get('matrix'),
                                                     title="MACRO COMPOSITE MATRIX (equity/fixed_income/cash/commodity/crypto)",
@@ -5423,9 +5544,8 @@ class FactorCorrelationResult:
                                                     max_cols=max_rows,
                                                     wrap_header=False))
 
-                me = ov.get('macro_etf_matrix')
+                me = ov_dict.get('macro_etf_matrix')
                 if isinstance(me, dict) and hasattr(me.get('matrix'), 'corr'):
-                    # group sizes (optional)
                     groups = me.get('groups') or {}
                     if isinstance(groups, dict) and groups:
                         lines.append("\nMacro ETF groups:")

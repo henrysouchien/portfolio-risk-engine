@@ -138,6 +138,23 @@ MACRO_DEFAULTS = {
 # Core defaults used by Factor Intelligence analyses.
 FACTOR_INTELLIGENCE_DEFAULTS = {
     "start_date": "2010-01-31",
+    "core_sector_tickers": [
+        "XLK", "XLV", "XLF", "XLY", "XLP", "XLE",
+        "XLI", "XLB", "XLRE", "XLU", "XLC",
+    ],
+    "core_sector_labels": [
+        "Technology",
+        "Healthcare",
+        "Financial Services",
+        "Consumer Discretionary",
+        "Consumer Staples",
+        "Energy",
+        "Industrials",
+        "Materials",
+        "Real Estate",
+        "Utilities",
+        "Communication Services",
+    ],
     "correlations": {
         "max_factors": 15,
         "min_observations": 24,
