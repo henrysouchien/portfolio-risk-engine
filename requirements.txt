@@ -2,19 +2,14 @@
 pandas>=2.2.0
 numpy>=2.2.0
 statsmodels>=0.14.0
-pyarrow>=10.0.0  # Performance optimization for pandas
-scipy>=1.15.0  # Required for statsmodels
+pyarrow>=10.0.0  # Required for parquet operations in data_loader.py
+scipy>=1.15.0  # Required dependency for statsmodels
 
 # Web Framework & API (FastAPI-based)
 fastapi>=0.116.0
 uvicorn[standard]>=0.35.0
 pydantic>=2.10.0
 starlette>=0.27.0
-
-# Legacy Web Framework Support
-flask>=2.3.0  # Used in provider routing
-flask-cors>=4.0.0  # CORS middleware for Flask
-flask-limiter>=3.5.0  # Rate limiting for Flask
 
 # Rate Limiting & Middleware
 slowapi>=0.1.9
@@ -33,9 +28,6 @@ requests>=2.32.0
 python-dotenv>=1.0.0
 pyyaml>=6.0
 
-# Schema Validation & Serialization
-marshmallow>=3.19.0  # Used in planning schemas
-
 # Authentication & Security
 google-auth>=2.15.0
 google-auth-oauthlib>=1.0.0
@@ -51,7 +43,7 @@ snaptrade-python-sdk>=11.0.0
 
 # Cloud Storage
 boto3>=1.38.0
-botocore>=1.31.0  # Used directly in some modules
+botocore>=1.31.0  # Used directly in AWS S3 operations
 
 # Testing Dependencies
 pytest>=8.4.0
@@ -62,5 +54,5 @@ psutil>=5.9.0
 cvxpy>=1.6.0
 
 # Development Dependencies
-streamlit>=1.28.0  # Development UI/demos
+streamlit>=1.28.0  # Development UI/demos and prototyping
 watchdog>=3.0.0  # File watching for development 

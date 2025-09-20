@@ -438,6 +438,115 @@ python3 admin/clear_dividend_cache.py --ticker DSU         # Clear DSU dividend 
 
 **Use Cases**:
 - **Data Quality Issues**: Fresh data retrieval after pricing discrepancies
+
+### Reference Data Management & Factor Intelligence Admin Tools
+
+**Enhanced Reference Data Administration**:
+The Risk Module includes comprehensive tools for managing the reference data mappings used throughout the system, with enhanced **Factor Intelligence** support for advanced correlation analysis and performance profiling.
+
+**Reference Data Manager** (`admin/manage_reference_data.py`):
+- **Multi-Type Support**: Manages cash proxies, exchange factors, industry mappings, asset class proxies
+- **Database Synchronization**: Bulk sync operations from YAML configuration files
+- **ETF Proxy Validation**: Real-time validation of ETF proxy coverage and data quality
+- **Cache Integration**: Automatic service cache clearing after reference data updates
+- **Dry-Run Support**: Preview changes before applying database updates
+
+**Key Reference Data Types**:
+- **Cash Proxies**: Currency → ETF mappings for cash position analysis (`USD` → `SGOV`)
+- **Industry Mappings**: Industry → sector ETF mappings with sector group support (`Technology` → `XLK`)
+- **Exchange Factors**: Exchange → style factor mappings (`NASDAQ` → `{market: SPY, momentum: MTUM, value: IWD}`)
+- **Asset Class Proxies**: ✨ **NEW** - Asset class → ETF mappings (`bond` → `{UST10Y: IEF, corporate: LQD}`)
+
+**Enhanced Features**:
+- **Sector Group Support**: Industry mappings now include sector groups (defensive, cyclical, etc.)
+- **Asset Class Integration**: Comprehensive asset class proxy system for bonds, commodities, crypto
+- **Exchange Factor Management**: Style and market factor mappings by exchange
+- **Bulk Sync Operations**: YAML-to-database synchronization with validation
+- **Coverage Validation**: ETF proxy data quality and coverage analysis
+
+**Administrative Commands**:
+```bash
+# List current mappings
+python3 admin/manage_reference_data.py cash list
+python3 admin/manage_reference_data.py industry list
+python3 admin/manage_reference_data.py exchange list
+python3 admin/manage_reference_data.py asset-proxy list
+
+# Add/update mappings
+python3 admin/manage_reference_data.py industry add "Technology" XLK --asset-class equity --group growth
+python3 admin/manage_reference_data.py asset-proxy add bond UST10Y IEF --desc "10-Year Treasury ETF"
+python3 admin/manage_reference_data.py exchange add NASDAQ market SPY
+
+# Bulk sync from YAML files
+python3 admin/manage_reference_data.py cash sync-from-yaml --dry-run
+python3 admin/manage_reference_data.py cash sync-from-yaml
+python3 admin/manage_reference_data.py exchange sync-from-yaml exchange_etf_proxies.yaml
+python3 admin/manage_reference_data.py asset-proxy sync-from-yaml asset_etf_proxies.yaml
+
+# Delete mappings
+python3 admin/manage_reference_data.py industry delete "Old Industry" --force
+python3 admin/manage_reference_data.py asset-proxy clear-class crypto --force
+```
+
+**ETF Proxy Validation Tool** (`admin/verify_proxies.py`):
+- **Coverage Analysis**: Validates ETF proxy data availability and quality
+- **Factor Intelligence Compatible**: Uses same validation logic as factor intelligence correlations
+- **Priority Classification**: Categorizes issues by urgency (HIGH, MEDIUM, LOW priority)
+- **Date Range Validation**: Analyzes coverage gaps relative to analysis periods
+- **Bulk Validation**: Validates all proxy types (Asset, Industry, Exchange, Cash)
+
+**Proxy Validation Commands**:
+```bash
+# Basic validation (default)
+python3 admin/verify_proxies.py
+python3 admin/verify_proxies.py --min-months 24
+
+# Detailed coverage analysis (Factor Intelligence compatible)
+python3 admin/verify_proxies.py --detailed
+python3 admin/verify_proxies.py --detailed --start 2022-01-01 --end 2024-12-31
+
+# Quick subset validation
+python3 admin/verify_proxies.py --detailed --limit 20
+```
+
+**Validation Output**:
+- **🔴 High Priority**: Likely delisted ETFs (data ends >24 months ago) - Replace immediately
+- **🟡 Medium Priority**: Limited lifespan ETFs (gaps at both start and end) - Evaluate replacement
+- **🔵 Low Priority**: New ETFs (data starts late) - Monitor for future analysis
+- **✅ Sufficient**: ETFs with adequate coverage for the analysis period
+
+**Database Schema Enhancements**:
+```sql
+-- Asset class ETF proxies table
+CREATE TABLE asset_etf_proxies (
+    id SERIAL PRIMARY KEY,
+    asset_class VARCHAR(50) NOT NULL,    -- 'bond', 'commodity', 'crypto', etc.
+    proxy_key VARCHAR(100) NOT NULL,     -- 'UST10Y', 'gold', 'BTC', etc.
+    etf_ticker VARCHAR(20) NOT NULL,     -- 'IEF', 'GLD', 'IBIT', etc.
+    is_alternate BOOLEAN DEFAULT FALSE,  -- Primary vs alternate proxies
+    priority INTEGER DEFAULT 100,       -- Lower number = higher priority
+    description TEXT,                    -- Optional description
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+
+    UNIQUE(asset_class, proxy_key, etf_ticker),
+    INDEX idx_asset_proxies_class (asset_class),
+    INDEX idx_asset_proxies_key (proxy_key),
+    INDEX idx_asset_proxies_ticker (etf_ticker)
+);
+
+-- Enhanced industry proxies with sector groups
+ALTER TABLE industry_proxies ADD COLUMN sector_group VARCHAR(50);
+ALTER TABLE industry_proxies ADD COLUMN asset_class VARCHAR(50);
+CREATE INDEX idx_industry_sector_group ON industry_proxies (sector_group);
+```
+
+**Business Impact**:
+- **Factor Intelligence Support**: Enhanced proxy system enables advanced correlation analysis
+- **Sector Preference System**: Sector grouping enables preference-based analysis ordering
+- **Asset Class Integration**: Comprehensive asset class coverage for macro analysis
+- **Data Quality Assurance**: Validation tools ensure reliable factor intelligence calculations
+- **Operational Efficiency**: Bulk sync operations streamline reference data maintenance
 - **Algorithm Changes**: Cache cleanup when calculation methods are updated
 - **Storage Management**: Regular maintenance to prevent disk space issues
 - **Troubleshooting**: Cache clearing for debugging stale data problems
@@ -1999,6 +2108,280 @@ variance_limits:
 max_single_factor_loss: -0.10
 ```
 
+### Enhanced ETF Proxy Configuration System
+
+**Comprehensive Reference Data Architecture**:
+The Risk Module implements a sophisticated 3-tier ETF proxy system that manages exchange factors, industry mappings, and asset class proxies through database-first architecture with YAML configuration backup.
+
+**Architecture Pattern**:
+1. **Database (Primary)**: PostgreSQL tables with live production data
+2. **YAML (Source of Truth)**: Configuration files for management and development
+3. **Hardcoded (Ultimate Fallback)**: Built-in mappings for system resilience
+
+**Exchange ETF Proxies** (`exchange_etf_proxies.yaml`):
+- **Purpose**: Maps stock exchanges to representative factor ETFs for risk modeling
+- **Primary Usage**: Exchange-based factor proxy mappings for geographic diversification analysis
+- **Integration**: Factor Intelligence correlation analysis and beta sensitivity calculations
+
+**Exchange Mapping Structure**:
+```yaml
+# US Markets
+NASDAQ:
+  market: SPY        # S&P 500 market proxy
+  momentum: MTUM     # Momentum factor ETF
+  value: IWD         # Value factor ETF
+
+NYSE:
+  market: SPY        # S&P 500 market proxy
+  momentum: MTUM     # Momentum factor ETF
+  value: IWD         # Value factor ETF
+
+# International Markets
+TSX:                 # Toronto Stock Exchange
+  market: ACWX       # All-Country World ex-US
+  momentum: IMTM     # International momentum
+  value: EFV         # International value
+
+HKEX:                # Hong Kong Stock Exchange
+  market: EEM        # Emerging markets
+  momentum: EEMO     # Emerging markets momentum
+  value: EMVL.L      # Emerging markets value (London-listed)
+
+DEFAULT:             # Fallback for unmapped exchanges
+  market: ACWX       # Global ex-US market
+  momentum: IMTM     # International momentum
+  value: EFV         # International value
+```
+
+**Industry ETF Proxies** (`industry_to_etf.yaml`):
+- **Purpose**: Maps company industries to representative sector ETFs for risk modeling
+- **Enhanced Features**: Includes asset class override and sector group support
+- **Integration**: Tier 3 of the 5-tier asset class classification system
+
+**Industry Mapping Structure**:
+```yaml
+# Core Sector ETFs (matches database bootstrap)
+Technology:
+  etf: XLK
+  asset_class: equity
+  sector_group: growth
+
+Healthcare:
+  etf: XLV
+  asset_class: equity
+  sector_group: defensive
+
+Financial Services:
+  etf: XLF
+  asset_class: equity
+  sector_group: cyclical
+
+# Specialized Industries with Asset Class Overrides
+Real Estate:
+  etf: VNQ
+  asset_class: real_estate
+  sector_group: interest_sensitive
+
+Gold Mining:
+  etf: GLD
+  asset_class: commodity
+  sector_group: alternative
+
+Municipal Utilities:
+  etf: XLU
+  asset_class: equity
+  sector_group: defensive
+```
+
+**Asset Class ETF Proxies** (`asset_etf_proxies.yaml`):
+- **Purpose**: ✨ **NEW** - Canonical asset class to ETF mappings for macro analysis
+- **Enhanced Features**: Support for canonical vs alternate proxies with priority ordering
+- **Integration**: Factor Intelligence macro composite analysis and asset class performance
+
+**Asset Class Mapping Structure**:
+```yaml
+asset_classes:
+  bond:
+    canonical:
+      UST2Y: SHY           # 1-3Y Treasuries
+      UST5Y: IEI           # 3-7Y Treasuries
+      UST10Y: IEF          # 7-10Y Treasuries
+      UST30Y: TLT          # 20+Y Treasuries
+      aggregate: AGG       # US Aggregate Bond
+      investment_grade_corp: LQD  # Investment Grade Corporates
+      high_yield: HYG      # High Yield Corporates
+
+  commodity:
+    canonical:
+      broad: DBC           # Broad commodities
+      gold: GLD            # Gold
+      silver: SLV          # Silver
+      oil: USO             # Oil
+
+  crypto:
+    canonical:
+      BTC: IBIT            # Bitcoin spot ETF
+      ETH: ETHA            # Ethereum spot ETF
+```
+
+**Database Integration Architecture**:
+
+**Exchange Proxies Table**:
+```sql
+CREATE TABLE exchange_proxies (
+    id SERIAL PRIMARY KEY,
+    exchange VARCHAR(100) NOT NULL,
+    factor_type VARCHAR(50) NOT NULL,  -- 'market', 'momentum', 'value'
+    proxy_etf VARCHAR(20) NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+
+    UNIQUE(exchange, factor_type),
+    INDEX idx_exchange_proxies_exchange (exchange),
+    INDEX idx_exchange_proxies_factor (factor_type)
+);
+```
+
+**Enhanced Industry Proxies Table**:
+```sql
+CREATE TABLE industry_proxies (
+    id SERIAL PRIMARY KEY,
+    industry VARCHAR(255) NOT NULL UNIQUE,
+    proxy_etf VARCHAR(20) NOT NULL,
+    asset_class VARCHAR(50),           -- NEW: Asset class override
+    sector_group VARCHAR(50),          -- NEW: Sector group classification
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+
+    INDEX idx_industry_proxies_industry (industry),
+    INDEX idx_industry_proxies_etf (proxy_etf),
+    INDEX idx_industry_sector_group (sector_group)  -- NEW: Sector group index
+);
+```
+
+**Asset ETF Proxies Table**:
+```sql
+CREATE TABLE asset_etf_proxies (
+    id SERIAL PRIMARY KEY,
+    asset_class VARCHAR(50) NOT NULL,
+    proxy_key VARCHAR(100) NOT NULL,
+    etf_ticker VARCHAR(20) NOT NULL,
+    is_alternate BOOLEAN DEFAULT FALSE,
+    priority INTEGER DEFAULT 100,
+    description TEXT,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+
+    UNIQUE(asset_class, proxy_key, etf_ticker),
+    INDEX idx_asset_proxies_class (asset_class),
+    INDEX idx_asset_proxies_key (proxy_key)
+);
+```
+
+**Integration with Factor Intelligence**:
+- **Exchange Factors**: Enable geographic style factor analysis across global markets
+- **Industry Grouping**: Support for both individual industry and sector group aggregation
+- **Asset Class Macros**: Enable macro composite correlation matrices across asset classes
+- **Sector Preferences**: Advanced sector ordering using core sector ETF preferences
+- **Beta Sensitivity**: Enhanced rate and market sensitivity analysis with proper ETF mapping
+
+**Administrative Integration**:
+- **Bulk Sync**: YAML to database synchronization via `manage_reference_data.py`
+- **Validation**: ETF proxy coverage validation via `verify_proxies.py`
+- **Cache Management**: Automatic service cache clearing after updates
+- **Health Monitoring**: Real-time validation of ETF proxy data quality and coverage
+
+**Business Impact**:
+- **Global Coverage**: Comprehensive exchange factor coverage for international portfolios
+- **Sector Intelligence**: Enhanced sector analysis with group-based aggregation
+- **Macro Analysis**: Asset class correlation analysis for strategic allocation
+- **Data Quality**: Systematic ETF proxy validation ensures reliable factor calculations
+- **Operational Efficiency**: Database-first architecture with YAML backup for resilience
+
+### Enhanced Beta Sensitivity Analysis
+
+**Advanced Beta Sensitivity Tables**:
+The Risk Module includes comprehensive beta sensitivity analysis that calculates and displays rate and market sensitivity for ETFs with enhanced sector preference ordering and intelligent labeling.
+
+**Core Features**:
+- **Rate Beta Analysis**: Multi-maturity Treasury rate exposure (2Y, 5Y, 10Y, 30Y) with beta calculation against yield changes
+- **Market Beta Analysis**: Market sensitivity analysis against multiple benchmarks (SPY, QQQ, IWM, etc.)
+- **Sector Preference Ordering**: Advanced sector grouping and preference ordering using core sector ETFs
+- **Enhanced Display Formatting**: Improved table formatting with proper alignment and label mapping
+- **Factor Intelligence Integration**: Seamless integration with Factor Intelligence correlation analysis
+
+**Rate Sensitivity Analysis**:
+```
+RATE BETA (ETF vs Δy)
+                          UST2Y    UST5Y   UST10Y   UST30Y
+Technology                +0.15    +0.25    +0.35    +0.20
+Healthcare               -0.05    +0.10    +0.15    +0.05
+Financial Services       +0.45    +0.65    +0.75    +0.40
+Real Estate              +0.20    +0.40    +0.60    +0.80
+```
+
+**Market Sensitivity Analysis**:
+```
+MARKET BETA (ETF vs benchmarks)
+                            SPY     QQQ     IWM
+Technology                +1.15   +1.35   +0.85
+Healthcare               +0.85   +0.75   +0.95
+Financial Services       +1.25   +0.90   +1.45
+Consumer Discretionary   +1.10   +1.05   +1.20
+```
+
+**Sector Preference System**:
+The system uses a sophisticated sector preference ordering based on the core sector ETFs defined in `FACTOR_INTELLIGENCE_DEFAULTS`:
+
+**Core Sector ETFs** (in preference order):
+1. **XLK** - Technology
+2. **XLV** - Healthcare
+3. **XLF** - Financial Services
+4. **XLY** - Consumer Discretionary
+5. **XLP** - Consumer Staples
+6. **XLE** - Energy
+7. **XLI** - Industrials
+8. **XLB** - Materials
+9. **XLRE** - Real Estate
+10. **XLU** - Utilities
+11. **XLC** - Communication Services
+
+**Technical Implementation**:
+- **Sector Configuration Utils** (`utils/sector_config.py`): Manages sector preference resolution and label mapping
+- **Enhanced Result Objects**: `FactorCorrelationResult` includes beta sensitivity table formatting with sector ordering
+- **Intelligent Label Mapping**: Automatic resolution of ETF tickers to human-readable sector names
+- **Fallback Strategies**: Robust fallback mechanisms for missing sector mappings
+
+**Configuration Integration**:
+```python
+# settings.py - Factor Intelligence Defaults
+FACTOR_INTELLIGENCE_DEFAULTS = {
+    "core_sector_tickers": [
+        "XLK", "XLV", "XLF", "XLY", "XLP", "XLE",
+        "XLI", "XLB", "XLRE", "XLU", "XLC"
+    ],
+    "core_sector_labels": [
+        "Technology", "Healthcare", "Financial Services",
+        "Consumer Discretionary", "Consumer Staples", "Energy",
+        "Industrials", "Materials", "Real Estate",
+        "Utilities", "Communication Services"
+    ]
+}
+```
+
+**Display Enhancement Features**:
+- **Preferred Ticker Ordering**: Tables display sector ETFs in preference order
+- **Enhanced Formatting**: Improved column widths and alignment for better readability
+- **Label Resolution**: Automatic mapping of ETF tickers to sector names
+- **Consistent Styling**: Uniform formatting across rate and market sensitivity tables
+- **Integration with Factor Intelligence**: Beta tables use same ordering and labeling as correlation matrices
+
+**Business Impact**:
+- **Improved Readability**: Sector preference ordering makes tables easier to interpret
+- **Consistent Analysis**: Unified labeling across all factor intelligence features
+- **Professional Output**: Enhanced formatting suitable for client presentations
+- **Operational Efficiency**: Automated sector ordering reduces manual analysis time
+
 ## 💾 Caching Strategy
 
 ### Multi-Level Caching
@@ -2637,6 +3020,78 @@ The web interface is organized into 5 specialized route modules for clean separa
 - Function calling and parameter validation
 - Natural language result interpretation
 - Session-based user authentication
+
+#### Factor Intelligence Routes (`routes/factor_intelligence.py`)
+**Advanced factor correlation analysis and macro sensitivity tools**
+
+| Endpoint | Method | Purpose | Returns |
+|----------|--------|---------|---------|
+| `/api/factor-intelligence/correlations` | POST | Factor correlation matrix analysis | Correlation matrices by category (industry, style, market, rate, macro) |
+| `/api/factor-intelligence/performance` | POST | Factor performance profiling | Performance metrics with rolling analysis and regime detection |
+| `/api/factor-intelligence/recommendations/offset` | POST | Single offset recommendations | Market/rate offset suggestions for individual tickers |
+| `/api/factor-intelligence/recommendations/portfolio-offset` | POST | Portfolio-level offset recommendations | Aggregate offset analysis for entire portfolios |
+
+**Core Features**:
+- **Multi-Category Analysis**: Industry (with sector groupings), Style factors (momentum, value), Market proxies, Rate sensitivity, Macro composites
+- **Enhanced Industry Analysis**: Support for both individual industry mappings and sector group aggregation (defensive, cyclical, etc.)
+- **Beta Sensitivity Tables**: Comprehensive rate and market sensitivity analysis with sector preference ordering
+- **Asset Class Integration**: Seamless integration with asset ETF proxy system (bonds, commodities, crypto)
+- **Exchange-Specific Factors**: Style and market factor analysis by exchange with geographic coverage
+- **Rate Sensitivity Analysis**: Multi-maturity Treasury rate exposure (2Y, 5Y, 10Y, 30Y) with beta calculation
+- **Market Sensitivity Analysis**: Market beta analysis against multiple benchmarks (SPY, QQQ, IWM, etc.)
+- **Macro Composite Analysis**: Aggregate factor exposure across asset classes and regions
+- **Performance Profiling**: Rolling correlation analysis with regime detection and volatility profiling
+
+**Request Parameters**:
+```json
+{
+  "start_date": "2010-01-31",
+  "end_date": "2024-12-31",
+  "factor_universe": "comprehensive",
+  "max_factors": 50,
+  "correlation_threshold": 0.7,
+  "asset_class_filters": ["industry", "style", "market"],
+  "industry_granularity": "group",
+  "include_rate_sensitivity": true,
+  "rate_maturities": ["UST2Y", "UST5Y", "UST10Y", "UST30Y"],
+  "include_market_sensitivity": true,
+  "market_benchmarks": ["SPY", "QQQ", "IWM"],
+  "include_macro_composite": true,
+  "sections": ["correlations", "performance"],
+  "format": "detailed"
+}
+```
+
+**Response Format**:
+```json
+{
+  "success": true,
+  "correlation_matrices": {
+    "industry": {"matrix": {...}, "labels": [...], "sector_groups": {...}},
+    "style": {"matrix": {...}, "exchange_breakdowns": {...}},
+    "rate_sensitivity": {"betas": {...}, "r_squared": {...}},
+    "market_sensitivity": {"betas": {...}, "benchmarks": [...]}
+  },
+  "performance_profiles": {
+    "rolling_correlations": {...},
+    "volatility_metrics": {...},
+    "regime_analysis": {...}
+  },
+  "metadata": {
+    "analysis_window": "2010-01-31 to 2024-12-31",
+    "total_factors": 45,
+    "coverage_stats": {...}
+  },
+  "formatted_report": "📊 FACTOR INTELLIGENCE ANALYSIS\n============..."
+}
+```
+
+**Enhanced Architecture**:
+- **Database-First Design**: Asset proxies, industry mappings, and exchange factors stored in PostgreSQL with caching
+- **Service Layer Integration**: Leverages FactorIntelligenceService with comprehensive caching and error handling
+- **Admin Tools Integration**: Seamless integration with enhanced admin tools for proxy management and validation
+- **ETF Proxy Validation**: Real-time validation of ETF proxy coverage and data quality
+- **Sector Preference System**: Advanced sector grouping and preference ordering for analysis
 
 #### Plaid Integration Routes (`routes/plaid.py`)
 **Brokerage account integration with connection management**

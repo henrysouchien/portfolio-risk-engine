@@ -1,11 +1,11 @@
 # Complete Risk Module Codebase Map
 
 ## Overview
-This document provides a comprehensive map of the entire risk_module codebase, including all directories (even those in .gitignore). Last updated on 2025-09-12 to reflect current codebase state with dividend extension implementation, interest rate exposure analysis integration, cache management utilities, performance period enhancements, and API logging improvements.
+This document provides a comprehensive map of the entire risk_module codebase, including all directories (even those in .gitignore). Last updated on 2025-09-19 to reflect current codebase state with Factor Intelligence implementation, enhanced ETF proxy management, and comprehensive reference data administration tools.
 
 ## Directory Structure with Python File Counts
 
-### Root Level Files (22 Python files)
+### Root Level Files (30 Python files)
 Core application files and utilities:
 - `ai_function_registry.py` - Registry for AI/Claude function definitions
 - `app.py` - Main FastAPI application entry point (migrated from Flask)
@@ -26,10 +26,19 @@ Core application files and utilities:
 - `risk_summary.py` - Risk summary generation
 - `run_portfolio_risk.py` - Portfolio risk runner script
 - `run_risk.py` - Main risk calculation runner
+- `run_factor_intelligence.py` - Factor Intelligence CLI for correlation, performance, and offset analysis
 - `settings.py` - Application settings
 - `snaptrade_loader.py` - SnapTrade brokerage integration loader
 - `test_asset_class_comprehensive.py` - Comprehensive asset class testing
 - `test_asset_class_final.py` - Final asset class validation tests
+- `test_caching_fix.py` - Cache system validation tests
+- `test_cli_api_mode.py` - CLI API mode testing
+- `test_fi_architecture.py` - Factor Intelligence architecture tests
+- `test_fi_cli_integration.py` - Factor Intelligence CLI integration tests
+- `test_fi_cli.py` - Factor Intelligence CLI unit tests
+- `test_fi_integration_full.py` - Comprehensive Factor Intelligence integration tests
+- `test_integration.py` - General integration tests
+- `test_pydantic_models.py` - Pydantic model validation tests
 - Various portfolio scenario YAML files (portfolio.yaml, pipeline_test.yaml, etc.)
 
 **Note**: SnapTrade test files have been moved to `/tests/snaptrade/` directory for better organization. Database utility files (`check_db_positions.py`, `create_test_session.py`) have been moved to `/tests/` directory. New dividend cache infrastructure added with 30+ cached files and version management.
@@ -47,7 +56,7 @@ FastAPI response validation models for API endpoints:
 
 ### Core Application Layers (CRITICAL - Gitignored)
 
-#### `/services/` (19 Python files) - Business Logic Layer
+#### `/services/` (20 Python files) - Business Logic Layer
 Service layer implementing core business logic:
 - `service_manager.py` - Service lifecycle management
 - `portfolio_service.py` - Portfolio management service
@@ -61,6 +70,7 @@ Service layer implementing core business logic:
 - `usage_examples.py` - Service usage examples
 - `cache_mixin.py` - Cache management utilities
 - `factor_proxy_service.py` - Factor proxy management service
+- `factor_intelligence_service.py` - **NEW** Factor Intelligence analysis service for correlations, performance, and offset recommendations
 - `security_type_service.py` - Security type mapping service
 - `__init__.py` - Services module initialization
 - **`/claude/`** subdirectory (3 Python files):
@@ -310,19 +320,25 @@ Completed feature documentation and plans (136+ markdown files) including:
     - Various refactoring and integration plans
   - **`/migration_baselines/`** - Migration baseline documentation
 
-#### `/admin/` (4+ Python files + documentation)
-System administration and cache management tools:
-- `manage_reference_data.py` - Reference data management tool
-- `migrate_reference_data.py` - Reference data migration tool
-- `clear_price_cache.py` - Price cache management utility with selective clearing by ticker/data type
+#### `/admin/` (8 Python files + documentation)
+System administration, cache management, and Factor Intelligence tools:
+- `__init__.py` - Admin module initialization
 - `clear_dividend_cache.py` - Dividend cache management utility with version-specific clearing
-- `README.md` - Comprehensive admin utilities documentation with cache management guides
+- `clear_price_cache.py` - Price cache management utility with selective clearing by ticker/data type
+- `manage_reference_data.py` - **Enhanced** Reference data management tool with Factor Intelligence support
+- `manage_security_types.py` - Security type mapping management
+- `migrate_reference_data.py` - Reference data migration tool
+- `test_factor_intelligence.py` - Factor Intelligence system validation tests
+- `verify_proxies.py` - **NEW** ETF proxy validation and coverage analysis tool
+- `README.md` - Comprehensive admin utilities documentation with Factor Intelligence and ETF maintenance guides
 
-**New Cache Management Features**:
-- **Price Cache Clearing**: Supports selective clearing by ticker (AAPL, MSFT) or data type (close, total, treasury)
-- **Dividend Cache Clearing**: Version-aware clearing (v1, v2) with ticker-specific targeting
-- **Interactive Confirmation**: Safe deletion with user prompts and detailed file listings
-- **Pattern Recognition**: Intelligent file matching for different cache types and versions
+**Enhanced Admin Features**:
+- **Factor Intelligence Integration**: Complete ETF proxy management with asset class categorization
+- **Cache Management**: Price/dividend cache clearing with selective targeting and version control
+- **ETF Proxy Validation**: Coverage analysis and data quality validation for Factor Intelligence
+- **Reference Data Sync**: Bulk YAML synchronization for cash, exchange, industry, and asset proxies
+- **Interactive Management**: Safe operations with confirmation prompts and detailed reporting
+- **ETF Maintenance Workflow**: Managed agent workflow for comprehensive ETF proxy maintenance
 
 ### Database Infrastructure
 
@@ -451,38 +467,44 @@ Legacy source files:
 - Database connection strings and configuration files
 
 ## File Count Summary
-- Total Python files: 860+ (as of 2025-09-12)
-- Core application: ~95 files (21 root + 19 services + 9 routes + 11 utils + 8 inputs + 11 core + 22 models + 4 database)
+- Total Python files: 870+ (as of 2025-09-19)
+- Core application: ~104 files (30 root + 20 services + 9 routes + 11 utils + 8 inputs + 11 core + 22 models + 4 database)
 - Tests: Comprehensive suite with 60+ test files across multiple directories
 - Archive/Backup: Extensive files across multiple directories
 - Prototype: 17+ files (Python + Jupyter notebooks)
 - Tools: 18 files
 - Frontend: Full React application (0 Python files, comprehensive TypeScript architecture with 9 adapters)
-- Admin tools: 4+ files with comprehensive documentation
+- Admin tools: 8 files with comprehensive Factor Intelligence and ETF management documentation
 - Database: Centralized infrastructure with migration support
 - SnapTrade Integration: 7 test files in `/tests/snaptrade/` and loader implementation
+- Factor Intelligence: New dedicated CLI with comprehensive correlation, performance, and offset analysis
 
-## Architecture Changes Since Last Update (2025-09-12)
+## Architecture Changes Since Last Update (2025-09-19)
 
-### Dividend Extension & Interest Rate Analysis (September 2025):
-1. **Interest Rate Exposure Analysis**: New key-rate duration analysis system integrated into README.md
-   - Empirical interest-rate sensitivity using monthly key-rate changes (2y, 5y, 10y, 30y)
-   - Multivariate regression with HAC (Newey-West) standard errors
-   - Effective duration calculation: `Duration_i = |β_{i,IR}|` (years)
-   - Portfolio-level aggregation through weights: `β_{p,IR} = Σ_i w_i · β_{i,IR}`
-   - Applied to bonds, REITs, with cash proxies excluded
-2. **Cache Management Infrastructure**: New admin utilities for cache lifecycle management
-   - `clear_price_cache.py` - Selective price data cache clearing (ticker, data type)
-   - `clear_dividend_cache.py` - Version-aware dividend cache management (v1, v2)
-   - Enhanced admin documentation with comprehensive cache management guides
-3. **Performance Period Integration**: API enhancements for time period analysis
-   - `performance_period` parameter added to PortfolioAnalysisRequest
-   - Validation for supported periods: "1M", "3M", "6M", "1Y", "YTD"
-   - Consolidated API logging for improved debugging
-4. **Dividend Analysis System**: Enhanced dividend yield calculations with caching
-   - Version-aware dividend cache (v1, v2) with TTL-based invalidation
-   - Frequency-based TTM (trailing twelve months) dividend analysis
-   - Cache directory expansion to 30+ dividend calculation files
+### Factor Intelligence Implementation & ETF Management Enhancements (September 2025):
+1. **Factor Intelligence CLI**: New comprehensive CLI system for advanced factor analysis (`run_factor_intelligence.py`)
+   - **Correlation Analysis**: Multi-category factor correlation matrices with rate/market sensitivity overlays
+   - **Performance Analysis**: Factor ETF performance profiling with composite metrics and benchmarking
+   - **Offset Recommendations**: Correlation-based offset recommendations for overexposed factors
+   - **Portfolio-Aware Offsets**: Portfolio-level factor exposure analysis with rebalancing recommendations
+   - Dual-mode operation: CLI output for terminal use, structured data for API integration
+2. **Enhanced Admin Reference Data Management**: Complete Factor Intelligence integration in `manage_reference_data.py`
+   - **Asset ETF Proxies**: New asset class → ETF mapping system with priority-based selection
+   - **Industry Sector Groups**: Enhanced industry categorization with granular sector groupings
+   - **Bulk YAML Sync**: Complete synchronization from YAML files for all reference data types
+   - **Interactive Management**: Safe operations with --dry-run, force flags, and detailed confirmation
+   - **Service Cache Integration**: Automatic cache clearing after reference data updates
+3. **ETF Proxy Validation System**: New `verify_proxies.py` tool for data quality assurance
+   - **Coverage Analysis**: Detailed gap analysis with priority categorization (High/Medium/Low)
+   - **Factor Intelligence Alignment**: Uses same validation logic as correlation analysis
+   - **ETF Maintenance Workflow**: Managed agent workflow for comprehensive proxy maintenance
+   - **Health Monitoring**: Automated detection of delisted ETFs and coverage issues
+4. **Comprehensive Testing Suite**: New Factor Intelligence validation tests
+   - `test_fi_architecture.py` - Architecture validation
+   - `test_fi_cli_integration.py` - CLI integration testing
+   - `test_fi_cli.py` - CLI unit tests
+   - `test_fi_integration_full.py` - End-to-end integration validation
+   - `test_factor_intelligence.py` - Admin tool validation
 
 ### Asset Class Extension & Constants Centralization (September 2024):
 1. **Constants Module**: New `/core/constants.py` centralizing asset class and security type definitions
@@ -634,7 +656,10 @@ Legacy source files:
 
 ## Key Integration Points
 1. Database: PostgreSQL via `database_client.py`
-2. External APIs: Plaid, Claude AI
+2. External APIs: Plaid, Claude AI, SnapTrade
 3. Frontend: React with TypeScript
 4. Authentication: Google OAuth integration
 5. Real-time: WebSocket support for chat
+6. Factor Intelligence: Advanced correlation and performance analysis system
+7. ETF Management: Comprehensive proxy validation and reference data management
+8. Multi-Provider Integration: Unified portfolio management across Plaid and SnapTrade
