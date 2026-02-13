@@ -6,6 +6,7 @@
 
 from gpt_helpers import generate_subindustry_peers
 from settings import PORTFOLIO_DEFAULTS          # <— central date window
+from utils.ticker_resolver import select_fmp_symbol
 import functools
 import hashlib
 import json
@@ -175,25 +176,25 @@ def cache_gpt_peers(func):
     - Memory bounded: Max 500 peer lists (~1MB)
     """
     @functools.wraps(func)
-    def wrapper(ticker, start=None, end=None):
-        # Create cache key from all parameters
+    def wrapper(ticker, start=None, end=None, fmp_ticker_map=None):
+        # Create cache key from all parameters (fmp_ticker_map not included - it's for resolution, not caching)
         cache_data = {
             'ticker': ticker.upper(),
             'start': str(start) if start else None,
             'end': str(end) if end else None
         }
-        
+
         # Hash the cache data to create unique key
         cache_key = hashlib.md5(json.dumps(cache_data, sort_keys=True).encode()).hexdigest()
-        
+
         # Check LFU cache first
         cached_result = _GPT_PEERS_CACHE.get(cache_key)
         if cached_result is not None:
             return cached_result
-        
+
         # Cache miss - call GPT API
-        result = func(ticker, start, end)
-        
+        result = func(ticker, start, end, fmp_ticker_map=fmp_ticker_map)
+
         # Store result in LFU cache
         _GPT_PEERS_CACHE.put(cache_key, result)
         return result
@@ -321,6 +322,24 @@ def fetch_profile(ticker: str) -> dict:
 
 import yaml
 
+def _resolve_config_path(path: str):
+    """
+    Resolve config files relative to project root when cwd differs.
+    """
+    from pathlib import Path
+
+    candidate = Path(path)
+    if candidate.is_absolute():
+        return candidate
+    if candidate.exists():
+        return candidate.resolve()
+
+    project_candidate = Path(__file__).resolve().parent / candidate
+    if project_candidate.exists():
+        return project_candidate.resolve()
+    return candidate
+
+
 def load_exchange_proxy_map(path: str = "exchange_etf_proxies.yaml") -> dict:
     """
     Load exchange-level ETF proxy mappings from database (with YAML fallback).
@@ -336,8 +355,9 @@ def load_exchange_proxy_map(path: str = "exchange_etf_proxies.yaml") -> dict:
             return db_client.get_exchange_mappings()
     except Exception as e:
         # Fallback to YAML
-        database_logger.warning(f"Database unavailable ({e}), using {path} fallback")
-        with open(path, "r") as f:
+        resolved = _resolve_config_path(path)
+        database_logger.warning(f"Database unavailable ({e}), using {resolved} fallback")
+        with open(resolved, "r") as f:
             return yaml.safe_load(f)
 
 def map_exchange_proxies(exchange: str, proxy_map: dict) -> dict:
@@ -376,8 +396,9 @@ def load_industry_etf_map(path: str = "industry_to_etf.yaml") -> dict:
             return db_client.get_industry_mappings()
     except Exception as e:
         # Fallback to YAML
-        database_logger.warning(f"Database unavailable ({e}), using {path} fallback")
-        with open(path, "r") as f:
+        resolved = _resolve_config_path(path)
+        database_logger.warning(f"Database unavailable ({e}), using {resolved} fallback")
+        with open(resolved, "r") as f:
             return yaml.safe_load(f)
 
 def map_industry_etf(industry: str, etf_map: dict) -> str:
@@ -451,7 +472,8 @@ def map_industry_asset_class(industry: str, etf_map: dict) -> str:
 def build_proxy_for_ticker(
     ticker: str,
     exchange_map: dict,
-    industry_map: dict
+    industry_map: dict,
+    fmp_ticker_map: dict[str, str] | None = None,
 ) -> dict:
     """
     Constructs a stock_factor_proxies dictionary entry for a single ticker.
@@ -505,11 +527,18 @@ def build_proxy_for_ticker(
     """
     # LOGGING: Add proxy building start logging with ticker and timing
     from utils.logging import log_critical_alert
+    fmp_symbol = select_fmp_symbol(ticker, fmp_ticker_map=fmp_ticker_map)
     try:
-        profile = fetch_profile(ticker)
+        profile = fetch_profile(fmp_symbol)
     except Exception as e:
         # LOGGING: Add profile fetch error logging with ticker and error details
-        log_critical_alert("profile_fetch_failure", "medium", f"Profile fetch failed for {ticker}", "Check ticker validity and API connectivity", details={"ticker": ticker, "error": str(e)})
+        log_critical_alert(
+            "profile_fetch_failure",
+            "medium",
+            f"Profile fetch failed for {ticker}",
+            "Check ticker validity and API connectivity",
+            details={"ticker": ticker, "fmp_ticker": fmp_symbol, "error": str(e)},
+        )
         gpt_logger.warning(f"⚠️ {ticker}: profile fetch failed — {e}")
         return None
 
@@ -591,6 +620,7 @@ def inject_proxies_into_portfolio_yaml(path: str = "portfolio.yaml") -> None:
     tickers = list(cfg.get("portfolio_input", {}).keys())
     if not tickers:
         raise ValueError("portfolio_input is empty or missing")
+    fmp_ticker_map = cfg.get("fmp_ticker_map") or {}
 
     # Load reference maps
     exchange_map = load_exchange_proxy_map()
@@ -599,7 +629,7 @@ def inject_proxies_into_portfolio_yaml(path: str = "portfolio.yaml") -> None:
     # Build proxies
     stock_proxies = {}
     for t in tickers:
-        proxy = build_proxy_for_ticker(t, exchange_map, industry_map)
+        proxy = build_proxy_for_ticker(t, exchange_map, industry_map, fmp_ticker_map=fmp_ticker_map)
         if proxy:
             stock_proxies[t] = proxy
         else:
@@ -628,6 +658,7 @@ def filter_valid_tickers(
     target_ticker: str,
     start: pd.Timestamp | None = None,
     end:   pd.Timestamp | None = None,
+    fmp_ticker_map: dict[str, str] | None = None,
 ) -> List[str]:
     """
     Return only those peer tickers that have *at least* as many monthly
@@ -657,14 +688,24 @@ def filter_valid_tickers(
     target_obs = None
 
     # ▸ Observation count of the target
-    target_prices  = fetch_monthly_close(target_ticker, start, end)
+    target_prices = fetch_monthly_close(
+        target_ticker,
+        start,
+        end,
+        fmp_ticker_map=fmp_ticker_map,
+    )
     target_obs  = len(target_prices)
 
     good: List[str] = []
     
     for sym in cands:
         try:
-            prices  = fetch_monthly_close(sym, start, end)
+            prices = fetch_monthly_close(
+                sym,
+                start,
+                end,
+                fmp_ticker_map=fmp_ticker_map,
+            )
 
             # Basic validation: sufficient prices for returns calculation
             from settings import DATA_QUALITY_THRESHOLDS
@@ -698,6 +739,7 @@ def get_subindustry_peers_from_ticker(
     ticker: str,
     start: pd.Timestamp | None = None,
     end:   pd.Timestamp | None = None,
+    fmp_ticker_map: dict[str, str] | None = None,
 ) -> list[str]:
     """
     Gets subindustry peer tickers with database-first caching, following the same pattern
@@ -760,7 +802,8 @@ def get_subindustry_peers_from_ticker(
 
     # ─── 2. Generate fresh peers via GPT (original logic) ────────────────
     try:
-        profile = fetch_profile(ticker)
+        fmp_symbol = select_fmp_symbol(ticker, fmp_ticker_map=fmp_ticker_map)
+        profile = fetch_profile(fmp_symbol)
 
         # Skip peer generation for ETFs and funds
         if profile.get("isEtf") or profile.get("isFund"):
@@ -791,6 +834,7 @@ def get_subindustry_peers_from_ticker(
             target_ticker=ticker,
             start=start,
             end=end,
+            fmp_ticker_map=fmp_ticker_map,
         )
 
         # ─── 3. Cache result for future use (same pattern as factor_proxy_service) ────────────────
@@ -859,9 +903,10 @@ def inject_subindustry_peers_into_yaml(
 
     tickers_to_process = tickers or list(config.get("portfolio_input", {}).keys())
     stock_proxies = config.get("stock_factor_proxies", {})
+    fmp_ticker_map = config.get("fmp_ticker_map") or {}
 
     for tkr in tickers_to_process:
-        peers = get_subindustry_peers_from_ticker(tkr)
+        peers = get_subindustry_peers_from_ticker(tkr, fmp_ticker_map=fmp_ticker_map)
         if tkr not in stock_proxies:
             stock_proxies[tkr] = {}
         stock_proxies[tkr]["subindustry"] = peers
@@ -937,6 +982,7 @@ def inject_all_proxies(
     tickers = list(config.get("portfolio_input", {}).keys())
     if not tickers:
         raise ValueError("No portfolio_input found in YAML.")
+    fmp_ticker_map = config.get("fmp_ticker_map") or {}
 
     start_date = pd.to_datetime(config.get("start_date", PORTFOLIO_DEFAULTS["start_date"]))
     end_date   = pd.to_datetime(config.get("end_date",   PORTFOLIO_DEFAULTS["end_date"]))
@@ -946,7 +992,7 @@ def inject_all_proxies(
     stock_proxies = {}
 
     for tkr in tickers:
-        proxy = build_proxy_for_ticker(tkr, exchange_map, industry_map)
+        proxy = build_proxy_for_ticker(tkr, exchange_map, industry_map, fmp_ticker_map=fmp_ticker_map)
         if proxy:
             stock_proxies[tkr] = proxy
         else:
@@ -966,6 +1012,7 @@ def inject_all_proxies(
                 tkr,
                 start=start_date,
                 end=end_date,
+                fmp_ticker_map=fmp_ticker_map,
             )
             stock_proxies[tkr]["subindustry"] = peers
             gpt_logger.info(f"✅ {tkr} → {len(peers)} GPT peers")
@@ -983,7 +1030,3 @@ def inject_all_proxies(
 
 
 # In[ ]:
-
-
-
-

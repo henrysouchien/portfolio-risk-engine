@@ -5,10 +5,29 @@ import os
 FRONTEND_BASE_URL = os.getenv('FRONTEND_BASE_URL', 'http://localhost:3000')
 BACKEND_BASE_URL = os.getenv('BACKEND_BASE_URL', 'http://localhost:5001')
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🤖 MCP / CLI Default User Configuration
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def get_default_user() -> str | None:
+    """
+    Get the default user email for MCP tools and CLI commands.
+
+    Reads from RISK_MODULE_USER_EMAIL environment variable, which is set:
+    - In .mcp.json for Claude Code MCP server
+    - In shell environment for CLI usage
+    - In .env for local development
+
+    Returns:
+        str | None: User email if configured, None otherwise
+    """
+    return os.getenv('RISK_MODULE_USER_EMAIL')
+
 # settings.py  
 PORTFOLIO_DEFAULTS = {
     "start_date": "2019-01-31", # start date for portfolio analysis
-    "end_date":   "2025-06-27", # end date for portfolio analysis
+    "end_date":   "2026-01-29", # end date for portfolio analysis (updated 2026-01-29)
     "normalize_weights": False,  # Global default for portfolio weight normalization
     "worst_case_lookback_years": 10,  # Historical lookback period for worst-case scenario analysis
     "expected_returns_lookback_years": 10,  # Default years of historical data for expected returns estimation
@@ -216,6 +235,11 @@ FACTOR_INTELLIGENCE_DEFAULTS = {
         "include_factor_categories": True,
         "composite_weighting_method": "equal",
         "composite_max_per_group": None,
+    },
+    "returns": {
+        "default_windows": ["1m", "3m", "6m", "1y"],
+        "top_n": 10,
+        "industry_granularity": DEFAULT_INDUSTRY_GRANULARITY,
     },
     "offsets": {
         "correlation_threshold": -0.2,
@@ -536,6 +560,41 @@ INSTITUTION_PROVIDER_MAPPING = {
     "wealthfront": ["plaid"],                       # Automated investment management
 }
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# 📊 TRANSACTION PROVIDER ROUTING
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Controls which provider supplies TRANSACTIONS for each institution.
+# Positions already route correctly (each provider only returns its own
+# institutions' positions). Transactions need explicit routing because
+# Plaid returns transactions for accounts that are also connected via
+# other providers (IBKR Flex, SnapTrade).
+#
+# When an institution is listed here with a canonical transaction provider,
+# Plaid transactions tagged with that institution's name are SKIPPED
+# (filtered out at fetch time). This prevents:
+# - Redundant duplicate data (Plaid IBKR + IBKR Flex)
+# - Raw ticker variant leaks (Plaid AT. vs FMP AT.L)
+# - Dedup overhead on known-redundant data
+#
+# Institutions NOT listed here: Plaid transactions pass through unchanged.
+
+TRANSACTION_ROUTING = {
+    # institution_slug → canonical transaction provider
+    # When canonical != "plaid", Plaid transactions for this institution are skipped
+    "interactive_brokers": "ibkr_flex",
+}
+
+# Maps various provider institution name strings to canonical slugs.
+# Plaid institution names come from AWS secret path: split("/")[-1].replace("-"," ").title()
+# Uses substring matching (case-insensitive): if any alias appears as a substring
+# of the institution name, it maps to that slug. This mirrors the existing
+# _IBKR_INSTITUTION_NAMES pattern in trading_analysis/analyzer.py:43.
+INSTITUTION_SLUG_ALIASES = {
+    "interactive brokers": "interactive_brokers",
+    "ibkr": "interactive_brokers",
+}
+
 # 📋 INSTITUTION SLUG NAMING CONVENTION:
 # =====================================
 # • lowercase_with_underscores format
@@ -550,3 +609,35 @@ INSTITUTION_PROVIDER_MAPPING = {
 # 3. Update frontend institution selection UI if needed
 # 4. Add display name mapping in provider_routing_api.py _get_institution_display_name()
 # 5. Consider adding institution logo and categories for UI enhancement
+
+# Trading Execution Configuration
+TRADING_ENABLED = os.getenv("TRADING_ENABLED", "false").lower() == "true"
+
+TRADING_DEFAULTS = {
+    "max_order_value": float(os.getenv("MAX_ORDER_VALUE", "100000")),
+    "max_single_stock_weight_post_trade": 0.25,
+    "preview_expiry_seconds": 300,  # 5 min
+    "default_time_in_force": "Day",
+    "default_order_type": "Market",
+    "log_all_previews": True,
+    "log_all_executions": True,
+}
+
+# IBKR (Interactive Brokers) Configuration
+IBKR_ENABLED = os.getenv("IBKR_ENABLED", "false").lower() == "true"
+IBKR_GATEWAY_HOST = os.getenv("IBKR_GATEWAY_HOST", "127.0.0.1")
+IBKR_GATEWAY_PORT = int(os.getenv("IBKR_GATEWAY_PORT", "4001"))  # 4001=live, 4002=paper
+IBKR_CLIENT_ID = int(os.getenv("IBKR_CLIENT_ID", "1"))
+IBKR_TIMEOUT = int(os.getenv("IBKR_TIMEOUT", "10"))
+IBKR_READONLY = os.getenv("IBKR_READONLY", "false").lower() == "true"
+IBKR_AUTHORIZED_ACCOUNTS = [
+    a.strip() for a in os.getenv("IBKR_AUTHORIZED_ACCOUNTS", "").split(",") if a.strip()
+]
+IBKR_FLEX_TOKEN = os.getenv("IBKR_FLEX_TOKEN", "")
+IBKR_FLEX_QUERY_ID = os.getenv("IBKR_FLEX_QUERY_ID", "")
+
+# Provider-specific cache TTL (hours)
+PROVIDER_CACHE_HOURS = {
+    "plaid": int(os.getenv("PLAID_CACHE_HOURS", "72")),
+    "snaptrade": int(os.getenv("SNAPTRADE_CACHE_HOURS", "24")),
+}

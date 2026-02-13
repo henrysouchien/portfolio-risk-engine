@@ -46,7 +46,8 @@ from gpt_helpers import (
 )
 from helpers_display import display_enhanced_stock_analysis
 from utils.serialization import make_json_safe
-from core.portfolio_analysis import analyze_portfolio
+from core.data_objects import PortfolioData
+from core.portfolio_analysis import analyze_portfolio, _config_from_portfolio_data
 
 # Import logging decorators
 from utils.logging import (
@@ -233,7 +234,13 @@ def interpret_portfolio_output(portfolio_output: Dict[str, Any], *,
 @log_error_handling("high")
 @log_portfolio_operation_decorator("portfolio_analysis")
 @log_performance(5.0)
-def run_portfolio(filepath: str, risk_yaml: str = "risk_limits.yaml", *, return_data: bool = False, asset_classes: Optional[Dict[str, str]] = None) -> Union[None, RiskAnalysisResult]:
+def run_portfolio(
+    filepath: Union[str, PortfolioData],
+    risk_yaml: str = "risk_limits.yaml",
+    *,
+    return_data: bool = False,
+    asset_classes: Optional[Dict[str, str]] = None
+) -> Union[None, RiskAnalysisResult]:
     """
     High-level "one-click" entry-point for a full portfolio risk run.
 
@@ -257,10 +264,9 @@ def run_portfolio(filepath: str, risk_yaml: str = "risk_limits.yaml", *, return_
 
     Parameters
     ----------
-    filepath : str
-        Path to the *portfolio* YAML ( **not** the risk-limits file ).
-        The function expects the YAML schema
-        (`start_date`, `end_date`, `portfolio_input`, `stock_factor_proxies`, …).
+    filepath : Union[str, PortfolioData]
+        Path to the *portfolio* YAML ( **not** the risk-limits file ) or a
+        PortfolioData object with equivalent fields.
     return_data : bool, default False
         If True, returns structured data instead of printing.
         If False, prints formatted output to stdout (existing behavior).
@@ -311,10 +317,13 @@ def run_portfolio(filepath: str, risk_yaml: str = "risk_limits.yaml", *, return_
     # If asset_classes not provided, derive them using SecurityTypeService
     if asset_classes is None:
         try:
-            from run_portfolio_risk import load_portfolio_config, standardize_portfolio_input, latest_price
-            config = load_portfolio_config(filepath)
-            weights = standardize_portfolio_input(config["portfolio_input"], latest_price)["weights"]
-            tickers = list(weights.keys())
+            if isinstance(filepath, str):
+                from run_portfolio_risk import load_portfolio_config, standardize_portfolio_input, latest_price
+                config = load_portfolio_config(filepath)
+                weights = config.get("weights") or standardize_portfolio_input(config["portfolio_input"], latest_price)["weights"]
+                tickers = list(weights.keys())
+            else:
+                tickers = filepath.get_tickers()
             from services.security_type_service import SecurityTypeService
             asset_classes = SecurityTypeService.get_asset_classes(tickers)
         except Exception:
@@ -332,7 +341,10 @@ def run_portfolio(filepath: str, risk_yaml: str = "risk_limits.yaml", *, return_
     else:
         # CLI MODE: Print portfolio config first, then formatted output from result object
         from run_portfolio_risk import load_portfolio_config, display_portfolio_config
-        config = load_portfolio_config(filepath)
+        if isinstance(filepath, str):
+            config = load_portfolio_config(filepath)
+        else:
+            config = _config_from_portfolio_data(filepath)
         display_portfolio_config(config)
         print(result.to_cli_report())
         # LOGGING: Add portfolio analysis completion logging with execution time
@@ -820,6 +832,78 @@ def run_risk_score(portfolio_yaml: str = "portfolio.yaml", risk_yaml: str = "ris
         return None
 
 
+def run_realized_performance(
+    user_email: Optional[str] = None,
+    *,
+    benchmark_ticker: str = "SPY",
+    source: str = "all",
+    return_data: bool = False,
+) -> Union[None, Dict[str, Any]]:
+    """
+    Run realized performance analysis from brokerage transaction history.
+
+    Unlike hypothetical performance (--performance), this reconstructs actual
+    portfolio returns from trade history using cash-inclusive NAV and Modified Dietz TWR.
+
+    Parameters
+    ----------
+    user_email : str, optional
+        User email for fetching positions/transactions. Falls back to
+        TEST_USER_EMAIL env var, then RISK_MODULE_USER_EMAIL.
+    benchmark_ticker : str
+        Benchmark ticker for comparison (default: "SPY").
+    source : str
+        Transaction source filter: "all", "snaptrade", or "plaid".
+    return_data : bool
+        If True, return raw result dict instead of printing.
+
+    Returns
+    -------
+    dict or None
+        If return_data=True, returns result dict. Otherwise prints report.
+    """
+    import os
+    from services.position_service import PositionService
+    from services.portfolio_service import PortfolioService
+    from mcp_tools.performance import _format_realized_report
+    from settings import get_default_user
+
+    # Resolve user email: explicit > TEST_USER_EMAIL > RISK_MODULE_USER_EMAIL
+    user = user_email or os.getenv("TEST_USER_EMAIL") or get_default_user()
+    if not user:
+        print("Error: No user email provided. Use --user-email or set TEST_USER_EMAIL / RISK_MODULE_USER_EMAIL.")
+        return None
+
+    print(f"Running realized performance for {user} (source={source}, benchmark={benchmark_ticker})...")
+
+    # Fetch live brokerage positions
+    position_service = PositionService(user)
+    position_result = position_service.get_all_positions(consolidate=True)
+
+    if not position_result.data.positions:
+        print("Error: No brokerage positions found.")
+        return None
+
+    # Run realized performance analysis via service layer
+    result = PortfolioService(cache_results=True).analyze_realized_performance(
+        position_result=position_result,
+        user_email=user,
+        benchmark_ticker=benchmark_ticker,
+        source=source,
+    )
+
+    if result.get("status") == "error":
+        print(f"Error: {result.get('message', 'Realized performance analysis failed')}")
+        return result if return_data else None
+
+    if return_data:
+        return result
+
+    # Print formatted report
+    print()
+    print(_format_realized_report(result, benchmark_ticker))
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--portfolio", type=str, help="Path to YAML portfolio file")
@@ -838,6 +922,14 @@ if __name__ == "__main__":
     parser.add_argument("--inject_proxies", action="store_true", help="Inject market, industry, and optional subindustry proxies")
     parser.add_argument("--use_gpt", action="store_true", help="Enable GPT-generated subindustry peers (used with --inject_proxies)")
     parser.add_argument("--gpt", action="store_true", help="Run the portfolio report and send the output to GPT for a plain-English summary")
+    parser.add_argument("--realized-performance", action="store_true",
+                        help="Run realized performance from transaction history")
+    parser.add_argument("--user-email", type=str,
+                        help="User email (required for realized performance, or set TEST_USER_EMAIL)")
+    parser.add_argument("--source", choices=["all", "snaptrade", "plaid"], default="all",
+                        help="Transaction source filter (realized performance only)")
+    parser.add_argument("--benchmark", type=str, default="SPY",
+                        help="Benchmark ticker for performance comparison")
     args = parser.parse_args()
 
     if args.portfolio and args.inject_proxies:
@@ -855,7 +947,14 @@ if __name__ == "__main__":
 
     elif args.portfolio and args.performance:
         run_portfolio_performance(args.portfolio)
-    
+
+    elif args.realized_performance:
+        run_realized_performance(
+            user_email=args.user_email,
+            benchmark_ticker=args.benchmark,
+            source=args.source,
+        )
+
     elif args.portfolio and getattr(args, 'risk_score', False):
         run_risk_score(args.portfolio)
         
@@ -891,6 +990,4 @@ if __name__ == "__main__":
 
 
 # In[ ]:
-
-
 

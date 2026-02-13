@@ -106,7 +106,25 @@ def analyze_scenario(
     with open(risk_limits_yaml, "r") as f:
         risk_config = yaml.safe_load(f)
 
-    weights = standardize_portfolio_input(config["portfolio_input"], latest_price)["weights"]
+    fmp_ticker_map = config.get("fmp_ticker_map")
+    currency_map = config.get("currency_map")
+    if fmp_ticker_map:
+        price_fetcher = lambda t: latest_price(
+            t,
+            fmp_ticker_map=fmp_ticker_map,
+            currency=currency_map.get(t) if currency_map else None,
+        )
+    else:
+        price_fetcher = lambda t: latest_price(
+            t,
+            currency=currency_map.get(t) if currency_map else None,
+        )
+    weights = standardize_portfolio_input(
+        config["portfolio_input"],
+        price_fetcher,
+        currency_map=currency_map,
+        fmp_ticker_map=fmp_ticker_map,
+    )["weights"]
 
     # parse CLI delta string OR accept dict directly
     shift_dict = None
@@ -125,7 +143,9 @@ def analyze_scenario(
         config["start_date"],
         config["end_date"],
         config.get("expected_returns"),
-        config.get("stock_factor_proxies")
+        config.get("stock_factor_proxies"),
+        fmp_ticker_map=fmp_ticker_map,
+        currency_map=currency_map,
     )
     
     # Then run the scenario

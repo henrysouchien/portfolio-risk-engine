@@ -8,7 +8,7 @@
 
 from datetime import datetime
 import pandas as pd
-from typing import Dict, Union
+from typing import Dict, Union, Optional
 
 from data_loader import fetch_monthly_close
 from factor_utils import (
@@ -34,7 +34,8 @@ def get_stock_risk_profile(
     ticker: str,
     start_date: Union[str, pd.Timestamp],
     end_date: Union[str, pd.Timestamp],
-    benchmark: str = "SPY"
+    benchmark: str = "SPY",
+    fmp_ticker_map: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Union[float, Dict[str, float]]]:
     """
     Pulls monthly prices between given dates, computes returns, vol, and regression metrics.
@@ -50,8 +51,18 @@ def get_stock_risk_profile(
         end_date (str or pd.Timestamp): End of analysis window.
         benchmark (str): Benchmark ticker for regression (default: "SPY").
     """
-    stock_prices  = fetch_monthly_close(ticker,    start_date=start_date, end_date=end_date)
-    market_prices = fetch_monthly_close(benchmark, start_date=start_date, end_date=end_date)
+    stock_prices  = fetch_monthly_close(
+        ticker,
+        start_date=start_date,
+        end_date=end_date,
+        fmp_ticker_map=fmp_ticker_map,
+    )
+    market_prices = fetch_monthly_close(
+        benchmark,
+        start_date=start_date,
+        end_date=end_date,
+        fmp_ticker_map=fmp_ticker_map,
+    )
 
     stock_ret  = calc_monthly_returns(stock_prices)
     market_ret = calc_monthly_returns(market_prices)
@@ -84,7 +95,8 @@ def get_detailed_stock_factor_profile(
     start_date: Union[str, pd.Timestamp],
     end_date: Union[str, pd.Timestamp],
     factor_proxies: Dict[str, Union[str, List[str]]],
-    market_ticker: str = "SPY"
+    market_ticker: str = "SPY",
+    fmp_ticker_map: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Union[pd.DataFrame, Dict[str, float]]]:
     """
     Computes full factor risk diagnostics for a stock over a given window,
@@ -104,37 +116,74 @@ def get_detailed_stock_factor_profile(
             - regression_metrics: beta, alpha, R², idio vol (market only)
             - factor_summary: DataFrame of beta / R² / idio vol per factor
     """
-    stock_prices  = fetch_monthly_close(ticker, start_date=start_date, end_date=end_date)
+    stock_prices = fetch_monthly_close(
+        ticker,
+        start_date=start_date,
+        end_date=end_date,
+        fmp_ticker_map=fmp_ticker_map,
+    )
     stock_returns = calc_monthly_returns(stock_prices)
 
     def align(series: pd.Series) -> pd.Series:
         return series.loc[stock_returns.index.intersection(series.index)]
 
-    # Fetch and align all factor return series
-    market_ret   = align(calc_monthly_returns(fetch_monthly_close(factor_proxies["market"], start_date, end_date)))
-    momentum_ret = align(fetch_excess_return(factor_proxies["momentum"], market_ticker, start_date, end_date))
-    value_ret    = align(fetch_excess_return(factor_proxies["value"], market_ticker, start_date, end_date))
-
-    industry_ret = align(fetch_peer_median_monthly_returns(
-        factor_proxies["industry"] if isinstance(factor_proxies["industry"], list)
-        else [factor_proxies["industry"]],
-        start_date, end_date
+    # Fetch and align factor return series. Be defensive here so callers with
+    # partial factor maps degrade gracefully instead of raising KeyError.
+    market_proxy = factor_proxies.get("market") or market_ticker
+    market_ret = align(calc_monthly_returns(
+        fetch_monthly_close(
+            market_proxy,
+            start_date,
+            end_date,
+            fmp_ticker_map=fmp_ticker_map,
+        )
     ))
 
-    subind_ret = align(fetch_peer_median_monthly_returns(
-        factor_proxies["subindustry"] if isinstance(factor_proxies["subindustry"], list)
-        else [factor_proxies["subindustry"]],
-        start_date, end_date
-    ))
+    factor_dict = {"market": market_ret}
 
-    # Build combined factor dictionary
-    factor_dict = {
-        "market":      market_ret,
-        "momentum":    momentum_ret,
-        "value":       value_ret,
-        "industry":    industry_ret,
-        "subindustry": subind_ret
-    }
+    momentum_proxy = factor_proxies.get("momentum")
+    if momentum_proxy:
+        factor_dict["momentum"] = align(fetch_excess_return(
+            momentum_proxy,
+            market_ticker,
+            start_date,
+            end_date,
+            fmp_ticker_map=fmp_ticker_map,
+        ))
+
+    value_proxy = factor_proxies.get("value")
+    if value_proxy:
+        factor_dict["value"] = align(fetch_excess_return(
+            value_proxy,
+            market_ticker,
+            start_date,
+            end_date,
+            fmp_ticker_map=fmp_ticker_map,
+        ))
+
+    industry_proxy = factor_proxies.get("industry")
+    if industry_proxy:
+        industry_universe = (
+            industry_proxy if isinstance(industry_proxy, list) else [industry_proxy]
+        )
+        factor_dict["industry"] = align(fetch_peer_median_monthly_returns(
+            industry_universe,
+            start_date,
+            end_date,
+            fmp_ticker_map=fmp_ticker_map,
+        ))
+
+    subindustry_proxy = factor_proxies.get("subindustry")
+    if subindustry_proxy:
+        subindustry_universe = (
+            subindustry_proxy if isinstance(subindustry_proxy, list) else [subindustry_proxy]
+        )
+        factor_dict["subindustry"] = align(fetch_peer_median_monthly_returns(
+            subindustry_universe,
+            start_date,
+            end_date,
+            fmp_ticker_map=fmp_ticker_map,
+        ))
 
     # Regression vs market only
     df_reg = pd.DataFrame({"stock": stock_returns, "market": market_ret}).dropna()
@@ -144,4 +193,3 @@ def get_detailed_stock_factor_profile(
         "regression_metrics": compute_regression_metrics(df_reg),
         "factor_summary": compute_factor_metrics(stock_returns, factor_dict)
     }
-

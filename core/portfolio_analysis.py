@@ -7,10 +7,11 @@ Extracted from run_risk.py as part of the refactoring to create a clean service 
 """
 
 import yaml
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Union
 from datetime import datetime, UTC
 
 from core.result_objects import RiskAnalysisResult
+from core.data_objects import PortfolioData
 
 from run_portfolio_risk import (
     load_portfolio_config,
@@ -32,10 +33,62 @@ from utils.logging import (
 )
 
 
+def _config_from_portfolio_data(portfolio_data: PortfolioData) -> Dict[str, Any]:
+    """
+    Build a config dict compatible with load_portfolio_config() output
+    using a PortfolioData object.
+    """
+    config: Dict[str, Any] = {
+        "portfolio_input": portfolio_data.standardized_input or portfolio_data.portfolio_input,
+        "start_date": portfolio_data.start_date,
+        "end_date": portfolio_data.end_date,
+        "stock_factor_proxies": portfolio_data.stock_factor_proxies,
+        "fmp_ticker_map": portfolio_data.fmp_ticker_map,
+        "currency_map": portfolio_data.currency_map,
+        "expected_returns": portfolio_data.expected_returns,
+        "name": portfolio_data.portfolio_name or "Portfolio",
+    }
+
+    fmp_ticker_map = config.get("fmp_ticker_map")
+    currency_map = config.get("currency_map")
+    if fmp_ticker_map:
+        price_fetcher = lambda t: latest_price(
+            t,
+            fmp_ticker_map=fmp_ticker_map,
+            currency=currency_map.get(t) if currency_map else None,
+        )
+    else:
+        price_fetcher = lambda t: latest_price(
+            t,
+            currency=currency_map.get(t) if currency_map else None,
+        )
+    parsed = standardize_portfolio_input(
+        config["portfolio_input"],
+        price_fetcher,
+        currency_map=currency_map,
+        fmp_ticker_map=fmp_ticker_map,
+    )
+
+    config.update(
+        weights=parsed["weights"],
+        dollar_exposure=parsed["dollar_exposure"],
+        total_value=parsed["total_value"],
+        net_exposure=parsed["net_exposure"],
+        gross_exposure=parsed["gross_exposure"],
+        leverage=parsed["leverage"],
+    )
+    return config
+
+
 @log_error_handling("high")
 @log_portfolio_operation_decorator("portfolio_analysis")
 @log_performance(3.0)
-def analyze_portfolio(filepath: str, risk_yaml: str = "risk_limits.yaml", *, asset_classes: Optional[Dict[str, str]] = None) -> RiskAnalysisResult:
+def analyze_portfolio(
+    portfolio: Union[str, PortfolioData],
+    risk_yaml: str = "risk_limits.yaml",
+    *,
+    asset_classes: Optional[Dict[str, str]] = None
+) -> RiskAnalysisResult:
     """
     Core portfolio analysis business logic.
     
@@ -44,8 +97,8 @@ def analyze_portfolio(filepath: str, risk_yaml: str = "risk_limits.yaml", *, ass
     
     Parameters
     ----------
-    filepath : str
-        Path to the portfolio YAML file.
+    portfolio : Union[str, PortfolioData]
+        Portfolio YAML filepath or a PortfolioData object.
     risk_yaml : str, default "risk_limits.yaml"
         Path to the risk limits YAML file to use for analysis.
         
@@ -56,14 +109,48 @@ def analyze_portfolio(filepath: str, risk_yaml: str = "risk_limits.yaml", *, ass
         factor exposures, risk checks, and formatted reporting capabilities.
     """
     
-    # ─── 1. Load YAML Inputs ─────────────────────────────
-    config = load_portfolio_config(filepath)
+    # ─── 1. Load Inputs ─────────────────────────────
+    if isinstance(portfolio, str):
+        config = load_portfolio_config(portfolio)
+        filepath = portfolio
+    else:
+        config = _config_from_portfolio_data(portfolio)
+        filepath = None
     
     with open(risk_yaml, "r") as f:
         risk_config = yaml.safe_load(f)
 
     # Get full standardized portfolio data (including exposure metrics)
-    standardized_data = standardize_portfolio_input(config["portfolio_input"], latest_price)
+    fmp_ticker_map = config.get("fmp_ticker_map")
+    currency_map = config.get("currency_map")
+    if fmp_ticker_map:
+        price_fetcher = lambda t: latest_price(
+            t,
+            fmp_ticker_map=fmp_ticker_map,
+            currency=currency_map.get(t) if currency_map else None,
+        )
+    else:
+        price_fetcher = lambda t: latest_price(
+            t,
+            currency=currency_map.get(t) if currency_map else None,
+        )
+    standardized_keys = (
+        "weights",
+        "dollar_exposure",
+        "total_value",
+        "net_exposure",
+        "gross_exposure",
+        "leverage",
+    )
+    if all(k in config for k in standardized_keys) and config.get("weights") is not None:
+        standardized_data = {k: config.get(k) for k in standardized_keys}
+    else:
+        standardized_data = standardize_portfolio_input(
+            config["portfolio_input"],
+            price_fetcher,
+            currency_map=currency_map,
+            fmp_ticker_map=fmp_ticker_map,
+        )
     weights = standardized_data["weights"]
     
     # ─── 2. Build Portfolio View ─────────────────────────────
@@ -74,6 +161,8 @@ def analyze_portfolio(filepath: str, risk_yaml: str = "risk_limits.yaml", *, ass
         config.get("expected_returns"),
         config.get("stock_factor_proxies"),
         asset_classes=asset_classes,
+        fmp_ticker_map=fmp_ticker_map,
+        currency_map=currency_map,
     )
     
     # ─── 2.1. Add Exposure Metrics to Summary ─────────────────
@@ -88,10 +177,12 @@ def analyze_portfolio(filepath: str, risk_yaml: str = "risk_limits.yaml", *, ass
     # ─── 3. Calculate Beta Limits ────────────────────────────
     lookback_years = PORTFOLIO_DEFAULTS.get('worst_case_lookback_years', 10)
     max_betas, max_betas_by_proxy, historical_analysis = calc_max_factor_betas(
-        portfolio_yaml=filepath,
         risk_yaml=risk_yaml,
         lookback_years=lookback_years,
-        echo=False  # Don't print helper tables when capturing output
+        echo=False,  # Don't print helper tables when capturing output
+        stock_factor_proxies=config.get("stock_factor_proxies"),
+        fmp_ticker_map=config.get("fmp_ticker_map"),
+        max_single_factor_loss=risk_config.get("max_single_factor_loss"),
     )
     
     # ─── 4. Run Risk Checks ──────────────────────────────────
@@ -129,5 +220,6 @@ def analyze_portfolio(filepath: str, risk_yaml: str = "risk_limits.yaml", *, ass
             "factor_proxies": config.get("stock_factor_proxies"),
             "cash_positions": list(get_cash_positions()),
             "asset_classes": asset_classes,
+            "fmp_ticker_map": fmp_ticker_map,
         }
     ) 

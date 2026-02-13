@@ -128,7 +128,10 @@ cash_positions = get_cash_positions()
 @log_performance(2.0)
 def standardize_portfolio_input(
     raw_input: Dict[str, Dict[str, Union[float, int]]],
-    price_fetcher: Callable[[str], float]
+    price_fetcher: Callable[[str], float],
+    *,
+    currency_map: Optional[Dict[str, str]] = None,
+    fmp_ticker_map: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Union[Dict[str, float], float]]:
     """
     Normalize portfolio input into weights using shares, dollar value, or direct weight.
@@ -136,6 +139,8 @@ def standardize_portfolio_input(
     Args:
         raw_input (dict): Dict of ticker → {"shares": int}, {"dollars": float}, or {"weight": float}
         price_fetcher (callable): Function to fetch latest price for a given ticker
+        currency_map (dict, optional): Mapping of ticker -> ISO currency code (non-USD only)
+        fmp_ticker_map (dict, optional): Mapping of display ticker -> FMP ticker
 
     Returns:
         dict: {
@@ -156,6 +161,7 @@ def standardize_portfolio_input(
     # LOGGING: Add portfolio processing logging with ticker count and validation
     # LOGGING: Add workflow state logging for portfolio processing completion here
     dollar_exposure = {}
+    dollars_entry_tickers = set()  # track tickers using raw "dollars" (not price_fetcher)
 
     # LOGGING: Add portfolio processing logging with ticker count and validation
     for ticker, entry in raw_input.items():
@@ -163,12 +169,30 @@ def standardize_portfolio_input(
             # Will normalize weights separately
             continue
         elif "dollars" in entry:
-            dollar_exposure[ticker] = float(entry["dollars"])
+            raw_dollars = float(entry["dollars"])
+            ccy = currency_map.get(ticker) if currency_map else None
+            if ccy and ccy.upper() != "USD":
+                from fmp.fx import get_fx_rate
+                raw_dollars = raw_dollars * get_fx_rate(ccy)
+            dollar_exposure[ticker] = raw_dollars
+            dollars_entry_tickers.add(ticker)
         elif "shares" in entry:
             price = price_fetcher(ticker)
             dollar_exposure[ticker] = float(entry["shares"]) * price
         else:
             raise ValueError(f"Invalid input for {ticker}: must provide 'shares', 'dollars', or 'weight'.")
+
+    # Warn only for "dollars" entries — "shares" entries go through price_fetcher
+    # which already handles FX via latest_price() FMP profile fallback.
+    if not currency_map and fmp_ticker_map and dollars_entry_tickers:
+        from utils.logging import portfolio_logger
+        for ticker in dollars_entry_tickers:
+            fmp_sym = fmp_ticker_map.get(ticker, "")
+            if any(fmp_sym.endswith(s) for s in (".L", ".TO", ".PA", ".DE", ".HK")):
+                portfolio_logger.warning(
+                    f"{ticker} appears foreign (FMP: {fmp_sym}) but no currency_map provided - "
+                    "treating dollars entry as USD"
+                )
 
     # If any weights were specified, override dollar_exposure logic
     if all("weight" in entry for entry in raw_input.values()):
@@ -225,18 +249,70 @@ def standardize_portfolio_input(
 # File: run_portfolio_risk.py
 
 @log_error_handling("high")
-def latest_price(ticker: str) -> float:
+def latest_price(
+    ticker: str,
+    *,
+    fmp_ticker: str | None = None,
+    fmp_ticker_map: dict[str, str] | None = None,
+    currency: str | None = None,
+) -> float:
     """
-    Fetches the latest available month-end closing price for a given ticker.
+    Fetches the latest available month-end closing price for a given ticker,
+    converted to USD.
+
+    FX conversion follows three paths:
+    1. Explicit currency provided → convert using month-end FX rate
+    2. Foreign FMP mapping exists (fmp_ticker/fmp_ticker_map) → infer currency
+       from FMP profile via fetch_fmp_quote_with_currency(), then convert
+    3. No currency info, no foreign mapping → assume domestic USD, return raw price
 
     Args:
         ticker (str): Ticker symbol of the stock or ETF.
+        fmp_ticker (str, optional): FMP-compatible symbol override.
+        fmp_ticker_map (dict, optional): Mapping of ticker -> fmp_ticker.
+        currency (str, optional): Explicit currency code for FX conversion.
 
     Returns:
-        float: Most recent non-NaN month-end closing price.
+        float: Most recent non-NaN month-end closing price in USD.
     """
-    prices = fetch_monthly_close(ticker)
-    return prices.dropna().iloc[-1]
+    from fmp.fx import get_fx_rate
+    from utils.ticker_resolver import (
+        select_fmp_symbol,
+        fetch_fmp_quote_with_currency,
+        normalize_fmp_price,
+    )
+
+    prices = fetch_monthly_close(
+        ticker,
+        fmp_ticker=fmp_ticker,
+        fmp_ticker_map=fmp_ticker_map,
+    )
+    raw_price = prices.dropna().iloc[-1]
+
+    if currency and currency.upper() == "USD":
+        return raw_price
+
+    # No currency info and no foreign ticker mapping — assume domestic (USD).
+    # Foreign stocks require fmp_ticker_map (e.g. AT→AT.L) for correct exchange
+    # resolution, so absence implies US-listed. Avoids extra FMP profile API call.
+    if not currency and not fmp_ticker and not (fmp_ticker_map and ticker in fmp_ticker_map):
+        return raw_price
+
+    fmp_symbol = select_fmp_symbol(
+        ticker,
+        fmp_ticker=fmp_ticker,
+        fmp_ticker_map=fmp_ticker_map,
+    )
+    _, fmp_currency = fetch_fmp_quote_with_currency(fmp_symbol)
+    normalized_price, base_currency = normalize_fmp_price(raw_price, fmp_currency)
+
+    effective_currency = currency or base_currency
+    if effective_currency and effective_currency.upper() != "USD":
+        fx_rate = get_fx_rate(effective_currency)
+        if normalized_price is not None:
+            normalized_price = normalized_price * fx_rate
+
+    return normalized_price if normalized_price is not None else raw_price
 
 
 # In[ ]:
@@ -262,15 +338,40 @@ def load_portfolio_config(
     No printing, no side effects.
     """
     from run_portfolio_risk import standardize_portfolio_input, latest_price  # local imports
+    from pathlib import Path
 
-    price_fetcher = price_fetcher or latest_price
+    resolved_path = Path(filepath)
+    if not resolved_path.is_absolute() and not resolved_path.exists():
+        candidate = Path(__file__).resolve().parent / resolved_path
+        if candidate.exists():
+            resolved_path = candidate
 
-    with open(filepath, "r") as f:
+    with open(resolved_path, "r") as f:
         cfg_raw = yaml.safe_load(f)
 
     # • Keep the original keys for downstream code
     cfg: Dict[str, Any] = dict(cfg_raw)          # shallow copy
-    parsed = standardize_portfolio_input(cfg["portfolio_input"], price_fetcher)
+
+    fmp_ticker_map = cfg.get("fmp_ticker_map")
+    currency_map = cfg.get("currency_map")
+    if price_fetcher is None:
+        if fmp_ticker_map:
+            price_fetcher = lambda t: latest_price(
+                t,
+                fmp_ticker_map=fmp_ticker_map,
+                currency=currency_map.get(t) if currency_map else None,
+            )
+        else:
+            price_fetcher = lambda t: latest_price(
+                t,
+                currency=currency_map.get(t) if currency_map else None,
+            )
+    parsed = standardize_portfolio_input(
+        cfg["portfolio_input"],
+        price_fetcher,
+        currency_map=currency_map,
+        fmp_ticker_map=fmp_ticker_map,
+    )
 
     cfg.update(
         weights           = parsed["weights"],
@@ -602,6 +703,11 @@ def evaluate_portfolio_beta_limits(
                 "pass": abs(actual) <= max_b,
                 "buffer": max_b - abs(actual),
             })
+
+    if not rows:
+        df = pd.DataFrame(columns=["portfolio_beta", "max_allowed_beta", "pass", "buffer"])
+        df.index.name = "factor"
+        return df
 
     df = pd.DataFrame(rows).set_index("factor")
     return df[["portfolio_beta", "max_allowed_beta", "pass", "buffer"]]

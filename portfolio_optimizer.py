@@ -30,7 +30,8 @@ from utils.logging import (
     log_workflow_state_decorator,
     log_resource_usage_decorator,
     log_performance,
-    log_error_handling
+    log_error_handling,
+    portfolio_logger,
 )
 
 
@@ -63,6 +64,7 @@ def simulate_portfolio_change(
     start: str,
     end: str,
     proxies: Dict[str, Dict[str, Any]],
+    fmp_ticker_map: Dict[str, str] | None = None,
 ):
     """
     Build a *new* summary after applying `edits` (delta-weights).
@@ -83,7 +85,12 @@ def simulate_portfolio_change(
     new_w = normalize_weights(new_w)
 
     summary = build_portfolio_view(
-        new_w, start, end, expected_returns=None, stock_factor_proxies=proxies
+        new_w,
+        start,
+        end,
+        expected_returns=None,
+        stock_factor_proxies=proxies,
+        fmp_ticker_map=fmp_ticker_map,
     )
 
     df_risk = evaluate_portfolio_risk_limits(
@@ -97,7 +104,8 @@ def simulate_portfolio_change(
         proxies, 
         start, 
         end, 
-        loss_limit_pct=risk_cfg["max_single_factor_loss"]
+        loss_limit_pct=risk_cfg["max_single_factor_loss"],
+        fmp_ticker_map=fmp_ticker_map,
     )
     
     df_beta = evaluate_portfolio_beta_limits(summary["portfolio_factor_betas"], max_betas)
@@ -116,6 +124,7 @@ def solve_min_variance_with_risk_limits(
     start: str,
     end: str,
     proxies: Dict[str, Dict[str, Any]],
+    fmp_ticker_map: Dict[str, str] | None = None,
     allow_short: bool = False,
 ):
     """
@@ -182,11 +191,34 @@ def solve_min_variance_with_risk_limits(
     
     # Pre-normalize weights for internal consistency
     normalized_weights = normalize_weights(weights, normalize=True)
-    tickers = list(normalized_weights)
-    n       = len(tickers)
 
     # Pre-compute covariance
-    base_summary = build_portfolio_view(normalized_weights, start, end, None, proxies)
+    base_summary = build_portfolio_view(
+        normalized_weights,
+        start,
+        end,
+        None,
+        proxies,
+        fmp_ticker_map=fmp_ticker_map,
+    )
+
+    # Filter tickers to only those present in covariance matrix (some may lack data)
+    cov_tickers = set(base_summary["covariance_matrix"].columns)
+    original_tickers = list(normalized_weights.keys())
+    tickers = [t for t in original_tickers if t in cov_tickers]
+
+    if len(tickers) < len(original_tickers):
+        missing = set(original_tickers) - set(tickers)
+        portfolio_logger.warning(f"⚠️ Min-variance: Dropping {len(missing)} tickers with no data: {missing}")
+        # Re-normalize weights for remaining tickers
+        remaining_weights = {t: normalized_weights[t] for t in tickers}
+        total = sum(remaining_weights.values())
+        normalized_weights = {t: w / total for t, w in remaining_weights.items()}
+
+    if not tickers:
+        raise ValueError(f"No valid tickers with data found. All tickers failed: {original_tickers}")
+
+    n = len(tickers)
     Σ = base_summary["covariance_matrix"].loc[tickers, tickers].values
 
     # Limits for betas
@@ -194,7 +226,8 @@ def solve_min_variance_with_risk_limits(
         proxies, 
         start, 
         end, 
-        loss_limit_pct=risk_cfg["max_single_factor_loss"]
+        loss_limit_pct=risk_cfg["max_single_factor_loss"],
+        fmp_ticker_map=fmp_ticker_map,
     )
 
     # Variables
@@ -226,7 +259,12 @@ def solve_min_variance_with_risk_limits(
 
     # 3b. Per-proxy beta constraints (industry-specific limits) - RE-ENABLED
     loss_lim = risk_cfg["max_single_factor_loss"]
-    worst_proxy_loss = get_worst_monthly_factor_losses(proxies, start, end)
+    worst_proxy_loss = get_worst_monthly_factor_losses(
+        proxies,
+        start,
+        end,
+        fmp_ticker_map=fmp_ticker_map,
+    )
     
     proxy_caps = {
         proxy: (np.inf if loss >= 0 else loss_lim / loss)
@@ -351,6 +389,7 @@ def run_what_if(
     start_date: str,
     end_date: str,
     factor_proxies: Dict[str, Dict],
+    fmp_ticker_map: Dict[str, str] | None = None,
     *,           
     verbose: bool = True,
 ) -> Tuple[dict, pd.DataFrame, pd.DataFrame]:
@@ -385,7 +424,8 @@ def run_what_if(
     # 1) build new portfolio + tables
     summary, risk_df, beta_df = simulate_portfolio_change(
         base_weights, delta, risk_cfg,
-        start_date, end_date, factor_proxies
+        start_date, end_date, factor_proxies,
+        fmp_ticker_map=fmp_ticker_map,
     )
 
     # 2) optionally pretty-print
@@ -433,6 +473,7 @@ def evaluate_weights(
     start_date: str,
     end_date: str,
     proxies: Dict[str, Dict[str, Any]],
+    fmp_ticker_map: Dict[str, str] | None = None,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Runs the standard risk + beta limit checks on a given weight dict.
@@ -446,8 +487,12 @@ def evaluate_weights(
     from risk_helpers import compute_max_betas
 
     summary = build_portfolio_view(
-        weights, start_date, end_date,
-        expected_returns=None, stock_factor_proxies=proxies
+        weights,
+        start_date,
+        end_date,
+        expected_returns=None,
+        stock_factor_proxies=proxies,
+        fmp_ticker_map=fmp_ticker_map,
     )
 
     df_risk = evaluate_portfolio_risk_limits(
@@ -462,6 +507,7 @@ def evaluate_weights(
         start_date=start_date,
         end_date=end_date,
         loss_limit_pct=risk_cfg["max_single_factor_loss"],
+        fmp_ticker_map=fmp_ticker_map,
     )
 
     df_beta = evaluate_portfolio_beta_limits(
@@ -706,6 +752,8 @@ def run_what_if_scenario(
     # fallback-safe delta parse
     delta, new_weights = parse_delta(yaml_path=scenario_yaml, literal_shift=shift_dict)
 
+    fmp_ticker_map = config.get("fmp_ticker_map")
+
     # get proxy-level beta caps
     from settings import PORTFOLIO_DEFAULTS
     lookback_years = PORTFOLIO_DEFAULTS.get('worst_case_lookback_years', 10)
@@ -721,19 +769,22 @@ def run_what_if_scenario(
         new_weights = normalize_weights(new_weights)
         summary_new = build_portfolio_view(
             new_weights, config["start_date"], config["end_date"],
-            expected_returns=None, stock_factor_proxies=proxies
+            expected_returns=None, stock_factor_proxies=proxies,
+            fmp_ticker_map=fmp_ticker_map,
         )
     else:
         summary_new, *_ = run_what_if(
             base_weights, delta, risk_config,
             config["start_date"], config["end_date"], proxies,
+            fmp_ticker_map=fmp_ticker_map,
             verbose=False
         )
 
     # construct summary_base
     summary_base = build_portfolio_view(
         base_weights, config["start_date"], config["end_date"],
-        expected_returns=None, stock_factor_proxies=proxies
+        expected_returns=None, stock_factor_proxies=proxies,
+        fmp_ticker_map=fmp_ticker_map,
     )
 
     # run risk tables
@@ -749,7 +800,8 @@ def run_what_if_scenario(
         from risk_helpers import compute_max_betas
         max_betas = compute_max_betas(
             proxies, config["start_date"], config["end_date"],
-            loss_limit_pct=risk_config["max_single_factor_loss"]
+            loss_limit_pct=risk_config["max_single_factor_loss"],
+            fmp_ticker_map=fmp_ticker_map,
         )
         return evaluate_portfolio_beta_limits(
             summary["portfolio_factor_betas"],
@@ -799,6 +851,7 @@ def run_min_var_optimiser(
     start_date: str,
     end_date:   str,
     proxies: Dict[str, Dict[str, Any]],
+    fmp_ticker_map: Dict[str, str] | None = None,
     echo: bool = True,
 ) -> Dict[str, float]:
     """
@@ -842,6 +895,7 @@ def run_min_var_optimiser(
         start_date,
         end_date,
         proxies,
+        fmp_ticker_map=fmp_ticker_map,
     )
 
     # 2. ---------- optional console output ---------------------------------
@@ -869,6 +923,7 @@ def run_min_var(
     config: Dict[str, Any],
     risk_config: Dict[str, Any],
     proxies: Dict[str, Any],
+    fmp_ticker_map: Dict[str, str] | None = None,
 ) -> Tuple[Dict[str, float], pd.DataFrame, pd.DataFrame]:
     """
     Runs minimum-variance optimisation under risk constraints.
@@ -895,13 +950,15 @@ def run_min_var(
         start_date = config["start_date"],
         end_date   = config["end_date"],
         proxies    = proxies,
+        fmp_ticker_map=fmp_ticker_map,
         echo       = False,
     )
 
     risk_tbl, beta_tbl = evaluate_weights(
         w_opt, risk_config,
         config["start_date"], config["end_date"],
-        proxies
+        proxies,
+        fmp_ticker_map=fmp_ticker_map,
     )
     # LOGGING: Add minimum variance optimization completion logging
     # LOGGING: Add workflow state logging for optimization workflow completion here
@@ -979,6 +1036,7 @@ def solve_max_return_with_risk_limits(
     end_date: str,
     stock_factor_proxies: Dict[str, Dict[str, Union[str, List[str]]]],
     expected_returns: Dict[str, float],
+    fmp_ticker_map: Dict[str, str] | None = None,
     allow_short: bool = False,
 ) -> Dict[str, float]:
     r"""Return the weight vector *w* that maximises expected portfolio return
@@ -1049,13 +1107,29 @@ def solve_max_return_with_risk_limits(
     # Always work with normalized weights (sum = 1) to ensure risk calculations
     # and constraints are consistent, regardless of external normalization settings
     normalized_weights = normalize_weights(init_weights, normalize=True)
-    tickers = list(normalized_weights)
-    
+
     view = build_portfolio_view(
         normalized_weights, start_date, end_date,
         expected_returns=None,
         stock_factor_proxies=stock_factor_proxies,
+        fmp_ticker_map=fmp_ticker_map,
     )
+
+    # Filter tickers to only those present in covariance matrix (some may lack data)
+    cov_tickers = set(view["covariance_matrix"].columns)
+    original_tickers = list(normalized_weights.keys())
+    tickers = [t for t in original_tickers if t in cov_tickers]
+
+    if len(tickers) < len(original_tickers):
+        missing = set(original_tickers) - set(tickers)
+        portfolio_logger.warning(f"⚠️ Max-return: Dropping {len(missing)} tickers with no data: {missing}")
+        # Re-normalize weights for remaining tickers
+        remaining_weights = {t: normalized_weights[t] for t in tickers}
+        total = sum(remaining_weights.values())
+        normalized_weights = {t: w / total for t, w in remaining_weights.items()}
+
+    if not tickers:
+        raise ValueError(f"No valid tickers with data found. All tickers failed: {original_tickers}")
 
     Σ_m = view["covariance_matrix"].loc[tickers, tickers].values          # Σ (monthly)
     β_tbl = view["df_stock_betas"].fillna(0.0).loc[tickers]               # n × factors
@@ -1072,13 +1146,17 @@ def solve_max_return_with_risk_limits(
         stock_factor_proxies,
         start_date, end_date,
         loss_limit_pct=risk_cfg["max_single_factor_loss"],
+        fmp_ticker_map=fmp_ticker_map,
     )
     agg_caps = {k: all_caps[k] for k in ("market", "momentum", "value")}
 
     # 1b) Per-industry proxy caps
     loss_lim = risk_cfg["max_single_factor_loss"]            # e.g. -0.10
     worst_proxy_loss = get_worst_monthly_factor_losses(
-        stock_factor_proxies, start_date, end_date
+        stock_factor_proxies,
+        start_date,
+        end_date,
+        fmp_ticker_map=fmp_ticker_map,
     )
     proxy_caps = {
         proxy: (np.inf if loss >= 0 else loss_lim / loss)
@@ -1171,6 +1249,7 @@ def run_max_return_portfolio(
     config: Dict[str, Any],
     risk_config: Dict[str, Any],
     proxies: Dict[str, Any],
+    fmp_ticker_map: Dict[str, str] | None = None,
 ) -> Tuple[Dict[str, float], Dict[str, Any], pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
     Runs max-return optimisation under risk constraints and returns full output.
@@ -1198,6 +1277,7 @@ def run_max_return_portfolio(
         end_date             = config["end_date"],
         stock_factor_proxies = proxies,
         expected_returns     = config["expected_returns"],
+        fmp_ticker_map       = fmp_ticker_map,
     )
 
     # 2. Build full summary
@@ -1207,6 +1287,7 @@ def run_max_return_portfolio(
         end_date             = config["end_date"],
         expected_returns     = None,
         stock_factor_proxies = proxies,
+        fmp_ticker_map       = fmp_ticker_map,
     )
 
     # 3. Run risk checks
@@ -1223,6 +1304,7 @@ def run_max_return_portfolio(
         config["start_date"],
         config["end_date"],
         loss_limit_pct = risk_config["max_single_factor_loss"],
+        fmp_ticker_map = fmp_ticker_map,
     )
     from settings import PORTFOLIO_DEFAULTS
     lookback_years = PORTFOLIO_DEFAULTS.get('worst_case_lookback_years', 10)
@@ -1296,7 +1378,5 @@ def print_max_return_report(
 
 
 # In[ ]:
-
-
 
 

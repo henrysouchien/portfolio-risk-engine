@@ -87,6 +87,30 @@ def _create_factor_exposures_mapping(factor_summary, factor_proxies):
     
     return factor_exposures
 
+
+def _has_complete_factor_proxies(
+    factor_proxies: Optional[Dict[str, Union[str, List[str]]]]
+) -> bool:
+    """
+    Return True when we have enough proxies for stable multi-factor analysis.
+
+    Multi-factor path requires all core keys. Missing/empty keys should fall back
+    to simple market regression instead of raising downstream KeyError.
+    """
+    if not isinstance(factor_proxies, dict):
+        return False
+
+    required_keys = ("market", "momentum", "value", "industry", "subindustry")
+    for key in required_keys:
+        val = factor_proxies.get(key)
+        if val is None:
+            return False
+        if isinstance(val, str) and not val.strip():
+            return False
+        if isinstance(val, (list, tuple, set)) and len(val) == 0:
+            return False
+    return True
+
 @log_error_handling("high")
 @log_portfolio_operation_decorator("stock_analysis")
 @log_performance(3.0)
@@ -96,7 +120,8 @@ def analyze_stock(
     end: Optional[str] = None,
     factor_proxies: Optional[Dict[str, Union[str, List[str]]]] = None,
     *,
-    asset_class: Optional[str] = None
+    asset_class: Optional[str] = None,
+    fmp_ticker_map: Optional[Dict[str, str]] = None,
 ) -> 'StockAnalysisResult':
     """
     Core stock analysis business logic.
@@ -165,9 +190,9 @@ def analyze_stock(
         factor_proxies = full_proxies
 
     # ─── 3. Diagnostics path A: multi-factor profile ────────────────────
-    if factor_proxies:
+    if _has_complete_factor_proxies(factor_proxies):
         profile = get_detailed_stock_factor_profile(
-            ticker, start, end, factor_proxies
+            ticker, start, end, factor_proxies, fmp_ticker_map=fmp_ticker_map
         )
         
         # Create structured factor exposures with metadata
@@ -179,9 +204,19 @@ def analyze_stock(
             try:
                 # Prefer total-return prices for stock
                 try:
-                    prices = fetch_monthly_total_return_price(ticker, start, end)
+                    prices = fetch_monthly_total_return_price(
+                        ticker,
+                        start,
+                        end,
+                        fmp_ticker_map=fmp_ticker_map,
+                    )
                 except Exception:
-                    prices = fetch_monthly_close(ticker, start, end)
+                    prices = fetch_monthly_close(
+                        ticker,
+                        start,
+                        end,
+                        fmp_ticker_map=fmp_ticker_map,
+                    )
                 stock_ret = calc_monthly_returns(prices)
                 # Treasury Δy
                 levels = fetch_monthly_treasury_yield_levels(start, end)
@@ -242,7 +277,8 @@ def analyze_stock(
             ticker,
             start_date=start,
             end_date=end,
-            benchmark="SPY"
+            benchmark="SPY",
+            fmp_ticker_map=fmp_ticker_map,
         )
         
         # Return StockAnalysisResult object for simple regression analysis

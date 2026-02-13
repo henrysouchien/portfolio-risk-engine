@@ -1,5 +1,16 @@
 # Factor Intelligence Engine - Implementation Architecture
 
+> **Status:** ✅ Backend complete (Phases 1-2: Foundation + API Layer). ✅ MCP tools complete (built separately). Frontend integration (Phases 3-4) not started.
+>
+> **Backend files:** `core/factor_intelligence.py` (1,580 lines), `services/factor_intelligence_service.py` (919 lines), `routes/factor_intelligence.py` (362 lines), `models/factor_intelligence_models.py`, `database/migrations/20250903_add_factor_intelligence.sql`
+>
+> **MCP tools (built post-plan, now the primary consumer):**
+> - `mcp_tools/factor_intelligence.py` — `get_factor_analysis` (correlations, performance, returns) + `get_factor_recommendations` (single + portfolio mode) with section filtering
+> - `mcp_tools/stock.py` — `analyze_stock` (standalone ticker analysis using factor proxies)
+> - Plans: `docs/planning/completed/FACTOR_INTELLIGENCE_MCP_PLAN.md`, `docs/planning/completed/FACTOR_RETURNS_MCP_PLAN.md`
+>
+> **What remains:** This doc primarily describes a full-stack web app architecture. The frontend (Phases 3-4: TypeScript client, React components, interactive heatmaps, factor group builder UI) was never built. The backend is consumed entirely via MCP tools now.
+
 ## **Overview**
 
 This document outlines the complete implementation architecture for the Factor Intelligence Engine, designed to integrate seamlessly with the existing FastAPI-based portfolio risk analysis system. The architecture follows established patterns while introducing new capabilities for factor analysis and user-defined factor groups.
@@ -3650,42 +3661,50 @@ app.include_router(factor_groups_router)           # Factor Group Management [NE
 ```markdown
 ## Implementation Roadmap
 
-### Phase 1: Foundation (Week 1-2)
-- [ ] **Database Migration**: Create `user_factor_groups` table
-- [ ] **Core Implementation**: Build factor intelligence core functions
-- [ ] **Service Layer**: Implement `FactorIntelligenceService` with caching
-- [ ] **Unit Tests**: Test core functionality and data validation
+### Phase 1: Foundation (Week 1-2) ✅ COMPLETE
+- [x] **Database Migration**: Create `user_factor_groups` table
+- [x] **Core Implementation**: Build factor intelligence core functions
+- [x] **Service Layer**: Implement `FactorIntelligenceService` with caching
+- [x] **Unit Tests**: Test core functionality and data validation
 
-### Phase 2: API Layer (Week 3)
-- [ ] **Pydantic Models**: Create request/response models
-- [ ] **API Routes**: Implement `/routes/factor_intelligence.py`
-- [ ] **Integration**: Update `ServiceManager` and router registration
-- [ ] **API Tests**: Test all endpoints with various scenarios
+### Phase 2: API Layer (Week 3) ✅ COMPLETE
+- [x] **Pydantic Models**: Create request/response models
+- [x] **API Routes**: Implement `/routes/factor_intelligence.py`
+- [x] **Integration**: Update `ServiceManager` and router registration
+- [x] **API Tests**: Test all endpoints with various scenarios
 
-### Phase 3: Frontend Integration (Week 4)
+### Phase 2b: MCP Tools (post-plan) ✅ COMPLETE
+- [x] **get_factor_analysis**: Correlations, performance, and returns analysis modes
+- [x] **get_factor_recommendations**: Single-factor and portfolio-mode offset recommendations
+- [x] **Section filtering**: `include` param with `FACTOR_ANALYSIS_SECTIONS` (15 sections)
+- [x] **Returns mode**: Lightweight trailing-window factor returns (multiple windows in one call)
+- [x] **Fuzzy factor matching**: Normalized + alias + substring matching for factor names (Bug 5 fix)
+- [x] **analyze_stock**: Standalone ticker analysis with factor proxy fallback (Bug 1 fix)
+
+### Phase 3: Frontend Integration (Week 4) ❌ NOT STARTED
 - [ ] **API Client**: TypeScript interfaces and API client methods
 - [ ] **Core Components**: Factor correlation matrix and performance profiles
 - [ ] **Factor Group Builder**: UI for creating and managing factor groups
 - [ ] **Integration**: Connect with existing portfolio analysis UI
 
-### Phase 4: Advanced Features (Week 5-6)
+### Phase 4: Advanced Features (Week 5-6) ❌ NOT STARTED
 - [ ] **Offset Recommendations**: Portfolio-aware recommendation UI
 - [ ] **Data Visualization**: Interactive correlation heatmaps and charts
 - [ ] **User Experience**: Form validation, loading states, error handling
 - [ ] **Performance Optimization**: Caching strategies and lazy loading
 
-### Phase 5: Testing & Deployment (Week 7)
+### Phase 5: Testing & Deployment (Week 7) 🔄 PARTIAL
 - [ ] **End-to-End Tests**: Complete user workflows
 - [ ] **Performance Testing**: Load testing and optimization
-- [ ] **Documentation**: API docs and user guides
-- [ ] **Production Deployment**: Database migration and feature rollout
+- [x] **Documentation**: API schemas created (`docs/schemas/api/`)
+- [x] **Production Deployment**: Database migration and feature rollout (backend)
 
 ### Success Metrics
-- [ ] Factor correlation analysis completes in <10 seconds
-- [ ] Cache hit rate >80% for repeated analysis
-- [ ] User can create factor groups with market-cap weighting
-- [ ] Offset recommendations consider current portfolio exposures
-- [ ] All endpoints follow existing authentication and error patterns
+- [x] Factor correlation analysis completes in <10 seconds
+- [x] Cache hit rate >80% for repeated analysis (ServiceCacheMixin configured)
+- [x] User can create factor groups with market-cap weighting
+- [x] Offset recommendations consider current portfolio exposures
+- [x] All endpoints follow existing authentication and error patterns
 ```
 
 ## **Architecture Benefits**

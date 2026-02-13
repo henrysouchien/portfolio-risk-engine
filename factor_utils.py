@@ -116,7 +116,8 @@ def compute_regression_metrics(df: pd.DataFrame) -> Dict[str, float]:
 def fetch_peer_median_monthly_returns(
     tickers: List[str],
     start_date: Optional[Union[str, datetime]] = None,
-    end_date:   Optional[Union[str, datetime]] = None
+    end_date:   Optional[Union[str, datetime]] = None,
+    fmp_ticker_map: Optional[Dict[str, str]] = None,
 ) -> pd.Series:
     """
     Compute the cross-sectional median of peer tickers' monthly returns.
@@ -150,9 +151,19 @@ def fetch_peer_median_monthly_returns(
         try:
             # Prefer total-return prices for peers
             try:
-                prices = fetch_monthly_total_return_price(ticker, start_date=start_date, end_date=end_date)
+                prices = fetch_monthly_total_return_price(
+                    ticker,
+                    start_date=start_date,
+                    end_date=end_date,
+                    fmp_ticker_map=fmp_ticker_map,
+                )
             except Exception:
-                prices = fetch_monthly_close(ticker, start_date=start_date, end_date=end_date)
+                prices = fetch_monthly_close(
+                    ticker,
+                    start_date=start_date,
+                    end_date=end_date,
+                    fmp_ticker_map=fmp_ticker_map,
+                )
                 
             returns = calc_monthly_returns(prices)
             
@@ -217,7 +228,8 @@ def fetch_excess_return(
     etf_ticker: str,
     market_ticker: str = "SPY",
     start_date: Optional[Union[str, datetime]] = None,
-    end_date: Optional[Union[str, datetime]] = None
+    end_date: Optional[Union[str, datetime]] = None,
+    fmp_ticker_map: Optional[Dict[str, str]] = None,
 ) -> pd.Series:
     """
     Compute style-factor excess returns: ETF minus market, aligned by index.
@@ -230,13 +242,33 @@ def fetch_excess_return(
     """
     # Prefer total-return prices for both ETF and market; fallback to close-only
     try:
-        etf_prices = fetch_monthly_total_return_price(etf_ticker, start_date, end_date)
+        etf_prices = fetch_monthly_total_return_price(
+            etf_ticker,
+            start_date,
+            end_date,
+            fmp_ticker_map=fmp_ticker_map,
+        )
     except Exception:
-        etf_prices = fetch_monthly_close(etf_ticker, start_date, end_date)
+        etf_prices = fetch_monthly_close(
+            etf_ticker,
+            start_date,
+            end_date,
+            fmp_ticker_map=fmp_ticker_map,
+        )
     try:
-        mkt_prices = fetch_monthly_total_return_price(market_ticker, start_date, end_date)
+        mkt_prices = fetch_monthly_total_return_price(
+            market_ticker,
+            start_date,
+            end_date,
+            fmp_ticker_map=fmp_ticker_map,
+        )
     except Exception:
-        mkt_prices = fetch_monthly_close(market_ticker, start_date, end_date)
+        mkt_prices = fetch_monthly_close(
+            market_ticker,
+            start_date,
+            end_date,
+            fmp_ticker_map=fmp_ticker_map,
+        )
 
     etf_ret    = calc_monthly_returns(etf_prices)
     market_ret = calc_monthly_returns(mkt_prices)

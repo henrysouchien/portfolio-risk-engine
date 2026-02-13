@@ -52,7 +52,8 @@ def group_holdings_by_asset_class(
 
 def calculate_weighted_portfolio_return(
     holdings: Dict[str, float],
-    time_period: str
+    time_period: str,
+    fmp_ticker_map: Dict[str, str] | None = None,
 ) -> float:
     """Compute weighted period return for a set of holdings using monthly closes."""
     total_weight = sum(holdings.values()) or 0.0
@@ -62,7 +63,11 @@ def calculate_weighted_portfolio_return(
     start_date = get_period_start_date(time_period)
     total_return = 0.0
     for ticker, weight in holdings.items():
-        series = fetch_monthly_close(ticker, start_date=start_date)
+        series = fetch_monthly_close(
+            ticker,
+            start_date=start_date,
+            fmp_ticker_map=fmp_ticker_map,
+        )
         if len(series) >= 2:
             period_ret = (series.iloc[-1] / series.iloc[0]) - 1.0
             total_return += period_ret * (weight / total_weight)
@@ -71,14 +76,19 @@ def calculate_weighted_portfolio_return(
 
 def calculate_asset_class_returns(
     asset_class_holdings: Dict[str, Dict[str, float]],
-    time_period: str
+    time_period: str,
+    fmp_ticker_map: Dict[str, str] | None = None,
 ) -> Dict[str, float]:
     """Calculate weighted returns per asset class for the selected period."""
     results: Dict[str, float] = {}
     for asset_class, class_holdings in (asset_class_holdings or {}).items():
         if not class_holdings:
             continue
-        results[asset_class] = calculate_weighted_portfolio_return(class_holdings, time_period)
+        results[asset_class] = calculate_weighted_portfolio_return(
+            class_holdings,
+            time_period,
+            fmp_ticker_map=fmp_ticker_map,
+        )
     return results
 
 
@@ -91,4 +101,3 @@ def classify_performance_change(return_pct: float) -> str:
     if return_pct < -0.005:
         return "negative"
     return "neutral"
-

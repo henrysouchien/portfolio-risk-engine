@@ -1,0 +1,10 @@
+
+> portfolio-risk-frontend@0.1.0 build
+> react-scripts build
+
+Creating an optimized production build...
+Failed to compile.
+
+Attempted import error: 'useAppStore' is not exported from '../store/dashboardStore' (imported as 'useAppStore').
+
+

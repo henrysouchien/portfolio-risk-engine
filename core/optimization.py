@@ -64,7 +64,26 @@ def optimize_min_variance(filepath: str, risk_yaml: str = "risk_limits.yaml") ->
     with open(risk_yaml, "r") as f:
         risk_config = yaml.safe_load(f)
 
-    weights = standardize_portfolio_input(config["portfolio_input"], latest_price)["weights"]
+    fmp_ticker_map = config.get("fmp_ticker_map")
+    currency_map = config.get("currency_map")
+    if fmp_ticker_map:
+        price_fetcher = lambda t: latest_price(
+            t,
+            fmp_ticker_map=fmp_ticker_map,
+            currency=currency_map.get(t) if currency_map else None,
+        )
+    else:
+        price_fetcher = lambda t: latest_price(
+            t,
+            currency=currency_map.get(t) if currency_map else None,
+        )
+
+    weights = standardize_portfolio_input(
+        config["portfolio_input"],
+        price_fetcher,
+        currency_map=currency_map,
+        fmp_ticker_map=fmp_ticker_map,
+    )["weights"]
 
     # --- run the engine ----------------------------------------------------
     w, r, b = run_min_var(
@@ -72,6 +91,7 @@ def optimize_min_variance(filepath: str, risk_yaml: str = "risk_limits.yaml") ->
         config       = config,
         risk_config  = risk_config,
         proxies      = config["stock_factor_proxies"],
+        fmp_ticker_map = fmp_ticker_map,
     )
     # LOGGING: Add min variance calculation performance timing here
     # TODO: Could add proxy table and summary like max return
@@ -84,7 +104,7 @@ def optimize_min_variance(filepath: str, risk_yaml: str = "risk_limits.yaml") ->
         risk_table=r,
         factor_table=b,  # Use as factor_table (same as beta_table)
         optimization_metadata={
-            "optimization_type": "minimum_variance",
+            "optimization_type": "min_variance",
             "analysis_date": datetime.now(UTC).isoformat(),
             "portfolio_file": filepath,
             "original_weights": weights,
@@ -133,7 +153,26 @@ def optimize_max_return(filepath: str, risk_yaml: str = "risk_limits.yaml") -> O
     with open(risk_yaml, "r") as f:
         risk_config = yaml.safe_load(f)
 
-    weights = standardize_portfolio_input(config["portfolio_input"], latest_price)["weights"]
+    fmp_ticker_map = config.get("fmp_ticker_map")
+    currency_map = config.get("currency_map")
+    if fmp_ticker_map:
+        price_fetcher = lambda t: latest_price(
+            t,
+            fmp_ticker_map=fmp_ticker_map,
+            currency=currency_map.get(t) if currency_map else None,
+        )
+    else:
+        price_fetcher = lambda t: latest_price(
+            t,
+            currency=currency_map.get(t) if currency_map else None,
+        )
+
+    weights = standardize_portfolio_input(
+        config["portfolio_input"],
+        price_fetcher,
+        currency_map=currency_map,
+        fmp_ticker_map=fmp_ticker_map,
+    )["weights"]
     
     # --- run the engine ----------------------------------------------------
     w, summary, r, f_b, p_b = run_max_return_portfolio(
@@ -141,6 +180,7 @@ def optimize_max_return(filepath: str, risk_yaml: str = "risk_limits.yaml") -> O
         config      = config,
         risk_config = risk_config,
         proxies     = config["stock_factor_proxies"],
+        fmp_ticker_map = fmp_ticker_map,
     )
     
     # --- Return OptimizationResult object --------------------------------
@@ -155,6 +195,7 @@ def optimize_max_return(filepath: str, risk_yaml: str = "risk_limits.yaml") -> O
             "analysis_date": datetime.now(UTC).isoformat(),
             "portfolio_file": filepath,
             "risk_limits_file": risk_yaml,
+            "original_weights": weights,
             "risk_limits": risk_config  # Pass the actual risk limits configuration
         }
     ) 

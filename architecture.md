@@ -5,6 +5,9 @@ This document provides a comprehensive overview of the Risk Module's architectur
 ## 📋 Table of Contents
 
 - [System Overview](#system-overview)
+- [FMP Data Abstraction Layer](#fmp-data-abstraction-layer)
+- [International Ticker Resolution](#international-ticker-resolution)
+- [Service Architecture Layer](#service-architecture-layer)
 - [Dual-Mode Interface Pattern](#dual-mode-interface-pattern)
 - [Architecture Layers](#architecture-layers)
 - [Data Flow](#data-flow)
@@ -25,7 +28,7 @@ The Risk Module is a comprehensive full-stack application combining a modular Py
 
 ### Architecture Evolution
 
-**BEFORE**: Monolithic `run_risk.py` (1217 lines) mixing CLI, business logic, and formatting
+**BEFORE**: Monolithic `run_risk.py` (896 lines) mixing CLI, business logic, and formatting
 **AFTER**: Enterprise-grade multi-user system with FastAPI backend, production-ready React dashboard, comprehensive service architecture with dependency injection, Pydantic response models for type safety, multi-user database architecture with PostgreSQL, and sophisticated testing infrastructure
 
 ### Data Quality Assurance
@@ -52,7 +55,7 @@ The Risk Module implements a comprehensive multi-user database system with Postg
 **Database Components:**
 - **Database Session Management** (`database/session.py`): Request-scoped session management
 - **Database Connection Pooling** (`database/pool.py`): PostgreSQL connection pool management
-- **Database Schema** (`database/schema.sql`): Complete database schema (783 lines) with 50+ optimized indexes
+- **Database Schema** (`database/schema.sql`): Complete database schema (831 lines) with 50+ optimized indexes
 - **Database Client** (`inputs/database_client.py`): Per-request PostgreSQL helper with no singleton pattern
 - **Multi-Currency Support** (`inputs/database_client.py`): Currency extraction and position mapping
 - **User Management** (`services/auth_service.py`): Authentication, session handling, user isolation
@@ -236,8 +239,265 @@ CREATE TABLE user_sessions (
 
 For web interface, REST API, and Claude AI chat integration, see:
 - **[API Reference](docs/API_REFERENCE.md)** - REST API documentation and endpoints
-- **[Frontend Backend Connection Map](docs/FRONTEND_BACKEND_CONNECTION_MAP.md)** - Interface connection mapping
-- **[Interface Alignment Table](docs/interface_alignment_table.md)** - Function alignment across interfaces
+- **[Database Reference](docs/DATABASE_REFERENCE.md)** - Database schema documentation
+- **[Data Schemas](docs/DATA_SCHEMAS.md)** - Data schema definitions
+
+## 🔌 FMP Data Abstraction Layer
+
+The Risk Module implements a unified **FMP Data Abstraction Layer** (`fmp/`) for all Financial Modeling Prep API interactions. This module provides discoverable endpoints, two-tier caching, structured error handling, and backward-compatible wrappers.
+
+### FMP Module Architecture
+
+**Module Structure** (`fmp/`):
+```
+fmp/
+├── __init__.py           # Module exports and quick-start documentation
+├── client.py             # FMPClient: unified fetch interface with caching
+├── registry.py           # Endpoint registry with full metadata (30+ endpoints)
+├── cache.py              # Disk-based caching (Parquet + Zstandard)
+├── compat.py             # Backward-compatible wrappers for data_loader.py
+├── fx.py                 # FX conversion utilities (currency pair resolution, monthly FX rates)
+└── exceptions.py         # Structured exception hierarchy
+```
+
+### FMPClient Usage
+
+```python
+from fmp import FMPClient, fetch
+
+# Create client instance
+fmp = FMPClient()
+
+# Fetch data with automatic caching
+prices = fmp.fetch("historical_price_adjusted", symbol="AAPL", **{"from": "2020-01-01"})
+income = fmp.fetch("income_statement", symbol="AAPL", period="quarter")
+
+# Discover endpoints (works without API key)
+fmp.list_endpoints()                    # All endpoints
+fmp.list_endpoints(category="analyst")  # Filter by category
+fmp.describe("income_statement")        # Full documentation
+
+# Convenience function using shared client
+prices = fetch("historical_price_adjusted", symbol="AAPL")
+```
+
+### Registered Endpoints
+
+| Category | Endpoint | Description |
+|----------|----------|-------------|
+| **prices** | `historical_price_eod` | End-of-day prices (OHLCV) |
+| **prices** | `historical_price_adjusted` | Dividend-adjusted prices (total return) |
+| **treasury** | `treasury_rates` | US Treasury rates (multiple maturities) |
+| **dividends** | `dividends` | Dividend history (payment dates, amounts) |
+| **search** | `search` | Company search by name/ticker |
+| **search** | `profile` | Company profile (sector, industry, currency) |
+| **fundamentals** | `income_statement` | Income statement data |
+| **fundamentals** | `balance_sheet` | Balance sheet data |
+| **fundamentals** | `cash_flow` | Cash flow statement data |
+| **fundamentals** | `key_metrics` | Key financial metrics (P/E, ROE, etc.) |
+| **fundamentals** | `ratios_ttm` | Trailing twelve-month financial ratios |
+| **analyst** | `analyst_estimates` | Analyst EPS/revenue forecasts |
+| **analyst** | `price_target` | Analyst price target summary |
+| **analyst** | `price_target_consensus` | Price target consensus |
+| **transcripts** | `earnings_transcript` | Earnings call transcripts |
+| **screener** | `company_screener` | Screen stocks by fundamental criteria |
+| **filings** | `sec_filings` | SEC filing history |
+| **news** | `news_stock` | Stock-specific news articles |
+| **news** | `news_general` | General market news |
+| **news** | `news_press_releases` | Company press releases |
+| **calendar** | `earnings_calendar` | Upcoming earnings dates |
+| **calendar** | `dividends_calendar` | Upcoming dividend dates |
+| **calendar** | `splits_calendar` | Upcoming stock splits |
+| **calendar** | `ipos_calendar` | Upcoming IPOs |
+| **peers** | `stock_peers` | Peer company lists |
+| **market** | `biggest_gainers` | Top daily gainers |
+| **market** | `biggest_losers` | Top daily losers |
+| **market** | `most_actives` | Most actively traded stocks |
+| **market** | `batch_index_quotes` | Batch index price quotes |
+| **market** | `sector_performance_snapshot` | Sector performance data |
+| **market** | `industry_performance_snapshot` | Industry performance data |
+| **market** | `sector_pe_snapshot` | Sector P/E ratios |
+| **market** | `industry_pe_snapshot` | Industry P/E ratios |
+| **economic** | `economic_indicators` | Economic indicator time series |
+| **economic** | `economic_calendar` | Economic event calendar |
+
+### Exception Hierarchy
+
+```python
+from fmp import (
+    FMPError,                 # Base exception
+    FMPAPIError,              # API request failures
+    FMPRateLimitError,        # HTTP 429 rate limit exceeded
+    FMPAuthenticationError,   # Invalid/missing API key
+    FMPEndpointError,         # Unknown endpoint name
+    FMPValidationError,       # Parameter validation failures
+    FMPEmptyResponseError,    # Empty API response
+)
+```
+
+### Caching Architecture
+
+**Two-Tier Caching**:
+- **Disk Cache**: Parquet files with Zstandard compression for persistence
+- **Monthly Staleness Protection**: Cache keys include month token for "latest" data requests
+
+**Cache TTL Configuration**:
+- `search`: Disabled (real-time results)
+- `profile`: 168 hours (1 week)
+- `analyst_estimates`, `price_target`: 24 hours
+- Historical prices/fundamentals: Monthly refresh (no explicit TTL)
+
+### Backward Compatibility Layer (`fmp/compat.py`)
+
+The `compat.py` module provides drop-in replacements for legacy `data_loader.py` functions:
+
+```python
+from fmp.compat import (
+    fetch_monthly_close,              # Month-end close prices
+    fetch_monthly_total_return_price, # Dividend-adjusted prices
+    fetch_monthly_treasury_rates,     # Treasury rates
+    fetch_dividend_history,           # Dividend events
+)
+```
+
+**International Ticker Resolution**:
+All compat functions support the `fmp_ticker` and `fmp_ticker_map` parameters for international ticker resolution via `utils/ticker_resolver.py`.
+
+### Adding New Endpoints
+
+```python
+from fmp.registry import register_endpoint, FMPEndpoint, EndpointParam, ParamType
+
+register_endpoint(
+    FMPEndpoint(
+        name="new_endpoint",
+        path="/new-endpoint",
+        description="Description for discovery",
+        category="category_name",
+        params=[
+            EndpointParam("symbol", ParamType.STRING, required=True),
+            EndpointParam("period", ParamType.ENUM, enum_values=["annual", "quarter"]),
+        ],
+        cache_dir="cache_dir_name",
+        cache_ttl_hours=24,  # Optional TTL
+    )
+)
+```
+
+## 🌍 International Ticker Resolution
+
+The Risk Module implements international ticker resolution for Financial Modeling Prep API compatibility.
+
+### Ticker Resolver (`utils/ticker_resolver.py`)
+
+**Purpose**: Resolves provider-specific tickers (Plaid, SnapTrade) to FMP-compatible symbols for international securities.
+
+**Resolution Strategy**:
+1. If `exchange_mic` indicates US exchange, return ticker as-is
+2. If `exchange_mic` maps to known suffix, append suffix (e.g., XLON → `.L`)
+3. If MIC is missing/unknown, search FMP by company name + currency
+4. Cache results to avoid repeated API calls (7-day TTL for resolved, 1-day for no-match)
+
+**Key Functions**:
+```python
+from utils.ticker_resolver import (
+    resolve_fmp_ticker,       # Full resolution with search fallback
+    select_fmp_symbol,        # Simple selection (fmp_ticker > map > ticker)
+    normalize_currency,       # Currency normalization (GBp → GBP)
+    normalize_fmp_price,      # Minor currency conversion (pence → pounds)
+    fmp_search,               # FMP company search
+)
+```
+
+**Usage Example**:
+```python
+from utils.ticker_resolver import resolve_fmp_ticker
+
+# Resolve UK stock
+fmp_ticker = resolve_fmp_ticker(
+    ticker="AZN",
+    company_name="AstraZeneca PLC",
+    currency="GBP",
+    exchange_mic="XLON"
+)
+# Returns: "AZN.L"
+```
+
+### Exchange Mappings Configuration (`exchange_mappings.yaml`)
+
+**Purpose**: Maps ISO-10383 MIC codes to FMP ticker suffixes, currency normalization rules, IBKR futures symbol mappings, and IBKR exchange routing.
+
+**Structure**:
+```yaml
+# MIC to FMP suffix mappings
+mic_to_fmp_suffix:
+  XLON: ".L"    # London Stock Exchange
+  XPAR: ".PA"   # Euronext Paris
+  XTSE: ".TO"   # Toronto Stock Exchange
+  XHKG: ".HK"   # Hong Kong Stock Exchange
+  # ... additional exchanges
+
+# US exchanges (skip resolution)
+us_exchange_mics:
+  - XNYS  # NYSE
+  - XNAS  # NASDAQ
+  - XASE  # NYSE American
+  # ... additional US exchanges
+
+# Minor currency conversion
+minor_currencies:
+  GBp:
+    base_currency: GBP
+    divisor: 100
+  GBX:
+    base_currency: GBP
+    divisor: 100
+  ZAc:
+    base_currency: ZAR
+    divisor: 100
+  ILA:
+    base_currency: ILS
+    divisor: 100
+
+# Currency normalization for matching
+currency_aliases:
+  GBX: GBP
+  ZAC: ZAR
+  ILA: ILS
+
+# IBKR futures root symbol -> FMP commodity symbol
+ibkr_futures_to_fmp:
+  ES: ESUSD      # E-Mini S&P 500
+  MES: ESUSD     # Micro E-Mini S&P 500
+  GC: GCUSD      # Gold
+  SI: SIUSD      # Silver
+  CL: CLUSD      # Crude Oil
+  ZN: ZNUSD      # 10Y Treasury Note
+  # ... additional futures (see file for full list)
+
+# IBKR exchange routing for ContFuture qualification
+# Used by services/ibkr_historical_data.py
+ibkr_futures_exchanges:
+  ES:  { exchange: CME,   currency: USD }
+  GC:  { exchange: COMEX, currency: USD }
+  SI:  { exchange: COMEX, currency: USD }
+  CL:  { exchange: NYMEX, currency: USD }
+  ZN:  { exchange: CBOT,  currency: USD }
+  # ... 19 futures root symbols total
+```
+
+### Database Integration
+
+**Migration** (`database/migrations/20260201_add_fmp_ticker.sql`):
+- Adds `fmp_ticker` column to `positions` table
+- Auto-backfills US positions based on `exchange_mic`
+- Preserves original ticker for provider reconciliation
+
+**Backfill Script** (`scripts/backfill_fmp_tickers.py`):
+```bash
+# Backfill fmp_ticker for existing positions
+python scripts/backfill_fmp_tickers.py --limit 100 --batch-size 50
+```
 
 ## 🏗️ Service Architecture Layer
 
@@ -260,6 +520,13 @@ The Risk Module implements a sophisticated service architecture that provides en
 - **`security_type_service.py`** - Security type classification with intelligent caching and FMP integration
 - **`validation_service.py`** - Data validation and schema compliance checking
 - **`cache_mixin.py`** - ServiceCacheMixin for intelligent caching with TTL
+- **`position_service.py`** - Unified position orchestration across providers (Plaid, SnapTrade)
+- **`trade_execution_service.py`** - Trade preview/execution via SnapTrade with confirm-then-execute flow
+- **`ibkr_flex_client.py`** - IBKR Flex Query trade download, normalization, option symbol construction
+- **`ibkr_historical_data.py`** - IBKR Gateway historical price fallback for futures (two-layer caching, thread-safe)
+- **`ibkr_broker_adapter.py`** - IBKR broker adapter using ib_async for live trading
+- **`ibkr_connection_manager.py`** - IBKR gateway connection lifecycle management
+- **`snaptrade_broker_adapter.py`** - SnapTrade broker adapter for trade execution
 - **`claude/`** - Claude AI integration services
   - **`chat_service.py`** - AI chat and conversation management
   - **`function_executor.py`** - Claude function execution engine
@@ -271,6 +538,197 @@ The Risk Module implements a sophisticated service architecture that provides en
 - **Performance Monitoring** - Sub-100ms response times with resource tracking
 - **Error Handling** - Graceful degradation with fallback mechanisms
 - **Multi-User Support** - Complete data isolation between users
+
+### Position Service & CLI
+
+**Unified Position Orchestration Layer**:
+The Risk Module includes a comprehensive position service and CLI for fetching and managing positions across brokerage providers.
+
+**Position Service** (`services/position_service.py`):
+- **Multi-Provider Support**: Unified interface for Plaid and SnapTrade positions
+- **Fail-Fast Architecture**: Errors raised immediately (no partial results)
+- **Column Normalization**: Standardizes provider columns into single schema
+- **Consolidation Logic**: Consolidates by (ticker, currency) preserving multi-currency positions
+- **Cash Preservation**: Cash stays as CUR:XXX; proxy mapping deferred to analysis-time
+
+**Position Service Usage**:
+```python
+from services.position_service import PositionService
+from core.result_objects import PositionResult
+
+# Initialize service for user
+service = PositionService(user_email="user@example.com")
+
+# Fetch from specific provider
+plaid_df = service.fetch_plaid_positions(consolidate=True)
+snaptrade_df = service.fetch_snaptrade_positions(consolidate=True)
+
+# Fetch all positions (returns PositionResult)
+result: PositionResult = service.get_all_positions(consolidate=True)
+```
+
+**Positions CLI** (`run_positions.py`):
+```bash
+# Basic usage - show all positions
+python run_positions.py --user-email user@example.com
+
+# Plaid only with consolidation
+python run_positions.py --user-email user@example.com --source plaid --consolidated
+
+# Export to JSON
+python run_positions.py --user-email user@example.com --format json --output positions.json
+
+# Chain to risk analysis
+python run_positions.py --user-email user@example.com --consolidated --to-risk
+```
+
+**CLI Parameters**:
+| Parameter | Options | Description |
+|-----------|---------|-------------|
+| `--user-email` | (required) | User email for provider access |
+| `--source` | `all`, `plaid`, `snaptrade` | Which brokerage source(s) to fetch |
+| `--consolidated` | flag | Consolidate positions by ticker |
+| `--detail` | flag | Show account-level detail (no consolidation) |
+| `--format` | `json`, `cli` | Output format |
+| `--output` | filepath | Write positions to JSON file |
+| `--to-risk` | flag | Convert to PortfolioData and run risk analysis |
+
+**PositionResult Object**:
+```python
+# PositionResult provides dual output formats
+result = service.get_all_positions(consolidate=True)
+
+# CLI output
+print(result.to_cli_report())
+
+# API response
+json_data = result.to_api_response()
+
+# Summary statistics
+summary = result.to_summary()
+print(f"Total Value: ${result.total_value:,.2f}")
+print(f"Position Count: {result.position_count}")
+
+# Monitor view with exposure and P&L metrics (excludes cash)
+monitor_data = result.to_monitor_view(by_account=False)
+monitor_cli = result.to_monitor_cli(by_account=True)
+```
+
+**Monitor View Features**:
+- Excludes cash positions (no entry price concept)
+- Computes provider-agnostic P&L using `(price - entry_price) * quantity`
+- Groups summary totals by currency to avoid cross-currency aggregation
+- Handles missing/invalid cost basis, price, or quantity gracefully
+
+### MCP Server Integration (Claude Code)
+
+**Model Context Protocol Server for Claude Code**:
+The Risk Module includes a FastMCP server that exposes portfolio analysis tools directly to Claude Code for AI-assisted portfolio management.
+
+**MCP Server** (`mcp_server.py`):
+- **FastMCP Framework**: Lightweight MCP server using the `fastmcp` library
+- **Tool Registration**: Exposes tools to Claude Code via `@mcp.tool()` decorator
+- **User Resolution**: Uses `RISK_MODULE_USER_EMAIL` environment variable for default user
+- **Server Name**: `portfolio-mcp` with portfolio analysis instructions
+
+**MCP Server Setup**:
+```bash
+# Register with Claude Code (with default user email)
+cd /Users/henrychien/Documents/Jupyter/risk_module
+claude mcp add portfolio-mcp -e RISK_MODULE_USER_EMAIL=you@example.com -- python mcp_server.py
+
+# Run standalone for testing
+python mcp_server.py
+```
+
+**Available MCP Tools** (portfolio-mcp, 16 tools):
+
+| Tool | Key Parameters | Description |
+|------|------------|-------------|
+| `get_positions` | `consolidate`, `format`, `brokerage`, `by_account`, `refresh_provider` | Fetch portfolio positions from brokerage accounts |
+| `get_risk_score` | `portfolio_name`, `format` | 0-100 risk score with compliance status |
+| `get_risk_analysis` | `portfolio_name`, `format`, `include` | Comprehensive risk analysis (30+ metrics) |
+| `get_performance` | `portfolio_name`, `benchmark_ticker`, `mode`, `source`, `format` | Performance metrics and benchmark comparison (hypothetical or realized) |
+| `analyze_stock` | `ticker`, `start_date`, `end_date`, `format` | Single stock/ETF volatility, beta, factor analysis |
+| `run_optimization` | `optimization_type`, `portfolio_name`, `format` | Portfolio weight optimization (min_variance or max_return) |
+| `run_whatif` | `target_weights`, `delta_changes`, `scenario_name`, `format` | What-if scenario risk impact analysis |
+| `get_factor_analysis` | `analysis_type`, `categories`, `include_rate_sensitivity`, `format` | Factor correlations, performance, and returns analysis |
+| `get_factor_recommendations` | `mode`, `overexposed_factor`, `correlation_threshold`, `format` | Factor-based hedge/offset recommendations |
+| `get_income_projection` | `projection_months`, `format` | Dividend income projection from current holdings |
+| `suggest_tax_loss_harvest` | `min_loss`, `sort_by`, `include_wash_sale_check`, `source`, `format` | FIFO tax-lot analysis for loss harvesting |
+| `preview_trade` | `ticker`, `quantity`, `side`, `order_type`, `limit_price` | Preview a trade (confirm-then-execute flow) |
+| `execute_trade` | `preview_id` | Execute a previously-previewed trade |
+| `get_orders` | `account_id`, `state`, `days`, `format` | Order history and brokerage-reconciled statuses |
+| `cancel_order` | `account_id`, `order_id` | Cancel an open brokerage order |
+| `check_exit_signals` | `ticker`, `shares`, `account_id`, `format` | Evaluate exit signals (momentum, regime rules) for a position |
+
+**FMP MCP Server** (`fmp_mcp_server.py`, 14 tools):
+
+| Tool | Key Parameters | Description |
+|------|------------|-------------|
+| `fmp_fetch` | `endpoint`, `symbol`, `period`, `limit` | Fetch data from any registered FMP endpoint |
+| `fmp_search` | `query`, `limit`, `exchange` | Search for companies by name |
+| `fmp_profile` | `symbol` | Get company profile details |
+| `fmp_list_endpoints` | `category` | Discover available FMP endpoints |
+| `fmp_describe` | `endpoint` | Get endpoint parameter documentation |
+| `screen_stocks` | criteria dict | Screen stocks by fundamental criteria |
+| `compare_peers` | `ticker`, metrics | Compare a stock against its peers |
+| `get_technical_analysis` | `ticker` | Composite technical analysis (trend, momentum, volatility) |
+| `get_economic_data` | `indicator`, `country` | Economic indicators and calendar events |
+| `get_sector_overview` | (none required) | Sector/industry performance and P/E overview |
+| `get_market_context` | (none required) | Market snapshot: indices, sectors, movers, events |
+| `get_news` | `tickers`, `type`, `limit` | News articles for stocks or broad market |
+| `get_events_calendar` | `type`, `from_date`, `to_date` | Corporate event calendars (earnings, dividends, splits, IPOs) |
+| `get_earnings_transcript` | `ticker`, `year`, `quarter` | Earnings call transcript parsing (remarks, Q&A, per-speaker) |
+
+**FMP MCP Server Setup**:
+```bash
+claude mcp add fmp-mcp -- python3 fmp_mcp_server.py
+```
+
+**Tool Implementation Pattern** (`mcp_tools/`):
+```python
+# mcp_tools/positions.py - Tool implementation
+def get_positions(
+    user_email: Optional[str] = None,
+    consolidate: bool = True,
+    format: Literal["full", "summary", "list", "by_account"] = "full",
+    brokerage: Optional[str] = None,
+    use_cache: bool = True,
+    force_refresh: bool = False
+) -> dict:
+    """Returns position data with status field for Claude consumption"""
+    user = user_email or get_default_user()
+    service = PositionService(user)
+    result = service.get_all_positions(
+        use_cache=use_cache,
+        force_refresh=force_refresh,
+        consolidate=consolidate
+    )
+    return result.to_api_response()
+```
+
+**Tool Response Format**:
+```python
+# Success response
+{"status": "success", "data": {...}, "total_value": 150000.00, "position_count": 25}
+
+# Error response
+{"status": "error", "error": "No user configured"}
+```
+
+**Default User Configuration** (`settings.py`):
+```python
+def get_default_user() -> str | None:
+    """Get default user email for MCP tools and CLI commands.
+
+    Reads from RISK_MODULE_USER_EMAIL environment variable, set in:
+    - .mcp.json for Claude Code MCP server
+    - Shell environment for CLI usage
+    - .env for local development
+    """
+    return os.getenv('RISK_MODULE_USER_EMAIL')
+```
 
 ### Claude AI Integration
 
@@ -303,33 +761,38 @@ frontend/src/features/external/hooks/
 - **File Upload Support**: Multi-modal message support (implementation in progress)
 
 **AI Function Registry** (`ai_function_registry.py`):
-- **Centralized Function Definitions** - Single source of truth for 14 Claude functions
+- **Centralized Function Definitions** - Single source of truth for 16 Claude functions
 - **Dynamic Routing** - Eliminates hardcoded function dispatch logic
 - **Schema Validation** - JSON schema validation for Claude API parameters
-- **Function Executor** (`claude/function_executor.py`) - Modernized Claude function execution
+- **Function Executor** (`services/claude/function_executor.py`) - Modernized Claude function execution
 
-**Available Claude Functions** (14 total):
+**Available Claude Functions** (16 total):
 ```python
 # Portfolio Analysis Functions
-- analyze_portfolio() - Complete risk analysis with factor decomposition
+- run_portfolio_analysis() - Complete risk analysis with factor decomposition
 - get_risk_score() - Credit-score style risk rating (1-100)
-- analyze_performance() - Performance metrics and benchmarking
+- calculate_portfolio_performance() - Performance metrics and benchmarking
 
 # Optimization Functions (with automatic expected returns)
-- optimize_min_variance() - Minimum risk portfolio optimization
-- optimize_max_return() - Maximum return with risk constraints, auto-handles missing returns
+- optimize_minimum_variance() - Minimum risk portfolio optimization
+- optimize_maximum_return() - Maximum return with risk constraints, auto-handles missing returns
 - estimate_expected_returns() - Auto-generate returns using 10-year industry ETF methodology
 - set_expected_returns() - Custom return assumptions override system estimates
 
-# Scenario Analysis
-- analyze_what_if() - Scenario modeling with automatic proxy injection for new tickers
+# Scenario & Stock Analysis
+- run_what_if_scenario() - Scenario modeling with automatic proxy injection for new tickers
 - analyze_stock() - Individual stock factor analysis with auto-generated proxies
 
 # Portfolio Management
+- create_portfolio_scenario() - Create new portfolio from positions data
+- setup_new_portfolio() - Generate factor proxies for user's portfolio
 - list_portfolios() - Multi-user portfolio listing with authentication
-- get_portfolio_summary() - Portfolio composition and metadata
-- create_portfolio() - Create new portfolio from positions data
-- update_portfolio() - Modify existing portfolio positions
+- switch_portfolio() - Switch active portfolio context
+
+# Risk Management
+- view_current_risk_limits() - Show risk limits for user
+- update_risk_limits() - Update user's risk limit settings
+- reset_risk_limits() - Reset risk limits to default values
 ```
 
 **Claude Function Improvements**:
@@ -859,18 +1322,20 @@ The Risk Module includes a production-ready React frontend with sophisticated co
 
 **Dashboard Architecture (`components/dashboard/`):**
 ```
-DashboardContainer.tsx
-├── DashboardLayout.tsx (main layout)
-│   ├── HeaderBar.tsx (navigation + user menu)
-│   ├── Sidebar.tsx (navigation menu)
-│   ├── legacy/ (52 TypeScript files - Legacy UI components for backward compatibility)
-│   └── ViewRenderer.tsx (dynamic view loading)
+components/dashboard/
+├── shared/                              # Shared dashboard components
+│   └── charts/                          # Chart components
 └── views/
-    ├── RiskAnalysisView.tsx (factor analysis + risk decomposition)
-    ├── PerformanceAnalyticsView.tsx (returns + benchmarking)
-    ├── HoldingsView.tsx (portfolio composition)
-    ├── RiskScoreView.tsx (credit-score style risk rating)
-    └── WhatIfAnalysisView.tsx (scenario modeling)
+    └── modern/                          # Modern view containers
+        ├── AssetAllocationContainer.tsx     # Asset allocation analysis
+        ├── HoldingsViewModernContainer.tsx  # Portfolio holdings view
+        ├── PerformanceViewContainer.tsx     # Performance analytics
+        ├── PortfolioOverviewContainer.tsx   # Portfolio overview
+        ├── RiskAnalysisModernContainer.tsx  # Factor analysis + risk decomposition
+        ├── RiskSettingsContainer.tsx        # Risk settings management
+        ├── ScenarioAnalysisContainer.tsx    # What-if scenario modeling
+        ├── StockLookupContainer.tsx         # Individual stock research
+        └── StrategyBuilderContainer.tsx     # Strategy builder
 ```
 
 **Chart Components (`components/dashboard/shared/charts/`):**
@@ -985,10 +1450,11 @@ class RiskAnalysisResult:
 
 ### Available Result Objects
 
-All analysis functions return typed Result Objects:
+All analysis functions return typed Result Objects (13 classes):
 
 | Result Object | Source Module | Purpose |
 |---------------|---------------|---------|
+| `PositionResult` | `core.result_objects` | Position data with monitor view and P&L metrics |
 | `RiskAnalysisResult` | `core.result_objects` | Portfolio risk analysis results |
 | `WhatIfResult` | `core.result_objects` | Scenario analysis results |
 | `OptimizationResult` | `core.result_objects` | Portfolio optimization results |
@@ -996,6 +1462,11 @@ All analysis functions return typed Result Objects:
 | `PerformanceResult` | `core.result_objects` | Performance metrics and benchmarking |
 | `InterpretationResult` | `core.result_objects` | AI interpretation and insights |
 | `RiskScoreResult` | `core.result_objects` | Risk scoring and assessment |
+| `FactorCorrelationResult` | `core.result_objects` | Factor correlation matrices and sensitivity overlays |
+| `FactorPerformanceResult` | `core.result_objects` | Factor risk/return profiles |
+| `FactorReturnsResult` | `core.result_objects` | Trailing-window factor returns snapshots |
+| `OffsetRecommendationResult` | `core.result_objects` | Single-factor hedge/offset recommendations |
+| `PortfolioOffsetRecommendationResult` | `core.result_objects` | Portfolio-level offset recommendations |
 
 ### Benefits of Result Objects Architecture
 
@@ -1090,28 +1561,29 @@ POST /api/direct/interpret          # AI interpretation → InterpretationResult
 Direct API endpoints follow a consistent pattern:
 
 ```python
-@openapi_bp.route("/direct/portfolio", methods=["POST"])
-def api_direct_portfolio():
+@app.post("/api/direct/portfolio")
+async def api_direct_portfolio(request: Request):
     """Direct portfolio analysis bypassing database operations."""
-    
+
     # Extract portfolio data from request
-    portfolio_data = request.json.get("portfolio", {})
-    
+    body = await request.json()
+    portfolio_data = body.get("portfolio", {})
+
     # Create temporary YAML files
     with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
         yaml.dump(portfolio_data, f)
         temp_portfolio_path = f.name
-    
+
     try:
         # Call CLI function with return_data=True to get Result Object
         result = run_portfolio(temp_portfolio_path, return_data=True)
-        
+
         # Return Result Object's API response (unified CLI/API data)
-        return jsonify({
+        return {
             "success": True,
             "data": result.to_api_response(),
             "formatted_report": result.to_cli_report()  # Same text as CLI
-        })
+        }
     finally:
         # Clean up temporary files
         os.unlink(temp_portfolio_path)
@@ -1366,13 +1838,12 @@ async getWhatIfAnalysis(portfolioId: string, scenarioParams: any): Promise<any> 
 
 ```
 risk_module/
-├── 📄 Readme.md                       # Main project documentation
+├── 📄 readme.md                       # Main project documentation
 ├── 📄 architecture.md                 # Technical architecture (this file)
-├── 📄 COMPLETE_CODEBASE_MAP.md        # Comprehensive codebase mapping
-├── 📄 E2E_TESTING_GUIDE.md            # End-to-end testing documentation
-├── 📄 PROMPTS.md                      # Development prompts and guidelines
+├── 📄 CHANGELOG.md                    # Release changelog
 ├── ⚙️ settings.py                     # Default configuration settings
-├── 🔧 app.py                          # FastAPI application entry point (582 lines)
+├── 🔧 app.py                          # FastAPI application entry point
+├── 🔧 ai_function_registry.py         # Claude AI function registry (16 functions)
 ├── 🔧 database/                       # Database infrastructure module
 │   ├── __init__.py                     # Module exports and backward compatibility
 │   ├── session.py                      # Request-scoped database session management
@@ -1385,17 +1856,48 @@ risk_module/
 ├── 📋 requirements.txt                # Python dependencies
 ├── 📜 LICENSE                         # MIT License
 │
+├── 📊 MCP SERVER LAYER (Claude Code Integration)
+│   ├── 🤖 mcp_server.py                    # portfolio-mcp FastMCP server (16 tools)
+│   ├── 🤖 fmp_mcp_server.py                # fmp-mcp FastMCP server (14 tools)
+│   ├── 📁 mcp_tools/                       # MCP tool implementations
+│   │   ├── __init__.py                      # Module exports
+│   │   ├── positions.py                     # get_positions tool wrapping PositionService
+│   │   ├── risk.py                          # get_risk_score, get_risk_analysis tools
+│   │   ├── performance.py                   # get_performance tool (hypothetical + realized)
+│   │   ├── stock.py                         # analyze_stock tool
+│   │   ├── optimization.py                  # run_optimization tool
+│   │   ├── whatif.py                        # run_whatif tool
+│   │   ├── factor_intelligence.py           # get_factor_analysis, get_factor_recommendations
+│   │   ├── income.py                        # get_income_projection tool
+│   │   ├── tax_harvest.py                   # suggest_tax_loss_harvest tool
+│   │   ├── trading.py                       # preview_trade, execute_trade, get_orders, cancel_order
+│   │   ├── signals.py                       # check_exit_signals tool
+│   │   ├── fmp.py                           # fmp_fetch, fmp_search, fmp_profile, fmp_list_endpoints, fmp_describe
+│   │   ├── screening.py                     # screen_stocks tool
+│   │   ├── peers.py                         # compare_peers tool
+│   │   ├── market.py                        # get_economic_data, get_sector_overview, get_market_context
+│   │   ├── news_events.py                   # get_news, get_events_calendar
+│   │   ├── technical.py                     # get_technical_analysis tool
+│   │   ├── transcripts.py                   # get_earnings_transcript tool
+│   │   └── README.md                        # Tool development guide
+│
 ├── 📊 LAYER 1: ROUTES LAYER (User Interface)
 │   ├── 🖥️ run_risk.py                     # CLI interface with Result Objects support
+│   ├── 🖥️ run_portfolio_risk.py           # Portfolio risk analysis CLI
+│   ├── 🖥️ run_positions.py                # Positions CLI for brokerage data
+│   ├── 🖥️ run_trading_analysis.py         # Trading analysis CLI (Plaid/SnapTrade/IBKR Flex)
+│   ├── 🖥️ run_factor_intelligence.py      # Factor intelligence CLI
 │   ├── 📁 routes/                         # Modular API route structure
 │   │   ├── auth.py                        # Authentication routes with OAuth
 │   │   ├── claude.py                      # Claude AI chat integration
 │   │   ├── plaid.py                       # Plaid brokerage integration
 │   │   ├── snaptrade.py                   # SnapTrade brokerage integration
+│   │   ├── positions.py                   # Position management routes
 │   │   ├── provider_routing_api.py        # Provider routing and institution support
 │   │   ├── provider_routing.py            # Provider routing logic
 │   │   ├── admin.py                       # Admin dashboard routes
-│   │   └── frontend_logging.py            # Frontend logging routes
+│   │   ├── frontend_logging.py            # Frontend logging routes
+│   │   └── factor_intelligence.py         # Factor correlation and beta sensitivity routes
 │   ├── 📁 services/                       # Service orchestration
 │   │   ├── portfolio_service.py           # Portfolio analysis service with caching
 │   │   ├── stock_service.py               # Stock analysis service
@@ -1409,6 +1911,14 @@ risk_module/
 │   │   ├── validation_service.py          # Data validation service
 │   │   ├── cache_mixin.py                 # ServiceCacheMixin for intelligent caching
 │   │   ├── service_manager.py             # Central service orchestration and dependency injection
+│   │   ├── position_service.py            # Position orchestration across providers (Plaid, SnapTrade)
+│   │   ├── factor_intelligence_service.py # Factor correlation and beta sensitivity service
+│   │   ├── trade_execution_service.py     # Trade preview/execution service (SnapTrade)
+│   │   ├── ibkr_flex_client.py            # IBKR Flex Query download + normalization
+│   │   ├── ibkr_historical_data.py       # IBKR Gateway historical price fallback for futures
+│   │   ├── ibkr_broker_adapter.py         # IBKR broker adapter (ib_async)
+│   │   ├── ibkr_connection_manager.py     # IBKR gateway connection management
+│   │   ├── snaptrade_broker_adapter.py    # SnapTrade broker adapter for trading
 │   │   ├── claude/                        # Claude AI services
 │   │   │   ├── function_executor.py       # Claude function execution
 │   │   │   └── chat_service.py            # Claude chat interface
@@ -1424,21 +1934,40 @@ risk_module/
 │       └── src/utils/                     # Utilities and adapters
 │
 ├── 📊 LAYER 2: CORE LAYER (Pure Business Logic)
-│   ├── 📁 core/                           # Result Objects architecture
+│   ├── 📁 core/                           # Result Objects architecture (18 modules)
 │   │   ├── portfolio_analysis.py          # Portfolio analysis with RiskAnalysisResult
 │   │   ├── stock_analysis.py              # Stock analysis with StockAnalysisResult
 │   │   ├── scenario_analysis.py           # Scenario analysis with WhatIfResult
 │   │   ├── optimization.py                # Optimization with OptimizationResult
 │   │   ├── performance_analysis.py        # Performance with PerformanceResult
+│   │   ├── performance_metrics_engine.py  # Pure math engine for performance metrics
+│   │   ├── realized_performance_analysis.py # Transaction-based realized performance
 │   │   ├── interpretation.py              # AI interpretation with InterpretationResult
-│   │   ├── result_objects.py              # Unified Result Objects with dual serialization
-│   │   ├── data_objects.py                # Input data structures and validation
+│   │   ├── result_objects.py              # Unified Result Objects with dual serialization (13 result classes)
+│   │   ├── data_objects.py                # Input data structures and validation (PortfolioData, currency_map)
+│   │   ├── trade_objects.py               # Trading data models and schemas
+│   │   ├── broker_adapter.py              # Abstract broker adapter interface
 │   │   ├── constants.py                   # Centralized asset class constants and business logic
-│   │   └── exceptions.py                  # Core exception handling
+│   │   ├── exceptions.py                  # Core exception handling
+│   │   ├── exit_signals.py                # Exit signal engine (momentum, regime rules)
+│   │   ├── income_projection.py           # Pure dividend projection engine
+│   │   ├── factor_intelligence.py         # Factor correlation and beta sensitivity analysis
+│   │   └── asset_class_performance.py     # Asset class performance calculations
 │   └── 📁 utils/                          # Utility functions
 │       ├── serialization.py               # JSON serialization utilities
 │       ├── security_type_mappings.py      # Centralized security type mapping with 3-tier fallback
-│       └── helpers.py                     # General helper functions
+│       ├── sector_config.py               # Sector preference and label mapping utilities
+│       ├── ticker_validation.py           # Ticker validation and data quality utilities
+│       ├── ticker_resolver.py             # International ticker resolution for FMP
+│       ├── logging.py                     # Multi-level logging infrastructure
+│       ├── json_logging.py                # JSON-structured logging utilities
+│       ├── config.py                      # Configuration utilities
+│       ├── errors.py                      # Error handling utilities
+│       ├── etf_mappings.py                # ETF mapping utilities
+│       ├── auth.py                        # Authentication utilities
+│       ├── date_utils.py                  # Date parsing and normalization helpers
+│       ├── pydantic_helpers.py            # Pydantic model utilities
+│       └── pydantic_codegen.py            # Pydantic code generation tools
 │
 ├── 📊 LAYER 3: DATA LAYER (Data Access & Storage)
 │   ├── 💼 portfolio_risk.py               # Legacy portfolio risk calculations
@@ -1446,7 +1975,15 @@ risk_module/
 │   ├── 📊 factor_utils.py                 # Factor analysis utilities
 │   ├── 📋 risk_summary.py                 # Legacy single-stock risk profiling
 │   ├── ⚡ portfolio_optimizer.py           # Legacy portfolio optimization
-│   ├── 🔌 data_loader.py                  # Data fetching and caching
+│   ├── 🔌 data_loader.py                  # Data fetching and caching (uses fmp/compat.py)
+│   ├── 📁 fmp/                            # FMP Data Abstraction Layer
+│   │   ├── __init__.py                     # Module exports and quick-start docs
+│   │   ├── client.py                       # FMPClient: unified fetch with caching
+│   │   ├── registry.py                     # Endpoint registry with metadata (30+ endpoints)
+│   │   ├── cache.py                        # Disk caching (Parquet + Zstandard)
+│   │   ├── compat.py                       # Backward-compatible wrappers
+│   │   ├── fx.py                           # FX conversion utilities
+│   │   └── exceptions.py                   # Structured exception hierarchy
 │   ├── 📁 inputs/                         # Input management layer
 │   │   ├── portfolio_manager.py           # Portfolio configuration management
 │   │   ├── risk_limits_manager.py         # Risk limits management with dual storage
@@ -1469,7 +2006,16 @@ risk_module/
 │   │   ├── run_migration.py                # Migration runner
 │   │   └── migrations/                     # SQL schema migrations
 │   │       ├── 20250801_add_subindustry_peers.sql
-│   │       └── 20250831_cleanup_subindustry_peers.sql
+│   │       ├── 20250831_cleanup_subindustry_peers.sql
+│   │       ├── 20250901_add_asset_etf_proxies.sql
+│   │       ├── 20250902_alter_industry_proxies_add_sector_group.sql
+│   │       ├── 20250903_add_factor_intelligence.sql
+│   │       ├── 2025-09-asset-class.sql
+│   │       ├── 20260130_add_positions_metadata.sql
+│   │       ├── 20260130_update_positions_unique_constraint.sql
+│   │       ├── 20260201_add_fmp_ticker.sql     # International ticker resolution
+│   │       ├── 20260209_add_trade_tables.sql   # Trade execution tables
+│   │       └── 20260210_add_broker_provider.sql # Broker provider metadata
 │   ├── 📄 templates/dashboard.html        # Web application templates
 │   └── 🛠️ admin/                          # Reference data management and monitoring
 │       ├── manage_reference_data.py       # CLI tool for managing mappings
@@ -1482,36 +2028,76 @@ risk_module/
 │   ├── 🗺️ cash_map.yaml                  # Cash position mapping (YAML fallback)
 │   ├── 🏭 industry_to_etf.yaml           # Industry classification mapping (YAML fallback)
 │   ├── 📊 exchange_etf_proxies.yaml      # Exchange-specific proxies (YAML fallback)
+│   ├── 📊 asset_etf_proxies.yaml         # Asset class ETF proxies (bond, commodity, crypto)
+│   ├── 🌍 exchange_mappings.yaml         # MIC→FMP suffix, IBKR futures→FMP symbols, IBKR exchange routing
+│   ├── 🔒 security_type_mappings.yaml    # Security type to crash scenario mappings
 │   ├── 🔧 what_if_portfolio.yaml         # What-if scenarios
+│   ├── ⚙️ .env                           # Environment variables (IBKR_FLEX_TOKEN, TRADING_ENABLED, etc.)
 │   ├── ⚙️ playwright.config.js           # E2E testing configuration
 │   ├── ⚙️ jest.config.js                 # Frontend testing configuration
 │   └── 🔧 package.json                   # Frontend dependencies and scripts
 │
+├── 📁 bugs/ (Bug Tracking)
+│   ├── completed/                               # Resolved bug reports
+│   └── *.md                                     # Active bug investigations
+│
 ├── 📁 docs/ (Documentation)
-│   ├── FRONTEND_BACKEND_CONNECTION_MAP.md      # Interface connection mapping
-│   ├── interface_alignment_table.md            # Function alignment across interfaces
-│   ├── API_REFERENCE.md                        # API documentation
-│   ├── DATABASE_REFERENCE.md                   # Database documentation
-│   ├── RESULT_OBJECT_AUDIT_REPORT.md           # Result Objects refactoring audit
+│   ├── API_REFERENCE.md                        # REST API documentation
+│   ├── DATABASE_REFERENCE.md                   # Database schema documentation
+│   ├── DATA_SCHEMAS.md                         # Data schema definitions
+│   ├── DEVELOPER_ONBOARDING.md                 # Developer onboarding guide
+│   ├── ENVIRONMENT_SETUP.md                    # Environment setup instructions
+│   ├── guides/                                 # Operational guides
 │   ├── ideas/                                  # Architecture ideas and concepts
 │   ├── planning/                               # Development planning documents
-│   └── schema_samples/                         # API and CLI output samples
+│   │   └── completed/                          # Completed implementation plans
+│   ├── specs/                                  # Feature specifications
+│   └── schemas/                                # API and CLI output samples
 │
 ├── 📁 tests/ (Comprehensive Testing Suite)
-│   ├── test_comprehensive_migration.py    # Master test runner
-│   ├── test_performance_benchmarks.py     # Performance validation (9.4ms queries)
-│   ├── test_user_isolation.py             # Security testing
-│   ├── test_fallback_mechanisms.py        # Fallback validation
-│   ├── test_cash_mapping_validation.py    # Cash mapping tests
+│   ├── conftest.py                        # Pytest configuration and fixtures
 │   ├── ai_test_orchestrator.py            # AI-powered test orchestration
-│   └── e2e/                               # End-to-end testing with Playwright
+│   ├── unit/                              # Unit tests (position chain, positions data, results)
+│   ├── api/                               # API tests (auth, logging, portfolio CRUD, services)
+│   ├── core/                              # Core module tests (asset class perf, exit signals, realized perf, performance metrics)
+│   ├── integration/                       # E2E integration tests (dashboard, auth, Claude AI)
+│   ├── snaptrade/                         # SnapTrade integration tests (7 test files)
+│   ├── factor_intelligence/               # Factor intelligence tests (API, core, offsets, service)
+│   ├── services/                          # Service layer tests (IBKR flex client, IBKR historical data, portfolio service, proxies)
+│   ├── mcp_tools/                         # MCP tool tests (income, market, news, peers, performance, screening, technical)
+│   ├── trading_analysis/                  # Trading analysis tests (provider routing)
+│   ├── performance/                       # Performance benchmark tests
+│   ├── e2e/                               # End-to-end testing with Playwright
+│   └── utils/                             # Test utilities and helpers
+│
+├── 📁 trading_analysis/ (Trading Decision Analysis)
+│   ├── __init__.py                        # Package exports
+│   ├── analyzer.py                        # Main TradingAnalyzer class (Plaid + SnapTrade + IBKR Flex)
+│   ├── models.py                          # Data models and schemas
+│   ├── metrics.py                         # Core metric calculations (Win Score, P&L)
+│   ├── fifo_matcher.py                    # FIFO lot matching for cost basis (SHORT inference, option expiration)
+│   ├── data_fetcher.py                    # fetch_all_transactions(), fetch_transactions_for_source(), should_skip_plaid_institution()
+│   ├── symbol_utils.py                    # normalize_strike() for cross-source consistency
+│   ├── main.py                            # CLI runner script
+│   ├── interpretation_guide.md            # LLM interpretation guidelines
+│   └── analyzers/                         # Analysis modules (trades, income, behavioral, timing)
+│
+├── 📁 scripts/ (Operational Scripts)
+│   ├── update_secrets.sh                  # Secrets synchronization script
+│   ├── backup_system.sh                   # System backup utilities
+│   ├── run-e2e-tests.sh                   # E2E test runner
+│   ├── backfill_fmp_tickers.py            # Backfill positions.fmp_ticker column
+│   ├── fetch_ibkr_trades.py              # Fetch IBKR Flex Query trades
+│   └── explore_transactions.py            # Transaction data exploration utility
 │
 └── 📁 tools/ (Development Tools)
     ├── view_alignment.py                  # Terminal alignment viewer
     ├── check_dependencies.py              # Dependency impact analysis
     ├── test_all_interfaces.py             # Interface testing suite
     ├── living_code_map.py                 # Dynamic codebase visualization
-    └── [additional development tools]
+    ├── code_tracer.py                     # Code tracing and flow analysis
+    ├── fullstack_code_tracer.py           # Full-stack dependency tracing
+    └── backfill_subindustry_peers.py      # Backfill subindustry peer data
 ```
 
 ## 🎯 Core Business Logic Extraction
@@ -1624,21 +2210,25 @@ All core business logic has been extracted to dedicated modules:
 
 **Purpose**: Efficient data retrieval with intelligent caching
 
+**Architecture**: Uses `fmp/compat.py` for backward-compatible FMP API access with the new FMP Data Abstraction Layer. The compat layer provides international ticker resolution via `fmp_ticker` and `fmp_ticker_map` parameters.
+
 **Key Functions**:
-- `fetch_monthly_close()`: FMP API integration with caching
-- `cache_read()`: Multi-level caching (RAM → Disk → Network)
-- `cache_write()`: Force cache updates
+- `fetch_monthly_close()`: FMP API integration with caching and international ticker support
+- `fetch_monthly_total_return_price()`: Dividend-adjusted prices with ticker resolution
+- `fetch_monthly_treasury_rates()`: Treasury rate data
+- `fetch_dividend_history()`: Dividend events with frequency-based TTM calculation
 
 **Features**:
 - Automatic cache invalidation
-- Compressed parquet storage
+- Compressed parquet storage (via `fmp/cache.py`)
 - MD5-based cache keys
 - Error handling and retry logic
 - Treasury rate integration for risk-free rates
+- International ticker resolution via `utils/ticker_resolver.py`
 
 **Caching Strategy**:
 ```
-RAM Cache (LRU) → Disk Cache (Parquet) → Network (FMP API)
+RAM Cache (LRU) → Disk Cache (Parquet via fmp/cache.py) → Network (FMP API via fmp/client.py)
 ```
 
 **Treasury Rate Integration**:
@@ -1955,8 +2545,8 @@ The inputs layer provides a clean abstraction for all data management operations
 - Error handling and reporting
 - Output formatting
 
-**Single Stock Runner** (`run_single_stock_profile.py`):
-- Individual stock diagnostics
+**Single Stock Runner** (`run_risk.py --stock`):
+- Individual stock diagnostics via `run_stock()` function
 - Factor model validation
 - Detailed regression analysis
 
@@ -1964,6 +2554,16 @@ The inputs layer provides a clean abstraction for all data management operations
 - Flexible risk analysis entry point
 - What-if scenario testing
 - Batch processing capabilities
+
+**Trading Analysis Runner** (`run_trading_analysis.py`):
+- Transaction-based trading analysis (Plaid, SnapTrade, IBKR Flex)
+- FIFO lot matching and P&L computation
+- Win rate, behavioral, and timing analysis
+
+**Factor Intelligence Runner** (`run_factor_intelligence.py`):
+- Factor correlation matrices and sensitivity overlays
+- Factor performance profiling
+- Beta sensitivity analysis
 
 ## ⚙️ Configuration Management
 
@@ -1975,9 +2575,52 @@ The inputs layer provides a clean abstraction for all data management operations
 ```python
 PORTFOLIO_DEFAULTS = {
     "start_date": "2019-01-31",
-    "end_date": "2025-06-27",
+    "end_date": "2026-01-29",
     "normalize_weights": False,  # Global default for portfolio weight normalization
-    "worst_case_lookback_years": 10  # Historical lookback period for worst-case scenario analysis
+    "worst_case_lookback_years": 10,  # Historical lookback period for worst-case scenario analysis
+    "expected_returns_lookback_years": 10,  # Default years for expected returns estimation
+    "expected_returns_fallback_default": 0.06,  # Default fallback return (6%)
+    "cash_proxy_fallback_return": 0.02  # Conservative fallback return (2%) for cash proxies
+}
+```
+
+**Trading Configuration** (`settings.py`):
+```python
+TRADING_ENABLED = os.getenv("TRADING_ENABLED", "false").lower() == "true"
+
+TRADING_DEFAULTS = {
+    "max_order_value": float(os.getenv("MAX_ORDER_VALUE", "100000")),
+    "max_single_stock_weight_post_trade": 0.25,
+    "preview_expiry_seconds": 300,  # 5 min
+    "default_time_in_force": "Day",
+    "default_order_type": "Market",
+    "log_all_previews": True,
+    "log_all_executions": True,
+}
+
+# IBKR Configuration
+IBKR_ENABLED = os.getenv("IBKR_ENABLED", "false").lower() == "true"
+IBKR_GATEWAY_HOST = os.getenv("IBKR_GATEWAY_HOST", "127.0.0.1")
+IBKR_GATEWAY_PORT = int(os.getenv("IBKR_GATEWAY_PORT", "4001"))  # 4001=live, 4002=paper
+IBKR_CLIENT_ID = int(os.getenv("IBKR_CLIENT_ID", "1"))
+IBKR_TIMEOUT = int(os.getenv("IBKR_TIMEOUT", "10"))
+IBKR_READONLY = os.getenv("IBKR_READONLY", "false").lower() == "true"
+IBKR_FLEX_TOKEN = os.getenv("IBKR_FLEX_TOKEN", "")
+IBKR_FLEX_QUERY_ID = os.getenv("IBKR_FLEX_QUERY_ID", "")
+```
+
+**Transaction Provider Routing** (`settings.py`):
+```python
+# Controls which provider supplies TRANSACTIONS for each institution.
+# When an institution is listed here with a canonical transaction provider,
+# Plaid transactions tagged with that institution's name are SKIPPED.
+TRANSACTION_ROUTING = {
+    "interactive_brokers": "ibkr_flex",
+}
+
+INSTITUTION_SLUG_ALIASES = {
+    "interactive brokers": "interactive_brokers",
+    "ibkr": "interactive_brokers",
 }
 ```
 
@@ -2527,7 +3170,7 @@ The Risk Module provides a complete full-stack web application with a production
 
 ### FastAPI Web App (`app.py`)
 
-**Production-Ready FastAPI Backend** (3,156 lines):
+**Production-Ready FastAPI Backend** (4,687 lines):
 - **FastAPI Framework**: High-performance async web framework with automatic API documentation
 - **Pydantic Models**: Type-safe request/response validation with automatic schema generation
 - **Multi-Provider OAuth**: Google, GitHub, Apple authentication with database sessions
@@ -2537,7 +3180,7 @@ The Risk Module provides a complete full-stack web application with a production
 - **Plaid Integration**: Real-time portfolio import from 1000+ financial institutions
 - **SnapTrade Integration**: Extended broker coverage for Fidelity, Schwab, and additional brokers
 - **Provider Routing**: Intelligent routing between Plaid and SnapTrade with dynamic fallback
-- **Claude AI Chat**: Interactive risk analysis with 16+ portfolio analysis functions
+- **Claude AI Chat**: Interactive risk analysis with 16 portfolio analysis functions
 - **RESTful API**: Comprehensive endpoints for portfolio analysis, risk scoring, and optimization
 - **Database-First Architecture**: PostgreSQL with migration system and connection pooling
 - **Admin Dashboard**: Usage tracking, error monitoring, performance metrics, and cache management
@@ -2575,12 +3218,15 @@ limits = {
 - **Hook Layer**: Data access hooks with user-scoped caching and cancellation
 - **Component Layer**: 6 dashboard views with intelligent loading strategies
 
-**2. Dashboard Views (6 comprehensive views)**:
-- **Risk Score View**: Portfolio risk scoring with detailed breakdown and recommendations
+**2. Dashboard Views (9 comprehensive views in `views/modern/`)**:
+- **Portfolio Overview View**: High-level portfolio summary and key metrics
 - **Holdings View**: Portfolio composition with weight analysis and risk attribution
-- **Factor Analysis View**: Multi-factor exposure analysis with sector/style breakdowns
+- **Asset Allocation View**: Asset class allocation and breakdown analysis
+- **Risk Analysis View**: Multi-factor exposure analysis with sector/style breakdowns
 - **Performance Analytics View**: Historical performance metrics with benchmarking
-- **Analysis Report View**: Comprehensive risk reports with export functionality (PDF/CSV)
+- **Scenario Analysis View**: What-if scenario modeling and impact analysis
+- **Stock Lookup View**: Individual stock research and factor analysis
+- **Strategy Builder View**: Portfolio strategy construction and optimization
 - **Risk Settings View**: Risk tolerance configuration and limit management
 
 **3. Multi-User Security Architecture**:
@@ -2750,7 +3396,7 @@ const apiService = new APIService(); // Handles HTTP communication
 // 3. Portfolio Manager (frontend/src/chassis/managers/PortfolioManager.ts)
 const portfolioManager = new PortfolioManager(apiService, claudeService); // Business logic
 
-// 4. Backend API (routes/api.py)
+// 4. Backend API (app.py)
 POST /api/analyze → Core Risk Engine → Structured Response
 ```
 
@@ -2784,15 +3430,16 @@ frontend/src/
 │   │   │   ├── HeaderBar.tsx      # Dashboard header
 │   │   │   ├── Sidebar.tsx        # Navigation sidebar
 │   │   │   ├── SummaryBar.tsx     # Portfolio summary bar
-│   │   └── legacy/               # Legacy UI components (52 TypeScript files) for backward compatibility
-│   │   ├── views/                 # Dashboard view containers
-│   │   │   ├── RiskScoreViewContainer.tsx      # Risk scoring
-│   │   │   ├── HoldingsViewContainer.tsx       # Portfolio holdings
-│   │   │   ├── FactorAnalysisViewContainer.tsx # Factor analysis
-│   │   │   ├── PerformanceAnalyticsViewContainer.tsx # Performance
-│   │   │   ├── AnalysisReportViewContainer.tsx # Reports
-│   │   │   ├── RiskSettingsViewContainer.tsx   # Settings
-│   │   │   └── StockResearchViewContainer.tsx  # Stock research
+│   │   ├── views/modern/          # Modern dashboard view containers
+│   │   │   ├── PortfolioOverviewContainer.tsx    # Portfolio overview
+│   │   │   ├── HoldingsViewModernContainer.tsx   # Portfolio holdings
+│   │   │   ├── AssetAllocationContainer.tsx      # Asset allocation
+│   │   │   ├── RiskAnalysisModernContainer.tsx   # Factor analysis + risk
+│   │   │   ├── PerformanceViewContainer.tsx      # Performance analytics
+│   │   │   ├── ScenarioAnalysisContainer.tsx     # What-if scenarios
+│   │   │   ├── StockLookupContainer.tsx          # Stock research
+│   │   │   ├── StrategyBuilderContainer.tsx      # Strategy builder
+│   │   │   └── RiskSettingsContainer.tsx         # Risk settings
 │   │   └── shared/                # Shared dashboard components
 │   │       ├── ErrorBoundary.tsx  # Error handling
 │   │       ├── charts/            # Chart components
@@ -2951,8 +3598,8 @@ frontend/src/
 
 The web interface is organized into 5 specialized route modules for clean separation of concerns:
 
-#### Core API Routes (`routes/api.py`)
-**Primary risk analysis endpoints**
+#### Core API Routes (`app.py`)
+**Primary risk analysis endpoints (defined in main FastAPI application)**
 
 | Endpoint | Method | Purpose | Returns |
 |----------|--------|---------|---------|
@@ -3012,7 +3659,7 @@ The web interface is organized into 5 specialized route modules for clean separa
 **Enhanced Features**:
 - **Streaming Responses**: Token-by-token streaming compatible with Vercel AI SDK
 - **Enhanced Status Tracking**: submitted, streaming, ready, error, tool-executing states
-- Integration with 14 Claude functions across 6 categories
+- Integration with 16 Claude functions across 6 categories
 - Database-first architecture with user isolation
 - Authentication required for all functions
 - **Message Management**: Support for edit, delete, retry, regenerate operations
@@ -3139,7 +3786,7 @@ The web interface is organized into 5 specialized route modules for clean separa
 - Hybrid cash + securities fetching with unified holdings
 - Provider-specific position management with multi-source consolidation
 - AWS Secrets Manager integration for secure credential storage
-- Feature-flagged rollout with ENABLE_SNAPTRADE gate
+- Always enabled in production (`ENABLE_SNAPTRADE = True` in `settings.py`)
 - Session-based authentication with user isolation
 - Comprehensive error handling and retry logic
 
@@ -3246,8 +3893,8 @@ The web interface is organized into 5 specialized route modules for clean separa
 
 The frontend is a modern React Single Page Application (SPA) that provides an intuitive interface for portfolio risk analysis.
 
-#### React Application (`frontend/src/App.js`)
-**1,477 lines of sophisticated React components**
+#### React Application (`frontend/src/App.tsx`)
+**TypeScript-based React application with sophisticated component architecture**
 
 **Core Features**:
 - **Portfolio Management**: Upload, edit, and manage portfolio configurations
@@ -3261,26 +3908,27 @@ The frontend is a modern React Single Page Application (SPA) that provides an in
 **Component Structure**:
 ```
 frontend/src/
-├── App.js                     # Main application (1,477 lines)
+├── App.tsx                    # Root application component with routing
+├── router/
+│   └── AppOrchestrator.tsx    # State machine for app experiences
 ├── components/
-│   ├── Dashboard/             # Risk analysis dashboard
-│   ├── Portfolio/             # Portfolio management
-│   ├── Chat/                  # Claude AI chat interface
-│   ├── Plaid/                 # Brokerage integration
-│   ├── Analysis/              # Risk analysis components
-│   ├── Performance/           # Performance tracking
-│   └── Common/                # Shared components
-├── services/
-│   ├── api.js                 # API service layer
-│   ├── claude.js              # Claude chat service
-│   └── plaid.js               # Plaid integration service
-├── utils/
-│   ├── helpers.js             # Utility functions
-│   ├── validation.js          # Input validation
-│   └── formatting.js          # Data formatting
-└── styles/
-    ├── components/            # Component-specific styles
-    └── global/                # Global styles
+│   ├── apps/                  # Complete app experiences (DashboardApp, LandingApp)
+│   ├── dashboard/             # Dashboard components and views
+│   │   ├── views/modern/      # Modern view containers (10 TypeScript files)
+│   │   ├── layout/            # Dashboard layout components
+│   │   ├── shared/            # Shared dashboard components and charts
+│   │   └── legacy/            # Legacy UI components for backward compatibility
+│   ├── auth/                  # Authentication components
+│   ├── chat/                  # Enhanced AI chat components
+│   └── portfolio/             # Portfolio management components
+├── chassis/                   # Core infrastructure
+│   ├── services/              # API services (APIService, ClaudeService, etc.)
+│   └── managers/              # Business logic managers
+├── features/                  # Feature-organized hooks and logic
+├── adapters/                  # Data transformation layer
+├── providers/                 # React context providers
+├── stores/                    # Zustand state management
+└── utils/                     # Utilities and helpers
 ```
 
 **Key Components**:
@@ -3317,8 +3965,9 @@ frontend/src/
 
 **State Management**:
 - React hooks for local state
-- Context API for global state
-- Redux for complex state management
+- Context API for global state (portfolio, auth)
+- Zustand for complex client-side state (dashboard, UI)
+- React Query (TanStack Query) for server state management
 - Local storage for persistence
 
 **API Integration**:
@@ -3525,8 +4174,8 @@ SnapTrade API → Holdings + Cash → Type Mapping → Normalization → Portfol
 
 **Key Features**:
 - SDK-based integration (snaptrade-python-sdk)
-- Multi-account consolidation with type preservation  
-- Feature-flagged rollout (ENABLE_SNAPTRADE)
+- Multi-account consolidation with type preservation
+- Always enabled in production (`ENABLE_SNAPTRADE = True` in `settings.py`)
 - Comprehensive error handling and retry logic
 - Support for shorts and fractional shares
 - Derivatives mapping to internal 'derivative' type
@@ -3957,7 +4606,7 @@ api_logger.info(f"🔍 Response size: ~{len(str(response_data))} chars")
 
 2. **Single Stock Profile**:
    ```bash
-   python run_single_stock_profile.py
+   python run_risk.py --stock AAPL
    ```
 
 3. **Risk Runner**:
@@ -3989,6 +4638,10 @@ api_logger.info(f"🔍 Response size: ~{len(str(response_data))} chars")
    - ✅ **Implemented**: Natural language risk reports and peer generation
    - ✅ **Implemented**: Automatic ticker detection and proxy assignment in what-if scenarios
    - ✅ **Implemented**: Auto-generation of expected returns using industry ETF methodology
+   - ✅ **Implemented**: MCP servers for Claude Code (portfolio-mcp: 16 tools, fmp-mcp: 14 tools)
+   - ✅ **Implemented**: Exit signal engine with momentum/regime rules
+   - ✅ **Implemented**: Tax-loss harvesting with FIFO lot analysis and wash sale detection
+   - ✅ **Implemented**: Dividend income projection engine
    - 🔄 **In Progress**: Intelligent factor selection and market regime detection
    - 📋 **Planned**: Automated portfolio rebalancing recommendations
 
@@ -4001,6 +4654,9 @@ api_logger.info(f"🔍 Response size: ~{len(str(response_data))} chars")
 3. **Real-time Capabilities**:
    - ✅ **Implemented**: Real-time Plaid portfolio imports
    - ✅ **Implemented**: SnapTrade integration for extended broker coverage (Fidelity, Schwab)
+   - ✅ **Implemented**: Trade execution via SnapTrade (preview-then-execute flow)
+   - ✅ **Implemented**: IBKR Flex Query historical trade download (up to 365 days)
+   - ✅ **Implemented**: IBKR gateway integration via ib_async
    - 📋 **Planned**: Live market data feeds and intraday risk monitoring
    - 📋 **Planned**: Alert system for risk limit breaches
    - 📋 **Planned**: Automated rebalancing with optimization
@@ -4052,6 +4708,19 @@ api_logger.info(f"🔍 Response size: ~{len(str(response_data))} chars")
 | Proxy Builder | `proxy_builder.py` | ✅ Working | Factor proxy generation |
 | Web Application | `app.py` | ✅ Production Ready | FastAPI backend + React dashboard with multi-user architecture |
 | Frontend Dashboard | `frontend/` | ✅ Production Ready | Enterprise-grade React SPA with state management |
+| MCP Server | `mcp_server.py` | ✅ Working | portfolio-mcp: 16 tools for Claude Code |
+| FMP MCP Server | `fmp_mcp_server.py` | ✅ Working | fmp-mcp: 14 tools for financial data |
+| Position Service | `position_service.py` | ✅ Working | Multi-provider position orchestration |
+| Positions CLI | `run_positions.py` | ✅ Working | CLI for brokerage position data |
+| Trading Analysis | `trading_analysis/` | ✅ Working | FIFO matcher, Plaid/SnapTrade/IBKR Flex normalization |
+| Trading Execution | `services/trade_execution_service.py` | ✅ Working | Trade preview/execute via SnapTrade |
+| IBKR Flex Client | `services/ibkr_flex_client.py` | ✅ Working | IBKR Flex Query trade download |
+| IBKR Historical Data | `services/ibkr_historical_data.py` | ✅ Working | IBKR Gateway historical price fallback for futures |
+| Income Projection | `core/income_projection.py` | ✅ Working | Dividend income projection engine |
+| Exit Signals | `core/exit_signals.py` | ✅ Working | Momentum/regime exit signal engine |
+| Tax Loss Harvest | `mcp_tools/tax_harvest.py` | ✅ Working | FIFO lot analysis, wash sale detection |
+| Performance Engine | `core/performance_metrics_engine.py` | ✅ Working | Pure math performance computation |
+| Realized Performance | `core/realized_performance_analysis.py` | ✅ Working | Transaction-based realized P&L |
 | Plaid Integration | `plaid_loader.py` | ✅ Working | Financial data import |
 | Risk Helpers | `risk_helpers.py` | ✅ Working | Risk calculation utilities |
 
@@ -4068,11 +4737,11 @@ api_logger.info(f"🔍 Response size: ~{len(str(response_data))} chars")
 
 ### Web Application Dependencies
 
-- **flask**: Web application framework (backend)
-- **flask-limiter**: Rate limiting for web API
+- **fastapi**: High-performance async web framework (backend)
+- **slowapi**: Rate limiting for FastAPI
 - **psycopg2**: PostgreSQL database adapter
 - **redis**: Caching and session management
-- **gunicorn**: WSGI HTTP server for production
+- **uvicorn**: ASGI HTTP server for production
 
 ### Frontend Dependencies
 
@@ -4086,7 +4755,12 @@ api_logger.info(f"🔍 Response size: ~{len(str(response_data))} chars")
 
 - **plaid**: Financial data integration
 - **openai**: GPT integration for peer generation
+- **anthropic**: Claude AI integration for portfolio analysis
+- **fastmcp**: MCP server for Claude Code integration (portfolio-mcp and fmp-mcp)
 - **boto3**: AWS Secrets Manager integration
+- **snaptrade-python-sdk**: SnapTrade brokerage integration
+- **ib_async**: Interactive Brokers gateway connection, Flex Query report download (FlexReport), historical data fallback
+- **nest_asyncio**: Required for ib_async inside FastMCP's asyncio event loop
 
 ### Configuration Dependencies
 
@@ -4141,17 +4815,19 @@ comparison = compare_risk_tables(old_risk_df, new_risk_df)
 
 ## 📚 Additional Resources
 
-- [Readme.md](./Readme.md): Project overview and usage guide
+- [Readme.md](./readme.md): Project overview and usage guide
 - [portfolio.yaml](./portfolio.yaml): Example portfolio configuration
 - [risk_limits.yaml](./risk_limits.yaml): Risk limit definitions
 - [admin/manage_reference_data.py](./admin/manage_reference_data.py): Database administration utilities
-- [COMPLETE_CODEBASE_MAP.md](./COMPLETE_CODEBASE_MAP.md): Comprehensive codebase mapping
-- [E2E_TESTING_GUIDE.md](./E2E_TESTING_GUIDE.md): End-to-end testing documentation
-- [PROMPTS_DEV.md](./PROMPTS_DEV.md): Development prompts and guidelines
+- [mcp_tools/README.md](./mcp_tools/README.md): MCP tool development guide
+- [docs/API_REFERENCE.md](./docs/API_REFERENCE.md): REST API documentation
+- [docs/DATABASE_REFERENCE.md](./docs/DATABASE_REFERENCE.md): Database schema documentation
+- [docs/DEVELOPER_ONBOARDING.md](./docs/DEVELOPER_ONBOARDING.md): Developer onboarding guide
+- [tests/TESTING_COMMANDS.md](./tests/TESTING_COMMANDS.md): Test execution commands
 - [Financial Modeling Prep API](https://financialmodelingprep.com/developer/docs/): API documentation
 
 ---
 
-**Architecture Version**: 1.0  
-**Last Updated**: 2024  
+**Architecture Version**: 1.2
+**Last Updated**: 2026-02-12
 **Maintainer**: Henry Souchien

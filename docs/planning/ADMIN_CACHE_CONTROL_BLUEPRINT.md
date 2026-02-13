@@ -1,5 +1,10 @@
 # Centralized Admin Cache Control — Blueprint
 
+> **Status:** 🟡 Core functionality exists organically (not via formal protocol).
+> Services have `clear_cache()`/`get_cache_stats()`/`health_check()`. `ServiceManager` aggregates.
+> Admin endpoints (`GET /admin/cache_status`, `POST /admin/clear_cache`) exist in `routes/admin.py`.
+> Not yet implemented: formal CacheControl protocol, CacheManager class, dry_run, per-service clear endpoint, scoped context clear, disk cache controls, admin UI.
+
 ## Executive Summary
 
 Create a centralized, safe, and observable cache control surface that lets admin users inspect, clear, and monitor backend caches (per service and globally) without server restarts. The system standardizes how caches are registered, exposed, and audited, while preserving per‑user isolation where applicable.
@@ -194,14 +199,15 @@ class CacheManager:
 
 ## Rollout Plan
 
-1. Phase 1 (Backend)
-   - Implement CacheControl protocol and CacheManager
-   - Register core services (PortfolioService, OptimizationService, ScenarioService, PortfolioContextService)
-   - Add admin endpoints secured by role
-2. Phase 2 (UI)
+1. Phase 1 (Backend) — ✅ Core done (informal pattern)
+   - ~~Implement CacheControl protocol and CacheManager~~ → Services implement methods directly; `ServiceManager` aggregates via `clear_all_caches()`, `get_cache_stats()`, `health_check()`
+   - ✅ Core services registered: PortfolioService, OptimizationService, ScenarioService, StockService, FactorIntelligenceService, ReturnsService, PortfolioContextService
+   - ✅ Admin endpoints: `GET /admin/cache_status`, `POST /admin/clear_cache` in `routes/admin.py`
+   - ❌ Not yet: formal CacheControl protocol, per-service clear endpoint, dry_run, scoped context clear
+2. Phase 2 (UI) — ❌ Not started
    - Build Admin UI page with stats and clear controls
    - Add confirm modals and dry‑run
-3. Phase 3 (Enhancements)
+3. Phase 3 (Enhancements) — ❌ Not started
    - Add data_loader disk cache controls (keys/prefix purge)
    - Track hit/miss metrics (if feasible)
    - Add feature flag for production rollout

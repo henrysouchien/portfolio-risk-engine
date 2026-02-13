@@ -373,6 +373,9 @@ def calculate_concentration_risk_loss(summary: Dict[str, Any], leverage_ratio: f
     
     # Apply security-type-specific crash scenario
     # Use centralized mapping system with built-in 3-tier fallback
+    if security_type not in SECURITY_TYPE_CRASH_MAPPING:
+        portfolio_logger.warning(f"Unmapped security type '{security_type}' for {largest_ticker}, defaulting to equity crash scenario")
+        security_type = "equity"
     crash_scenario_key = SECURITY_TYPE_CRASH_MAPPING[security_type]
     crash_scenario = WORST_CASE_SCENARIOS[crash_scenario_key]
     
@@ -424,6 +427,9 @@ def get_crash_scenario_for_security_type(security_type: str) -> float:
     
     # Use centralized mapping system with built-in 3-tier fallback
     # The centralized system already handles all fallback logic
+    if security_type not in SECURITY_TYPE_CRASH_MAPPING:
+        portfolio_logger.warning(f"Unmapped security type '{security_type}', defaulting to equity crash scenario")
+        security_type = "equity"
     crash_scenario_key = SECURITY_TYPE_CRASH_MAPPING[security_type]
     return WORST_CASE_SCENARIOS[crash_scenario_key]
 
@@ -1570,7 +1576,7 @@ def _format_risk_score_output(risk_score: Dict[str, Any], limits_analysis: Dict[
 
 
 # Import logging decorators for risk scoring
-from utils.logging import log_portfolio_operation_decorator, log_performance, log_error_handling, log_resource_usage_decorator, log_workflow_state_decorator
+from utils.logging import log_portfolio_operation_decorator, log_performance, log_error_handling, log_resource_usage_decorator, log_workflow_state_decorator, portfolio_logger
 
 @log_error_handling("high")
 @log_portfolio_operation_decorator("risk_score_analysis")
@@ -1671,7 +1677,25 @@ def run_risk_score_analysis(portfolio_yaml: str = "portfolio.yaml", risk_yaml: s
         
         # Standardize portfolio weights first
         raw_weights = config["portfolio_input"]
-        standardized = standardize_portfolio_input(raw_weights, latest_price)
+        fmp_ticker_map = config.get("fmp_ticker_map")
+        currency_map = config.get("currency_map")
+        if fmp_ticker_map:
+            price_fetcher = lambda t: latest_price(
+                t,
+                fmp_ticker_map=fmp_ticker_map,
+                currency=currency_map.get(t) if currency_map else None,
+            )
+        else:
+            price_fetcher = lambda t: latest_price(
+                t,
+                currency=currency_map.get(t) if currency_map else None,
+            )
+        standardized = standardize_portfolio_input(
+            raw_weights,
+            price_fetcher,
+            currency_map=currency_map,
+            fmp_ticker_map=fmp_ticker_map,
+        )
         weights = standardized["weights"]
         
         # Build portfolio view with standardized weights
@@ -1680,7 +1704,9 @@ def run_risk_score_analysis(portfolio_yaml: str = "portfolio.yaml", risk_yaml: s
             start_date=config["start_date"],
             end_date=config["end_date"],
             expected_returns=config.get("expected_returns"),
-            stock_factor_proxies=config.get("stock_factor_proxies")
+            stock_factor_proxies=config.get("stock_factor_proxies"),
+            fmp_ticker_map=fmp_ticker_map,
+            currency_map=currency_map,
         )
         
         # Calculate max betas

@@ -297,6 +297,8 @@ def _cached_build_portfolio_view(
     stock_factor_proxies_json: Optional[str] = None,
     bond_mask_json: Optional[str] = "[]",
     cache_version: str = "rbeta_v1",
+    fmp_ticker_map_json: Optional[str] = None,
+    currency_map_json: Optional[str] = None,
 ):
     """
     LRU-cached version of build_portfolio_view.
@@ -315,6 +317,8 @@ def _cached_build_portfolio_view(
     weights = json.loads(weights_json)
     expected_returns = json.loads(expected_returns_json) if expected_returns_json else None
     stock_factor_proxies = json.loads(stock_factor_proxies_json) if stock_factor_proxies_json else None
+    fmp_ticker_map = json.loads(fmp_ticker_map_json) if fmp_ticker_map_json else None
+    currency_map = json.loads(currency_map_json) if currency_map_json else None
 
     try:
         bond_list = json.loads(bond_mask_json or "[]")
@@ -324,7 +328,14 @@ def _cached_build_portfolio_view(
 
     # Call the original computation function
     return _build_portfolio_view_computation(
-        weights, start_date, end_date, expected_returns, stock_factor_proxies, asset_classes
+        weights,
+        start_date,
+        end_date,
+        expected_returns,
+        stock_factor_proxies,
+        asset_classes,
+        fmp_ticker_map,
+        currency_map,
     )
 
 def clear_portfolio_view_cache():
@@ -385,7 +396,8 @@ def _filter_tickers_by_data_availability(
     weights: Dict[str, float],
     start_date: str,
     end_date: str,
-    min_months: int = 12
+    min_months: int = 12,
+    fmp_ticker_map: Optional[Dict[str, str]] = None,
 ) -> Tuple[Dict[str, float], List[str], List[str]]:
     """
     Filter out tickers with insufficient historical data and rebalance remaining weights.
@@ -409,7 +421,12 @@ def _filter_tickers_by_data_availability(
     # Check data availability for each ticker
     for ticker, weight in weights.items():
         try:
-            prices = fetch_monthly_close(ticker, start_date=start_date, end_date=end_date)
+            prices = fetch_monthly_close(
+                ticker,
+                start_date=start_date,
+                end_date=end_date,
+                fmp_ticker_map=fmp_ticker_map,
+            )
             returns = calc_monthly_returns(prices)
             
             if returns is not None and len(returns) >= min_months:
@@ -440,26 +457,146 @@ def _filter_tickers_by_data_availability(
 def get_returns_dataframe(
     weights: Dict[str, float],
     start_date: str,
-    end_date: str
+    end_date: str,
+    fmp_ticker_map: Optional[Dict[str, str]] = None,
+    currency_map: Optional[Dict[str, str]] = None,
+    min_observations: int = 12,
 ) -> pd.DataFrame:
     """
     Fetch and compute monthly returns for all tickers in the weights dictionary.
+
+    HANDLING NEW/ILLIQUID STOCKS:
+    =============================
+    Some tickers may not have sufficient historical data for the requested date range.
+    This commonly occurs with:
+    - Recently IPO'd stocks (e.g., MRP IPO'd Feb 2025, FIG IPO'd Jul 2025)
+    - Delisted or restructured securities
+    - OTC/illiquid stocks with gaps in data
+
+    When a ticker has no data or insufficient observations (<min_observations months),
+    it is EXCLUDED from the returns DataFrame. This is necessary because:
+    1. Covariance matrix estimation requires aligned time series
+    2. Statistical reliability requires sufficient observations (typically 12+ months)
+    3. Including partial/empty data would corrupt volatility calculations
+
+    The caller (e.g., build_portfolio_view) should re-normalize weights for the
+    remaining tickers to ensure they sum to 1.0.
+
+    LOGGING:
+    ========
+    Excluded tickers are logged via portfolio_logger.warning() so they appear in
+    both console output and log files. This ensures visibility into which positions
+    are being excluded from risk calculations.
 
     Args:
         weights (Dict[str, float]): Portfolio weights (tickers as keys).
         start_date (str): Start date in 'YYYY-MM-DD' format.
         end_date (str): End date in 'YYYY-MM-DD' format.
+        fmp_ticker_map (Optional[Dict[str, str]]): Mapping of display tickers to FMP tickers
+            for international stocks (e.g., {'AT': 'AT.L'}).
+        currency_map (Optional[Dict[str, str]]): Mapping of ticker -> ISO currency code
+            for non-USD tickers (used to FX-adjust returns).
+        min_observations (int): Minimum number of monthly observations required for a ticker
+            to be included. Default 12 (1 year). Tickers with fewer observations are excluded.
 
     Returns:
-        pd.DataFrame: Monthly return series for all tickers, aligned and cleaned.
+        pd.DataFrame: Monthly return series for valid tickers only, aligned and cleaned.
+            Tickers with no data or insufficient history are excluded.
+
+    Raises:
+        ValueError: If ALL tickers fail to fetch data (no valid returns available).
     """
+    from utils.logging import portfolio_logger
+
     rets = {}
+    excluded_no_data = []      # Tickers with no data at all
+    excluded_insufficient = []  # Tickers with data but < min_observations
+
     for t in weights:
         try:
-            prices = fetch_monthly_total_return_price(t, start_date=start_date, end_date=end_date)
-        except Exception:
-            prices = fetch_monthly_close(t, start_date=start_date, end_date=end_date)
-        rets[t] = calc_monthly_returns(prices)
+            # Try total return prices first (includes dividends)
+            try:
+                prices = fetch_monthly_total_return_price(
+                    t,
+                    start_date=start_date,
+                    end_date=end_date,
+                    fmp_ticker_map=fmp_ticker_map,
+                )
+            except Exception:
+                # Fall back to close prices (price-only, no dividend adjustment)
+                prices = fetch_monthly_close(
+                    t,
+                    start_date=start_date,
+                    end_date=end_date,
+                    fmp_ticker_map=fmp_ticker_map,
+                )
+
+            # Calculate returns from prices
+            ticker_returns = calc_monthly_returns(prices)
+
+            # FX-adjust returns for non-USD tickers
+            currency = currency_map.get(t) if currency_map else None
+            if not currency and fmp_ticker_map and t in fmp_ticker_map:
+                # Infer currency from FMP profile (same fallback as latest_price())
+                try:
+                    from utils.ticker_resolver import fetch_fmp_quote_with_currency, normalize_fmp_price
+                    _, fmp_currency = fetch_fmp_quote_with_currency(fmp_ticker_map[t])
+                    _, currency = normalize_fmp_price(0, fmp_currency)
+                except Exception:
+                    pass
+            if currency and currency.upper() != "USD":
+                from fmp.fx import adjust_returns_for_fx
+                ticker_returns = adjust_returns_for_fx(
+                    ticker_returns,
+                    currency,
+                    start_date,
+                    end_date,
+                )
+
+            # Check if we have sufficient observations
+            if len(ticker_returns) < min_observations:
+                excluded_insufficient.append((t, len(ticker_returns)))
+            else:
+                rets[t] = ticker_returns
+
+        except Exception as e:
+            # Ticker has no data available for the requested date range
+            # This commonly happens with newly IPO'd stocks
+            excluded_no_data.append((t, str(e)[:50]))
+
+    # ─── Log excluded tickers so users are aware of what's missing ───────────────
+    if excluded_no_data:
+        tickers_str = ", ".join([t for t, _ in excluded_no_data])
+        portfolio_logger.warning(
+            f"⚠️ EXCLUDED {len(excluded_no_data)} ticker(s) with NO DATA for period "
+            f"{start_date} to {end_date}: [{tickers_str}]. "
+            f"These may be recently IPO'd stocks or have data gaps."
+        )
+
+    if excluded_insufficient:
+        details = ", ".join([f"{t}({n}mo)" for t, n in excluded_insufficient])
+        portfolio_logger.warning(
+            f"⚠️ EXCLUDED {len(excluded_insufficient)} ticker(s) with INSUFFICIENT HISTORY "
+            f"(<{min_observations} months): [{details}]. "
+            f"Minimum {min_observations} months required for reliable covariance estimation."
+        )
+
+    # ─── Validate we have at least some valid tickers ────────────────────────────
+    if not rets:
+        all_excluded = [t for t, _ in excluded_no_data] + [t for t, _ in excluded_insufficient]
+        raise ValueError(
+            f"No valid return data available. All {len(weights)} tickers were excluded: {all_excluded}. "
+            f"Check that tickers have data for the period {start_date} to {end_date}."
+        )
+
+    # ─── Log summary if any tickers were excluded ────────────────────────────────
+    total_excluded = len(excluded_no_data) + len(excluded_insufficient)
+    if total_excluded > 0:
+        portfolio_logger.warning(
+            f"📊 Returns DataFrame: {len(rets)}/{len(weights)} tickers valid. "
+            f"Excluded {total_excluded} ticker(s). Weights should be re-normalized."
+        )
+
     return pd.DataFrame(rets).dropna()
 
 def compute_target_allocations(
@@ -518,6 +655,8 @@ def build_portfolio_view(
     expected_returns: Optional[Dict[str, float]] = None,
     stock_factor_proxies: Optional[Dict[str, Dict[str, Union[str, List[str]]]]] = None,
     asset_classes: Optional[Dict[str, str]] = None,
+    fmp_ticker_map: Optional[Dict[str, str]] = None,
+    currency_map: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     """
     Build comprehensive portfolio view with LRU caching.
@@ -537,11 +676,14 @@ def build_portfolio_view(
       pre-integration implementation.
     - All return series prefer total-return pricing; when adjusted data is
       unavailable, close-only series are used as a fallback.
+    - currency_map enables FX-adjusted returns for non-USD holdings.
     """
     # Serialize parameters for LRU cache
     weights_json = serialize_for_cache(weights)
     expected_returns_json = serialize_for_cache(expected_returns)
     stock_factor_proxies_json = serialize_for_cache(stock_factor_proxies)
+    fmp_ticker_map_json = serialize_for_cache(fmp_ticker_map)
+    currency_map_json = serialize_for_cache(currency_map)
 
     # Rate beta cache mask and version
     bond_mask_json = _build_bond_injection_mask(asset_classes, weights)
@@ -550,7 +692,7 @@ def build_portfolio_view(
     # Return cached computation keyed by bond mask and version
     return _cached_build_portfolio_view(
         weights_json, start_date, end_date, expected_returns_json, stock_factor_proxies_json,
-        bond_mask_json, cache_version
+        bond_mask_json, cache_version, fmp_ticker_map_json, currency_map_json
     )
 
 @log_error_handling("high")
@@ -561,6 +703,8 @@ def _build_portfolio_view_computation(
     expected_returns: Optional[Dict[str, float]] = None,
     stock_factor_proxies: Optional[Dict[str, Dict[str, Union[str, List[str]]]]] = None,
     asset_classes: Optional[Dict[str, str]] = None,
+    fmp_ticker_map: Optional[Dict[str, str]] = None,
+    currency_map: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     # LOGGING: Add portfolio view computation start logging here
     """
@@ -619,7 +763,48 @@ def _build_portfolio_view_computation(
               }
     """
     # ─── 0. Portfolio Return Setup ──────────────────────────────────────────────
-    df_ret   = get_returns_dataframe(weights, start_date, end_date)
+    # Get returns for valid tickers only (new/illiquid stocks with insufficient data are excluded)
+    df_ret = get_returns_dataframe(
+        weights,
+        start_date,
+        end_date,
+        fmp_ticker_map=fmp_ticker_map,
+        currency_map=currency_map,
+    )
+
+    # ─── 0a. Re-normalize weights for valid tickers ────────────────────────────
+    # CRITICAL: When tickers are excluded from df_ret (e.g., newly IPO'd stocks like MRP, FIG),
+    # we must re-normalize the remaining weights to sum to 1.0. Otherwise, portfolio
+    # volatility and risk calculations will be incorrect (weights won't sum to 100%).
+    #
+    # Example: Original weights {A: 0.5, B: 0.3, MRP: 0.1, FIG: 0.1}
+    #          After exclusion:  df_ret only has [A, B]
+    #          Re-normalized:    {A: 0.625, B: 0.375} (0.5/0.8, 0.3/0.8)
+    valid_tickers = set(df_ret.columns)
+    excluded_tickers = [t for t in weights if t not in valid_tickers]
+
+    if excluded_tickers:
+        from utils.logging import portfolio_logger
+
+        # Filter to valid tickers only
+        valid_weights = {t: w for t, w in weights.items() if t in valid_tickers}
+        total_valid_weight = sum(valid_weights.values())
+
+        if total_valid_weight > 0:
+            # Re-normalize so weights sum to 1.0
+            weights = {t: w / total_valid_weight for t, w in valid_weights.items()}
+
+            portfolio_logger.warning(
+                f"📊 WEIGHTS RE-NORMALIZED: Excluded {len(excluded_tickers)} ticker(s) "
+                f"[{', '.join(excluded_tickers)}]. "
+                f"Remaining {len(weights)} positions re-normalized from {total_valid_weight:.1%} to 100%."
+            )
+        else:
+            raise ValueError(
+                f"Cannot compute portfolio view: all tickers excluded. "
+                f"Excluded: {excluded_tickers}"
+            )
+
     df_alloc = compute_target_allocations(weights, expected_returns)
 
     port_ret = compute_portfolio_returns(df_ret, weights)
@@ -644,7 +829,12 @@ def _build_portfolio_view_computation(
             proxies = stock_factor_proxies[ticker]
             
             # Fetch stock returns
-            prices    = fetch_monthly_close(ticker, start_date=start_date, end_date=end_date)
+            prices = fetch_monthly_close(
+                ticker,
+                start_date=start_date,
+                end_date=end_date,
+                fmp_ticker_map=fmp_ticker_map,
+            )
             stock_ret = calc_monthly_returns(prices)
             idx       = stock_ret.index
 
@@ -655,32 +845,69 @@ def _build_portfolio_view_computation(
             if mkt_t:
                 # Prefer total return for proxy returns
                 try:
-                    mkt_prices = fetch_monthly_total_return_price(mkt_t, start_date=start_date, end_date=end_date)
+                    mkt_prices = fetch_monthly_total_return_price(
+                        mkt_t,
+                        start_date=start_date,
+                        end_date=end_date,
+                        fmp_ticker_map=fmp_ticker_map,
+                    )
                 except Exception:
-                    mkt_prices = fetch_monthly_close(mkt_t, start_date=start_date, end_date=end_date)
+                    mkt_prices = fetch_monthly_close(
+                        mkt_t,
+                        start_date=start_date,
+                        end_date=end_date,
+                        fmp_ticker_map=fmp_ticker_map,
+                    )
                 mkt_ret = calc_monthly_returns(mkt_prices).reindex(idx).dropna()
                 fac_dict["market"] = mkt_ret
 
             mom_t = proxies.get("momentum")
             if mom_t and mkt_t:
-                mom_ret = fetch_excess_return(mom_t, mkt_t, start_date, end_date).reindex(idx).dropna()
+                mom_ret = fetch_excess_return(
+                    mom_t,
+                    mkt_t,
+                    start_date,
+                    end_date,
+                    fmp_ticker_map=fmp_ticker_map,
+                ).reindex(idx).dropna()
                 fac_dict["momentum"] = mom_ret
 
             val_t = proxies.get("value")
             if val_t and mkt_t:
-                val_ret = fetch_excess_return(val_t, mkt_t, start_date, end_date).reindex(idx).dropna()
+                val_ret = fetch_excess_return(
+                    val_t,
+                    mkt_t,
+                    start_date,
+                    end_date,
+                    fmp_ticker_map=fmp_ticker_map,
+                ).reindex(idx).dropna()
                 fac_dict["value"] = val_ret
 
             for facname in ("industry", "subindustry"):
                 proxy = proxies.get(facname)
                 if proxy:
                     if isinstance(proxy, list):
-                        ser = fetch_peer_median_monthly_returns(proxy, start_date, end_date)
+                        ser = fetch_peer_median_monthly_returns(
+                            proxy,
+                            start_date,
+                            end_date,
+                            fmp_ticker_map=fmp_ticker_map,
+                        )
                     else:
                         try:
-                            p = fetch_monthly_total_return_price(proxy, start_date=start_date, end_date=end_date)
+                            p = fetch_monthly_total_return_price(
+                                proxy,
+                                start_date=start_date,
+                                end_date=end_date,
+                                fmp_ticker_map=fmp_ticker_map,
+                            )
                         except Exception:
-                            p = fetch_monthly_close(proxy, start_date=start_date, end_date=end_date)
+                            p = fetch_monthly_close(
+                                proxy,
+                                start_date=start_date,
+                                end_date=end_date,
+                                fmp_ticker_map=fmp_ticker_map,
+                            )
                         ser = calc_monthly_returns(p)
                     fac_dict[facname] = ser.reindex(idx).dropna()
 
@@ -742,7 +969,12 @@ def _build_portfolio_view_computation(
 
                     # Stock monthly returns for alignment
                     try:
-                        prices = fetch_monthly_close(ticker, start_date=start_date, end_date=end_date)
+                        prices = fetch_monthly_close(
+                            ticker,
+                            start_date=start_date,
+                            end_date=end_date,
+                            fmp_ticker_map=fmp_ticker_map,
+                        )
                         stock_ret = calc_monthly_returns(prices)
                     except Exception:
                         df_stock_betas.loc[ticker, 'interest_rate'] = 0.0
@@ -815,23 +1047,48 @@ def _build_portfolio_view_computation(
     
             # ----- rebuild this stock’s factor-return dict (same logic as above) --
             try:
-                _p = fetch_monthly_total_return_price(tkr, start_date, end_date)
+                _p = fetch_monthly_total_return_price(
+                    tkr,
+                    start_date,
+                    end_date,
+                    fmp_ticker_map=fmp_ticker_map,
+                )
             except Exception:
-                _p = fetch_monthly_close(tkr, start_date, end_date)
+                _p = fetch_monthly_close(
+                    tkr,
+                    start_date,
+                    end_date,
+                    fmp_ticker_map=fmp_ticker_map,
+                )
             idx_stock = calc_monthly_returns(_p).index
             fac_ret: Dict[str, pd.Series] = {}
     
             mkt = proxies.get("market")
             if mkt:
                 try:
-                    _pm = fetch_monthly_total_return_price(mkt, start_date, end_date)
+                    _pm = fetch_monthly_total_return_price(
+                        mkt,
+                        start_date,
+                        end_date,
+                        fmp_ticker_map=fmp_ticker_map,
+                    )
                 except Exception:
-                    _pm = fetch_monthly_close(mkt, start_date, end_date)
+                    _pm = fetch_monthly_close(
+                        mkt,
+                        start_date,
+                        end_date,
+                        fmp_ticker_map=fmp_ticker_map,
+                    )
                 fac_ret["market"] = calc_monthly_returns(_pm).reindex(idx_stock).dropna()
     
             def _excess(etf: str) -> pd.Series:
-                return fetch_excess_return(etf, mkt, start_date, end_date
-                       ).reindex(idx_stock).dropna()
+                return fetch_excess_return(
+                    etf,
+                    mkt,
+                    start_date,
+                    end_date,
+                    fmp_ticker_map=fmp_ticker_map,
+                ).reindex(idx_stock).dropna()
     
             if proxies.get("momentum"):
                 fac_ret["momentum"] = _excess(proxies["momentum"])
@@ -842,12 +1099,27 @@ def _build_portfolio_view_computation(
                 proxy = proxies.get(fac)
                 if proxy:
                     if isinstance(proxy, list):
-                        ser = fetch_peer_median_monthly_returns(proxy, start_date, end_date)
+                        ser = fetch_peer_median_monthly_returns(
+                            proxy,
+                            start_date,
+                            end_date,
+                            fmp_ticker_map=fmp_ticker_map,
+                        )
                     else:
                         try:
-                            _pp = fetch_monthly_total_return_price(proxy, start_date, end_date)
+                            _pp = fetch_monthly_total_return_price(
+                                proxy,
+                                start_date,
+                                end_date,
+                                fmp_ticker_map=fmp_ticker_map,
+                            )
                         except Exception:
-                            _pp = fetch_monthly_close(proxy, start_date, end_date)
+                            _pp = fetch_monthly_close(
+                                proxy,
+                                start_date,
+                                end_date,
+                                fmp_ticker_map=fmp_ticker_map,
+                            )
                         ser = calc_monthly_returns(_pp)
                     fac_ret[fac] = ser.reindex(idx_stock).dropna()
     
@@ -895,24 +1167,26 @@ def _build_portfolio_view_computation(
     industry_var_dict = {}
     
     # Step: reverse-map which stock maps to which industry ETF
-    for tkr in weights.keys():
-        if tkr not in stock_factor_proxies:
-            continue
-        proxies = stock_factor_proxies[tkr]
-        ind = proxies.get("industry")
-        if ind:
-            v = weighted_factor_var.loc[tkr, "industry"] if "industry" in weighted_factor_var.columns else 0.0
-            industry_var_dict[ind] = industry_var_dict.get(ind, 0.0) + v
+    if stock_factor_proxies:
+        for tkr in weights.keys():
+            if tkr not in stock_factor_proxies:
+                continue
+            proxies = stock_factor_proxies[tkr]
+            ind = proxies.get("industry")
+            if ind:
+                v = weighted_factor_var.loc[tkr, "industry"] if "industry" in weighted_factor_var.columns else 0.0
+                industry_var_dict[ind] = industry_var_dict.get(ind, 0.0) + v
 
     # ─── 3b. Compute Per-Industry Group Beta (and max weighted exposure) ──────────────
     industry_groups: Dict[str, float] = {}
 
-    for ticker in w_series.index:
-        proxy = stock_factor_proxies.get(ticker, {}).get("industry")
-        beta = df_stock_betas.get("industry", {}).get(ticker, 0.0)
-        weight = w_series[ticker]
-        if proxy:
-            industry_groups[proxy] = industry_groups.get(proxy, 0.0) + (weight * beta)
+    if stock_factor_proxies:
+        for ticker in w_series.index:
+            proxy = stock_factor_proxies.get(ticker, {}).get("industry")
+            beta = df_stock_betas.get("industry", {}).get(ticker, 0.0)
+            weight = w_series[ticker]
+            if proxy:
+                industry_groups[proxy] = industry_groups.get(proxy, 0.0) + (weight * beta)
     
     # ─── 4. Final Portfolio Stats (Volatility, Idio, Betas) ─────────────────────
 
@@ -1005,7 +1279,9 @@ def calculate_portfolio_performance_metrics(
     end_date: str,
     benchmark_ticker: str = "SPY",
     risk_free_rate: float = None,
-    total_value: Optional[float] = None
+    total_value: Optional[float] = None,
+    fmp_ticker_map: Optional[Dict[str, str]] = None,
+    currency_map: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     """
     Calculate comprehensive portfolio performance metrics including risk-adjusted returns
@@ -1019,6 +1295,8 @@ def calculate_portfolio_performance_metrics(
         risk_free_rate (float): Risk-free rate (annual). If None, uses 3-month Treasury yield from FMP
         total_value (float, optional): Total portfolio value; when provided, enables estimated
             annual dividends and top contributor calculations in dividend metrics
+        currency_map (Optional[Dict[str, str]]): Mapping of ticker -> ISO currency code
+            for non-USD tickers (used to FX-adjust returns).
         
     Returns:
         Dict[str, Any]: Performance metrics including:
@@ -1046,7 +1324,7 @@ def calculate_portfolio_performance_metrics(
     
     # Pre-filter tickers with insufficient data and rebalance weights
     filtered_weights, excluded_tickers, warnings = _filter_tickers_by_data_availability(
-        weights, start_date, end_date, min_months=12
+        weights, start_date, end_date, min_months=12, fmp_ticker_map=fmp_ticker_map
     )
     
     # If no tickers remain after filtering, return error
@@ -1058,12 +1336,19 @@ def calculate_portfolio_performance_metrics(
         }
     
     # Get portfolio returns using filtered weights
-    df_ret = get_returns_dataframe(filtered_weights, start_date, end_date)
+    df_ret = get_returns_dataframe(
+        filtered_weights,
+        start_date,
+        end_date,
+        fmp_ticker_map=fmp_ticker_map,
+        currency_map=currency_map,
+    )
     portfolio_returns = compute_portfolio_returns(df_ret, filtered_weights)
     
     # Final safety check (should not trigger after filtering, but just in case)
     from settings import DATA_QUALITY_THRESHOLDS
     min_obs = DATA_QUALITY_THRESHOLDS["min_observations_for_expected_returns"]
+    min_capm_obs = DATA_QUALITY_THRESHOLDS["min_observations_for_capm_regression"]
     
     if portfolio_returns.empty or len(portfolio_returns) < min_obs:
         return {
@@ -1075,7 +1360,12 @@ def calculate_portfolio_performance_metrics(
     
     # Get benchmark returns
     try:
-        benchmark_prices = fetch_monthly_close(benchmark_ticker, start_date, end_date)
+        benchmark_prices = fetch_monthly_close(
+            benchmark_ticker,
+            start_date,
+            end_date,
+            fmp_ticker_map=fmp_ticker_map,
+        )
         benchmark_returns = calc_monthly_returns(benchmark_prices)
         
         # Align portfolio and benchmark returns
@@ -1105,134 +1395,16 @@ def calculate_portfolio_performance_metrics(
             print(f"   Using 4% default risk-free rate")
             risk_free_rate = 0.04  # 4% default if can't fetch
     
-    risk_free_monthly = risk_free_rate / 12
-    
-    # Basic performance metrics
-    total_months = len(port_ret)
-    years = total_months / 12
-    
-    # Total returns
-    total_portfolio_return = (1 + port_ret).prod() - 1
-    total_benchmark_return = (1 + bench_ret).prod() - 1
-    
-    # Annualized returns (CAGR)
-    annualized_portfolio_return = (1 + total_portfolio_return) ** (1/years) - 1
-    annualized_benchmark_return = (1 + total_benchmark_return) ** (1/years) - 1
-    
-    # Volatility (annualized)
-    portfolio_volatility = port_ret.std() * np.sqrt(12)
-    benchmark_volatility = bench_ret.std() * np.sqrt(12)
-    
-    # Excess returns
-    portfolio_excess = port_ret - risk_free_monthly
-    benchmark_excess = bench_ret - risk_free_monthly
-    tracking_error = (port_ret - bench_ret).std() * np.sqrt(12)
-    
-    # Risk-adjusted metrics
-    sharpe_ratio = (annualized_portfolio_return - risk_free_rate) / portfolio_volatility if portfolio_volatility > 0 else 0
-    benchmark_sharpe = (annualized_benchmark_return - risk_free_rate) / benchmark_volatility if benchmark_volatility > 0 else 0
-    
-    # Sortino ratio (downside deviation)
-    downside_returns = port_ret[port_ret < risk_free_monthly] - risk_free_monthly
-    downside_deviation = np.sqrt((downside_returns ** 2).mean()) * np.sqrt(12) if len(downside_returns) > 0 else 0
-    sortino_ratio = (annualized_portfolio_return - risk_free_rate) / downside_deviation if downside_deviation > 0 else 0
-    
-    # Information ratio
-    excess_return_vs_benchmark = annualized_portfolio_return - annualized_benchmark_return
-    information_ratio = excess_return_vs_benchmark / tracking_error if tracking_error > 0 else 0
-    
-    # Alpha and Beta (CAPM)
-    min_capm_obs = DATA_QUALITY_THRESHOLDS["min_observations_for_capm_regression"]
-    if len(aligned_data) >= min_capm_obs:  # Need sufficient data for regression
-        try:
-            # Simple linear regression: portfolio_excess = alpha + beta * benchmark_excess
-            X = sm.add_constant(benchmark_excess)
-            model = sm.OLS(portfolio_excess, X).fit()
-            alpha_monthly = model.params.iloc[0]  # Use .iloc for position-based access
-            beta = model.params.iloc[1]           # Use .iloc for position-based access
-            alpha_annual = alpha_monthly * 12
-            r_squared = model.rsquared
-        except Exception as e:
-            print(f"⚠️  Regression failed for {benchmark_ticker}: {type(e).__name__}: {e}")
-            print(f"   Using fallback values: alpha=0, beta=1, r²=0")
-            alpha_annual = 0
-            beta = 1
-            r_squared = 0
-    else:
-        alpha_annual = 0
-        beta = 1
-        r_squared = 0
-    
-    # Maximum Drawdown
-    cumulative_returns = (1 + port_ret).cumprod()
-    running_max = cumulative_returns.expanding().max()
-    drawdown = (cumulative_returns - running_max) / running_max
-    maximum_drawdown = drawdown.min()
-    
-    # Calmar Ratio (return / max drawdown)
-    calmar_ratio = abs(annualized_portfolio_return / maximum_drawdown) if maximum_drawdown < -0.001 else 0
-    
-    # Win rate and average win/loss
-    positive_months = port_ret[port_ret > 0]
-    negative_months = port_ret[port_ret < 0]
-    win_rate = len(positive_months) / len(port_ret) if len(port_ret) > 0 else 0
-    avg_win = positive_months.mean() if len(positive_months) > 0 else 0
-    avg_loss = negative_months.mean() if len(negative_months) > 0 else 0
-    win_loss_ratio = abs(avg_win / avg_loss) if avg_loss != 0 else 0
-    
-    # Performance summary
-    performance_metrics = {
-        "analysis_period": {
-            "start_date": start_date,
-            "end_date": end_date,
-            "total_months": total_months,
-            "years": round(years, 2)
-        },
-        "returns": {
-            "total_return": round(total_portfolio_return * 100, 2),
-            "annualized_return": round(annualized_portfolio_return * 100, 2),
-            "best_month": round(port_ret.max() * 100, 2),
-            "worst_month": round(port_ret.min() * 100, 2),
-            "positive_months": len(positive_months),
-            "negative_months": len(negative_months),
-            "win_rate": round(win_rate * 100, 1)
-        },
-        "risk_metrics": {
-            "volatility": round(portfolio_volatility * 100, 2),
-            "maximum_drawdown": round(maximum_drawdown * 100, 2),
-            "downside_deviation": round(downside_deviation * 100, 2),
-            "tracking_error": round(tracking_error * 100, 2)
-        },
-        "risk_adjusted_returns": {
-            "sharpe_ratio": round(sharpe_ratio, 3),
-            "sortino_ratio": round(sortino_ratio, 3),
-            "information_ratio": round(information_ratio, 3),
-            "calmar_ratio": round(calmar_ratio, 3)
-        },
-        "benchmark_analysis": {
-            "benchmark_ticker": benchmark_ticker,
-            "alpha_annual": round(alpha_annual * 100, 2),
-            "beta": round(beta, 3),
-            "r_squared": round(r_squared, 3),
-            "excess_return": round(excess_return_vs_benchmark * 100, 2)
-        },
-        "benchmark_comparison": {
-            "portfolio_return": round(annualized_portfolio_return * 100, 2),
-            "benchmark_return": round(annualized_benchmark_return * 100, 2),
-            "portfolio_volatility": round(portfolio_volatility * 100, 2),
-            "benchmark_volatility": round(benchmark_volatility * 100, 2),
-            "portfolio_sharpe": round(sharpe_ratio, 3),
-            "benchmark_sharpe": round(benchmark_sharpe, 3)
-        },
-        "monthly_stats": {
-            "average_monthly_return": round(port_ret.mean() * 100, 2),
-            "average_win": round(avg_win * 100, 2),
-            "average_loss": round(avg_loss * 100, 2),
-            "win_loss_ratio": round(win_loss_ratio, 2)
-        },
-        "risk_free_rate": round(risk_free_rate * 100, 2),
-        "monthly_returns": {k.date().isoformat(): float(v) for k, v in port_ret.round(4).to_dict().items()}
-    }
+    from core.performance_metrics_engine import compute_performance_metrics
+    performance_metrics = compute_performance_metrics(
+        portfolio_returns=port_ret,
+        benchmark_returns=bench_ret,
+        risk_free_rate=risk_free_rate,
+        benchmark_ticker=benchmark_ticker,
+        start_date=start_date,
+        end_date=end_date,
+        min_capm_observations=min_capm_obs,
+    )
     
     # Add data quality information if any tickers were excluded
     if excluded_tickers:
@@ -1242,7 +1414,11 @@ def calculate_portfolio_performance_metrics(
     
     # Dividend metrics integration (current-yield method)
     try:
-        dividend_metrics = calculate_portfolio_dividend_yield(filtered_weights, total_value)
+        dividend_metrics = calculate_portfolio_dividend_yield(
+            filtered_weights,
+            total_value,
+            fmp_ticker_map=fmp_ticker_map,
+        )
         performance_metrics["dividend_metrics"] = dividend_metrics
     except Exception as e:
         performance_metrics["dividend_metrics"] = {
@@ -1263,6 +1439,7 @@ def calculate_portfolio_performance_metrics(
 def calculate_portfolio_dividend_yield(
     weights: Dict[str, float],
     portfolio_value: Optional[float] = None,
+    fmp_ticker_map: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     """
     Calculate comprehensive portfolio dividend analysis including weighted yield and coverage metrics.
@@ -1335,7 +1512,10 @@ def calculate_portfolio_dividend_yield(
 
     for t in weights.keys():
         try:
-            individual_yields[t] = fetch_current_dividend_yield(t)
+            individual_yields[t] = fetch_current_dividend_yield(
+                t,
+                fmp_ticker_map=fmp_ticker_map,
+            )
         except Exception:
             individual_yields[t] = 0.0
             failed_tickers.append(t)

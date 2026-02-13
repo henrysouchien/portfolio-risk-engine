@@ -76,7 +76,25 @@ def analyze_performance(filepath: str, benchmark_ticker: str = "SPY") -> Union[P
         config = load_portfolio_config(filepath)
         
         # Standardize portfolio weights and capture total value for dividend estimates
-        standardized_data = standardize_portfolio_input(config["portfolio_input"], latest_price)
+        fmp_ticker_map = config.get("fmp_ticker_map")
+        currency_map = config.get("currency_map")
+        if fmp_ticker_map:
+            price_fetcher = lambda t: latest_price(
+                t,
+                fmp_ticker_map=fmp_ticker_map,
+                currency=currency_map.get(t) if currency_map else None,
+            )
+        else:
+            price_fetcher = lambda t: latest_price(
+                t,
+                currency=currency_map.get(t) if currency_map else None,
+            )
+        standardized_data = standardize_portfolio_input(
+            config["portfolio_input"],
+            price_fetcher,
+            currency_map=currency_map,
+            fmp_ticker_map=fmp_ticker_map,
+        )
         weights = standardized_data["weights"]
         total_value = standardized_data.get("total_value")
         
@@ -86,7 +104,9 @@ def analyze_performance(filepath: str, benchmark_ticker: str = "SPY") -> Union[P
             start_date=config["start_date"],
             end_date=config["end_date"],
             benchmark_ticker=benchmark_ticker,
-            total_value=total_value
+            total_value=total_value,
+            fmp_ticker_map=fmp_ticker_map,
+            currency_map=currency_map,
         )
         
         # Check for calculation errors
@@ -124,7 +144,8 @@ def analyze_performance(filepath: str, benchmark_ticker: str = "SPY") -> Union[P
             analysis_metadata={
                 "analysis_date": datetime.now(UTC).isoformat(),
                 "portfolio_file": filepath,
-                "benchmark_ticker": benchmark_ticker
+                "benchmark_ticker": benchmark_ticker,
+                "fmp_ticker_map": fmp_ticker_map,
             },
             allocations=weights  # Pass weights as allocations for position counting
         )

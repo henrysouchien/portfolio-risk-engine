@@ -62,6 +62,8 @@ from settings import RATE_FACTOR_CONFIG, FACTOR_INTELLIGENCE_DEFAULTS
 # Reuse existing DB‑first YAML loaders for exchange/industry maps
 from proxy_builder import load_exchange_proxy_map, load_industry_etf_map
 
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
 
 @lru_cache(maxsize=DATA_LOADER_LRU_SIZE)
 def load_asset_class_proxies() -> Tuple[Dict[str, Dict[str, str]], str]:
@@ -90,7 +92,7 @@ def load_asset_class_proxies() -> Tuple[Dict[str, Dict[str, str]], str]:
     # YAML fallback
     try:
         import yaml
-        yaml_path = Path("asset_etf_proxies.yaml")
+        yaml_path = _PROJECT_ROOT / "asset_etf_proxies.yaml"
         if yaml_path.exists():
             with open(yaml_path, 'r') as f:
                 data = yaml.safe_load(f) or {}
@@ -153,7 +155,7 @@ def load_cash_proxies() -> Tuple[Dict[str, str], str]:
     # YAML fallback: cash_map.yaml (existing)
     try:
         import yaml
-        yaml_path = Path("cash_map.yaml")
+        yaml_path = _PROJECT_ROOT / "cash_map.yaml"
         if yaml_path.exists():
             with open(yaml_path, 'r') as f:
                 data = yaml.safe_load(f) or {}
@@ -185,7 +187,8 @@ def _build_factor_returns_panel_cached(
     start_date: str,
     end_date: str,
     total_return: bool = True,
-    max_workers: int = 8
+    max_workers: int = 8,
+    fmp_ticker_map_json: Optional[str] = None,
 ) -> pd.DataFrame:
     """
     Build aligned monthly returns panel using cached computation.
@@ -222,6 +225,8 @@ def _build_factor_returns_panel_cached(
     the tickers involved in each specific analysis, rather than the often much
     smaller global intersection across the entire universe.
     """
+    fmp_ticker_map = json.loads(fmp_ticker_map_json) if fmp_ticker_map_json else None
+
     # Reconstruct universe from the cached fetch_factor_universe() function
     universe = fetch_factor_universe()
 
@@ -251,9 +256,19 @@ def _build_factor_returns_panel_cached(
 
         try:
             prices = (
-                fetch_monthly_total_return_price(ticker, start_date, end_date)
+                fetch_monthly_total_return_price(
+                    ticker,
+                    start_date,
+                    end_date,
+                    fmp_ticker_map=fmp_ticker_map,
+                )
                 if total_return else
-                fetch_monthly_close(ticker, start_date, end_date)
+                fetch_monthly_close(
+                    ticker,
+                    start_date,
+                    end_date,
+                    fmp_ticker_map=fmp_ticker_map,
+                )
             )
             # LOG: Check if API returned empty data
             if prices.empty:
@@ -261,7 +276,12 @@ def _build_factor_returns_panel_cached(
                 return None
         except Exception:
             try:
-                prices = fetch_monthly_close(ticker, start_date, end_date)
+                prices = fetch_monthly_close(
+                    ticker,
+                    start_date,
+                    end_date,
+                    fmp_ticker_map=fmp_ticker_map,
+                )
                 # LOG: Check if fallback API returned empty data
                 if prices.empty:
                     log_critical_alert("factor_empty_api_data", "high", f"EMPTY FALLBACK API DATA: Ticker={ticker}, Category={ticker_category}, Source={source_file}, Shape={prices.shape}", "Check ticker validity and API access")
@@ -354,6 +374,8 @@ def _build_factor_returns_panel_cached(
     df_raw.attrs["end_date"] = end_date
     df_raw.attrs["total_return"] = bool(total_return)
     df_raw.attrs["cache_key"] = f"factor_returns_panel_{universe_hash}_{start_date}_{end_date}_{total_return}"
+    if fmp_ticker_map:
+        df_raw.attrs["fmp_ticker_map"] = fmp_ticker_map
 
     # Build user-friendly labels for tickers (ticker → display label) using DB-first loaders
     try:
@@ -604,7 +626,8 @@ def build_factor_returns_panel(
     start_date: str,
     end_date: str,
     total_return: bool = True,
-    max_workers: int = 8
+    max_workers: int = 8,
+    fmp_ticker_map: Optional[Dict[str, str]] = None,
 ) -> pd.DataFrame:
     """
     Build aligned monthly returns panel for the provided ETF universe.
@@ -633,9 +656,16 @@ def build_factor_returns_panel(
     # Compute deterministic hash for caching
     universe_hash = _deterministic_universe_hash(universe)
 
+    fmp_ticker_map_json = json.dumps(fmp_ticker_map, sort_keys=True) if fmp_ticker_map else None
+
     # Delegate to the cached implementation
     return _build_factor_returns_panel_cached(
-        universe_hash, start_date, end_date, total_return, max_workers
+        universe_hash,
+        start_date,
+        end_date,
+        total_return,
+        max_workers,
+        fmp_ticker_map_json,
     )
 
 
@@ -1139,6 +1169,7 @@ def compute_market_sensitivity(
     """
     t0 = time.time()
     cats = returns_panel.attrs.get("categories", {})
+    fmp_ticker_map = returns_panel.attrs.get("fmp_ticker_map")
     all_tickers = list(returns_panel.columns)
 
     default_cats = FACTOR_INTELLIGENCE_DEFAULTS.get("default_categories", {}).get("market_sensitivity", ["industry", "style"])
@@ -1156,9 +1187,19 @@ def compute_market_sensitivity(
             continue
         # fetch
         try:
-            prices = fetch_monthly_total_return_price(bu, returns_panel.attrs.get("start_date"), returns_panel.attrs.get("end_date"))
+            prices = fetch_monthly_total_return_price(
+                bu,
+                returns_panel.attrs.get("start_date"),
+                returns_panel.attrs.get("end_date"),
+                fmp_ticker_map=fmp_ticker_map,
+            )
         except Exception:
-            prices = fetch_monthly_close(bu, returns_panel.attrs.get("start_date"), returns_panel.attrs.get("end_date"))
+            prices = fetch_monthly_close(
+                bu,
+                returns_panel.attrs.get("start_date"),
+                returns_panel.attrs.get("end_date"),
+                fmp_ticker_map=fmp_ticker_map,
+            )
         try:
             bench_series[bu] = calc_monthly_returns(prices).rename(bu)
         except Exception:
@@ -1379,6 +1420,287 @@ def compute_composite_performance(
         },
     }
     return result
+
+
+def parse_windows(
+    windows: Optional[List[str]],
+    end_date: Optional[str] = None,
+    invalid_windows: Optional[List[str]] = None,
+) -> List[Tuple[str, int]]:
+    """
+    Parse window tokens to (label, month_count) tuples.
+
+    Valid windows: 1m, 3m, 6m, 1y, 2y, ytd (case-insensitive).
+    Invalid windows are skipped and optionally appended to invalid_windows.
+    """
+    defaults = (
+        FACTOR_INTELLIGENCE_DEFAULTS.get("returns", {}).get("default_windows")
+        or ["1m", "3m", "6m", "1y"]
+    )
+    if windows is None:
+        requested = list(defaults)
+    elif isinstance(windows, (list, tuple, set)):
+        requested = list(windows)
+    else:
+        requested = [str(windows)]
+
+    month_map = {
+        "1m": 1,
+        "3m": 3,
+        "6m": 6,
+        "1y": 12,
+        "2y": 24,
+    }
+    parsed: List[Tuple[str, int]] = []
+    seen: set[str] = set()
+    bad: List[str] = []
+
+    for raw in requested:
+        token = str(raw).strip().lower()
+        if not token:
+            bad.append(str(raw))
+            continue
+        if token in seen:
+            continue
+        seen.add(token)
+
+        if token in month_map:
+            parsed.append((token, month_map[token]))
+            continue
+        if token == "ytd":
+            try:
+                end_ts = pd.Timestamp(end_date) if end_date else pd.Timestamp.utcnow()
+                months = max(int(end_ts.month), 1)
+            except Exception:
+                months = 1
+            parsed.append((token, months))
+            continue
+
+        bad.append(str(raw))
+        log_portfolio_operation(
+            "factor_returns_invalid_window",
+            {
+                "window": str(raw),
+                "valid_windows": ["1m", "3m", "6m", "1y", "2y", "ytd"],
+            },
+            execution_time=0,
+        )
+
+    if invalid_windows is not None and bad:
+        invalid_windows.extend(bad)
+
+    if not parsed:
+        raise ValueError("No valid windows specified")
+    return parsed
+
+
+def compute_factor_returns_snapshot(
+    returns_panel: pd.DataFrame,
+    windows=None,
+    categories: Optional[List[str]] = None,
+    industry_granularity: str = "group",
+) -> Dict[str, Any]:
+    """
+    Compute lightweight multi-window factor returns snapshot.
+
+    Parameters
+    ----------
+    windows : list of str or list of (str, int) tuples
+        Either raw window tokens (e.g., ["1m", "3m"]) or pre-parsed
+        (label, month_count) tuples from parse_windows().
+
+    Returns
+    -------
+    dict
+        {
+          "factors": {ticker: {...}},
+          "industry_groups": {group_label: {...}},
+          "rankings": {window: [...]},
+          "by_category": {category: {window: {...}}},
+          "windows": [...],
+          "data_quality": {...},
+          "performance": {...},
+          "analysis_metadata": {...},
+        }
+    """
+    t0 = time.time()
+
+    invalid_windows: List[str] = []
+    # Accept pre-parsed windows (list of tuples) or raw strings
+    if windows and isinstance(windows[0], tuple):
+        parsed_windows = windows
+    else:
+        parsed_windows = parse_windows(
+            windows,
+            end_date=returns_panel.attrs.get("end_date"),
+            invalid_windows=invalid_windows,
+        )
+    window_labels = [w for w, _ in parsed_windows]
+
+    category_map = returns_panel.attrs.get("categories", {}) or {}
+    labels_map = returns_panel.attrs.get("labels", {}) if hasattr(returns_panel, "attrs") else {}
+    categories_filter = {str(c).lower() for c in categories} if categories else None
+
+    chosen_tickers: List[str] = []
+    for ticker in returns_panel.columns:
+        cat = str(category_map.get(ticker, "unknown")).lower()
+        if categories_filter and cat not in categories_filter:
+            continue
+        chosen_tickers.append(ticker)
+
+    factors: Dict[str, Any] = {}
+    rankings: Dict[str, List[Dict[str, Any]]] = {w: [] for w in window_labels}
+    by_category_raw: Dict[str, Dict[str, List[Tuple[str, str, float]]]] = {}
+
+    def _window_metrics(series: pd.Series, month_count: int) -> Optional[Dict[str, Any]]:
+        tail = series.dropna().tail(month_count)
+        if tail.empty:
+            return None
+        obs = int(tail.shape[0])
+        total_return = float(np.prod(1.0 + tail.values) - 1.0)
+        out: Dict[str, Any] = {
+            "total_return": round(total_return, 8),
+            "observations": obs,
+        }
+        if obs >= 3:
+            try:
+                annualized = (1.0 + total_return) ** (12.0 / obs) - 1.0
+            except Exception:
+                annualized = None
+            vol = float(tail.std(ddof=1) * np.sqrt(12.0)) if obs > 1 else None
+            if annualized is not None and np.isfinite(annualized):
+                out["annualized_return"] = round(float(annualized), 8)
+            if vol is not None and np.isfinite(vol):
+                out["volatility"] = round(float(vol), 8)
+        return out
+
+    for ticker in chosen_tickers:
+        series = returns_panel[ticker].dropna()
+        if series.empty:
+            continue
+        category = str(category_map.get(ticker, "unknown")).lower()
+        label = labels_map.get(ticker, ticker) if isinstance(labels_map, dict) else ticker
+        factor_entry: Dict[str, Any] = {
+            "ticker": ticker,
+            "label": label,
+            "category": category,
+            "windows": {},
+        }
+
+        for window_label, month_count in parsed_windows:
+            metrics = _window_metrics(series, month_count)
+            if metrics is None:
+                continue
+            factor_entry["windows"][window_label] = metrics
+            total_return = float(metrics.get("total_return", 0.0))
+            rankings.setdefault(window_label, []).append({
+                "ticker": ticker,
+                "label": label,
+                "category": category,
+                "total_return": round(total_return, 8),
+                "observations": metrics.get("observations"),
+            })
+            by_category_raw.setdefault(category, {}).setdefault(window_label, []).append(
+                (ticker, label, total_return)
+            )
+
+        if factor_entry["windows"]:
+            factors[ticker] = factor_entry
+
+    for window_label, rows in rankings.items():
+        rankings[window_label] = sorted(
+            rows,
+            key=lambda item: float(item.get("total_return", 0.0)),
+            reverse=True,
+        )
+
+    by_category: Dict[str, Dict[str, Any]] = {}
+    for category, per_window in by_category_raw.items():
+        by_category[category] = {}
+        for window_label, rows in per_window.items():
+            if not rows:
+                continue
+            ordered = sorted(rows, key=lambda r: r[2], reverse=True)
+            avg_return = float(np.mean([r[2] for r in rows]))
+            best = ordered[0]
+            worst = ordered[-1]
+            by_category[category][window_label] = {
+                "avg_return": round(avg_return, 8),
+                "count": len(rows),
+                "best": {
+                    "ticker": best[0],
+                    "label": best[1],
+                    "total_return": round(float(best[2]), 8),
+                },
+                "worst": {
+                    "ticker": worst[0],
+                    "label": worst[1],
+                    "total_return": round(float(worst[2]), 8),
+                },
+            }
+
+    industry_groups: Dict[str, Any] = {}
+    industry_info: Dict[str, Any] = {}
+    if (
+        (industry_granularity or "").lower() == "group"
+        and (categories_filter is None or "industry" in categories_filter)
+    ):
+        group_series, industry_info = _build_industry_series_by_granularity(
+            returns_panel,
+            granularity="group",
+        )
+        group_sizes = industry_info.get("group_sizes", {}) if isinstance(industry_info, dict) else {}
+        for group_label, series in group_series.items():
+            group_entry: Dict[str, Any] = {
+                "members": group_sizes.get(group_label),
+                "windows": {},
+            }
+            for window_label, month_count in parsed_windows:
+                metrics = _window_metrics(series, month_count)
+                if metrics is not None:
+                    group_entry["windows"][window_label] = metrics
+            if group_entry["windows"]:
+                industry_groups[group_label] = group_entry
+
+    computed_categories = sorted({
+        str(v).lower()
+        for k, v in category_map.items()
+        if k in factors
+    })
+
+    data_quality: Dict[str, Any] = {
+        "windows_requested": windows or (
+            FACTOR_INTELLIGENCE_DEFAULTS.get("returns", {}).get("default_windows")
+            or ["1m", "3m", "6m", "1y"]
+        ),
+        "windows_computed": window_labels,
+        "invalid_windows": invalid_windows,
+        "factors_analyzed": len(factors),
+        "factors_requested": len(chosen_tickers),
+        "categories_included": computed_categories,
+    }
+    if isinstance(industry_info, dict) and industry_info:
+        data_quality["unlabeled_industries"] = industry_info.get("unlabeled_industries", 0)
+        if industry_info.get("unlabeled_industry_labels") is not None:
+            data_quality["unlabeled_industry_labels"] = industry_info.get("unlabeled_industry_labels")
+
+    return {
+        "factors": factors,
+        "industry_groups": industry_groups,
+        "rankings": rankings,
+        "by_category": by_category,
+        "windows": window_labels,
+        "data_quality": data_quality,
+        "performance": {
+            "factor_returns_ms": int((time.time() - t0) * 1000),
+        },
+        "analysis_metadata": {
+            "start_date": returns_panel.attrs.get("start_date"),
+            "end_date": returns_panel.attrs.get("end_date"),
+            "universe_hash": returns_panel.attrs.get("universe_hash"),
+            "industry_granularity": industry_granularity,
+        },
+    }
 
 
 def compute_macro_composite_matrix(

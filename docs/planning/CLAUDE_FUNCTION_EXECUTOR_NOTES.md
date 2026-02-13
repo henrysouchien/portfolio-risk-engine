@@ -1,3 +1,9 @@
+# Claude Function Executor Notes
+
+> **Direction:** The function executor will continue to be used, but should be modelled after the MCP tool pattern. The `portfolio-mcp` server (`mcp_server.py` + `mcp_tools/`) is the guideline for how tools should be structured — clean input/output contracts, structured responses with `status` fields, and service-layer delegation rather than direct CLI calls.
+
+---
+
 - Harden auth and user context
   - Add a small helper get_user_id_or_error() and use it across all executors for consistent “Authentication required” responses.
   - Guard against missing/invalid user fields; avoid logging full user objects.

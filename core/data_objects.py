@@ -9,12 +9,17 @@ These objects handle input validation, format standardization, and caching.
 Classes:
 - StockData: Individual stock analysis configuration with factor model support
 - PortfolioData: Portfolio analysis configuration with multi-format input handling
+- PositionsData: Strict container for positions with conversion to PortfolioData
 
 Usage: Foundation objects for portfolio and stock analysis operations.
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, List, Optional, Any, Union, Tuple
+from pathlib import Path
+import logging
+import math
+import numbers
 import pandas as pd
 import yaml
 import hashlib
@@ -23,6 +28,45 @@ from datetime import datetime
 import os
 import tempfile
 import time
+
+
+logger = logging.getLogger(__name__)
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _load_cash_proxy_map() -> Tuple[Dict[str, str], Dict[str, str]]:
+    """Load cash proxy mappings with 3-tier fallback.
+
+    Returns:
+        (proxy_by_currency, alias_to_currency) where:
+        - proxy_by_currency: {currency: proxy_ticker} e.g. {"USD": "SGOV"}
+        - alias_to_currency: {broker_ticker: currency} e.g. {"CUR:USD": "USD"}
+    """
+    try:
+        from database import get_db_session
+        from inputs.database_client import DatabaseClient
+
+        with get_db_session() as conn:
+            cash_map = DatabaseClient(conn).get_cash_mappings()
+            proxy = cash_map.get("proxy_by_currency", {})
+            if proxy:
+                return (proxy, cash_map.get("alias_to_currency", {}))
+            logger.warning("Cash proxy map: DB returned empty mappings, trying YAML")
+    except Exception as e:
+        logger.warning("Cash proxy map: DB unavailable (%s), trying YAML", e)
+
+    try:
+        yaml_path = _PROJECT_ROOT / "cash_map.yaml"
+        with open(yaml_path, "r") as f:
+            cash_map = yaml.safe_load(f) or {}
+            return (
+                cash_map.get("proxy_by_currency", {}),
+                cash_map.get("alias_to_currency", {}),
+            )
+    except Exception as e:
+        logger.warning("Cash proxy map: YAML unavailable (%s), using hardcoded", e)
+
+    return ({"USD": "SGOV"}, {"CUR:USD": "USD"})
 
 
 @dataclass
@@ -235,6 +279,347 @@ class StockData:
 
 
 @dataclass
+class PositionsData:
+    """
+    Lightweight container for position data.
+
+    This is the "input" side - holds raw positions and provides
+    conversion to PortfolioData for chaining to analysis.
+    Validation is strict and fail-fast to surface data issues early.
+
+    Data Contract (required fields per position dict):
+    - ticker (str, non-empty)
+    - quantity (number, finite)
+    - value (number, finite)
+    - type (str, non-empty)
+    - position_source (str, non-empty; may be comma-delimited after consolidation)
+    - currency (str, non-empty)
+
+    Optional fields are passed through for display/transport:
+    - name, price, cost_basis, account_id, account_name, brokerage_name, fmp_ticker
+    """
+
+    # Core data (internal field names from PositionService)
+    positions: List[Dict[str, Any]]
+
+    # Metadata
+    user_email: str
+    sources: List[str]
+    consolidated: bool = True
+    as_of: datetime = field(default_factory=datetime.now)
+
+    # Cache metadata (for when cache refactor lands)
+    from_cache: bool = False
+    cache_age_hours: Optional[float] = None
+
+    # Caching
+    _cache_key: Optional[str] = None
+
+    def __post_init__(self):
+        """Validate position list and generate cache key."""
+        # Fail fast on missing/invalid inputs to avoid masking data issues.
+        if self.positions is None:
+            raise ValueError("positions must be provided")
+        if not isinstance(self.positions, list):
+            raise ValueError("positions must be a list of position dicts")
+        if self.sources is None:
+            raise ValueError("sources must be provided (empty list if none)")
+        if not isinstance(self.sources, list):
+            raise ValueError("sources must be a list")
+        if self.positions and not self.sources:
+            raise ValueError("sources cannot be empty when positions are present")
+        for src in self.sources:
+            if not isinstance(src, str):
+                raise ValueError("sources must contain only strings")
+            if not src.strip():
+                raise ValueError("sources cannot contain empty values")
+
+        required_keys = ["ticker", "quantity", "value", "type", "position_source", "currency"]
+        for idx, position in enumerate(self.positions):
+            if not isinstance(position, dict):
+                raise ValueError(f"positions[{idx}] must be a dict")
+            for key in required_keys:
+                if key not in position:
+                    raise ValueError(f"positions[{idx}] missing required field: {key}")
+                if position[key] is None:
+                    if key == "currency":
+                        position_type = position.get("type")
+                        ticker = position.get("ticker", "")
+                        if position_type == "cash" or str(ticker).startswith("CUR:"):
+                            continue
+                    raise ValueError(f"positions[{idx}].{key} cannot be None")
+                if isinstance(position[key], str) and position[key].strip() == "":
+                    raise ValueError(f"positions[{idx}].{key} cannot be empty")
+
+            ticker = position["ticker"]
+            if not isinstance(ticker, str):
+                raise ValueError(f"positions[{idx}].ticker must be a string")
+
+            for numeric_key in ("quantity", "value"):
+                raw_value = position[numeric_key]
+                if isinstance(raw_value, bool) or not isinstance(raw_value, numbers.Real):
+                    raise ValueError(f"positions[{idx}].{numeric_key} must be numeric")
+                if pd.isna(raw_value) or not math.isfinite(float(raw_value)):
+                    raise ValueError(f"positions[{idx}].{numeric_key} must be finite")
+
+            for text_key in ("type", "position_source", "currency"):
+                if text_key == "currency" and position[text_key] is None:
+                    position_type = position.get("type")
+                    ticker = position.get("ticker", "")
+                    if position_type == "cash" or str(ticker).startswith("CUR:"):
+                        continue
+                if not isinstance(position[text_key], str):
+                    raise ValueError(f"positions[{idx}].{text_key} must be a string")
+
+        self._cache_key = self._generate_cache_key()
+
+    @classmethod
+    def from_dataframe(
+        cls,
+        df: Optional[pd.DataFrame],
+        user_email: str,
+        sources: Optional[List[str]] = None,
+        *,
+        consolidated: bool = True,
+        as_of: Optional[datetime] = None,
+        from_cache: bool = False,
+        cache_age_hours: Optional[float] = None,
+    ) -> "PositionsData":
+        """Create PositionsData from a DataFrame (strict, fail-fast)."""
+        if df is None:
+            raise ValueError("df must be provided")
+        if df.empty:
+            raise ValueError("df is empty")
+
+        df_copy = df.copy()
+        df_copy = df_copy.where(pd.notnull(df_copy), None)
+        positions = df_copy.to_dict(orient="records")
+
+        if sources is None:
+            if "position_source" not in df_copy.columns:
+                raise ValueError("position_source column required to derive sources")
+            raw_sources = df_copy["position_source"].dropna().unique().tolist()
+            # Split comma-delimited sources (e.g., "plaid,snaptrade" after consolidation)
+            inferred_sources: set = set()
+            for raw_src in raw_sources:
+                if not isinstance(raw_src, str) or not raw_src.strip():
+                    raise ValueError("position_source values must be non-empty strings")
+                for src in raw_src.split(","):
+                    src = src.strip()
+                    if src:
+                        inferred_sources.add(src)
+            if not inferred_sources:
+                raise ValueError("position_source column contains no usable sources")
+            sources = sorted(inferred_sources)
+
+        return cls(
+            positions=positions,
+            user_email=user_email,
+            sources=sources,
+            consolidated=consolidated,
+            as_of=as_of or datetime.now(),
+            from_cache=from_cache,
+            cache_age_hours=cache_age_hours,
+        )
+
+    def to_portfolio_data(
+        self,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        portfolio_name: str = "CURRENT_PORTFOLIO",
+    ) -> "PortfolioData":
+        """Convert positions to PortfolioData for chaining."""
+        from settings import PORTFOLIO_DEFAULTS
+        from utils.ticker_resolver import normalize_currency
+
+        if not self.positions:
+            return PortfolioData.from_holdings(
+                holdings={},
+                start_date=start_date or PORTFOLIO_DEFAULTS["start_date"],
+                end_date=end_date or PORTFOLIO_DEFAULTS["end_date"],
+                portfolio_name=portfolio_name,
+            )
+
+        ticker_currencies: Dict[str, set] = {}
+        for position in self.positions:
+            ticker = position["ticker"]
+            currency = position["currency"]
+            if ticker not in ticker_currencies:
+                ticker_currencies[ticker] = set()
+            if currency:
+                ticker_currencies[ticker].add(currency)
+
+        for ticker, currencies in ticker_currencies.items():
+            if len(currencies) > 1:
+                raise ValueError(
+                    f"Mixed currencies for {ticker}: {sorted(currencies)}"
+                )
+
+        proxy_by_currency, alias_to_currency = _load_cash_proxy_map()
+        fmp_ticker_map: Dict[str, str] = {}
+        holdings_dict: Dict[str, Dict[str, Any]] = {}
+        for position in self.positions:
+            ticker = position["ticker"]
+            quantity = float(position["quantity"])
+            value = float(position["value"])
+            currency = position["currency"]
+            position_type = position["type"]
+            fmp_ticker = position.get("fmp_ticker")
+
+            # Extract cost_basis, handling NaN/None
+            raw_cost_basis = position.get("cost_basis")
+            cost_basis = None
+            if raw_cost_basis is not None:
+                try:
+                    cb_float = float(raw_cost_basis)
+                    if not (cb_float != cb_float):  # Check for NaN
+                        cost_basis = cb_float
+                except (TypeError, ValueError):
+                    pass
+
+            is_cash = position_type == "cash" or ticker.startswith("CUR:")
+
+            if is_cash:
+                cash_ccy = alias_to_currency.get(ticker)
+                if not cash_ccy:
+                    cash_ccy = normalize_currency(currency) if currency else None
+                if not cash_ccy and ":" in ticker:
+                    cash_ccy = ticker.split(":", 1)[1].upper()
+                cash_ccy = cash_ccy or "USD"
+
+                proxy_ticker = proxy_by_currency.get(cash_ccy)
+                if proxy_ticker:
+                    existing = holdings_dict.get(proxy_ticker)
+                    if existing and "shares" in existing:
+                        pass
+                    else:
+                        ticker = proxy_ticker
+
+                if ticker in holdings_dict:
+                    holdings_dict[ticker]["dollars"] += float(value)
+                    existing_currency = holdings_dict[ticker].get("currency")
+                    if existing_currency != currency:
+                        raise ValueError(
+                            f"Mixed currencies for {ticker}: {existing_currency} vs {currency}"
+                        )
+                else:
+                    holdings_dict[ticker] = {
+                        "dollars": float(value),
+                        "currency": currency,
+                        "type": "cash",
+                    }
+            else:
+                if fmp_ticker:
+                    existing_fmp = fmp_ticker_map.get(ticker)
+                    if existing_fmp and existing_fmp != fmp_ticker:
+                        raise ValueError(
+                            f"Conflicting fmp_ticker for {ticker}: {existing_fmp} vs {fmp_ticker}"
+                        )
+                    fmp_ticker_map[ticker] = fmp_ticker
+
+                if ticker in holdings_dict:
+                    holdings_dict[ticker]["shares"] += float(quantity)
+                    # Sum cost_basis across positions
+                    if cost_basis is not None:
+                        existing_cb = holdings_dict[ticker].get("cost_basis")
+                        if existing_cb is not None:
+                            holdings_dict[ticker]["cost_basis"] = existing_cb + cost_basis
+                        else:
+                            holdings_dict[ticker]["cost_basis"] = cost_basis
+                    if fmp_ticker_map.get(ticker) and "fmp_ticker" not in holdings_dict[ticker]:
+                        holdings_dict[ticker]["fmp_ticker"] = fmp_ticker_map[ticker]
+                    existing_currency = holdings_dict[ticker].get("currency")
+                    if existing_currency != currency:
+                        raise ValueError(
+                            f"Mixed currencies for {ticker}: {existing_currency} vs {currency}"
+                        )
+                else:
+                    entry = {
+                        "shares": float(quantity),
+                        "currency": currency,
+                        "type": position_type,
+                    }
+                    if cost_basis is not None:
+                        entry["cost_basis"] = cost_basis
+                    if fmp_ticker_map.get(ticker):
+                        entry["fmp_ticker"] = fmp_ticker_map[ticker]
+                    holdings_dict[ticker] = entry
+
+        proxy_tickers = set(proxy_by_currency.values())
+        unmapped_cash = [
+            t for t, entry in holdings_dict.items()
+            if entry.get("type") == "cash" and t not in proxy_tickers
+        ]
+        for t in unmapped_cash:
+            logger.warning(
+                "Unmapped cash ticker %s removed from portfolio (no proxy configured)",
+                t,
+            )
+            del holdings_dict[t]
+
+        if not holdings_dict:
+            raise ValueError(
+                "No positions remaining after cash proxy mapping. "
+                "Portfolio contains only unmapped cash holdings."
+            )
+
+        currency_map: Dict[str, str] = {}
+        for ticker, entry in holdings_dict.items():
+            raw_ccy = entry.get("currency", "USD")
+            normalized = normalize_currency(raw_ccy) or "USD"
+            if normalized != "USD":
+                currency_map[ticker] = normalized
+
+        portfolio_data = PortfolioData.from_holdings(
+            holdings=holdings_dict,
+            start_date=start_date or PORTFOLIO_DEFAULTS["start_date"],
+            end_date=end_date or PORTFOLIO_DEFAULTS["end_date"],
+            portfolio_name=portfolio_name,
+            fmp_ticker_map=fmp_ticker_map or None,
+            currency_map=currency_map or None,
+        )
+
+        # NOTE: This PortfolioData is for direct-to-risk analysis (CLI --to-risk).
+        portfolio_data.user_email = self.user_email
+
+        return portfolio_data
+
+    def get_cache_key(self) -> str:
+        """Get the cache key for this positions dataset."""
+        if not self._cache_key:
+            self._cache_key = self._generate_cache_key()
+        return self._cache_key
+
+    def _generate_cache_key(self) -> str:
+        """Generate cache key for this positions dataset."""
+        key_data = {
+            "positions": self.positions,
+            "user_email": self.user_email,
+            "sources": self.sources,
+            "consolidated": self.consolidated,
+            "as_of": self.as_of.isoformat() if isinstance(self.as_of, datetime) else str(self.as_of),
+        }
+        json_str = json.dumps(key_data, sort_keys=True, default=str)
+        return hashlib.md5(json_str.encode()).hexdigest()
+
+    def get_tickers(self) -> List[str]:
+        """Get list of unique tickers."""
+        return sorted({p["ticker"] for p in self.positions})
+
+    def get_total_value(self) -> float:
+        """Get total value across positions."""
+        total = 0.0
+        for position in self.positions:
+            raw_value = position["value"]
+            if isinstance(raw_value, bool) or not isinstance(raw_value, numbers.Real):
+                raise ValueError("positions contain non-numeric value")
+            if pd.isna(raw_value) or not math.isfinite(float(raw_value)):
+                raise ValueError("positions contain invalid value")
+            total += float(raw_value)
+        return total
+
+
+@dataclass
 class PortfolioData:
     """
     Portfolio configuration with multi-format input support and validation.
@@ -272,6 +657,8 @@ class PortfolioData:
     end_date: str
     expected_returns: Dict[str, float]
     stock_factor_proxies: Dict[str, str]
+    fmp_ticker_map: Optional[Dict[str, str]] = None
+    currency_map: Optional[Dict[str, str]] = None
     
     # Portfolio analysis results (populated after standardization)
     weights: Optional[Dict[str, float]] = None
@@ -446,7 +833,9 @@ class PortfolioData:
             "start_date": self.start_date,
             "end_date": self.end_date,
             "expected_returns": self.expected_returns,
-            "stock_factor_proxies": self.stock_factor_proxies
+            "stock_factor_proxies": self.stock_factor_proxies,
+            "fmp_ticker_map": self.fmp_ticker_map,
+            "currency_map": self.currency_map,
         }
         
         # Convert to JSON string and hash
@@ -464,7 +853,13 @@ class PortfolioData:
         Returns:
             PortfolioData: Complete portfolio configuration loaded from YAML
         """
-        with open(yaml_path, 'r') as f:
+        path = Path(yaml_path)
+        if not path.is_absolute() and not path.exists():
+            candidate = _PROJECT_ROOT / path
+            if candidate.exists():
+                path = candidate
+
+        with open(path, 'r') as f:
             config = yaml.safe_load(f)
         
         return cls(
@@ -473,7 +868,9 @@ class PortfolioData:
             start_date=config['start_date'],
             end_date=config['end_date'],
             expected_returns=config.get('expected_returns', {}),
-            stock_factor_proxies=config.get('stock_factor_proxies', {})
+            stock_factor_proxies=config.get('stock_factor_proxies', {}),
+            fmp_ticker_map=config.get("fmp_ticker_map"),
+            currency_map=config.get("currency_map"),
         )
     
     @classmethod
@@ -482,7 +879,9 @@ class PortfolioData:
                      portfolio_name: str,
                      user_id: Optional[int] = None,
                      expected_returns: Optional[Dict[str, float]] = None,
-                     stock_factor_proxies: Optional[Dict[str, str]] = None) -> 'PortfolioData':
+                     stock_factor_proxies: Optional[Dict[str, str]] = None,
+                     fmp_ticker_map: Optional[Dict[str, str]] = None,
+                     currency_map: Optional[Dict[str, str]] = None) -> 'PortfolioData':
         """
         Create PortfolioData from holdings dictionary with flexible input formats.
         
@@ -506,7 +905,9 @@ class PortfolioData:
             expected_returns=expected_returns or {},
             stock_factor_proxies=stock_factor_proxies or {},
             portfolio_name=portfolio_name,
-            user_id=user_id
+            user_id=user_id,
+            fmp_ticker_map=fmp_ticker_map,
+            currency_map=currency_map,
         )
     
     def to_yaml(self, output_path: str) -> None:
@@ -523,6 +924,10 @@ class PortfolioData:
             "expected_returns": self.expected_returns,
             "stock_factor_proxies": self.stock_factor_proxies
         }
+        if self.fmp_ticker_map:
+            config["fmp_ticker_map"] = self.fmp_ticker_map
+        if self.currency_map:
+            config["currency_map"] = self.currency_map
         
         with open(output_path, 'w') as f:
             yaml.dump(config, f, default_flow_style=False, sort_keys=False)
