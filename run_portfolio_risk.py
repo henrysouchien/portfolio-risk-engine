@@ -909,19 +909,25 @@ def display_portfolio_performance_metrics(performance_metrics: Dict[str, Any]) -
     # Benchmark analysis
     print(f"\n🔍 BENCHMARK ANALYSIS ({benchmark['benchmark_ticker']})")
     print("─" * 40)
-    print(f"🎯 Alpha (Annual):      {benchmark['alpha_annual']:>8.2f}%")
-    print(f"📊 Beta:                {benchmark['beta']:>8.3f}")
-    print(f"📈 R-Squared:           {benchmark['r_squared']:>8.3f}")
+    alpha = benchmark.get("alpha_annual")
+    beta = benchmark.get("beta")
+    r_squared = benchmark.get("r_squared")
+    alpha_text = f"{alpha:>8.2f}%" if alpha is not None else "     N/A"
+    beta_text = f"{beta:>8.3f}" if beta is not None else "     N/A"
+    r_squared_text = f"{r_squared:>8.3f}" if r_squared is not None else "     N/A"
+    print(f"🎯 Alpha (Annual):      {alpha_text}")
+    print(f"📊 Beta:                {beta_text}")
+    print(f"📈 R-Squared:           {r_squared_text}")
     print(f"📊 Excess Return:       {benchmark['excess_return']:>8.2f}%")
     
     # Portfolio vs Benchmark comparison
     print(f"\n📊 PORTFOLIO vs {benchmark['benchmark_ticker']} COMPARISON")
-    print("─" * 40)
-    print(f"{'Metric':<20} {'Portfolio':<12} {'Benchmark':<12}")
-    print("─" * 40)
-    print(f"{'Return':<20} {comparison['portfolio_return']:>8.2f}%    {comparison['benchmark_return']:>8.2f}%")
-    print(f"{'Volatility':<20} {comparison['portfolio_volatility']:>8.2f}%    {comparison['benchmark_volatility']:>8.2f}%")
-    print(f"{'Sharpe Ratio':<20} {comparison['portfolio_sharpe']:>8.3f}     {comparison['benchmark_sharpe']:>8.3f}")
+    print(f"{'Metric':<21}{'Portfolio':>10}  {'Benchmark':>10}")
+    print("─" * 43)
+    print(f"{'Total Return':<21}{comparison.get('portfolio_total_return', comparison['portfolio_return']):>9.2f}%  {comparison.get('benchmark_total_return', comparison['benchmark_return']):>9.2f}%")
+    print(f"{'Ann. Return':<21}{comparison['portfolio_return']:>9.2f}%  {comparison['benchmark_return']:>9.2f}%")
+    print(f"{'Volatility':<21}{comparison['portfolio_volatility']:>9.2f}%  {comparison['benchmark_volatility']:>9.2f}%")
+    print(f"{'Sharpe Ratio':<21}{comparison['portfolio_sharpe']:>10.3f}  {comparison['benchmark_sharpe']:>10.3f}")
     
     # Monthly statistics
     print(f"\n📅 MONTHLY STATISTICS")
@@ -1004,20 +1010,24 @@ def display_portfolio_performance_metrics(performance_metrics: Dict[str, Any]) -
     print("─" * 40)
     
     # Alpha analysis
-    if benchmark['alpha_annual'] > 3:
-        print(f"   • Strong alpha generation (+{benchmark['alpha_annual']:.1f}% vs {benchmark['benchmark_ticker']})")
-    elif benchmark['alpha_annual'] > 0:
-        print(f"   • Modest alpha generation (+{benchmark['alpha_annual']:.1f}% vs {benchmark['benchmark_ticker']})")
+    if alpha is None:
+        print(f"   • Alpha unavailable (insufficient data for regression vs {benchmark['benchmark_ticker']})")
+    elif alpha > 3:
+        print(f"   • Strong alpha generation (+{alpha:.1f}% vs {benchmark['benchmark_ticker']})")
+    elif alpha > 0:
+        print(f"   • Modest alpha generation (+{alpha:.1f}% vs {benchmark['benchmark_ticker']})")
     else:
-        print(f"   • Underperforming benchmark ({benchmark['alpha_annual']:+.1f}% vs {benchmark['benchmark_ticker']})")
-    
+        print(f"   • Underperforming benchmark ({alpha:+.1f}% vs {benchmark['benchmark_ticker']})")
+
     # Beta analysis
-    if benchmark['beta'] > 1.2:
-        print(f"   • High market sensitivity (β = {benchmark['beta']:.2f})")
-    elif benchmark['beta'] > 0.8:
-        print(f"   • Moderate market sensitivity (β = {benchmark['beta']:.2f})")
+    if beta is None:
+        print("   • Beta unavailable (insufficient data for regression)")
+    elif beta > 1.2:
+        print(f"   • High market sensitivity (β = {beta:.2f})")
+    elif beta > 0.8:
+        print(f"   • Moderate market sensitivity (β = {beta:.2f})")
     else:
-        print(f"   • Low market sensitivity (β = {benchmark['beta']:.2f})")
+        print(f"   • Low market sensitivity (β = {beta:.2f})")
     
     # Sharpe analysis
     if ratios['sharpe_ratio'] > 1.0:

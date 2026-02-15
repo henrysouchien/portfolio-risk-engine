@@ -838,7 +838,7 @@ def run_realized_performance(
     benchmark_ticker: str = "SPY",
     source: str = "all",
     return_data: bool = False,
-) -> Union[None, Dict[str, Any]]:
+) -> Optional[Union["RealizedPerformanceResult", Dict[str, Any]]]:
     """
     Run realized performance analysis from brokerage transaction history.
 
@@ -859,8 +859,9 @@ def run_realized_performance(
 
     Returns
     -------
-    dict or None
-        If return_data=True, returns result dict. Otherwise prints report.
+    RealizedPerformanceResult or dict or None
+        If return_data=True, returns typed result on success or error dict on failure.
+        Otherwise prints report.
     """
     import os
     from services.position_service import PositionService
@@ -892,7 +893,7 @@ def run_realized_performance(
         source=source,
     )
 
-    if result.get("status") == "error":
+    if isinstance(result, dict) and result.get("status") == "error":
         print(f"Error: {result.get('message', 'Realized performance analysis failed')}")
         return result if return_data else None
 
@@ -901,7 +902,7 @@ def run_realized_performance(
 
     # Print formatted report
     print()
-    print(_format_realized_report(result, benchmark_ticker))
+    print(_format_realized_report(result.to_dict(), benchmark_ticker))
 
 
 if __name__ == "__main__":
@@ -990,4 +991,3 @@ if __name__ == "__main__":
 
 
 # In[ ]:
-

@@ -10,7 +10,7 @@ def compute_performance_metrics(
     benchmark_ticker,
     start_date,
     end_date,
-    min_capm_observations=24,
+    min_capm_observations=None,
 ):
     if len(portfolio_returns) != len(benchmark_returns):
         raise ValueError("portfolio_returns and benchmark_returns must have the same length")
@@ -22,6 +22,12 @@ def compute_performance_metrics(
         raise ValueError("portfolio_returns and benchmark_returns must have the same index")
     if portfolio_returns.isna().any() or benchmark_returns.isna().any():
         raise ValueError("portfolio_returns and benchmark_returns must not contain NaN values")
+    if min_capm_observations is None:
+        from settings import DATA_QUALITY_THRESHOLDS
+
+        min_capm_observations = DATA_QUALITY_THRESHOLDS.get(
+            "min_observations_for_capm_regression", 12
+        )
 
     risk_free_monthly = risk_free_rate / 12
 
@@ -74,6 +80,7 @@ def compute_performance_metrics(
     information_ratio = excess_return_vs_benchmark / tracking_error if tracking_error > 0 else 0
 
     # Alpha and Beta (CAPM)
+    capm_warning = None
     if len(portfolio_returns) >= min_capm_observations:  # Need sufficient data for regression
         try:
             # Simple linear regression: portfolio_excess = alpha + beta * benchmark_excess
@@ -83,14 +90,23 @@ def compute_performance_metrics(
             beta = model.params.iloc[1]  # Use .iloc for position-based access
             alpha_annual = alpha_monthly * 12
             r_squared = model.rsquared
-        except Exception:
-            alpha_annual = 0
-            beta = 1
-            r_squared = 0
+        except Exception as exc:
+            alpha_annual = None
+            beta = None
+            r_squared = None
+            capm_warning = (
+                "CAPM regression failed; alpha/beta/r_squared not computed "
+                f"({type(exc).__name__})"
+            )
     else:
-        alpha_annual = 0
-        beta = 1
-        r_squared = 0
+        alpha_annual = None
+        beta = None
+        r_squared = None
+        capm_warning = (
+            "Insufficient data for CAPM regression "
+            f"({len(portfolio_returns)} months < {min_capm_observations} required); "
+            "alpha/beta/r_squared not computed"
+        )
 
     # Maximum Drawdown
     cumulative_returns = (1 + portfolio_returns).cumprod()
@@ -140,12 +156,14 @@ def compute_performance_metrics(
         },
         "benchmark_analysis": {
             "benchmark_ticker": benchmark_ticker,
-            "alpha_annual": round(alpha_annual * 100, 2),
-            "beta": round(beta, 3),
-            "r_squared": round(r_squared, 3),
+            "alpha_annual": round(alpha_annual * 100, 2) if alpha_annual is not None else None,
+            "beta": round(beta, 3) if beta is not None else None,
+            "r_squared": round(r_squared, 3) if r_squared is not None else None,
             "excess_return": round(excess_return_vs_benchmark * 100, 2),
         },
         "benchmark_comparison": {
+            "portfolio_total_return": round(total_portfolio_return * 100, 2),
+            "benchmark_total_return": round(total_benchmark_return * 100, 2),
             "portfolio_return": round(annualized_portfolio_return * 100, 2),
             "benchmark_return": round(annualized_benchmark_return * 100, 2),
             "portfolio_volatility": round(portfolio_volatility * 100, 2),
@@ -164,5 +182,7 @@ def compute_performance_metrics(
             k.date().isoformat(): float(v) for k, v in portfolio_returns.round(4).to_dict().items()
         },
     }
+    if capm_warning:
+        performance_metrics["warnings"] = [capm_warning]
 
     return performance_metrics

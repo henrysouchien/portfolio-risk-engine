@@ -101,12 +101,21 @@ DATA_QUALITY_THRESHOLDS = {
     "min_observations_for_expected_returns": 12,  # Minimum months of data for reliable expected return calculation
     
     # CAPM regression calculation
-    "min_observations_for_capm_regression": 24,   # Minimum months for reliable alpha/beta calculation (2 years)
+    "min_observations_for_capm_regression": 12,   # Minimum months for alpha/beta calculation (1 year)
     
     # Data quality warning thresholds
     "min_r2_for_rate_factors": 0.3,              # Minimum R² for rate factor regressions before warning
     "max_reasonable_interest_rate_beta": 25,     # Maximum reasonable interest rate beta before warning
 }
+
+# Realized-performance acceptance thresholds
+BACKFILL_FILE_PATH = os.getenv(
+    "BACKFILL_FILE_PATH",
+    os.path.join(os.path.dirname(__file__), "user_data", "incomplete_trades_backfill.json"),
+)
+REALIZED_COVERAGE_TARGET = float(os.getenv("REALIZED_COVERAGE_TARGET", "95.0"))
+REALIZED_MAX_INCOMPLETE_TRADES = int(os.getenv("REALIZED_MAX_INCOMPLETE_TRADES", "0"))
+REALIZED_MAX_RECONCILIATION_GAP_PCT = float(os.getenv("REALIZED_MAX_RECONCILIATION_GAP_PCT", "2.0"))
 
 # Risk Analysis Thresholds
 # These constants define the hardcoded limits and thresholds used throughout the risk analysis system
@@ -626,7 +635,7 @@ TRADING_DEFAULTS = {
 # IBKR (Interactive Brokers) Configuration
 IBKR_ENABLED = os.getenv("IBKR_ENABLED", "false").lower() == "true"
 IBKR_GATEWAY_HOST = os.getenv("IBKR_GATEWAY_HOST", "127.0.0.1")
-IBKR_GATEWAY_PORT = int(os.getenv("IBKR_GATEWAY_PORT", "4001"))  # 4001=live, 4002=paper
+IBKR_GATEWAY_PORT = int(os.getenv("IBKR_GATEWAY_PORT", "7496"))  # 7496=TWS live, 7497=TWS paper, 4001=Gateway live, 4002=Gateway paper
 IBKR_CLIENT_ID = int(os.getenv("IBKR_CLIENT_ID", "1"))
 IBKR_TIMEOUT = int(os.getenv("IBKR_TIMEOUT", "10"))
 IBKR_READONLY = os.getenv("IBKR_READONLY", "false").lower() == "true"

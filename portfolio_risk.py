@@ -1322,9 +1322,21 @@ def calculate_portfolio_performance_metrics(
             - warnings: List of warnings about data quality issues (if any)
     """
     
+    # Use a window-aware minimum return-observation gate:
+    # a full 12-month calendar window has 11 monthly return observations.
+    from settings import DATA_QUALITY_THRESHOLDS
+    default_min_obs = DATA_QUALITY_THRESHOLDS["min_observations_for_expected_returns"]
+    min_capm_obs = DATA_QUALITY_THRESHOLDS["min_observations_for_capm_regression"]
+    try:
+        requested_month_points = len(pd.date_range(start=start_date, end=end_date, freq="ME"))
+    except Exception:
+        requested_month_points = 0
+    requested_return_observations = max(1, requested_month_points - 1)
+    min_obs = min(default_min_obs, requested_return_observations)
+
     # Pre-filter tickers with insufficient data and rebalance weights
     filtered_weights, excluded_tickers, warnings = _filter_tickers_by_data_availability(
-        weights, start_date, end_date, min_months=12, fmp_ticker_map=fmp_ticker_map
+        weights, start_date, end_date, min_months=min_obs, fmp_ticker_map=fmp_ticker_map
     )
     
     # If no tickers remain after filtering, return error
@@ -1342,14 +1354,11 @@ def calculate_portfolio_performance_metrics(
         end_date,
         fmp_ticker_map=fmp_ticker_map,
         currency_map=currency_map,
+        min_observations=min_obs,
     )
     portfolio_returns = compute_portfolio_returns(df_ret, filtered_weights)
     
     # Final safety check (should not trigger after filtering, but just in case)
-    from settings import DATA_QUALITY_THRESHOLDS
-    min_obs = DATA_QUALITY_THRESHOLDS["min_observations_for_expected_returns"]
-    min_capm_obs = DATA_QUALITY_THRESHOLDS["min_observations_for_capm_regression"]
-    
     if portfolio_returns.empty or len(portfolio_returns) < min_obs:
         return {
             "error": "Insufficient data for performance calculation after filtering",
@@ -1405,12 +1414,15 @@ def calculate_portfolio_performance_metrics(
         end_date=end_date,
         min_capm_observations=min_capm_obs,
     )
+    combined_warnings = list(performance_metrics.get("warnings", []))
     
     # Add data quality information if any tickers were excluded
     if excluded_tickers:
         performance_metrics["excluded_tickers"] = excluded_tickers
-        performance_metrics["warnings"] = warnings
+        combined_warnings.extend(warnings)
         performance_metrics["analysis_notes"] = f"Analysis completed with {len(excluded_tickers)} ticker(s) excluded due to insufficient data"
+    if combined_warnings:
+        performance_metrics["warnings"] = combined_warnings
     
     # Dividend metrics integration (current-yield method)
     try:
