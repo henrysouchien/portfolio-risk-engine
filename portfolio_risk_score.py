@@ -11,10 +11,11 @@ This module is independent and doesn't modify the existing codebase.
 
 import pandas as pd
 import numpy as np
-import yaml
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Dict, Any, Optional, List, Tuple, Union
 from datetime import datetime, UTC
 import os
+from core.data_objects import PortfolioData, RiskLimitsData
+from core.config_adapters import resolve_portfolio_config, resolve_risk_config
 
 # Import settings for risk analysis thresholds and scenarios
 from settings import RISK_ANALYSIS_THRESHOLDS, WORST_CASE_SCENARIOS, MAX_SINGLE_FACTOR_LOSS, SECURITY_TYPE_CRASH_MAPPING
@@ -23,7 +24,7 @@ from settings import RISK_ANALYSIS_THRESHOLDS, WORST_CASE_SCENARIOS, MAX_SINGLE_
 try:
     from portfolio_risk import build_portfolio_view
     from risk_helpers import calc_max_factor_betas
-    from run_portfolio_risk import standardize_portfolio_input, latest_price
+    from core.portfolio_config import standardize_portfolio_input, latest_price
     from core.result_objects import RiskScoreResult
     from services.security_type_service import SecurityTypeService
 except ImportError:
@@ -1583,10 +1584,26 @@ from utils.logging import log_portfolio_operation_decorator, log_performance, lo
 @log_workflow_state_decorator("risk_score_analysis")
 @log_resource_usage_decorator(monitor_memory=True, monitor_cpu=True)
 @log_performance(5.0)
-def run_risk_score_analysis(portfolio_yaml: str = "portfolio.yaml", risk_yaml: str = "risk_limits.yaml", *, return_data: bool = False):
+def run_risk_score_analysis(
+    portfolio: Union[str, PortfolioData] = "portfolio.yaml",
+    risk_limits: Union[str, RiskLimitsData, Dict[str, Any], None] = "risk_limits.yaml",
+    *,
+    return_data: bool = False,
+):
     """
     High-level orchestration entry point for generating a full disruption-risk
     assessment of a single portfolio.
+
+    Called by:
+    - CLI usage and service wrappers that need risk-score + limit suggestions.
+
+    Calls into:
+    - Portfolio/risk config loaders and `build_portfolio_view`.
+    - Risk scoring helpers (component score, violation analysis, suggestions).
+
+    Contract:
+    - In data mode returns JSON-safe dict for API/service consumers.
+    - In CLI mode prints formatted report and still returns data dict.
 
     The function performs the following steps:
 
@@ -1612,12 +1629,10 @@ def run_risk_score_analysis(portfolio_yaml: str = "portfolio.yaml", risk_yaml: s
 
     Parameters
     ----------
-    portfolio_yaml : str, optional
-        Path to the portfolio configuration file. Defaults to
-        ``"portfolio.yaml"``.
-    risk_yaml : str, optional
-        Path to the risk-limit configuration file. Defaults to
-        ``"risk_limits.yaml"``.
+    portfolio : Union[str, PortfolioData], optional
+        Portfolio input as file path or in-memory PortfolioData object.
+    risk_limits : Union[str, RiskLimitsData, Dict[str, Any], None], optional
+        Risk limits input as file path, typed object, dict, or None.
     return_data : bool, default ``False``
         If ``True`` the function suppresses the console report and
         instead returns a dictionary with all intermediate and final
@@ -1636,10 +1651,6 @@ def run_risk_score_analysis(portfolio_yaml: str = "portfolio.yaml", risk_yaml: s
 
     Raises
     ------
-    FileNotFoundError
-        If either YAML file cannot be found.
-    yaml.YAMLError
-        If a configuration file cannot be parsed.
     Exception
         Propagated from lower-level helpers if the analysis fails.
 
@@ -1667,13 +1678,11 @@ def run_risk_score_analysis(portfolio_yaml: str = "portfolio.yaml", risk_yaml: s
     try:
         # Load configuration
         # LOGGING: Add configuration load timing
-        with open(portfolio_yaml, "r") as f:
-            config = yaml.safe_load(f)
-        
-        with open(risk_yaml, "r") as f:
-            risk_config = yaml.safe_load(f)
-        
-        print(f"Analyzing portfolio from {portfolio_yaml}...")
+        config, portfolio_file = resolve_portfolio_config(portfolio)
+        risk_config = resolve_risk_config(risk_limits)
+
+        portfolio_source = portfolio_file or "(in-memory)"
+        print(f"Analyzing portfolio from {portfolio_source}...")
         
         # Standardize portfolio weights first
         raw_weights = config["portfolio_input"]
@@ -1712,11 +1721,16 @@ def run_risk_score_analysis(portfolio_yaml: str = "portfolio.yaml", risk_yaml: s
         # Calculate max betas
         from settings import PORTFOLIO_DEFAULTS
         lookback_years = PORTFOLIO_DEFAULTS.get('worst_case_lookback_years', 10)
+        configured_factor_loss = risk_config.get("factor_limits", {}).get(
+            "max_single_factor_loss",
+            risk_config.get("max_single_factor_loss", -0.08),
+        )
         max_betas, max_betas_by_proxy, historical_analysis = calc_max_factor_betas(
-            portfolio_yaml=portfolio_yaml,
-            risk_yaml=risk_yaml,
             lookback_years=lookback_years,
-            echo=False
+            echo=False,
+            stock_factor_proxies=config.get("stock_factor_proxies"),
+            fmp_ticker_map=fmp_ticker_map,
+            max_single_factor_loss=configured_factor_loss,
         )
         
         # Calculate leverage ratio
@@ -1733,8 +1747,7 @@ def run_risk_score_analysis(portfolio_yaml: str = "portfolio.yaml", risk_yaml: s
         # ═══════════════════════════════════════════════════════════════════════════
         
         # Use the user's configured factor loss limit (check both possible locations)
-        max_single_factor_loss = risk_config.get("factor_limits", {}).get("max_single_factor_loss", 
-                                                  risk_config.get("max_single_factor_loss", -0.08))
+        max_single_factor_loss = configured_factor_loss
         
         # Calculate disruption risk score
         risk_score = calculate_portfolio_risk_score(
@@ -1771,9 +1784,13 @@ def run_risk_score_analysis(portfolio_yaml: str = "portfolio.yaml", risk_yaml: s
             suggested_limits=suggestions,
             analysis_metadata={
                 "analysis_date": datetime.now(UTC).isoformat(),
-                "portfolio_file": portfolio_yaml,
-                "risk_limits_file": risk_yaml,
-                "portfolio_name": os.path.basename(portfolio_yaml).replace('.yaml', ''),
+                "portfolio_file": portfolio_file,
+                "risk_limits_file": risk_limits if isinstance(risk_limits, str) else None,
+                "portfolio_name": (
+                    os.path.basename(portfolio_file).replace(".yaml", "")
+                    if portfolio_file
+                    else config.get("name", "portfolio")
+                ),
                 "max_loss": max_loss,
                 "analysis_type": "risk_score"
             }

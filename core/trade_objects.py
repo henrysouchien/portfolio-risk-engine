@@ -1,4 +1,12 @@
-"""Structured trade execution result objects."""
+"""Structured trade execution payload contracts.
+
+Called by:
+- ``services.trade_execution_service.TradeExecutionService``
+- Broker adapter implementations for normalized return objects.
+
+Used by:
+- API routes/tools that serialize trade previews, executions, and order lists.
+"""
 
 from __future__ import annotations
 
@@ -61,7 +69,7 @@ class PreTradeValidation:
 
 @dataclass
 class TradePreviewResult:
-    """Preview response returned by preview_trade tool."""
+    """Preview envelope returned by pre-trade workflow boundaries."""
 
     status: str
     user_email: str
@@ -152,7 +160,7 @@ class TradePreviewResult:
 
 @dataclass
 class TradeExecutionResult:
-    """Execution response returned by execute_trade/cancel_order tools."""
+    """Execution/cancel envelope with normalized order state fields."""
 
     status: str
     user_email: str
@@ -240,7 +248,7 @@ class TradeExecutionResult:
 
 @dataclass
 class OrderListResult:
-    """Order listing response."""
+    """Order-history envelope used by list orders endpoints/tools."""
 
     status: str
     user_email: str
@@ -290,3 +298,149 @@ class OrderListResult:
                 f"(id={order.get('brokerage_order_id') or order.get('id')})"
             )
         return "\n".join(lines)
+
+
+@dataclass
+class BrokerAccount:
+    """Typed broker account representation returned by broker adapters."""
+
+    account_id: str
+    brokerage_name: str
+    provider: str
+    account_name: Optional[str] = None
+    cash_balance: Optional[float] = None
+    available_funds: Optional[float] = None
+    account_type: Optional[str] = None
+    authorization_id: Optional[str] = None
+    meta: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
+            "account_id": self.account_id,
+            "account_name": self.account_name,
+            "brokerage_name": self.brokerage_name,
+            "provider": self.provider,
+            "cash_balance": self.cash_balance,
+            "available_funds": self.available_funds,
+            "account_type": self.account_type,
+            "meta": self.meta,
+        }
+        if self.authorization_id is not None:
+            payload["authorization_id"] = self.authorization_id
+        return make_json_safe(payload)
+
+
+@dataclass
+class OrderPreview:
+    """Typed preview response returned by broker adapters."""
+
+    estimated_price: Optional[float] = None
+    estimated_total: Optional[float] = None
+    estimated_commission: Optional[float] = None
+    broker_trade_id: Optional[str] = None
+    combined_remaining_balance: Optional[Dict[str, Any]] = None
+    trade_impacts: List[Dict[str, Any]] = field(default_factory=list)
+    impact_response: Optional[Dict[str, Any]] = None
+    broker_preview_data: Optional[Dict[str, Any]] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return make_json_safe(
+            {
+                "estimated_price": self.estimated_price,
+                "estimated_total": self.estimated_total,
+                "estimated_commission": self.estimated_commission,
+                "broker_trade_id": self.broker_trade_id,
+                "combined_remaining_balance": self.combined_remaining_balance,
+                "trade_impacts": self.trade_impacts,
+                "impact_response": self.impact_response,
+                "broker_preview_data": self.broker_preview_data,
+            }
+        )
+
+
+@dataclass
+class OrderResult:
+    """Typed placement response returned by broker adapters."""
+
+    brokerage_order_id: Optional[str] = None
+    status: str = "PENDING"
+    filled_quantity: Optional[float] = None
+    total_quantity: Optional[float] = None
+    execution_price: Optional[float] = None
+    total_cost: Optional[float] = None
+    commission: Optional[float] = None
+    broker_data: Optional[Dict[str, Any]] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return make_json_safe(
+            {
+                "brokerage_order_id": self.brokerage_order_id,
+                "status": self.status,
+                "filled_quantity": self.filled_quantity,
+                "total_quantity": self.total_quantity,
+                "execution_price": self.execution_price,
+                "total_cost": self.total_cost,
+                "commission": self.commission,
+                "broker_data": self.broker_data,
+            }
+        )
+
+
+@dataclass
+class OrderStatus:
+    """Typed order status row returned by broker adapters."""
+
+    brokerage_order_id: Optional[str] = None
+    ticker: Optional[str] = None
+    side: Optional[str] = None
+    quantity: Optional[float] = None
+    order_type: Optional[str] = None
+    status: str = "PENDING"
+    filled_quantity: Optional[float] = None
+    total_quantity: Optional[float] = None
+    execution_price: Optional[float] = None
+    total_cost: Optional[float] = None
+    commission: Optional[float] = None
+    time_placed: Optional[str] = None
+    time_updated: Optional[str] = None
+    perm_id: Optional[str] = None
+    broker_data: Optional[Dict[str, Any]] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return make_json_safe(
+            {
+                "brokerage_order_id": self.brokerage_order_id,
+                "ticker": self.ticker,
+                "side": self.side,
+                "quantity": self.quantity,
+                "order_type": self.order_type,
+                "status": self.status,
+                "filled_quantity": self.filled_quantity,
+                "total_quantity": self.total_quantity,
+                "execution_price": self.execution_price,
+                "total_cost": self.total_cost,
+                "commission": self.commission,
+                "time_placed": self.time_placed,
+                "time_updated": self.time_updated,
+                "perm_id": self.perm_id,
+                "broker_data": self.broker_data,
+            }
+        )
+
+
+@dataclass
+class CancelResult:
+    """Typed cancellation response returned by broker adapters."""
+
+    brokerage_order_id: str
+    status: str = "CANCEL_PENDING"
+    broker_data: Optional[Dict[str, Any]] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return make_json_safe(
+            {
+                "brokerage_order_id": self.brokerage_order_id,
+                "status": self.status,
+                "broker_data": self.broker_data,
+            }
+        )

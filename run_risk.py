@@ -19,11 +19,13 @@ from risk_summary import (
     get_detailed_stock_factor_profile,
     get_stock_risk_profile
 )
-from run_portfolio_risk import (
+from core.portfolio_config import (
     latest_price,
     load_portfolio_config,
-    display_portfolio_config,
     standardize_portfolio_input,
+)
+from run_portfolio_risk import (
+    display_portfolio_config,
     display_portfolio_summary,
     evaluate_portfolio_beta_limits,
     evaluate_portfolio_risk_limits,
@@ -46,8 +48,9 @@ from gpt_helpers import (
 )
 from helpers_display import display_enhanced_stock_analysis
 from utils.serialization import make_json_safe
-from core.data_objects import PortfolioData
-from core.portfolio_analysis import analyze_portfolio, _config_from_portfolio_data
+from core.data_objects import PortfolioData, RiskLimitsData
+from core.config_adapters import config_from_portfolio_data
+from core.portfolio_analysis import analyze_portfolio
 
 # Import logging decorators
 from utils.logging import (
@@ -236,13 +239,24 @@ def interpret_portfolio_output(portfolio_output: Dict[str, Any], *,
 @log_performance(5.0)
 def run_portfolio(
     filepath: Union[str, PortfolioData],
-    risk_yaml: str = "risk_limits.yaml",
+    risk_yaml: Union[str, RiskLimitsData, Dict[str, Any], None] = "risk_limits.yaml",
     *,
     return_data: bool = False,
     asset_classes: Optional[Dict[str, str]] = None
 ) -> Union[None, RiskAnalysisResult]:
     """
     High-level "one-click" entry-point for a full portfolio risk run.
+
+    Called by:
+    - CLI usage (`run_risk.py`) and service wrappers that need full risk analysis.
+
+    Calls into:
+    - `core.portfolio_analysis.analyze_portfolio` for core computation.
+    - `SecurityTypeService` asset-class resolution when classes are not supplied.
+
+    Contract:
+    - CLI mode prints `RiskAnalysisResult.to_cli_report()`.
+    - Data mode returns `RiskAnalysisResult` for downstream serialization.
 
     It ties together **all** of the moving pieces you've built so far:
 
@@ -318,7 +332,7 @@ def run_portfolio(
     if asset_classes is None:
         try:
             if isinstance(filepath, str):
-                from run_portfolio_risk import load_portfolio_config, standardize_portfolio_input, latest_price
+                from core.portfolio_config import load_portfolio_config, standardize_portfolio_input, latest_price
                 config = load_portfolio_config(filepath)
                 weights = config.get("weights") or standardize_portfolio_input(config["portfolio_input"], latest_price)["weights"]
                 tickers = list(weights.keys())
@@ -329,7 +343,7 @@ def run_portfolio(
         except Exception:
             asset_classes = None
 
-    result = analyze_portfolio(filepath, risk_yaml=risk_yaml, asset_classes=asset_classes)
+    result = analyze_portfolio(filepath, risk_limits=risk_yaml, asset_classes=asset_classes)
     
     # ─── 5. Dual-Mode Logic ─────────────────────────────────
     if return_data:
@@ -340,11 +354,12 @@ def run_portfolio(
         # LOGGING: Add resource usage monitoring for analysis completion here
     else:
         # CLI MODE: Print portfolio config first, then formatted output from result object
-        from run_portfolio_risk import load_portfolio_config, display_portfolio_config
+        from core.portfolio_config import load_portfolio_config
+        from run_portfolio_risk import display_portfolio_config
         if isinstance(filepath, str):
             config = load_portfolio_config(filepath)
         else:
-            config = _config_from_portfolio_data(filepath)
+            config = config_from_portfolio_data(filepath)
         display_portfolio_config(config)
         print(result.to_cli_report())
         # LOGGING: Add portfolio analysis completion logging with execution time
@@ -511,12 +526,12 @@ def _handle_new_tickers_for_cli_with_validation(
 
 
 def run_what_if(
-    filepath: str, 
+    filepath: Union[str, PortfolioData],
     scenario_yaml: Optional[str] = None, 
     delta: Optional[str] = None,
     *,
     return_data: bool = False,
-    risk_limits_yaml: str = "risk_limits.yaml"
+    risk_limits_yaml: Union[str, RiskLimitsData, Dict[str, Any], None] = "risk_limits.yaml"
 ) -> Union[None, WhatIfResult]:
     """
     Execute a single *what-if* scenario on an existing portfolio.
@@ -571,16 +586,25 @@ def run_what_if(
         result = analyze_scenario(filepath, risk_limits_yaml, scenario_yaml, delta)
         return result
     else:
-        # CLI MODE: Handle new ticker proxy injection before analysis
-        portfolio_file_to_use, cleaned_delta = _handle_new_tickers_for_cli_with_validation(filepath, scenario_yaml, delta)
-        result = analyze_scenario(portfolio_file_to_use, risk_limits_yaml, scenario_yaml, cleaned_delta)
+        if isinstance(filepath, str):
+            # CLI MODE: Handle new ticker proxy injection before analysis
+            portfolio_file_to_use, cleaned_delta = _handle_new_tickers_for_cli_with_validation(filepath, scenario_yaml, delta)
+            result = analyze_scenario(portfolio_file_to_use, risk_limits_yaml, scenario_yaml, cleaned_delta)
+        else:
+            # In-memory mode skips file mutation logic used for CLI-only proxy injection.
+            result = analyze_scenario(filepath, risk_limits_yaml, scenario_yaml, delta)
         print(result.to_cli_report())
 
 # ============================================================================
 # MIN VARIANCE OPTIMIZATION
 # This handles minimum variance portfolio optimization
 # ============================================================================
-def run_min_variance(filepath: str, risk_yaml: str = "risk_limits.yaml", *, return_data: bool = False) -> Union[None, OptimizationResult]:
+def run_min_variance(
+    filepath: Union[str, PortfolioData],
+    risk_yaml: Union[str, RiskLimitsData, Dict[str, Any], None] = "risk_limits.yaml",
+    *,
+    return_data: bool = False,
+) -> Union[None, OptimizationResult]:
     """
     Run the minimum-variance optimiser under current risk limits.
 
@@ -640,7 +664,12 @@ def run_min_variance(filepath: str, risk_yaml: str = "risk_limits.yaml", *, retu
 # MAX RETURN OPTIMIZATION
 # This handles maximum return portfolio optimization
 # ============================================================================
-def run_max_return(filepath: str, risk_yaml: str = "risk_limits.yaml", *, return_data: bool = False) -> Union[None, OptimizationResult]:
+def run_max_return(
+    filepath: Union[str, PortfolioData],
+    risk_yaml: Union[str, RiskLimitsData, Dict[str, Any], None] = "risk_limits.yaml",
+    *,
+    return_data: bool = False,
+) -> Union[None, OptimizationResult]:
     """
     Solve for the highest-return portfolio that still passes all
     volatility, concentration, and beta limits.
@@ -750,6 +779,16 @@ def run_stock(
 def run_portfolio_performance(filepath: str, *, return_data: bool = False, benchmark_ticker: str = "SPY") -> Union[None, PerformanceResult, Dict[str, Any]]:
     """
     Calculate and display comprehensive portfolio performance metrics.
+
+    Called by:
+    - CLI workflows and MCP/service wrappers needing performance metrics.
+
+    Calls into:
+    - `core.performance_analysis.analyze_performance`.
+
+    Contract:
+    - Returns `PerformanceResult` in data mode.
+    - Prints formatted report in CLI mode.
     
     Simplified dual-mode wrapper around core analyze_performance() function.
     Uses PerformanceResult object's built-in formatting for consistent output.
@@ -794,7 +833,12 @@ def run_portfolio_performance(filepath: str, *, return_data: bool = False, bench
         print(performance_result.to_cli_report())
 
 
-def run_risk_score(portfolio_yaml: str = "portfolio.yaml", risk_yaml: str = "risk_limits.yaml", *, return_data: bool = False) -> Union[None, RiskScoreResult]:
+def run_risk_score(
+    portfolio_yaml: Union[str, PortfolioData] = "portfolio.yaml",
+    risk_yaml: Union[str, RiskLimitsData, Dict[str, Any], None] = "risk_limits.yaml",
+    *,
+    return_data: bool = False,
+) -> Union[None, RiskScoreResult]:
     """
     CLI wrapper for portfolio risk score analysis with dual-mode support.
     
@@ -837,6 +881,7 @@ def run_realized_performance(
     *,
     benchmark_ticker: str = "SPY",
     source: str = "all",
+    institution: Optional[str] = None,
     return_data: bool = False,
 ) -> Optional[Union["RealizedPerformanceResult", Dict[str, Any]]]:
     """
@@ -854,6 +899,8 @@ def run_realized_performance(
         Benchmark ticker for comparison (default: "SPY").
     source : str
         Transaction source filter: "all", "snaptrade", or "plaid".
+    institution : str, optional
+        Filter by institution/brokerage (realized performance only).
     return_data : bool
         If True, return raw result dict instead of printing.
 
@@ -875,11 +922,14 @@ def run_realized_performance(
         print("Error: No user email provided. Use --user-email or set TEST_USER_EMAIL / RISK_MODULE_USER_EMAIL.")
         return None
 
-    print(f"Running realized performance for {user} (source={source}, benchmark={benchmark_ticker})...")
+    print(
+        "Running realized performance for "
+        f"{user} (source={source}, benchmark={benchmark_ticker}, institution={institution or 'all'})..."
+    )
 
     # Fetch live brokerage positions
     position_service = PositionService(user)
-    position_result = position_service.get_all_positions(consolidate=True)
+    position_result = position_service.get_all_positions(consolidate=(institution is None))
 
     if not position_result.data.positions:
         print("Error: No brokerage positions found.")
@@ -891,6 +941,7 @@ def run_realized_performance(
         user_email=user,
         benchmark_ticker=benchmark_ticker,
         source=source,
+        institution=institution,
     )
 
     if isinstance(result, dict) and result.get("status") == "error":
@@ -929,6 +980,8 @@ if __name__ == "__main__":
                         help="User email (required for realized performance, or set TEST_USER_EMAIL)")
     parser.add_argument("--source", choices=["all", "snaptrade", "plaid"], default="all",
                         help="Transaction source filter (realized performance only)")
+    parser.add_argument("--institution", default=None,
+                        help="Filter by institution name (realized performance only)")
     parser.add_argument("--benchmark", type=str, default="SPY",
                         help="Benchmark ticker for performance comparison")
     args = parser.parse_args()
@@ -954,6 +1007,7 @@ if __name__ == "__main__":
             user_email=args.user_email,
             benchmark_ticker=args.benchmark,
             source=args.source,
+            institution=args.institution,
         )
 
     elif args.portfolio and getattr(args, 'risk_score', False):

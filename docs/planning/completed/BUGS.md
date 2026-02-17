@@ -4,6 +4,160 @@ Ten errors found across `analyze_stock`, `get_factor_analysis`, `get_risk_analys
 
 ---
 
+## Bug 18: Circular Import Warning During App/Service Bootstrap ✅ Completed (2026-02-17)
+
+**Symptom:** Startup and smoke-test executions logged:
+```
+Database unavailable for crash scenarios: cannot import name 'DatabaseClient' from partially initialized module 'inputs.database_client'
+```
+
+**Root cause:** Import chain re-entered `inputs/database_client.py` during module initialization:
+`inputs.database_client -> settings -> utils.security_type_mappings -> inputs.database_client`.
+
+**Resolution (implemented):**
+1. Removed module-scope dependency on `settings.PORTFOLIO_DEFAULTS` in `inputs/database_client.py`.
+2. Added lazy helper `_get_portfolio_defaults()` so defaults are loaded at method call time, not import time.
+3. Updated portfolio-create/save paths to use lazy-loaded defaults without changing runtime behavior.
+
+**Validation:**
+- `python3 - <<'PY'\nimport inputs.database_client\nprint('imported')\nPY` -> no circular-import warning
+- `python3 - <<'PY'\nfrom app import app\nprint(len(app.routes))\nPY` -> boots successfully, no circular-import warning
+- `python3 - <<'PY'\nfrom services.claude.function_executor import ClaudeFunctionExecutor\nprint('ok')\nPY` -> imports successfully, no circular-import warning
+- `python3 -m py_compile inputs/database_client.py` -> passed
+
+**Files changed:**
+- `inputs/database_client.py`
+
+---
+
+## Bug 13: Missing FX Pair for MXN — Cash Position Treated as USD ✅ Completed (2026-02-16)
+
+**Symptom:** Portfolio risk analysis warned:
+```
+Missing FX pair for MXN; treating as USD
+```
+which caused MXN cash positions to be valued as if 1 MXN = 1 USD.
+
+**Root cause:** `MXN` was missing from `currency_to_fx_pair` mapping, so `fmp/fx.py` fell back to `1.0` conversion. Also, FX fetch failures for mapped currencies used the same USD fallback.
+
+**Resolution (implemented):**
+1. Added MXN pair mapping in `exchange_mappings.yaml`:
+   - `MXN -> USDMXN` with `inverted: true`
+2. Added static fallback rate in `exchange_mappings.yaml`:
+   - `currency_to_usd_fallback.MXN = 0.055`
+3. Updated `fmp/fx.py` fallback behavior:
+   - When FX mapping is missing or live fetch fails, use configured static fallback rate if present before defaulting to USD `1.0`.
+   - Applied to month-end rate, month-end series, and spot FX paths.
+4. Added regression tests in `tests/fmp/test_fx.py`.
+
+**Validation:**
+- `pytest -q tests/fmp/test_fx.py` -> `4 passed`
+
+**Files changed:**
+- `exchange_mappings.yaml`
+- `fmp/fx.py`
+- `tests/fmp/test_fx.py`
+
+---
+
+## Bug 14: Tickers Excluded for Insufficient Price History (<12 Months) ✅ Completed (2026-02-16)
+
+**Symptom:** Portfolio risk analysis warned:
+```
+EXCLUDED 2 ticker(s) with INSUFFICIENT HISTORY (<12 months): [FIG(6mo), MRP(11mo)]
+```
+
+**Root cause:** The minimum-history threshold was interpreted as monthly return observations. A "12 month" requirement effectively needed 12 returns (13 month-end prices), which excluded near-threshold names like MRP at 11 returns.
+
+**Resolution (implemented):**
+1. Made `get_returns_dataframe()` default threshold configurable from `settings.DATA_QUALITY_THRESHOLDS`.
+2. Set `min_observations_for_expected_returns` default to **11** to represent ~12 months of price history (11 monthly returns).
+3. Clarified exclusion logs to report **observations** (`obs`) instead of ambiguous `mo`.
+4. Added regression tests for default-threshold inclusion/exclusion behavior.
+
+**Result:**
+- Near-threshold positions with ~1 year of data (11 monthly returns) are included.
+- Shorter-history names (e.g., 6-10 observations) are still excluded for covariance reliability.
+
+**Validation:**
+- `pytest -q tests/test_portfolio_risk.py` -> `12 passed`
+
+**Files changed:**
+- `portfolio_risk.py`
+- `settings.py`
+- `tests/test_portfolio_risk.py`
+
+---
+
+## Bug 15: Schwab Provider Fails — Missing App Credentials ✅ Completed (2026-02-16)
+
+**Symptom:** Portfolio MCP `get_risk_analysis` failed with:
+```
+Missing SCHWAB_APP_KEY or SCHWAB_APP_SECRET in environment
+```
+when Schwab was enabled but not fully configured.
+
+**Root cause:** `PositionService` registered Schwab using `is_provider_enabled("schwab")` only. That allowed provider registration with missing credentials/token, then runtime fetch failed and bubbled up as a fatal error for the full analysis call.
+
+**Resolution (implemented):**
+1. Updated `PositionService` default provider registration to gate Schwab on `is_provider_available("schwab")` (enabled + credentials + token file).
+2. If Schwab is enabled but unavailable, service now logs a warning and skips Schwab registration instead of hard-failing analysis.
+3. Added regression test covering enabled-but-unavailable Schwab behavior.
+
+**Result:**
+- `get_risk_analysis` no longer fails solely because Schwab env vars are missing.
+- Other available providers (Plaid/SnapTrade) continue to load and analysis proceeds.
+
+**Validation:**
+- `pytest -q tests/providers/test_provider_switching.py tests/providers/test_routing.py` -> `39 passed`
+
+**Files changed:**
+- `services/position_service.py`
+- `tests/providers/test_provider_switching.py`
+
+---
+
+## Bug 17: portfolio-mcp intermittently errors: "No user specified and RISK_MODULE_USER_EMAIL not configured" ✅ Resolved (2026-02-17)
+
+**Symptom:** Portfolio MCP tool calls sometimes failed with:
+```
+No user specified and RISK_MODULE_USER_EMAIL not configured
+```
+even though `portfolio-mcp` was configured with `RISK_MODULE_USER_EMAIL`.
+
+**Root cause:** User resolution relied on runtime MCP process environment only. In intermittent subprocess/session contexts where env propagation was missing, tools had no fallback and raised this error.
+
+**Resolution (implemented):**
+1. Added centralized user resolution in `settings.py` with explicit precedence:
+   - `user_email` argument
+   - environment `RISK_MODULE_USER_EMAIL`
+   - project `.env` fallback
+2. Added standardized, actionable missing-user error builder with source/path diagnostics.
+3. Updated portfolio-aware MCP tools to use shared resolver/error handling.
+4. Added MCP diagnostic tool `get_mcp_context` to inspect runtime user resolution source (`argument`/`env`/`dotenv`) and process context.
+
+**Validation:**
+- `python3 -m py_compile settings.py mcp_server.py mcp_tools/*.py` (targeted edited modules) passed.
+- Resolver smoke tests confirmed fallback behavior:
+  - env missing -> `.env` source
+  - env set -> `env` source
+  - explicit argument -> `argument` source
+
+**Files changed:**
+- `settings.py`
+- `mcp_server.py`
+- `mcp_tools/positions.py`
+- `mcp_tools/risk.py`
+- `mcp_tools/performance.py`
+- `mcp_tools/factor_intelligence.py`
+- `mcp_tools/trading_analysis.py`
+- `mcp_tools/income.py`
+- `mcp_tools/tax_harvest.py`
+- `mcp_tools/trading.py`
+- `mcp_tools/signals.py`
+
+---
+
 ## Bug 1: `analyze_stock` — `KeyError: 'momentum'` ✅ Completed (2026-02-09)
 
 **Symptom:** Every call to `analyze_stock` fails with:

@@ -240,6 +240,12 @@ def fetch_excess_return(
     Returns:
         pd.Series: Excess monthly returns (etf - market), aligned on date.
     """
+    if not market_ticker:
+        raise ValueError(
+            f"Cannot compute excess return for '{etf_ticker}': "
+            f"market_ticker is {market_ticker!r}. "
+            f"Ensure a 'market' proxy (e.g. 'SPY') is set in factor proxies."
+        )
     # Prefer total-return prices for both ETF and market; fallback to close-only
     try:
         etf_prices = fetch_monthly_total_return_price(

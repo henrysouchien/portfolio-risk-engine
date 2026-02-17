@@ -913,12 +913,12 @@ class PortfolioData:
     def to_yaml(self, output_path: str) -> None:
         """
         Save portfolio data to YAML configuration file.
-        
+
         Args:
             output_path (str): Path where YAML file will be saved
         """
         config = {
-            "portfolio_input": self.standardized_input,
+            "portfolio_input": self.portfolio_input,
             "start_date": self.start_date,
             "end_date": self.end_date,
             "expected_returns": self.expected_returns,
@@ -1074,41 +1074,6 @@ class PortfolioData:
                                        prefix=typed_prefix, delete=False) as temp_file:
             yaml.dump(content, temp_file, default_flow_style=False)
             return temp_file.name
-    
-    def create_risk_limits_temp_file(self, risk_limits: Union[Dict[str, Any], 'RiskLimitsData']) -> str:
-        """
-        Create collision-safe temporary risk limits file from provided data.
-        
-        Creates a temporary YAML file containing user-specific risk limits configuration
-        using the same collision-safe naming pattern as portfolio temp files.
-        
-        Args:
-            risk_limits (Union[Dict[str, Any], RiskLimitsData]): Risk limits configuration
-                in dictionary format or typed RiskLimitsData object
-                
-        Returns:
-            str: Path to created temporary risk limits file (caller responsible for cleanup)
-            
-        Example:
-            # Using RiskLimitsData object
-            risk_limits_data = RiskLimitsData(
-                portfolio_limits={'max_volatility': 0.20, 'max_loss': -0.15}
-            )
-            temp_risk_file = portfolio_data.create_risk_limits_temp_file(risk_limits_data)
-            
-            # Using dictionary
-            risk_limits_dict = {'portfolio_limits': {'max_volatility': 0.20}}
-            temp_risk_file = portfolio_data.create_risk_limits_temp_file(risk_limits_dict)
-        """
-        # Convert RiskLimitsData to dict if needed
-        if hasattr(risk_limits, 'to_dict'):
-            risk_limits_dict = risk_limits.to_dict()
-        elif risk_limits:
-            risk_limits_dict = risk_limits
-        else:
-            risk_limits_dict = {}
-        
-        return self.create_safe_temp_file(risk_limits_dict, "risk_limits", '.yaml')
     
     def __hash__(self) -> int:
         """Make PortfolioData hashable for caching."""

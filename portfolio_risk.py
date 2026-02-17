@@ -296,7 +296,7 @@ def _cached_build_portfolio_view(
     expected_returns_json: Optional[str] = None,
     stock_factor_proxies_json: Optional[str] = None,
     bond_mask_json: Optional[str] = "[]",
-    cache_version: str = "rbeta_v1",
+    cache_version: str = "rbeta_v2",
     fmp_ticker_map_json: Optional[str] = None,
     currency_map_json: Optional[str] = None,
 ):
@@ -460,7 +460,7 @@ def get_returns_dataframe(
     end_date: str,
     fmp_ticker_map: Optional[Dict[str, str]] = None,
     currency_map: Optional[Dict[str, str]] = None,
-    min_observations: int = 12,
+    min_observations: Optional[int] = None,
 ) -> pd.DataFrame:
     """
     Fetch and compute monthly returns for all tickers in the weights dictionary.
@@ -473,7 +473,8 @@ def get_returns_dataframe(
     - Delisted or restructured securities
     - OTC/illiquid stocks with gaps in data
 
-    When a ticker has no data or insufficient observations (<min_observations months),
+    When a ticker has no data or insufficient observations (<min_observations monthly
+    return observations),
     it is EXCLUDED from the returns DataFrame. This is necessary because:
     1. Covariance matrix estimation requires aligned time series
     2. Statistical reliability requires sufficient observations (typically 12+ months)
@@ -496,8 +497,9 @@ def get_returns_dataframe(
             for international stocks (e.g., {'AT': 'AT.L'}).
         currency_map (Optional[Dict[str, str]]): Mapping of ticker -> ISO currency code
             for non-USD tickers (used to FX-adjust returns).
-        min_observations (int): Minimum number of monthly observations required for a ticker
-            to be included. Default 12 (1 year). Tickers with fewer observations are excluded.
+        min_observations (Optional[int]): Minimum number of monthly return observations
+            required for a ticker to be included. If None, uses
+            settings.DATA_QUALITY_THRESHOLDS["min_observations_for_expected_returns"].
 
     Returns:
         pd.DataFrame: Monthly return series for valid tickers only, aligned and cleaned.
@@ -507,6 +509,17 @@ def get_returns_dataframe(
         ValueError: If ALL tickers fail to fetch data (no valid returns available).
     """
     from utils.logging import portfolio_logger
+
+    if min_observations is None:
+        try:
+            from settings import DATA_QUALITY_THRESHOLDS
+
+            min_observations = int(
+                DATA_QUALITY_THRESHOLDS.get("min_observations_for_expected_returns", 11)
+            )
+        except Exception:
+            min_observations = 11
+    min_observations = max(1, int(min_observations))
 
     rets = {}
     excluded_no_data = []      # Tickers with no data at all
@@ -574,11 +587,11 @@ def get_returns_dataframe(
         )
 
     if excluded_insufficient:
-        details = ", ".join([f"{t}({n}mo)" for t, n in excluded_insufficient])
+        details = ", ".join([f"{t}({n}obs)" for t, n in excluded_insufficient])
         portfolio_logger.warning(
             f"⚠️ EXCLUDED {len(excluded_insufficient)} ticker(s) with INSUFFICIENT HISTORY "
-            f"(<{min_observations} months): [{details}]. "
-            f"Minimum {min_observations} months required for reliable covariance estimation."
+            f"(<{min_observations} monthly return observations): [{details}]. "
+            f"Minimum {min_observations} observations required for reliable covariance estimation."
         )
 
     # ─── Validate we have at least some valid tickers ────────────────────────────
@@ -644,191 +657,144 @@ def _build_bond_injection_mask(
     bond_tickers = [t for t in sorted(weights.keys()) if asset_classes.get(t) in eligible_classes]
     return json.dumps(bond_tickers)
 
-@log_error_handling("high")
-@log_portfolio_operation_decorator("portfolio_analysis")
-@log_cache_operations("portfolio_analysis")
-@log_performance(3.0)
-def build_portfolio_view(
-    weights: Dict[str, float],
-    start_date: str,
-    end_date: str,
-    expected_returns: Optional[Dict[str, float]] = None,
-    stock_factor_proxies: Optional[Dict[str, Dict[str, Union[str, List[str]]]]] = None,
-    asset_classes: Optional[Dict[str, str]] = None,
-    fmp_ticker_map: Optional[Dict[str, str]] = None,
-    currency_map: Optional[Dict[str, str]] = None,
-) -> Dict[str, Any]:
+
+def compute_stock_performance_metrics(
+    df_ret: pd.DataFrame,
+    risk_free_rate: float = 0.04,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+) -> pd.DataFrame:
     """
-    Build comprehensive portfolio view with LRU caching.
-    
-    This is the main entry point for portfolio analysis. It uses LRU caching
-    to keep recently accessed portfolio analyses in memory for fast retrieval.
-    
-    Performance:
-    - First call: ~2-3 seconds (full computation)
-    - Recent calls: ~10ms (LRU cache hit)
-    - Memory: Bounded to 100 most recent analyses
+    Compute per-stock performance metrics with portfolio-level conventions.
 
-    Notes:
-    - asset_classes enables rate factor injection for holdings classified as
-      'bond' or 'real_estate' (REITs). Cash proxies are excluded by
-      classification. When None, behaves like the
-      pre-integration implementation.
-    - All return series prefer total-return pricing; when adjusted data is
-      unavailable, close-only series are used as a fallback.
-    - currency_map enables FX-adjusted returns for non-USD holdings.
+    Metrics are returned in decimal units (e.g., 0.25 = 25%).
     """
-    # Serialize parameters for LRU cache
-    weights_json = serialize_for_cache(weights)
-    expected_returns_json = serialize_for_cache(expected_returns)
-    stock_factor_proxies_json = serialize_for_cache(stock_factor_proxies)
-    fmp_ticker_map_json = serialize_for_cache(fmp_ticker_map)
-    currency_map_json = serialize_for_cache(currency_map)
+    columns = [
+        "Annual Return",
+        "Vol A",
+        "Sharpe",
+        "Sortino",
+        "Max Drawdown",
+        "Calmar",
+        "Downside Dev",
+        "Win Rate",
+        "Best Month",
+        "Worst Month",
+    ]
 
-    # Rate beta cache mask and version
-    bond_mask_json = _build_bond_injection_mask(asset_classes, weights)
-    cache_version = "rbeta_v1"
+    if df_ret is None or df_ret.empty:
+        return pd.DataFrame(columns=columns)
 
-    # Return cached computation keyed by bond mask and version
-    return _cached_build_portfolio_view(
-        weights_json, start_date, end_date, expected_returns_json, stock_factor_proxies_json,
-        bond_mask_json, cache_version, fmp_ticker_map_json, currency_map_json
-    )
+    if start_date is None and isinstance(df_ret.index, pd.DatetimeIndex) and len(df_ret.index) > 0:
+        start_date = str(df_ret.index.min().date())
+    if end_date is None and isinstance(df_ret.index, pd.DatetimeIndex) and len(df_ret.index) > 0:
+        end_date = str(df_ret.index.max().date())
 
-@log_error_handling("high")
-def _build_portfolio_view_computation(
-    weights: Dict[str, float],
-    start_date: str,
-    end_date: str,
-    expected_returns: Optional[Dict[str, float]] = None,
-    stock_factor_proxies: Optional[Dict[str, Dict[str, Union[str, List[str]]]]] = None,
-    asset_classes: Optional[Dict[str, str]] = None,
-    fmp_ticker_map: Optional[Dict[str, str]] = None,
-    currency_map: Optional[Dict[str, str]] = None,
-) -> Dict[str, Any]:
-    # LOGGING: Add portfolio view computation start logging here
-    """
-    Builds a complete portfolio risk profile using historical returns, factor regressions,
-    and variance decomposition.
+    import logging
 
-    Performs:
-    - Aggregates returns, volatility, and correlation for the portfolio.
-    - Runs per-stock single-factor regressions to compute betas (market, momentum, value, industry, subindustry).
-    - Calculates idiosyncratic volatilities and annualized variances.
-    - Computes per-stock factor volatilities (σ_i,f) and weighted factor variance (w² · β² · σ²).
-    - Computes Euler (marginal) variance contributions for every stock.
-    - Decomposes portfolio variance into idiosyncratic vs factor-driven.
-    - Aggregates per-industry ETF variance contributions (based on industry proxies).
-    - Computes portfolio-level factor betas and Herfindahl concentration.
-    - Summarizes per-industry group betas from weighted contributions of individual stock betas.
+    logger = logging.getLogger(__name__)
+    risk_free_monthly = risk_free_rate / 12.0
+    metrics: Dict[str, Dict[str, float]] = {}
 
-    Args:
-        weights (Dict[str, float]):
-            Portfolio weights by ticker (not required to sum to 1).
-        start_date (str):
-            Historical window start date (format: YYYY-MM-DD).
-        end_date (str):
-            Historical window end date (format: YYYY-MM-DD).
-        expected_returns (Optional[Dict[str, float]]):
-            Optional target returns per ticker for allocation gap display.
-        stock_factor_proxies (Optional[Dict]):
-            Mapping of each stock to its factor proxies:
-                - "market": ETF ticker (e.g., SPY)
-                - "momentum": ETF ticker (e.g., MTUM)
-                - "value": ETF ticker (e.g., IWD)
-                - "industry": ETF ticker (e.g., SOXX)
-                - "subindustry": list of tickers (e.g., ["PAYC", "CDAY"])
-
-    Returns:
-        Dict[str, Any]: Portfolio diagnostics including:
-            - 'allocations': target vs actual vs expected returns
-            - 'portfolio_returns': aggregated monthly returns
-            - 'covariance_matrix': asset return covariances
-            - 'correlation_matrix': asset return correlations
-            - 'volatility_monthly': annualized volatility from monthly returns
-            - 'volatility_annual': total annual portfolio volatility
-            - 'risk_contributions': risk contribution by asset
-            - 'herfindahl': portfolio concentration score
-            - 'df_stock_betas': per-stock factor betas from regressions
-            - 'portfolio_factor_betas': weighted sum of factor exposures
-            - 'factor_vols': per-stock annualized factor volatilities
-            - 'weighted_factor_var': w² · β² · σ² contributions
-            - 'euler_variance_pct': per-stock share of total variance (Series, sums to 1.0)
-            - 'asset_vol_summary': asset-level volatility and idio stats
-            - 'variance_decomposition': total vs idio vs factor variance
-            - 'industry_variance': {
-                'absolute': variance by industry proxy,
-                'percent_of_portfolio': % variance per industry,
-                'per_industry_group_beta': weighted betas per industry ETF
-              }
-    """
-    # ─── 0. Portfolio Return Setup ──────────────────────────────────────────────
-    # Get returns for valid tickers only (new/illiquid stocks with insufficient data are excluded)
-    df_ret = get_returns_dataframe(
-        weights,
-        start_date,
-        end_date,
-        fmp_ticker_map=fmp_ticker_map,
-        currency_map=currency_map,
-    )
-
-    # ─── 0a. Re-normalize weights for valid tickers ────────────────────────────
-    # CRITICAL: When tickers are excluded from df_ret (e.g., newly IPO'd stocks like MRP, FIG),
-    # we must re-normalize the remaining weights to sum to 1.0. Otherwise, portfolio
-    # volatility and risk calculations will be incorrect (weights won't sum to 100%).
-    #
-    # Example: Original weights {A: 0.5, B: 0.3, MRP: 0.1, FIG: 0.1}
-    #          After exclusion:  df_ret only has [A, B]
-    #          Re-normalized:    {A: 0.625, B: 0.375} (0.5/0.8, 0.3/0.8)
-    valid_tickers = set(df_ret.columns)
-    excluded_tickers = [t for t in weights if t not in valid_tickers]
-
-    if excluded_tickers:
-        from utils.logging import portfolio_logger
-
-        # Filter to valid tickers only
-        valid_weights = {t: w for t, w in weights.items() if t in valid_tickers}
-        total_valid_weight = sum(valid_weights.values())
-
-        if total_valid_weight > 0:
-            # Re-normalize so weights sum to 1.0
-            weights = {t: w / total_valid_weight for t, w in valid_weights.items()}
-
-            portfolio_logger.warning(
-                f"📊 WEIGHTS RE-NORMALIZED: Excluded {len(excluded_tickers)} ticker(s) "
-                f"[{', '.join(excluded_tickers)}]. "
-                f"Remaining {len(weights)} positions re-normalized from {total_valid_weight:.1%} to 100%."
+    for ticker in df_ret.columns:
+        s = df_ret[ticker].dropna()
+        if len(s) < 3:
+            logger.warning(
+                "Insufficient observations for stock performance metrics: %s (%d months) [%s to %s]",
+                ticker,
+                len(s),
+                start_date,
+                end_date,
             )
+            metrics[ticker] = {c: 0.0 for c in columns}
+            continue
+
+        total_months = len(s)
+        years = total_months / 12.0
+        total_return = float((1 + s).prod() - 1)
+        annual_return = float((1 + total_return) ** (1 / years) - 1) if years > 0 else 0.0
+        vol_a = float(s.std(ddof=1) * np.sqrt(12))
+
+        if vol_a > 0:
+            sharpe = (annual_return - risk_free_rate) / vol_a
         else:
-            raise ValueError(
-                f"Cannot compute portfolio view: all tickers excluded. "
-                f"Excluded: {excluded_tickers}"
-            )
+            # Match edge-case convention for constant-return series.
+            sharpe = 0.0
 
-    df_alloc = compute_target_allocations(weights, expected_returns)
+        downside_returns = s[s < risk_free_monthly] - risk_free_monthly
+        downside_dev = (
+            float(np.sqrt((downside_returns**2).mean()) * np.sqrt(12))
+            if len(downside_returns) > 0
+            else 0.0
+        )
+        if vol_a <= 0 or downside_dev <= 0:
+            sortino = 0.0
+        else:
+            sortino = (annual_return - risk_free_rate) / downside_dev
 
-    port_ret = compute_portfolio_returns(df_ret, weights)
-    cov_mat  = compute_covariance_matrix(df_ret)
-    corr_mat = compute_correlation_matrix(df_ret)
+        cumulative_returns = (1 + s).cumprod()
+        running_max = cumulative_returns.expanding().max()
+        drawdown = (cumulative_returns - running_max) / running_max
+        max_drawdown = float(drawdown.min()) if len(drawdown) > 0 else 0.0
+        calmar = abs(annual_return / max_drawdown) if max_drawdown < -0.001 else 0.0
 
-    vol_m = compute_portfolio_volatility(weights, cov_mat)
-    vol_a = vol_m * np.sqrt(12)
-    rc    = compute_risk_contributions(weights, cov_mat)
-    hhi   = compute_herfindahl(weights)
+        win_rate = float((s > 0).sum() / len(s)) if len(s) > 0 else 0.0
+        best_month = float(s.max()) if len(s) > 0 else 0.0
+        worst_month = float(s.min()) if len(s) > 0 else 0.0
 
-    w_series                = pd.Series(weights)
+        metrics[ticker] = {
+            "Annual Return": annual_return,
+            "Vol A": vol_a,
+            "Sharpe": sharpe,
+            "Sortino": sortino,
+            "Max Drawdown": max_drawdown,
+            "Calmar": calmar,
+            "Downside Dev": downside_dev,
+            "Win Rate": win_rate,
+            "Best Month": best_month,
+            "Worst Month": worst_month,
+        }
 
-    # ─── 1. Stock-Level Factor Exposures ────────────────────────────────────────
+    return (
+        pd.DataFrame.from_dict(metrics, orient="index")
+        .reindex(columns=columns)
+        .replace([np.inf, -np.inf], 0.0)
+        .fillna(0.0)
+    )
+
+
+def compute_factor_exposures(
+    weights: Dict[str, float],
+    df_ret: pd.DataFrame,
+    stock_factor_proxies: Optional[Dict[str, Dict[str, Union[str, List[str]]]]],
+    asset_classes: Optional[Dict[str, str]],
+    start_date: str,
+    end_date: str,
+    fmp_ticker_map: Optional[Dict[str, str]] = None,
+) -> Dict[str, Any]:
+    """
+    Compute stock-level factor exposures and weighted factor variance.
+    """
+    _ = df_ret  # Reserved for future in-memory factor alignment optimization
+
     df_stock_betas = pd.DataFrame(index=weights.keys())
-    idio_var_dict  = {}
+    idio_var_dict: Dict[str, float] = {}
+
+    from utils.logging import portfolio_logger
 
     if stock_factor_proxies:
+        missing_proxy_tickers = [t for t in weights if t not in stock_factor_proxies]
+        if missing_proxy_tickers:
+            portfolio_logger.warning(
+                f"Skipping factor analysis for {len(missing_proxy_tickers)} ticker(s) "
+                f"with no proxy configuration: [{', '.join(sorted(missing_proxy_tickers))}]. "
+                f"Run proxy builder or add entries to stock_factor_proxies."
+            )
         for ticker in weights.keys():
             if ticker not in stock_factor_proxies:
                 continue
             proxies = stock_factor_proxies[ticker]
-            
-            # Fetch stock returns
+
             prices = fetch_monthly_close(
                 ticker,
                 start_date=start_date,
@@ -836,14 +802,12 @@ def _build_portfolio_view_computation(
                 fmp_ticker_map=fmp_ticker_map,
             )
             stock_ret = calc_monthly_returns(prices)
-            idx       = stock_ret.index
+            idx = stock_ret.index
 
-            # Build aligned factor series
             fac_dict: Dict[str, pd.Series] = {}
 
             mkt_t = proxies.get("market")
             if mkt_t:
-                # Prefer total return for proxy returns
                 try:
                     mkt_prices = fetch_monthly_total_return_price(
                         mkt_t,
@@ -911,63 +875,54 @@ def _build_portfolio_view_computation(
                         ser = calc_monthly_returns(p)
                     fac_dict[facname] = ser.reindex(idx).dropna()
 
-            # drop rows with any NaN
-            factor_df  = pd.DataFrame(fac_dict).dropna(how="any")
-            
-            # Apply centralized data quality threshold for equity factor betas (same as rate factors)
+            factor_df = pd.DataFrame(fac_dict).dropna(how="any")
+
             from settings import DATA_QUALITY_THRESHOLDS
+
             min_obs = DATA_QUALITY_THRESHOLDS["min_observations_for_factor_betas"]
-            
             if factor_df.empty or len(factor_df) < min_obs:
-                continue # Skip if no usable data
-        
+                continue
+
             aligned_s = stock_ret.reindex(factor_df.index)
-                    
-            # Run single-factor regression to get betas
+
             betas = compute_stock_factor_betas(
-                aligned_s,                               # stock on same dates
-                {c: factor_df[c] for c in factor_df}     # factors on same dates
+                aligned_s,
+                {c: factor_df[c] for c in factor_df},
             )
             df_stock_betas.loc[ticker, betas.keys()] = pd.Series(betas)
 
-            # Idiosyncratic variance (monthly → annual)
-            X      = sm.add_constant(factor_df)
-            resid  = aligned_s - sm.OLS(aligned_s, X).fit().fittedvalues
-        
-            # Convert monthly residual variance to annual variance
+            X = sm.add_constant(factor_df)
+            resid = aligned_s - sm.OLS(aligned_s, X).fit().fittedvalues
             monthly_idio_var = resid.var(ddof=1)
             annual_idio_var = monthly_idio_var * 12
             idio_var_dict[ticker] = float(annual_idio_var)
 
-    # ─── 1b. Rate Factor Integration (Key-rate → single interest_rate beta) ─────
-    # Compute Treasury Δy once and rate factor volatility; then inject for bonds
     interest_rate_vol: Optional[float] = None
     if asset_classes:
         try:
             treas_levels = fetch_monthly_treasury_yield_levels(start_date, end_date)
             dy_df = prepare_rate_factors(treas_levels)
             if not dy_df.empty:
-                # Portfolio-level interest rate factor volatility (sum of all Δy)
                 interest_rate_series = dy_df.sum(axis=1)
                 interest_rate_vol = float(interest_rate_series.std(ddof=1) * np.sqrt(12))
 
-                # Ensure df_stock_betas has a column for interest_rate
-                if 'interest_rate' not in df_stock_betas.columns:
-                    df_stock_betas['interest_rate'] = 0.0
+                if "interest_rate" not in df_stock_betas.columns:
+                    df_stock_betas["interest_rate"] = 0.0
 
-                # Compute per-bond interest_rate beta via multivariate regression
                 try:
                     from settings import RATE_FACTOR_CONFIG
-                    eligible_classes = set(RATE_FACTOR_CONFIG.get("eligible_asset_classes", ["bond"]))
+
+                    eligible_classes = set(
+                        RATE_FACTOR_CONFIG.get("eligible_asset_classes", ["bond"])
+                    )
                 except Exception:
                     eligible_classes = {"bond"}
+
                 for ticker in weights.keys():
                     if asset_classes.get(ticker) not in eligible_classes:
-                        # Explicitly set 0 for non-bonds to keep shapes consistent
-                        df_stock_betas.loc[ticker, 'interest_rate'] = 0.0
+                        df_stock_betas.loc[ticker, "interest_rate"] = 0.0
                         continue
 
-                    # Stock monthly returns for alignment
                     try:
                         prices = fetch_monthly_close(
                             ticker,
@@ -977,75 +932,81 @@ def _build_portfolio_view_computation(
                         )
                         stock_ret = calc_monthly_returns(prices)
                     except Exception:
-                        df_stock_betas.loc[ticker, 'interest_rate'] = 0.0
+                        df_stock_betas.loc[ticker, "interest_rate"] = 0.0
                         continue
 
-                    # Apply EXACT same logic as equity factors: individual factor alignment + combined dropna
                     idx = stock_ret.index
-                    
-                    # Build rate factor dictionary the same way as equity factors
                     rate_fac_dict: Dict[str, pd.Series] = {}
                     for rate_factor_col in dy_df.columns:
                         rate_fac_dict[rate_factor_col] = dy_df[rate_factor_col].reindex(idx).dropna()
-                    
-                    # Apply same DataFrame building and dropna logic as equity factors  
-                    rate_factor_df = pd.DataFrame(rate_fac_dict).dropna(how="any")
-                    
-                    # Apply centralized data quality threshold for interest rate beta calculation
-                    from settings import DATA_QUALITY_THRESHOLDS
-                    min_obs = DATA_QUALITY_THRESHOLDS["min_observations_for_interest_rate_beta"]
-                    
-                    if rate_factor_df.empty or len(rate_factor_df) < min_obs:
-                        df_stock_betas.loc[ticker, 'interest_rate'] = 0.0
-                        continue
-                    
-                    aligned_s = stock_ret.reindex(rate_factor_df.index)
 
+                    rate_factor_df = pd.DataFrame(rate_fac_dict).dropna(how="any")
+
+                    from settings import DATA_QUALITY_THRESHOLDS
+
+                    min_obs = DATA_QUALITY_THRESHOLDS[
+                        "min_observations_for_interest_rate_beta"
+                    ]
+                    if rate_factor_df.empty or len(rate_factor_df) < min_obs:
+                        df_stock_betas.loc[ticker, "interest_rate"] = 0.0
+                        continue
+
+                    aligned_s = stock_ret.reindex(rate_factor_df.index)
                     rate_res = compute_multifactor_betas(aligned_s, rate_factor_df, hac_lags=3)
-                    rate_betas = rate_res.get('betas', {})
+                    rate_betas = rate_res.get("betas", {})
                     interest_rate_beta = float(sum(rate_betas.values())) if rate_betas else 0.0
-                    df_stock_betas.loc[ticker, 'interest_rate'] = interest_rate_beta
-                    # Data quality validations
+                    df_stock_betas.loc[ticker, "interest_rate"] = interest_rate_beta
                     try:
-                        r2_adj = float(rate_res.get('r2_adj', 0.0))
+                        r2_adj = float(rate_res.get("r2_adj", 0.0))
                         min_r2 = DATA_QUALITY_THRESHOLDS["min_r2_for_rate_factors"]
                         max_beta = DATA_QUALITY_THRESHOLDS["max_reasonable_interest_rate_beta"]
-                        
+
                         if r2_adj < min_r2:
                             from utils.logging import log_portfolio_operation
-                            log_portfolio_operation("rate_factor_low_r2", {"ticker": ticker, "r2_adj": r2_adj}, execution_time=0)
+
+                            log_portfolio_operation(
+                                "rate_factor_low_r2",
+                                {"ticker": ticker, "r2_adj": r2_adj},
+                                execution_time=0,
+                            )
                         if abs(interest_rate_beta) > max_beta:
                             from utils.logging import log_portfolio_operation
-                            log_portfolio_operation("rate_factor_extreme_beta", {"ticker": ticker, "beta": interest_rate_beta}, execution_time=0)
-                        vifs = rate_res.get('vif', {}) or {}
+
+                            log_portfolio_operation(
+                                "rate_factor_extreme_beta",
+                                {"ticker": ticker, "beta": interest_rate_beta},
+                                execution_time=0,
+                            )
+                        vifs = rate_res.get("vif", {}) or {}
                         if any((v is not None and v > 10) for v in vifs.values()):
                             from utils.logging import log_portfolio_operation
-                            log_portfolio_operation("rate_factor_high_vif", {"ticker": ticker, "vif": vifs}, execution_time=0)
+
+                            log_portfolio_operation(
+                                "rate_factor_high_vif",
+                                {"ticker": ticker, "vif": vifs},
+                                execution_time=0,
+                            )
                     except Exception:
                         pass
         except Exception as e:
-            # If rate factor preparation fails, log and continue without interest rate factors
             try:
                 from utils.logging import log_portfolio_operation
-                log_portfolio_operation("rate_factor_fetch_failed", {"error": str(e)}, execution_time=0)
+
+                log_portfolio_operation(
+                    "rate_factor_fetch_failed", {"error": str(e)}, execution_time=0
+                )
             except Exception:
                 pass
 
-    # ─── 2a. Compute Factor Volatility & Weighted Variance ───────────────────────
-    df_factor_vols   = pd.DataFrame(index=df_stock_betas.index,
-                                    columns=df_stock_betas.columns)   # σ_i,f (annual)
-    weighted_factor_var = pd.DataFrame(index=df_stock_betas.index,
-                                       columns=df_stock_betas.columns) # w_i² β² σ²
-    
-    if stock_factor_proxies:                                           # ← guard 
-        w2 = pd.Series(weights).pow(2)                                 # w_i²
-    
+    df_factor_vols = pd.DataFrame(index=df_stock_betas.index, columns=df_stock_betas.columns)
+    weighted_factor_var = pd.DataFrame(index=df_stock_betas.index, columns=df_stock_betas.columns)
+
+    if stock_factor_proxies:
         for tkr in weights.keys():
             if tkr not in stock_factor_proxies:
                 continue
             proxies = stock_factor_proxies[tkr]
-    
-            # ----- rebuild this stock’s factor-return dict (same logic as above) --
+
             try:
                 _p = fetch_monthly_total_return_price(
                     tkr,
@@ -1062,7 +1023,7 @@ def _build_portfolio_view_computation(
                 )
             idx_stock = calc_monthly_returns(_p).index
             fac_ret: Dict[str, pd.Series] = {}
-    
+
             mkt = proxies.get("market")
             if mkt:
                 try:
@@ -1080,7 +1041,7 @@ def _build_portfolio_view_computation(
                         fmp_ticker_map=fmp_ticker_map,
                     )
                 fac_ret["market"] = calc_monthly_returns(_pm).reindex(idx_stock).dropna()
-    
+
             def _excess(etf: str) -> pd.Series:
                 return fetch_excess_return(
                     etf,
@@ -1089,12 +1050,28 @@ def _build_portfolio_view_computation(
                     end_date,
                     fmp_ticker_map=fmp_ticker_map,
                 ).reindex(idx_stock).dropna()
-    
+
             if proxies.get("momentum"):
-                fac_ret["momentum"] = _excess(proxies["momentum"])
+                if mkt:
+                    fac_ret["momentum"] = _excess(proxies["momentum"])
+                else:
+                    from utils.logging import portfolio_logger
+                    portfolio_logger.warning(
+                        f"⚠️ Skipping momentum factor for {tkr}: no 'market' proxy set "
+                        f"(needed to compute excess returns). Add a 'market' proxy "
+                        f"(e.g. SPY) to the factor proxies for this ticker."
+                    )
             if proxies.get("value"):
-                fac_ret["value"]    = _excess(proxies["value"])
-    
+                if mkt:
+                    fac_ret["value"] = _excess(proxies["value"])
+                else:
+                    from utils.logging import portfolio_logger
+                    portfolio_logger.warning(
+                        f"⚠️ Skipping value factor for {tkr}: no 'market' proxy set "
+                        f"(needed to compute excess returns). Add a 'market' proxy "
+                        f"(e.g. SPY) to the factor proxies for this ticker."
+                    )
+
             for fac in ("industry", "subindustry"):
                 proxy = proxies.get(fac)
                 if proxy:
@@ -1122,51 +1099,68 @@ def _build_portfolio_view_computation(
                             )
                         ser = calc_monthly_returns(_pp)
                     fac_ret[fac] = ser.reindex(idx_stock).dropna()
-    
-            if not fac_ret:         # nothing to measure
+
+            if not fac_ret:
                 continue
-    
-            # ----- annual σ_i,f ----------------------------------------------------
+
             sigmas = pd.Series({f: r.std(ddof=1) * np.sqrt(12) for f, r in fac_ret.items()})
             df_factor_vols.loc[tkr, sigmas.index] = sigmas
 
-        # Inject interest rate volatility for bonds, if available
-        if interest_rate_vol is not None and 'interest_rate' in df_factor_vols.columns and asset_classes:
+        if interest_rate_vol is not None and "interest_rate" in df_factor_vols.columns and asset_classes:
             try:
                 from settings import RATE_FACTOR_CONFIG
-                eligible_classes = set(RATE_FACTOR_CONFIG.get("eligible_asset_classes", ["bond"]))
+
+                eligible_classes = set(
+                    RATE_FACTOR_CONFIG.get("eligible_asset_classes", ["bond"])
+                )
             except Exception:
                 eligible_classes = {"bond"}
             for tkr in df_factor_vols.index:
                 if asset_classes.get(tkr) in eligible_classes:
-                    df_factor_vols.loc[tkr, 'interest_rate'] = interest_rate_vol
+                    df_factor_vols.loc[tkr, "interest_rate"] = interest_rate_vol
                 else:
-                    # ensure non-bonds have 0 in interest_rate column
-                    df_factor_vols.loc[tkr, 'interest_rate'] = df_factor_vols.loc[tkr, 'interest_rate'] if pd.notna(df_factor_vols.loc[tkr, 'interest_rate']) else 0.0
-            
-        # ---------- after loop: clean tables & build w²·β²·σ² -------------
-        
-        # df_factor_vols  : σ-table (annual factor vols by stock)
+                    df_factor_vols.loc[tkr, "interest_rate"] = (
+                        df_factor_vols.loc[tkr, "interest_rate"]
+                        if pd.notna(df_factor_vols.loc[tkr, "interest_rate"])
+                        else 0.0
+                    )
+
         df_factor_vols = df_factor_vols.infer_objects(copy=False).fillna(0.0)
-
-        # betas_filled β-table with NaNs → 0.0
         betas_filled = df_stock_betas.infer_objects(copy=False).fillna(0.0)
-
-        # ----- weighted factor variance  w_i² β_i,f² σ_i,f² -----------------------
         weighted_factor_var = calc_weighted_factor_variance(weights, betas_filled, df_factor_vols)
 
-    # ─── 2b. Euler variance attribution  -------------------------------
-    cov_annual = cov_mat * 12                       # annualise Σ (12× monthly)
-    
-    euler_var_pct = compute_euler_variance_percent(
-        weights       = weights,
-        cov_matrix    = cov_annual,                 # use annual Σ
-    )
+    df_stock_betas_raw = df_stock_betas.copy()
+    df_stock_betas_filled = df_stock_betas.infer_objects(copy=False).fillna(0.0)
+    w_series = pd.Series(weights, dtype=float).reindex(df_stock_betas_filled.index).fillna(0.0)
+    portfolio_factor_betas = df_stock_betas_filled.mul(w_series, axis=0).sum(skipna=True)
 
-    # ─── 3a. Aggregate Industry-Level Variance ───────────────────────────────────
-    industry_var_dict = {}
-    
-    # Step: reverse-map which stock maps to which industry ETF
+    return {
+        "df_stock_betas": df_stock_betas_filled,
+        "df_stock_betas_raw": df_stock_betas_raw,
+        "idio_var_dict": idio_var_dict,
+        "df_factor_vols": df_factor_vols,
+        "weighted_factor_var": weighted_factor_var,
+        "interest_rate_vol": interest_rate_vol,
+        "portfolio_factor_betas": portfolio_factor_betas,
+    }
+
+
+def compute_variance_attribution(
+    weights: Dict[str, float],
+    cov_mat: pd.DataFrame,
+    stock_factor_proxies: Optional[Dict[str, Dict[str, Union[str, List[str]]]]],
+    weighted_factor_var: pd.DataFrame,
+    idio_var_dict: Dict[str, float],
+    vol_m: float,
+    df_stock_betas: pd.DataFrame,
+) -> Dict[str, Any]:
+    """
+    Compute Euler, industry, and variance decomposition outputs.
+    """
+    cov_annual = cov_mat * 12
+    euler_var_pct = compute_euler_variance_percent(weights=weights, cov_matrix=cov_annual)
+
+    industry_var_dict: Dict[str, float] = {}
     if stock_factor_proxies:
         for tkr in weights.keys():
             if tkr not in stock_factor_proxies:
@@ -1174,12 +1168,15 @@ def _build_portfolio_view_computation(
             proxies = stock_factor_proxies[tkr]
             ind = proxies.get("industry")
             if ind:
-                v = weighted_factor_var.loc[tkr, "industry"] if "industry" in weighted_factor_var.columns else 0.0
+                v = (
+                    weighted_factor_var.loc[tkr, "industry"]
+                    if "industry" in weighted_factor_var.columns
+                    else 0.0
+                )
                 industry_var_dict[ind] = industry_var_dict.get(ind, 0.0) + v
 
-    # ─── 3b. Compute Per-Industry Group Beta (and max weighted exposure) ──────────────
+    w_series = pd.Series(weights)
     industry_groups: Dict[str, float] = {}
-
     if stock_factor_proxies:
         for ticker in w_series.index:
             proxy = stock_factor_proxies.get(ticker, {}).get("industry")
@@ -1187,84 +1184,225 @@ def _build_portfolio_view_computation(
             weight = w_series[ticker]
             if proxy:
                 industry_groups[proxy] = industry_groups.get(proxy, 0.0) + (weight * beta)
-    
-    # ─── 4. Final Portfolio Stats (Volatility, Idio, Betas) ─────────────────────
 
-    # --- make df_stock_betas NaNs → 0.0 -------------
-    df_stock_betas = (
-        df_stock_betas
-            .infer_objects(copy=False).fillna(0.0)
+    variance_decomposition = compute_portfolio_variance_breakdown(
+        weights, idio_var_dict, weighted_factor_var, vol_m
     )
-    
-    w_series = (
-        pd.Series(weights, dtype=float)
-          .reindex(df_stock_betas.index)
-          .fillna(0.0)
-    )
-
-    portfolio_factor_betas  = df_stock_betas.mul(w_series, axis=0).sum(skipna=True)
-
-    # 4a) per-asset annualised stats ----------------------------------------
-    asset_vol_a = df_ret.std(ddof=1) * np.sqrt(12)               # total σ_annual
-    asset_var_m = df_ret.var(ddof=1)                             # monthly σ²
-    w_series    = pd.Series(weights)
-    
-    # idiosyncratic
-    idio_var_a  = pd.Series(idio_var_dict).reindex(w_series.index)         # already annual
-    idio_vol_a  = idio_var_a.pow(0.5)                                       # √(annual var)
-    weighted_idio_var_model = w_series.pow(2) * idio_var_a  # w² · σ²_idio
-
-    # Manually compute (w × σ_idio)² for comparison
-    weighted_idio_vol = idio_vol_a * w_series
-    weighted_idio_var_manual = (weighted_idio_vol) ** 2
-    
-    df_asset = pd.DataFrame({
-        "Vol A":              asset_vol_a,                       # total annual σ
-        "Weighted Vol A":     asset_vol_a * w_series,
-        #"Var M":              asset_var_m,                       # monthly total σ² (for reference)
-        #"Weighted Var M":     asset_var_m * (w_series ** 2),
-        "Idio Vol A":         idio_vol_a,                        # idio annual σ
-        "Weighted Idio Vol A": weighted_idio_vol,
-        "Weighted Idio Var": weighted_idio_var_model,
-        #"Manual Weighted Idio Var": weighted_idio_var_manual
-        #"Weighted IdioVar A": idio_var_a * (w_series ** 2),
-    })
-
-    # ─── 5. Industry Variance % Contribution ────────────────────────────────────
-    total_port_var = (
-        compute_portfolio_variance_breakdown(
-            weights, idio_var_dict, weighted_factor_var, vol_m
-        )["portfolio_variance"]
-    )
-    
+    total_port_var = variance_decomposition["portfolio_variance"]
     industry_pct_dict = {
-        k: v / total_port_var if total_port_var else 0.0
-        for k, v in industry_var_dict.items()
+        k: v / total_port_var if total_port_var else 0.0 for k, v in industry_var_dict.items()
     }
 
-    # ─── 6. Assemble Final Output ───────────────────────────────────────────────
     return {
-        "allocations":            df_alloc,
-        "covariance_matrix":      cov_mat,
-        "correlation_matrix":     corr_mat,
-        "volatility_monthly":     vol_m,
-        "volatility_annual":      vol_a,
-        "risk_contributions":     rc,
-        "herfindahl":             hhi,
-        "df_stock_betas":         df_stock_betas,
-        "portfolio_factor_betas": portfolio_factor_betas,
-        "factor_vols":            df_factor_vols,         
-        "weighted_factor_var":    weighted_factor_var,
-        "euler_variance_pct":  euler_var_pct,
-        "asset_vol_summary":      df_asset,
-        "portfolio_returns":      port_ret,
-        "variance_decomposition": compute_portfolio_variance_breakdown(
-        weights, idio_var_dict, weighted_factor_var, vol_m),
+        "euler_variance_pct": euler_var_pct,
         "industry_variance": {
-        "absolute": industry_var_dict,
-        "percent_of_portfolio": industry_pct_dict,
-        "per_industry_group_beta": industry_groups,
+            "absolute": industry_var_dict,
+            "percent_of_portfolio": industry_pct_dict,
+            "per_industry_group_beta": industry_groups,
+        },
+        "variance_decomposition": variance_decomposition,
     }
+
+
+def compute_asset_vol_summary(
+    df_ret: pd.DataFrame,
+    weights: Dict[str, float],
+    idio_var_dict: Dict[str, float],
+    stock_perf_metrics: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Build per-asset volatility and idiosyncratic summary table.
+    """
+    _ = df_ret  # Kept for interface stability and parity with stage decomposition.
+
+    w_series = pd.Series(weights)
+    vol_a_series = stock_perf_metrics.get("Vol A", pd.Series(dtype=float)).reindex(w_series.index)
+
+    idio_var_a = pd.Series(idio_var_dict).reindex(w_series.index)
+    idio_vol_a = idio_var_a.pow(0.5)
+    weighted_idio_vol = idio_vol_a * w_series
+    weighted_idio_var_model = w_series.pow(2) * idio_var_a
+
+    df_asset = pd.DataFrame(
+        {
+            "Vol A": vol_a_series,
+            "Weighted Vol A": vol_a_series * w_series,
+            "Idio Vol A": idio_vol_a,
+            "Weighted Idio Vol A": weighted_idio_vol,
+            "Weighted Idio Var": weighted_idio_var_model,
+        }
+    )
+
+    perf_cols = [c for c in stock_perf_metrics.columns if c != "Vol A"]
+    if perf_cols:
+        perf_df = (
+            stock_perf_metrics.reindex(w_series.index)[perf_cols]
+            .replace([np.inf, -np.inf], 0.0)
+            .fillna(0.0)
+        )
+        df_asset = df_asset.join(perf_df)
+
+    return df_asset
+
+@log_error_handling("high")
+@log_portfolio_operation_decorator("portfolio_analysis")
+@log_cache_operations("portfolio_analysis")
+@log_performance(3.0)
+def build_portfolio_view(
+    weights: Dict[str, float],
+    start_date: str,
+    end_date: str,
+    expected_returns: Optional[Dict[str, float]] = None,
+    stock_factor_proxies: Optional[Dict[str, Dict[str, Union[str, List[str]]]]] = None,
+    asset_classes: Optional[Dict[str, str]] = None,
+    fmp_ticker_map: Optional[Dict[str, str]] = None,
+    currency_map: Optional[Dict[str, str]] = None,
+) -> Dict[str, Any]:
+    """
+    Build comprehensive portfolio view with LRU caching.
+    
+    This is the main entry point for portfolio analysis. It uses LRU caching
+    to keep recently accessed portfolio analyses in memory for fast retrieval.
+    
+    Performance:
+    - First call: ~2-3 seconds (full computation)
+    - Recent calls: ~10ms (LRU cache hit)
+    - Memory: Bounded to 100 most recent analyses
+
+    Notes:
+    - asset_classes enables rate factor injection for holdings classified as
+      'bond' or 'real_estate' (REITs). Cash proxies are excluded by
+      classification. When None, behaves like the
+      pre-integration implementation.
+    - All return series prefer total-return pricing; when adjusted data is
+      unavailable, close-only series are used as a fallback.
+    - currency_map enables FX-adjusted returns for non-USD holdings.
+    """
+    # Serialize parameters for LRU cache
+    weights_json = serialize_for_cache(weights)
+    expected_returns_json = serialize_for_cache(expected_returns)
+    stock_factor_proxies_json = serialize_for_cache(stock_factor_proxies)
+    fmp_ticker_map_json = serialize_for_cache(fmp_ticker_map)
+    currency_map_json = serialize_for_cache(currency_map)
+
+    # Rate beta cache mask and version
+    bond_mask_json = _build_bond_injection_mask(asset_classes, weights)
+    cache_version = "rbeta_v2"
+
+    # Return cached computation keyed by bond mask and version
+    return _cached_build_portfolio_view(
+        weights_json, start_date, end_date, expected_returns_json, stock_factor_proxies_json,
+        bond_mask_json, cache_version, fmp_ticker_map_json, currency_map_json
+    )
+
+@log_error_handling("high")
+def _build_portfolio_view_computation(
+    weights: Dict[str, float],
+    start_date: str,
+    end_date: str,
+    expected_returns: Optional[Dict[str, float]] = None,
+    stock_factor_proxies: Optional[Dict[str, Dict[str, Union[str, List[str]]]]] = None,
+    asset_classes: Optional[Dict[str, str]] = None,
+    fmp_ticker_map: Optional[Dict[str, str]] = None,
+    currency_map: Optional[Dict[str, str]] = None,
+) -> Dict[str, Any]:
+    """Build a complete portfolio risk profile."""
+    # Stage 0: Portfolio return setup
+    df_ret = get_returns_dataframe(
+        weights,
+        start_date,
+        end_date,
+        fmp_ticker_map=fmp_ticker_map,
+        currency_map=currency_map,
+    )
+
+    valid_tickers = set(df_ret.columns)
+    excluded_tickers = [t for t in weights if t not in valid_tickers]
+
+    if excluded_tickers:
+        from utils.logging import portfolio_logger
+
+        # Filter to valid tickers only
+        valid_weights = {t: w for t, w in weights.items() if t in valid_tickers}
+        total_valid_weight = sum(valid_weights.values())
+
+        if total_valid_weight > 0:
+            # Re-normalize so weights sum to 1.0
+            weights = {t: w / total_valid_weight for t, w in valid_weights.items()}
+
+            portfolio_logger.warning(
+                f"📊 WEIGHTS RE-NORMALIZED: Excluded {len(excluded_tickers)} ticker(s) "
+                f"[{', '.join(excluded_tickers)}]. "
+                f"Remaining {len(weights)} positions re-normalized from {total_valid_weight:.1%} to 100%."
+            )
+        else:
+            raise ValueError(
+                f"Cannot compute portfolio view: all tickers excluded. "
+                f"Excluded: {excluded_tickers}"
+            )
+
+    df_alloc = compute_target_allocations(weights, expected_returns)
+    port_ret = compute_portfolio_returns(df_ret, weights)
+    cov_mat = compute_covariance_matrix(df_ret)
+    corr_mat = compute_correlation_matrix(df_ret)
+    vol_m = compute_portfolio_volatility(weights, cov_mat)
+    vol_a = vol_m * np.sqrt(12)
+    rc = compute_risk_contributions(weights, cov_mat)
+    hhi = compute_herfindahl(weights)
+
+    # Stage 1-2a: Factor analysis
+    factor_result = compute_factor_exposures(
+        weights=weights,
+        df_ret=df_ret,
+        stock_factor_proxies=stock_factor_proxies,
+        asset_classes=asset_classes,
+        start_date=start_date,
+        end_date=end_date,
+        fmp_ticker_map=fmp_ticker_map,
+    )
+
+    # Stage 2b-3: Variance attribution
+    var_result = compute_variance_attribution(
+        weights=weights,
+        cov_mat=cov_mat,
+        stock_factor_proxies=stock_factor_proxies,
+        weighted_factor_var=factor_result["weighted_factor_var"],
+        idio_var_dict=factor_result["idio_var_dict"],
+        vol_m=vol_m,
+        df_stock_betas=factor_result["df_stock_betas_raw"],
+    )
+
+    # Stage 4: Per-stock performance + per-asset summary
+    stock_perf = compute_stock_performance_metrics(
+        df_ret,
+        risk_free_rate=0.04,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    df_asset = compute_asset_vol_summary(
+        df_ret=df_ret,
+        weights=weights,
+        idio_var_dict=factor_result["idio_var_dict"],
+        stock_perf_metrics=stock_perf,
+    )
+
+    return {
+        "allocations": df_alloc,
+        "covariance_matrix": cov_mat,
+        "correlation_matrix": corr_mat,
+        "volatility_monthly": vol_m,
+        "volatility_annual": vol_a,
+        "risk_contributions": rc,
+        "herfindahl": hhi,
+        "df_stock_betas": factor_result["df_stock_betas"],
+        "portfolio_factor_betas": factor_result["portfolio_factor_betas"],
+        "factor_vols": factor_result["df_factor_vols"],
+        "weighted_factor_var": factor_result["weighted_factor_var"],
+        "euler_variance_pct": var_result["euler_variance_pct"],
+        "asset_vol_summary": df_asset,
+        "portfolio_returns": port_ret,
+        "variance_decomposition": var_result["variance_decomposition"],
+        "industry_variance": var_result["industry_variance"],
     }
 
 
@@ -1272,6 +1410,25 @@ def _build_portfolio_view_computation(
 
 
 # ── run_portfolio_risk.py ────────────────────────────────────────────
+
+def _get_risk_free_rate(
+    risk_free_rate: Optional[float],
+    start_date: str,
+    end_date: str,
+) -> float:
+    """Return annual risk-free rate in decimal units."""
+    if risk_free_rate is not None:
+        return float(risk_free_rate)
+
+    try:
+        from data_loader import fetch_monthly_treasury_rates
+
+        treasury_rates = fetch_monthly_treasury_rates("month3", start_date, end_date)
+        return float(treasury_rates.mean() / 100.0)
+    except Exception as e:
+        print(f"⚠️  Treasury rate fetch failed: {type(e).__name__}: {e}")
+        print("   Using 4% default risk-free rate")
+        return 0.04
 
 def calculate_portfolio_performance_metrics(
     weights: Dict[str, float],
@@ -1392,17 +1549,7 @@ def calculate_portfolio_performance_metrics(
     except Exception as e:
         return {"error": f"Could not fetch benchmark data for {benchmark_ticker}: {str(e)}"}
     
-    # Calculate risk-free rate if not provided
-    if risk_free_rate is None:
-        try:
-            # Use 3-month Treasury rates from FMP (actual yields, not ETF returns)
-            from data_loader import fetch_monthly_treasury_rates
-            treasury_rates = fetch_monthly_treasury_rates("month3", start_date, end_date)
-            risk_free_rate = treasury_rates.mean() / 100  # Convert percentage to decimal
-        except Exception as e:
-            print(f"⚠️  Treasury rate fetch failed: {type(e).__name__}: {e}")
-            print(f"   Using 4% default risk-free rate")
-            risk_free_rate = 0.04  # 4% default if can't fetch
+    risk_free_rate = _get_risk_free_rate(risk_free_rate, start_date, end_date)
     
     from core.performance_metrics_engine import compute_performance_metrics
     performance_metrics = compute_performance_metrics(

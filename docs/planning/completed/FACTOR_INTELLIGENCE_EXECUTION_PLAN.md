@@ -218,7 +218,7 @@ Quick test
 
 ### PR 9 — Documentation Updates (0.5–1 day) 🔄 Partial
 - Update user‑facing and developer docs to reflect new features and endpoints:
-  - Backend: `docs/API_REFERENCE.md` (new POST factor‑intelligence endpoints), `docs/backend_architecture.md` (service + router), `docs/DATA_SCHEMAS.md` (asset_etf_proxies, industry_proxies.sector_group), `docs/DATABASE_REFERENCE.md` (admin CLI and migrations).
+  - Backend: `docs/API_REFERENCE.md` (new POST factor‑intelligence endpoints), `docs/architecture/legacy/backend_architecture.md` (service + router), `docs/DATA_SCHEMAS.md` (asset_etf_proxies, industry_proxies.sector_group), `docs/DATABASE_REFERENCE.md` (admin CLI and migrations).
   - Planning: Link FACTOR_INTELLIGENCE_ENGINE_DESIGN, IMPLEMENTATION_ARCHITECTURE, and EXECUTION_PLAN from the README and add a short overview.
   - Admin: `admin/README.md` (asset‑proxy CLI usage, examples, dry‑run guidance).
   - Frontend: add/adjust the client service docs where applicable.

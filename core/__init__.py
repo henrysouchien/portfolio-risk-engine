@@ -1,12 +1,8 @@
 """
 Core package for risk module data objects and exceptions.
 
-Exports select factor intelligence helpers for convenience.
+Factor intelligence helpers are available via `core.factor_intelligence` directly.
+Convenience re-exports were removed to break a circular import chain:
+  data_loader → settings → utils/security_type_mappings → inputs → core/__init__
+  → core/factor_intelligence → data_loader (partially loaded)
 """
-
-from .factor_intelligence import (
-    load_asset_class_proxies,
-    load_industry_buckets,
-    fetch_factor_universe,
-    build_factor_returns_panel,
-)

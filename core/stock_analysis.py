@@ -4,6 +4,18 @@
 """
 Core stock analysis business logic.
 
+Called by:
+- ``run_risk.run_stock`` wrapper path.
+- Service/API stock-analysis flows.
+
+Calls into:
+- Factor/risk helper modules for regression and proxy construction.
+- ``core.result_objects.StockAnalysisResult`` for response contract.
+
+Contract notes:
+- Returns canonical ``StockAnalysisResult`` for CLI/API formatting layers.
+- Supports both equity and bond-style analysis paths.
+
 Updates:
 - Asset class detection: Optional asset_class parameter (auto-detected when None)
   enables bond-specific rate factor analysis.
@@ -18,7 +30,7 @@ import pandas as pd
 from typing import Dict, Any, Optional, Union, List
 from datetime import datetime, UTC
 
-from run_portfolio_risk import load_portfolio_config
+from core.portfolio_config import load_portfolio_config
 from risk_summary import (
     get_detailed_stock_factor_profile,
     get_stock_risk_profile

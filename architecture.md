@@ -623,23 +623,53 @@ monitor_cli = result.to_monitor_cli(by_account=True)
 ### MCP Server Integration (Claude Code)
 
 **Model Context Protocol Server for Claude Code**:
-The Risk Module includes a FastMCP server that exposes portfolio analysis tools directly to Claude Code for AI-assisted portfolio management.
+The Risk Module includes three FastMCP servers that expose portfolio analysis, financial data, and IBKR trading tools directly to Claude Code.
 
-**MCP Server** (`mcp_server.py`):
+#### Configuration File Locations
+
+| What | File | Notes |
+|------|------|-------|
+| **Server definitions** (spawn commands, args, env) | **`~/.claude.json`** → `mcpServers` section | NOT in `~/.claude/settings.json`. This is where `claude mcp add -s user` writes. |
+| **Tool permissions** (global) | `~/.claude/settings.local.json` → `permissions.allow` | Format: `mcp__{server-name}__{tool_name}` |
+| **Tool permissions** (project) | `.claude/settings.local.json` → `permissions.allow` | Same format, project-scoped |
+| **Project server overrides** | `~/.claude.json` → `projects.{path}.mcpServers` | Empty `{}` means use global servers |
+
+**To view registered servers:**
+```bash
+# From CLI (cannot run inside a Claude session)
+claude mcp list
+
+# Direct config inspection (always works)
+python3 -c "import json; print(json.dumps(json.load(open('$HOME/.claude.json')).get('mcpServers',{}), indent=2))"
+```
+
+#### Process Model
+
+Each Claude Code session spawns its **own** MCP server process via stdio pipes. Multiple sessions = multiple processes of the same server. The `/mcp` reconnect command only affects the current session's process. Shared resources (IBKR Gateway, database connections) may cause cross-session conflicts.
+
+#### Server Registration
+
+```bash
+cd /Users/henrychien/Documents/Jupyter/risk_module
+
+# portfolio-mcp (16 tools)
+claude mcp add portfolio-mcp -s user -e RISK_MODULE_USER_EMAIL=hc@henrychien.com -- python3 mcp_server.py
+
+# fmp-mcp (14 tools)
+claude mcp add fmp-mcp -s user -- python3 fmp_mcp_server.py
+
+# ibkr-mcp (6 tools)
+claude mcp add ibkr-mcp -s user -- python3 ibkr_mcp_server.py
+
+# Run standalone for testing
+python3 mcp_server.py
+```
+
+**MCP Server** (`mcp_server.py` / portfolio-mcp):
 - **FastMCP Framework**: Lightweight MCP server using the `fastmcp` library
 - **Tool Registration**: Exposes tools to Claude Code via `@mcp.tool()` decorator
 - **User Resolution**: Uses `RISK_MODULE_USER_EMAIL` environment variable for default user
 - **Server Name**: `portfolio-mcp` with portfolio analysis instructions
-
-**MCP Server Setup**:
-```bash
-# Register with Claude Code (with default user email)
-cd /Users/henrychien/Documents/Jupyter/risk_module
-claude mcp add portfolio-mcp -e RISK_MODULE_USER_EMAIL=you@example.com -- python mcp_server.py
-
-# Run standalone for testing
-python mcp_server.py
-```
 
 **Available MCP Tools** (portfolio-mcp, 16 tools):
 
@@ -681,10 +711,16 @@ python mcp_server.py
 | `get_events_calendar` | `type`, `from_date`, `to_date` | Corporate event calendars (earnings, dividends, splits, IPOs) |
 | `get_earnings_transcript` | `ticker`, `year`, `quarter` | Earnings call transcript parsing (remarks, Q&A, per-speaker) |
 
-**FMP MCP Server Setup**:
-```bash
-claude mcp add fmp-mcp -- python3 fmp_mcp_server.py
-```
+**IBKR MCP Server** (`ibkr_mcp_server.py`, 6 tools):
+
+| Tool | Key Parameters | Description |
+|------|------------|-------------|
+| `get_ibkr_market_data` | `symbol`, `instrument_type`, `duration`, `bar_size` | Historical price data via IBKR Gateway |
+| `get_ibkr_positions` | (none) | Current IBKR account positions |
+| `get_ibkr_account` | `field` | Account summary (NetLiquidation, TotalCash, etc.) |
+| `get_ibkr_contract` | `symbol`, `sec_type`, `mode` | Contract details or option chain |
+| `get_ibkr_option_prices` | `symbol`, `expiry`, `right`, `strike` | Live option pricing |
+| `get_ibkr_snapshot` | `symbols`, `instrument_type` | Real-time price snapshots |
 
 **Tool Implementation Pattern** (`mcp_tools/`):
 ```python
@@ -4040,7 +4076,7 @@ The system includes sophisticated tools for managing the complexity of the 4-int
 
 #### Alignment Tools
 
-**1. Interface Alignment Table (`docs/interface_alignment_table.md`)**
+**1. Interface Alignment Table (`docs/architecture/legacy/interface_alignment_table.md`)**
 - **Purpose**: Complete mapping of 39 functions across 4 interfaces
 - **Categories**: 9 functional categories (Core Analysis, Portfolio Management, etc.)
 - **Status Tracking**: Alignment percentages and gap identification

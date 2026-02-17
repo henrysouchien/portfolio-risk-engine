@@ -19,6 +19,7 @@ from factor_utils import (
     fetch_excess_return,
     fetch_peer_median_monthly_returns
 )
+from portfolio_risk import compute_stock_performance_metrics
 
 # Import logging decorators for risk summary analysis
 from utils.logging import (
@@ -74,6 +75,16 @@ def get_stock_risk_profile(
 
     vol_metrics  = compute_volatility(df_ret["stock"])
     risk_metrics = compute_regression_metrics(df_ret)
+
+    stock_perf = compute_stock_performance_metrics(
+        pd.DataFrame({"stock": df_ret["stock"]}),
+        risk_free_rate=0.04,
+        start_date=str(start_date),
+        end_date=str(end_date),
+    )
+    if "stock" in stock_perf.index:
+        vol_metrics["sharpe_ratio"] = float(stock_perf.loc["stock", "Sharpe"])
+        vol_metrics["sortino_ratio"] = float(stock_perf.loc["stock", "Sortino"])
 
     return {
         "vol_metrics":  vol_metrics,

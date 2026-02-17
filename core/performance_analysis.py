@@ -4,18 +4,26 @@
 """
 Core portfolio performance analysis business logic.
 
-This module orchestrates the performance analysis pipeline, loading portfolio
-configuration, standardizing inputs (including total portfolio value), and
-producing a PerformanceResult suitable for API and CLI consumption. Dividend
-metrics are included when available, using a current‑yield method integrated
-into the performance engine.
+Agent orientation:
+    Canonical pure-function performance entrypoint used beneath service and CLI
+    wrappers. Start here when performance API/CLI outputs diverge.
+
+Called by:
+    - ``run_risk.run_portfolio_performance`` (dual-mode wrapper)
+    - ``services.portfolio_service.PortfolioService.analyze_performance``
+
+Primary flow:
+    1) Load portfolio config.
+    2) Standardize weights and total value.
+    3) Run performance engine.
+    4) Return ``PerformanceResult`` or error payload.
 """
 
 import pandas as pd
 from typing import Dict, Any, Optional, Union
 from datetime import datetime, UTC
 
-from run_portfolio_risk import (
+from core.portfolio_config import (
     load_portfolio_config,
     standardize_portfolio_input,
     latest_price,
@@ -37,12 +45,12 @@ from utils.logging import (
 @log_performance(5.0)
 def analyze_performance(filepath: str, benchmark_ticker: str = "SPY") -> Union[PerformanceResult, Dict[str, Any]]:
     """
-    Core portfolio performance analysis business logic.
-    
-    This function contains the pure business logic extracted from run_portfolio_performance(),
-    without any CLI or dual‑mode concerns. It also forwards total portfolio value to
-    the performance engine so that dividend metrics can include estimated annual
-    dividends and top contributors when available.
+    Run pure portfolio performance analysis for one portfolio config.
+
+    Contract notes:
+    - Success path returns ``PerformanceResult``.
+    - Error path returns legacy dict payload for backward compatibility.
+    - Dividend metrics depend on total portfolio value threading.
     
     Parameters
     ----------

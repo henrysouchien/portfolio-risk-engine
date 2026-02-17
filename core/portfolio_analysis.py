@@ -3,23 +3,38 @@
 
 """
 Core portfolio analysis business logic.
-Extracted from run_risk.py as part of the refactoring to create a clean service layer.
+
+Agent orientation:
+    This is the canonical pure-function risk analysis entrypoint for portfolio
+    analysis. Start here when debugging risk metrics drift between CLI/API.
+
+Called by:
+    - ``run_risk.run_portfolio`` (dual-mode wrapper)
+    - ``services.portfolio_service.PortfolioService.analyze_portfolio``
+
+Primary flow:
+    1) Resolve portfolio/risk config.
+    2) Standardize weights/exposures.
+    3) Build portfolio risk view.
+    4) Evaluate risk/beta checks.
+    5) Return ``RiskAnalysisResult``.
 """
 
-import yaml
 from typing import Dict, Any, Optional, Union
 from datetime import datetime, UTC
 
 from core.result_objects import RiskAnalysisResult
-from core.data_objects import PortfolioData
+from core.data_objects import PortfolioData, RiskLimitsData
+from core.config_adapters import resolve_portfolio_config, resolve_risk_config
 
-from run_portfolio_risk import (
-    load_portfolio_config,
+from core.portfolio_config import (
     standardize_portfolio_input,
     latest_price,
+    get_cash_positions,
+)
+from run_portfolio_risk import (
     evaluate_portfolio_risk_limits,
     evaluate_portfolio_beta_limits,
-    get_cash_positions,
 )
 from portfolio_risk import build_portfolio_view
 from risk_helpers import calc_max_factor_betas
@@ -33,74 +48,30 @@ from utils.logging import (
 )
 
 
-def _config_from_portfolio_data(portfolio_data: PortfolioData) -> Dict[str, Any]:
-    """
-    Build a config dict compatible with load_portfolio_config() output
-    using a PortfolioData object.
-    """
-    config: Dict[str, Any] = {
-        "portfolio_input": portfolio_data.standardized_input or portfolio_data.portfolio_input,
-        "start_date": portfolio_data.start_date,
-        "end_date": portfolio_data.end_date,
-        "stock_factor_proxies": portfolio_data.stock_factor_proxies,
-        "fmp_ticker_map": portfolio_data.fmp_ticker_map,
-        "currency_map": portfolio_data.currency_map,
-        "expected_returns": portfolio_data.expected_returns,
-        "name": portfolio_data.portfolio_name or "Portfolio",
-    }
-
-    fmp_ticker_map = config.get("fmp_ticker_map")
-    currency_map = config.get("currency_map")
-    if fmp_ticker_map:
-        price_fetcher = lambda t: latest_price(
-            t,
-            fmp_ticker_map=fmp_ticker_map,
-            currency=currency_map.get(t) if currency_map else None,
-        )
-    else:
-        price_fetcher = lambda t: latest_price(
-            t,
-            currency=currency_map.get(t) if currency_map else None,
-        )
-    parsed = standardize_portfolio_input(
-        config["portfolio_input"],
-        price_fetcher,
-        currency_map=currency_map,
-        fmp_ticker_map=fmp_ticker_map,
-    )
-
-    config.update(
-        weights=parsed["weights"],
-        dollar_exposure=parsed["dollar_exposure"],
-        total_value=parsed["total_value"],
-        net_exposure=parsed["net_exposure"],
-        gross_exposure=parsed["gross_exposure"],
-        leverage=parsed["leverage"],
-    )
-    return config
-
-
 @log_error_handling("high")
 @log_portfolio_operation_decorator("portfolio_analysis")
 @log_performance(3.0)
 def analyze_portfolio(
     portfolio: Union[str, PortfolioData],
-    risk_yaml: str = "risk_limits.yaml",
+    risk_limits: Union[str, RiskLimitsData, Dict[str, Any], None] = "risk_limits.yaml",
     *,
     asset_classes: Optional[Dict[str, str]] = None
 ) -> RiskAnalysisResult:
     """
-    Core portfolio analysis business logic.
-    
-    This function contains the pure business logic extracted from run_portfolio(),
-    without any CLI or dual-mode concerns.
+    Run pure portfolio risk analysis and return ``RiskAnalysisResult``.
+
+    Contract notes:
+    - ``portfolio`` accepts YAML path or ``PortfolioData``.
+    - ``risk_limits`` accepts YAML path, typed object, raw dict, or ``None``.
+    - Returned object is the canonical contract for downstream API/service layers.
     
     Parameters
     ----------
     portfolio : Union[str, PortfolioData]
         Portfolio YAML filepath or a PortfolioData object.
-    risk_yaml : str, default "risk_limits.yaml"
-        Path to the risk limits YAML file to use for analysis.
+    risk_limits : Union[str, RiskLimitsData, Dict[str, Any], None], default "risk_limits.yaml"
+        Risk limits input as file path, typed object, raw dict, or None
+        (None falls back to default risk limits YAML).
         
     Returns
     -------
@@ -110,15 +81,8 @@ def analyze_portfolio(
     """
     
     # ─── 1. Load Inputs ─────────────────────────────
-    if isinstance(portfolio, str):
-        config = load_portfolio_config(portfolio)
-        filepath = portfolio
-    else:
-        config = _config_from_portfolio_data(portfolio)
-        filepath = None
-    
-    with open(risk_yaml, "r") as f:
-        risk_config = yaml.safe_load(f)
+    config, filepath = resolve_portfolio_config(portfolio)
+    risk_config = resolve_risk_config(risk_limits)
 
     # Get full standardized portfolio data (including exposure metrics)
     fmp_ticker_map = config.get("fmp_ticker_map")
@@ -177,7 +141,6 @@ def analyze_portfolio(
     # ─── 3. Calculate Beta Limits ────────────────────────────
     lookback_years = PORTFOLIO_DEFAULTS.get('worst_case_lookback_years', 10)
     max_betas, max_betas_by_proxy, historical_analysis = calc_max_factor_betas(
-        risk_yaml=risk_yaml,
         lookback_years=lookback_years,
         echo=False,  # Don't print helper tables when capturing output
         stock_factor_proxies=config.get("stock_factor_proxies"),

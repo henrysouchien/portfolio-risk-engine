@@ -1,8 +1,21 @@
 """Realized portfolio performance analysis pipeline.
 
-Builds monthly, cash-inclusive portfolio returns from transaction history and
-current holdings, then computes risk/performance metrics via the shared
-performance metrics engine.
+Called by:
+- ``services.portfolio_service.PortfolioService.analyze_realized_performance``.
+- MCP/API wrappers that need realized-performance payloads.
+
+Calls into:
+- Transaction fetch/routing in ``trading_analysis.data_fetcher``.
+- Provider-flow extraction in ``providers/flows``.
+- FIFO normalization/matching in ``trading_analysis``.
+- Shared metrics engine in ``core.performance_metrics_engine``.
+
+Primary flow:
+1. Build current holdings context and fetch source-scoped transactions.
+2. Normalize transactions to FIFO + income events.
+3. Reconcile provider-authoritative flows vs inferred fallback flows.
+4. Build monthly NAV/return series and compute performance metrics.
+5. Return ``RealizedPerformanceResult``-compatible payload.
 """
 
 from __future__ import annotations
@@ -11,6 +24,7 @@ import json
 import os
 import re
 from collections import Counter, defaultdict
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
@@ -21,24 +35,42 @@ from core.performance_metrics_engine import compute_performance_metrics
 from factor_utils import calc_monthly_returns
 from data_loader import fetch_monthly_close, fetch_monthly_treasury_rates
 from fmp.fx import get_monthly_fx_series
+from ibkr.compat import (
+    fetch_ibkr_bond_monthly_close,
+    fetch_ibkr_fx_monthly_close,
+    fetch_ibkr_monthly_close,
+    fetch_ibkr_option_monthly_mark,
+    get_ibkr_futures_fmp_map,
+)
+from providers.fmp_price import FMPPriceProvider
+from providers.flows.common import build_slice_key
+from providers.flows.extractor import extract_provider_flow_events
+from providers.ibkr_price import IBKRPriceProvider
+from providers.interfaces import PriceSeriesProvider
+from providers.normalizers.schwab import get_schwab_security_lookup
+from providers.registry import ProviderRegistry
 from settings import (
     BACKFILL_FILE_PATH,
     DATA_QUALITY_THRESHOLDS,
     REALIZED_COVERAGE_TARGET,
     REALIZED_MAX_INCOMPLETE_TRADES,
     REALIZED_MAX_RECONCILIATION_GAP_PCT,
+    REALIZED_PROVIDER_FLOWS_REQUIRE_COVERAGE,
+    REALIZED_PROVIDER_FLOW_SOURCES,
+    REALIZED_USE_PROVIDER_FLOWS,
 )
 from trading_analysis.analyzer import TradingAnalyzer
-from trading_analysis.data_fetcher import fetch_transactions_for_source
+from trading_analysis.data_fetcher import fetch_transactions_for_source, match_institution
 from trading_analysis.fifo_matcher import FIFOMatcher, IncompleteTrade, OpenLot
 from trading_analysis.instrument_meta import InstrumentMeta, coerce_instrument_type
-from utils.ticker_resolver import load_exchange_mappings
+from trading_analysis.symbol_utils import parse_option_contract_identity_from_symbol
 
 
 TYPE_ORDER = {
     "SELL": 0,
     "SHORT": 1,
     "INCOME": 2,
+    "PROVIDER_FLOW": 2,
     "BUY": 3,
     "COVER": 4,
 }
@@ -191,24 +223,282 @@ def _option_fifo_terminal_series(
     return series.sort_index()
 
 
+def _option_expiry_datetime(
+    symbol: str,
+    contract_identity: dict[str, Any] | None,
+) -> Optional[datetime]:
+    expiry_token: Any = None
+    if isinstance(contract_identity, dict):
+        expiry_token = contract_identity.get("expiry")
+
+    if expiry_token in (None, ""):
+        parsed = parse_option_contract_identity_from_symbol(symbol)
+        if isinstance(parsed, dict):
+            expiry_token = parsed.get("expiry")
+
+    if expiry_token in (None, ""):
+        return None
+
+    if isinstance(expiry_token, datetime):
+        return expiry_token.replace(tzinfo=None)
+
+    token = str(expiry_token).strip()
+    if not token:
+        return None
+
+    for fmt in ("%Y%m%d", "%y%m%d"):
+        if token.isdigit() and len(token) == len(datetime.now().strftime(fmt)):
+            try:
+                return datetime.strptime(token, fmt)
+            except ValueError:
+                continue
+
+    try:
+        return pd.Timestamp(token).to_pydatetime().replace(tzinfo=None)
+    except Exception:
+        return None
+
+
+@dataclass
+class PriceResult:
+    series: pd.Series
+    success_provider: str | None = None
+    attempts: list[tuple[str, str, Exception | None]] = field(default_factory=list)
+
+
+def _build_default_price_registry() -> ProviderRegistry:
+    registry = ProviderRegistry()
+    registry.register_price_provider(
+        FMPPriceProvider(fetcher=fetch_monthly_close),
+        priority=10,
+    )
+    registry.register_price_provider(
+        IBKRPriceProvider(
+            futures_fetcher=fetch_ibkr_monthly_close,
+            fx_fetcher=fetch_ibkr_fx_monthly_close,
+            bond_fetcher=fetch_ibkr_bond_monthly_close,
+            option_fetcher=fetch_ibkr_option_monthly_mark,
+        ),
+        priority=20,
+    )
+    return registry
+
+
+def _fetch_price_from_chain(
+    providers: list[PriceSeriesProvider],
+    symbol: str,
+    start_date: datetime,
+    end_date: datetime,
+    *,
+    instrument_type: str,
+    contract_identity: dict[str, Any] | None,
+    fmp_ticker_map: dict[str, str] | None,
+) -> PriceResult:
+    result = PriceResult(series=pd.Series(dtype=float))
+    for provider in providers:
+        if (
+            instrument_type == "option"
+            and provider.provider_name == "ibkr"
+            and not (isinstance(contract_identity, dict) and contract_identity)
+        ):
+            result.attempts.append((provider.provider_name, "skipped_missing_contract_identity", None))
+            continue
+
+        try:
+            series = provider.fetch_monthly_close(
+                symbol,
+                start_date,
+                end_date,
+                instrument_type=instrument_type,
+                contract_identity=contract_identity,
+                fmp_ticker_map=fmp_ticker_map,
+            )
+            if not isinstance(series, pd.Series):
+                series = pd.Series(dtype=float)
+            normalized = _series_from_cache(series)
+            if not normalized.empty and not normalized.dropna().empty:
+                result.series = normalized
+                result.success_provider = provider.provider_name
+                result.attempts.append((provider.provider_name, "success", None))
+                return result
+            result.attempts.append((provider.provider_name, "empty", None))
+        except Exception as exc:
+            result.attempts.append((provider.provider_name, "error", exc))
+    return result
+
+
+def _emit_pricing_diagnostics(
+    *,
+    ticker: str,
+    instrument_type: str,
+    contract_identity: dict[str, Any] | None,
+    result: PriceResult,
+    warnings: list[str],
+    ibkr_priced_symbols: dict[str, set[str]],
+) -> str:
+    unpriceable_reason = "no_price_data"
+
+    def _status_code(exc: Exception) -> int | None:
+        raw = getattr(exc, "status_code", None)
+        try:
+            return int(raw)
+        except Exception:
+            return None
+
+    def _fmp_error_message(exc: Exception) -> str:
+        status_code = _status_code(exc)
+        if status_code == 402:
+            if instrument_type == "futures":
+                return (
+                    f"FMP plan does not include futures symbol {ticker} (HTTP 402); "
+                    "using IBKR fallback."
+                )
+            if instrument_type == "fx":
+                return f"FMP plan does not include FX symbol {ticker} (HTTP 402); trying IBKR fallback."
+            if instrument_type == "bond":
+                return f"FMP plan does not include bond symbol {ticker} (HTTP 402); trying IBKR fallback."
+            if instrument_type == "option":
+                return f"FMP plan does not include option symbol {ticker} (HTTP 402); trying IBKR fallback."
+            return f"FMP plan does not include symbol {ticker} (HTTP 402)."
+
+        if instrument_type == "futures":
+            return f"FMP price fetch failed for futures {ticker}: {exc}; trying IBKR fallback."
+        if instrument_type == "fx":
+            return f"FMP price fetch failed for FX {ticker}: {exc}; trying IBKR fallback."
+        if instrument_type == "bond":
+            return f"FMP price fetch failed for bond {ticker}: {exc}; trying IBKR fallback."
+        return f"Price fetch failed for {ticker}: {exc}"
+
+    for provider_name, outcome, exc in result.attempts:
+        if provider_name == "fmp" and outcome == "error" and exc is not None:
+            warnings.append(_fmp_error_message(exc))
+            if _status_code(exc) == 402:
+                unpriceable_reason = f"{instrument_type}_fmp_plan_blocked"
+            else:
+                unpriceable_reason = f"{instrument_type}_fmp_error"
+
+    if result.success_provider == "ibkr":
+        if instrument_type == "futures":
+            warnings.append(
+                f"Priced futures {ticker} via IBKR Gateway fallback ({len(result.series)} monthly bars)."
+            )
+        elif instrument_type == "fx":
+            warnings.append(
+                f"Priced FX {ticker} via IBKR Gateway fallback ({len(result.series)} monthly bars)."
+            )
+        elif instrument_type == "bond":
+            warnings.append(
+                f"Priced bond {ticker} via IBKR Gateway fallback ({len(result.series)} monthly bars)."
+            )
+        elif instrument_type == "option":
+            warnings.append(
+                f"Priced option {ticker} via IBKR Gateway fallback ({len(result.series)} monthly bars)."
+            )
+        ibkr_priced_symbols[instrument_type].add(ticker)
+        return unpriceable_reason
+
+    ibkr_attempt = next((a for a in result.attempts if a[0] == "ibkr"), None)
+    if ibkr_attempt:
+        _, outcome, exc = ibkr_attempt
+        if outcome == "skipped_missing_contract_identity":
+            if instrument_type == "option":
+                warnings.append(
+                    f"Skipped IBKR fallback for option {ticker}: missing contract_identity "
+                    "(requires con_id or expiry/strike/right)."
+                )
+                unpriceable_reason = "option_missing_contract_identity"
+        elif outcome == "empty":
+            if instrument_type == "futures":
+                warnings.append(
+                    f"IBKR fallback returned no data for futures {ticker} (Gateway may not be running)."
+                )
+                unpriceable_reason = "futures_ibkr_no_data"
+            elif instrument_type == "fx":
+                warnings.append(
+                    f"IBKR fallback returned no data for FX {ticker} (Gateway may not be running)."
+                )
+                unpriceable_reason = "fx_ibkr_no_data"
+            elif instrument_type == "bond":
+                warnings.append(
+                    f"IBKR fallback returned no data for bond {ticker} (Gateway/entitlements may be unavailable)."
+                )
+                unpriceable_reason = "bond_ibkr_no_data"
+            elif instrument_type == "option":
+                if not contract_identity:
+                    warnings.append(
+                        f"No contract_identity available for option {ticker}; IBKR option pricing may fail."
+                    )
+                warnings.append(
+                    f"IBKR fallback returned no data for option {ticker} (entitlements or contract details may be unavailable)."
+                )
+                unpriceable_reason = "option_no_fifo_or_ibkr_data"
+        elif outcome == "error" and exc is not None:
+            if instrument_type == "futures":
+                warnings.append(f"IBKR fallback also failed for futures {ticker}: {exc}")
+                unpriceable_reason = "futures_ibkr_error"
+            elif instrument_type == "fx":
+                warnings.append(f"IBKR fallback also failed for FX {ticker}: {exc}")
+                unpriceable_reason = "fx_ibkr_error"
+            elif instrument_type == "bond":
+                warnings.append(f"IBKR fallback also failed for bond {ticker}: {exc}")
+                unpriceable_reason = "bond_ibkr_error"
+            elif instrument_type == "option":
+                warnings.append(f"IBKR fallback also failed for option {ticker}: {exc}")
+                unpriceable_reason = "option_ibkr_error"
+
+    return unpriceable_reason
+
+
 def _month_end_range(start: datetime, end: datetime) -> List[datetime]:
     """Build month-end date list for [start, end]."""
+    # Normalize to calendar dates so month-end anchors do not inherit
+    # provider event time-of-day (which can break benchmark alignment).
+    start_ts = pd.Timestamp(start).normalize()
+    end_ts = pd.Timestamp(end).normalize()
     month_ends = [
         dt.to_pydatetime().replace(tzinfo=None)
-        for dt in pd.date_range(pd.Timestamp(start), pd.Timestamp(end), freq="ME")
+        for dt in pd.date_range(start_ts, end_ts, freq="ME")
     ]
     if month_ends:
         return month_ends
-    return [pd.Timestamp(start).to_period("M").to_timestamp("M").to_pydatetime().replace(tzinfo=None)]
+    return [start_ts.to_period("M").to_timestamp("M").to_pydatetime().replace(tzinfo=None)]
 
 
-def _build_current_positions(positions: "PositionResult") -> Tuple[Dict[str, Dict[str, Any]], Dict[str, str], List[str]]:
+def _normalize_monthly_index(series: Optional[pd.Series]) -> pd.Series:
+    """Normalize a monthly series index to canonical month-end midnight timestamps."""
+    if series is None or len(series) == 0:
+        return pd.Series(dtype=float)
+
+    out = series.copy()
+    idx = pd.DatetimeIndex(pd.to_datetime(out.index))
+    if idx.tz is not None:
+        idx = idx.tz_convert(None)
+    normalized_idx = idx.to_period("M").to_timestamp("M")
+    out.index = pd.DatetimeIndex(normalized_idx)
+    out = out[~out.index.duplicated(keep="last")]
+    return out.sort_index()
+
+
+def _build_current_positions(
+    positions: "PositionResult",
+    institution: Optional[str] = None,
+) -> Tuple[Dict[str, Dict[str, Any]], Dict[str, str], List[str]]:
     """Build ticker->position map and fmp_ticker map from PositionResult."""
     current_positions: Dict[str, Dict[str, Any]] = {}
     fmp_ticker_map: Dict[str, str] = {}
     warnings: List[str] = []
+    filtered_positions = 0
+    missing_brokerage_name = 0
 
     for pos in positions.data.positions:
+        if institution:
+            brokerage_name = str(pos.get("brokerage_name") or "")
+            if not match_institution(brokerage_name, institution):
+                filtered_positions += 1
+                if not brokerage_name.strip():
+                    missing_brokerage_name += 1
+                continue
+
         ticker = pos.get("ticker")
         if not ticker or not isinstance(ticker, str):
             continue
@@ -263,6 +553,12 @@ def _build_current_positions(positions: "PositionResult") -> Tuple[Dict[str, Dic
         fmp_ticker = pos.get("fmp_ticker")
         if isinstance(fmp_ticker, str) and fmp_ticker.strip() and ticker not in fmp_ticker_map:
             fmp_ticker_map[ticker] = fmp_ticker.strip()
+
+    if institution and filtered_positions:
+        warnings.append(
+            f"Institution filter '{institution}': excluded {filtered_positions} position row(s)"
+            f" ({missing_brokerage_name} missing brokerage_name)."
+        )
 
     return current_positions, fmp_ticker_map, warnings
 
@@ -925,6 +1221,10 @@ def derive_cash_and_external_flows(
     fifo_transactions: List[Dict[str, Any]],
     income_with_currency: List[Dict[str, Any]],
     fx_cache: Dict[str, pd.Series],
+    provider_flow_events: Optional[List[Dict[str, Any]]] = None,
+    *,
+    disable_inference_when_provider_mode: bool = True,
+    force_disable_inference: bool = False,
 ) -> Tuple[List[Tuple[datetime, float]], List[Tuple[datetime, float]]]:
     """Replay trades+income stream to derive cash and net external capital flows.
 
@@ -963,12 +1263,31 @@ def derive_cash_and_external_flows(
             }
         )
 
+    for provider_flow in provider_flow_events or []:
+        date = _to_datetime(provider_flow.get("timestamp") or provider_flow.get("date"))
+        if date is None:
+            continue
+        amount = _as_float(provider_flow.get("amount"), 0.0)
+        if amount == 0:
+            continue
+        events.append(
+            {
+                "date": date,
+                "event_type": "PROVIDER_FLOW",
+                "amount": amount,
+                "currency": str(provider_flow.get("currency") or "USD").upper(),
+                "is_external_flow": bool(provider_flow.get("is_external_flow")),
+            }
+        )
+
     events.sort(key=lambda e: (e["date"], TYPE_ORDER.get(e["event_type"], 99)))
 
     cash = 0.0
     outstanding_injections = 0.0
     cash_snapshots: List[Tuple[datetime, float]] = []
     external_flows: List[Tuple[datetime, float]] = []
+    provider_mode = bool(provider_flow_events)
+    inference_enabled = ((not provider_mode) or (not disable_inference_when_provider_mode)) and not force_disable_inference
 
     for event in events:
         fx = _event_fx_rate(event.get("currency", "USD"), event["date"], fx_cache)
@@ -984,15 +1303,25 @@ def derive_cash_and_external_flows(
             cash -= (event["price"] * event["quantity"] + event["fee"]) * fx
         elif event_type == "INCOME":
             cash += event.get("amount", 0.0) * fx
+        elif event_type == "PROVIDER_FLOW":
+            signed_amount = event.get("amount", 0.0) * fx
+            cash += signed_amount
+            if bool(event.get("is_external_flow")):
+                external_flows.append((event["date"], signed_amount))
 
-        if cash < 0:
+        # When provider flows are supplied for this replay, treat them as the
+        # authoritative capital-flow source for the branch and disable inferred
+        # contribution/withdrawal generation entirely.
+        apply_inferred_adjustments = inference_enabled
+
+        if apply_inferred_adjustments and cash < 0:
             injection = abs(cash)
             external_flows.append((event["date"], injection))
             outstanding_injections += injection
             cash = 0.0
 
         # Repay previously inferred contributions before carrying excess cash.
-        if cash > 0 and outstanding_injections > 0:
+        if apply_inferred_adjustments and cash > 0 and outstanding_injections > 0:
             withdrawal = min(cash, outstanding_injections)
             if withdrawal > 0:
                 external_flows.append((event["date"], -withdrawal))
@@ -1220,17 +1549,370 @@ def _income_with_currency(
     for symbol, pos in current_positions.items():
         symbol_currency_map.setdefault(symbol, str(pos.get("currency") or "USD").upper())
 
-    return [
-        {
-            "symbol": inc.symbol,
-            "date": inc.date,
-            "amount": _as_float(inc.amount, 0.0),
-            "income_type": inc.income_type,
-            "currency": symbol_currency_map.get(inc.symbol, "USD"),
-            "source": inc.source,
+    rows: List[Dict[str, Any]] = []
+    for inc in analyzer.income_events:
+        direct_currency = str(getattr(inc, "currency", "") or "").strip().upper()
+        rows.append(
+            {
+                "symbol": inc.symbol,
+                "date": inc.date,
+                "amount": _as_float(inc.amount, 0.0),
+                "income_type": inc.income_type,
+                "currency": direct_currency or symbol_currency_map.get(inc.symbol, "USD"),
+                "source": inc.source,
+                "institution": getattr(inc, "institution", "") or "",
+                "account_id": _normalize_optional_identifier(getattr(inc, "account_id", None)),
+                "account_name": _normalize_optional_identifier(getattr(inc, "account_name", None)),
+            }
+        )
+    return rows
+
+
+def _normalize_optional_identifier(value: Any) -> str | None:
+    """Return stripped identifier string or ``None`` when empty."""
+
+    text = str(value or "").strip()
+    return text or None
+
+
+def _flow_slice_key(
+    *,
+    provider: Any,
+    institution: Any,
+    account_id: Any,
+    provider_account_ref: Any,
+    account_name: Any,
+) -> str:
+    """Build canonical provider/institution/account key for flow authority slices."""
+
+    return build_slice_key(
+        provider=str(provider or "unknown").strip().lower() or "unknown",
+        institution=_normalize_optional_identifier(institution),
+        account_id=_normalize_optional_identifier(account_id),
+        provider_account_ref=_normalize_optional_identifier(provider_account_ref),
+        account_name=_normalize_optional_identifier(account_name),
+    )
+
+
+def _provider_flow_event_sort_key(event: Dict[str, Any]) -> Tuple[str, datetime, str, str, str]:
+    """Stable sort key for deterministic provider-flow event deduplication."""
+
+    provider = str(event.get("provider") or "unknown").strip().lower()
+    timestamp = _to_datetime(event.get("timestamp") or event.get("date")) or datetime.min
+    transaction_id = str(event.get("transaction_id") or "")
+    account_id = str(event.get("account_id") or "")
+    fingerprint = str(event.get("provider_row_fingerprint") or "")
+    return provider, timestamp, transaction_id, account_id, fingerprint
+
+
+def _deduplicate_provider_flow_events(
+    events: List[Dict[str, Any]],
+) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    """Deduplicate provider flow events and return diagnostics.
+
+    Dedup semantics:
+    - Prefer transaction-id keys when available.
+    - Fall back to provider/account/date/amount/type fingerprint when needed.
+    - Fail-open for rows lacking safe identity fields (kept, not dropped).
+    """
+
+    seen: set[Tuple[Any, ...]] = set()
+    deduped: List[Dict[str, Any]] = []
+    dropped_by_provider: Dict[str, int] = defaultdict(int)
+    dropped_by_slice: Dict[str, int] = defaultdict(int)
+
+    for event in sorted(events, key=_provider_flow_event_sort_key):
+        provider = str(event.get("provider") or "unknown").strip().lower()
+        slice_key = _flow_slice_key(
+            provider=provider,
+            institution=event.get("institution"),
+            account_id=event.get("account_id"),
+            provider_account_ref=event.get("provider_account_ref"),
+            account_name=event.get("account_name"),
+        )
+        canonical_identity = slice_key.split("|")[-1]
+        transaction_id = str(event.get("transaction_id") or "").strip()
+
+        dedup_key: Tuple[Any, ...] | None
+        if transaction_id:
+            dedup_key = ("txn_id", provider, canonical_identity, transaction_id)
+        else:
+            timestamp = _to_datetime(event.get("timestamp") or event.get("date"))
+            raw_description = str(event.get("raw_description") or "").strip()
+            fingerprint = str(event.get("provider_row_fingerprint") or "").strip()
+            if not raw_description and not fingerprint:
+                # Fail-open: insufficient identity for safe dedup.
+                dedup_key = None
+            else:
+                dedup_key = (
+                    "fallback",
+                    provider,
+                    canonical_identity,
+                    timestamp.isoformat() if timestamp else "",
+                    round(_as_float(event.get("amount"), 0.0), 8),
+                    str(event.get("currency") or "USD").upper(),
+                    str(event.get("raw_type") or ""),
+                    str(event.get("raw_subtype") or ""),
+                    raw_description,
+                    fingerprint,
+                )
+
+        if dedup_key is not None and dedup_key in seen:
+            dropped_by_provider[provider] += 1
+            dropped_by_slice[slice_key] += 1
+            continue
+
+        if dedup_key is not None:
+            seen.add(dedup_key)
+        deduped.append(event)
+
+    diagnostics = {
+        "input_count": len(events),
+        "output_count": len(deduped),
+        "duplicates_dropped_by_provider": dict(sorted(dropped_by_provider.items())),
+        "duplicates_dropped_by_slice": dict(sorted(dropped_by_slice.items())),
+    }
+    return deduped, diagnostics
+
+
+def _build_provider_flow_authority(
+    events: List[Dict[str, Any]],
+    fetch_metadata: List[Dict[str, Any]],
+    *,
+    require_coverage: bool,
+) -> Tuple[Dict[str, Dict[str, Any]], List[str]]:
+    """Build slice-level authority map for provider-reported flow usage.
+
+    Decision semantics:
+    - Slice is authoritative when it has provider events.
+    - Slice may also be authoritative with deterministic no-flow metadata
+      (clean metadata indicates no events for that window).
+    - ``require_coverage`` is retained for interface compatibility but does not
+      gate authority in current direct-first mode.
+    """
+
+    # Gate-free mode: provider-reported events are authoritative when present.
+    # ``require_coverage`` is retained for interface compatibility, but authority
+    # no longer fails closed on metadata quality flags.
+    _ = require_coverage
+    authority: Dict[str, Dict[str, Any]] = {}
+    fallback_reasons: List[str] = []
+    event_count_by_slice: Dict[str, int] = defaultdict(int)
+
+    for event in events:
+        key = _flow_slice_key(
+            provider=event.get("provider"),
+            institution=event.get("institution"),
+            account_id=event.get("account_id"),
+            provider_account_ref=event.get("provider_account_ref"),
+            account_name=event.get("account_name"),
+        )
+        event_count_by_slice[key] += 1
+
+    metadata_by_slice: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    for row in fetch_metadata:
+        key = _flow_slice_key(
+            provider=row.get("provider"),
+            institution=row.get("institution"),
+            account_id=row.get("account_id"),
+            provider_account_ref=row.get("provider_account_ref"),
+            account_name=row.get("account_name"),
+        )
+        metadata_by_slice[key].append(row)
+
+    all_slices = set(event_count_by_slice.keys()) | set(metadata_by_slice.keys())
+    for key in sorted(all_slices):
+        slice_metadata = metadata_by_slice.get(key, [])
+        event_count = int(event_count_by_slice.get(key, 0))
+        has_metadata = len(slice_metadata) > 0
+        has_error = any(str(row.get("fetch_error") or "").strip() for row in slice_metadata)
+        has_partial = any(
+            bool(row.get("partial_data")) or row.get("pagination_exhausted") is False
+            for row in slice_metadata
+        )
+        unmapped_row_count = int(sum(_as_float(row.get("unmapped_row_count"), 0.0) for row in slice_metadata))
+        has_unmapped = unmapped_row_count > 0
+        has_snaptrade_sync_gap = any(_is_snaptrade_sync_gap_metadata_row(row) for row in slice_metadata)
+
+        coverage_starts = [
+            _to_datetime(row.get("payload_coverage_start") or row.get("fetch_window_start"))
+            for row in slice_metadata
+        ]
+        coverage_ends = [
+            _to_datetime(row.get("payload_coverage_end") or row.get("fetch_window_end"))
+            for row in slice_metadata
+        ]
+        coverage_start = min((dt for dt in coverage_starts if dt is not None), default=None)
+        coverage_end = max((dt for dt in coverage_ends if dt is not None), default=None)
+
+        deterministic_no_flow = (
+            has_metadata
+            and event_count == 0
+            and (
+                (not has_error and not has_partial and not has_unmapped)
+                or (has_snaptrade_sync_gap and not has_error and not has_unmapped)
+            )
+        )
+        authoritative = event_count > 0 or deterministic_no_flow
+
+        reason = ""
+        if not authoritative:
+            if event_count == 0 and has_metadata and not has_error and not has_partial and not has_unmapped:
+                reason = "no_provider_events_with_clean_metadata"
+            elif event_count == 0 and not has_metadata:
+                reason = "missing_fetch_metadata"
+            else:
+                reason = "no_provider_events"
+            fallback_reasons.append(f"{key}:{reason}")
+
+        authority[key] = {
+            "authoritative": authoritative,
+            "has_metadata": has_metadata,
+            "event_count": event_count,
+            "coverage_start": coverage_start,
+            "coverage_end": coverage_end,
+            "has_error": has_error,
+            "has_partial": has_partial,
+            "deterministic_no_flow": deterministic_no_flow,
+            "unmapped_row_count": unmapped_row_count,
         }
-        for inc in analyzer.income_events
-    ]
+
+    return authority, sorted(set(fallback_reasons))
+
+
+def _is_snaptrade_sync_gap_metadata_row(row: Dict[str, Any]) -> bool:
+    """Detect SnapTrade metadata rows indicating transactions-sync initialization gap."""
+
+    provider = str(row.get("provider") or "").strip().lower()
+    if provider != "snaptrade":
+        return False
+    diagnostic_code = str(row.get("diagnostic_code") or "").strip().lower()
+    transactions_sync_initialized = row.get("transactions_sync_initialized")
+    row_count = int(_as_float(row.get("row_count"), 0.0))
+    return (
+        diagnostic_code == "snaptrade_transactions_sync_uninitialized"
+        or (transactions_sync_initialized is False and row_count == 0)
+    )
+
+
+def _build_fetch_metadata_warnings(
+    fetch_metadata: List[Dict[str, Any]],
+    *,
+    source: str,
+    institution: Optional[str],
+) -> List[str]:
+    """Build user-facing warnings from provider fetch-metadata diagnostics."""
+
+    warnings: List[str] = []
+    seen: set[str] = set()
+    source_filter = str(source or "all").strip().lower()
+
+    for row in fetch_metadata:
+        provider = str(row.get("provider") or "").strip().lower()
+        if source_filter != "all" and provider != source_filter:
+            continue
+
+        row_institution = str(row.get("institution") or "")
+        if institution and row_institution and not match_institution(row_institution, institution):
+            continue
+
+        is_snaptrade_sync_gap = _is_snaptrade_sync_gap_metadata_row(row)
+        if not is_snaptrade_sync_gap:
+            continue
+
+        institution_label = row_institution.strip() or "unknown institution"
+        account_label = (
+            str(row.get("account_name") or "").strip()
+            or str(row.get("account_id") or "").strip()
+            or "unknown account"
+        )
+
+        warning = (
+            f"SnapTrade transaction reporting is unavailable for {institution_label} ({account_label}); "
+            "account activities returned zero rows. Use provider-native transaction feeds "
+            "(for example, IBKR Flex for Interactive Brokers) for realized-performance history."
+        )
+        if warning in seen:
+            continue
+        seen.add(warning)
+        warnings.append(warning)
+
+    return warnings
+
+
+def _is_authoritative_slice(
+    authority: Dict[str, Dict[str, Any]],
+    *,
+    provider: Any,
+    institution: Any,
+    account_id: Any,
+    provider_account_ref: Any,
+    account_name: Any,
+    event_date: datetime,
+) -> bool:
+    return _authoritative_slice_status(
+        authority,
+        provider=provider,
+        institution=institution,
+        account_id=account_id,
+        provider_account_ref=provider_account_ref,
+        account_name=account_name,
+        event_date=event_date,
+    ) == "authoritative_in_window"
+
+
+def _authoritative_slice_status(
+    authority: Dict[str, Dict[str, Any]],
+    *,
+    provider: Any,
+    institution: Any,
+    account_id: Any,
+    provider_account_ref: Any,
+    account_name: Any,
+    event_date: datetime,
+) -> str:
+    key = _flow_slice_key(
+        provider=provider,
+        institution=institution,
+        account_id=account_id,
+        provider_account_ref=provider_account_ref,
+        account_name=account_name,
+    )
+    row = authority.get(key)
+    if not row or not bool(row.get("authoritative")):
+        return "non_authoritative"
+
+    start = _to_datetime(row.get("coverage_start"))
+    end = _to_datetime(row.get("coverage_end"))
+    if start is not None and event_date < start:
+        return "authoritative_out_of_window"
+    if end is not None and event_date > end:
+        return "authoritative_out_of_window"
+    return "authoritative_in_window"
+
+
+def _combine_cash_snapshots(
+    inference_snapshots: List[Tuple[datetime, float]],
+    provider_cash_deltas: List[Tuple[datetime, float]],
+) -> List[Tuple[datetime, float]]:
+    inference_deltas: List[Tuple[datetime, float]] = []
+    prev_cash = 0.0
+    for when, cash_value in sorted(inference_snapshots, key=lambda row: row[0]):
+        delta = _as_float(cash_value, 0.0) - prev_cash
+        prev_cash = _as_float(cash_value, 0.0)
+        inference_deltas.append((when, delta))
+
+    combined_events: List[Tuple[datetime, int, float]] = []
+    combined_events.extend((when, 0, _as_float(delta, 0.0)) for when, delta in inference_deltas)
+    combined_events.extend((when, 1, _as_float(delta, 0.0)) for when, delta in provider_cash_deltas)
+    combined_events.sort(key=lambda row: (row[0], row[1]))
+
+    cash = 0.0
+    snapshots: List[Tuple[datetime, float]] = []
+    for when, _order, delta in combined_events:
+        cash += delta
+        snapshots.append((when, cash))
+    return snapshots
 
 
 def _normalize_source_name(value: Any) -> str:
@@ -1516,6 +2198,7 @@ def _summarize_income_usd(
 ) -> Dict[str, float]:
     """Aggregate income fields in USD using event-date FX normalization."""
     by_month_usd: Dict[str, float] = defaultdict(float)
+    by_institution: Dict[str, Dict[str, float]] = defaultdict(lambda: {"dividends": 0.0, "interest": 0.0, "total": 0.0})
     total_dividends_usd = 0.0
     total_interest_usd = 0.0
 
@@ -1530,10 +2213,14 @@ def _summarize_income_usd(
         by_month_usd[month_key] += amount_usd
 
         income_type = str(event.get("income_type") or "").lower()
+        inst_key = str(event.get("institution") or "unknown").strip() or "unknown"
         if income_type == "dividend":
             total_dividends_usd += amount_usd
+            by_institution[inst_key]["dividends"] += amount_usd
         else:
             total_interest_usd += amount_usd
+            by_institution[inst_key]["interest"] += amount_usd
+        by_institution[inst_key]["total"] += amount_usd
 
     total_income_usd = total_dividends_usd + total_interest_usd
     months = sorted(by_month_usd.keys())
@@ -1542,10 +2229,17 @@ def _summarize_income_usd(
     else:
         current_monthly_usd = total_income_usd / max(len(months), 1)
 
+    # Round by_institution values for clean output
+    by_institution_rounded = {
+        k: {sub_k: round(sub_v, 2) for sub_k, sub_v in v.items()}
+        for k, v in sorted(by_institution.items())
+    }
+
     return {
         "total": float(total_income_usd),
         "dividends": float(total_dividends_usd),
         "interest": float(total_interest_usd),
+        "by_institution": by_institution_rounded,
         "current_monthly_rate": float(current_monthly_usd),
         "projected_annual": float(current_monthly_usd * 12.0),
     }
@@ -1556,33 +2250,109 @@ def analyze_realized_performance(
     user_email: str,
     benchmark_ticker: str = "SPY",
     source: str = "all",
+    institution: Optional[str] = None,
     include_series: bool = False,
     backfill_path: Optional[str] = None,
+    price_registry: ProviderRegistry | None = None,
 ) -> Union["RealizedPerformanceResult", Dict[str, Any]]:
-    """Compute realized performance metrics and realized metadata from transactions."""
+    """Compute realized performance metrics and realized metadata from transactions.
+
+    Called by:
+    - Service/API orchestration paths that return realized performance payloads.
+
+    Calls into:
+    - ``fetch_transactions_for_source`` for transaction retrieval.
+    - ``extract_provider_flow_events`` for provider-authoritative cash flows.
+    - ``TradingAnalyzer`` for normalization/FIFO preprocessing.
+    - ``compute_performance_metrics`` for shared metric computation.
+
+    Source and authority semantics:
+    - ``source=all`` allows orchestrated multi-provider fetch and provider-flow
+      coverage checks.
+    - Non-``all`` source constrains transaction fetch path, while holdings remain
+      institution-filtered for NAV valuation.
+    - Provider flow events are used directly when configured and sufficiently
+      covered; otherwise the path falls back to inferred cash-flow reconstruction.
+
+    Debug pointer:
+    - If realized returns look wrong, inspect ``warnings`` and
+      ``realized_metadata.provider_flow_coverage`` first.
+    """
     warnings: List[str] = []
 
     try:
         source = source.lower().strip()
-        if source not in {"all", "snaptrade", "plaid", "ibkr_flex"}:
-            return {"status": "error", "message": "source must be one of: all, snaptrade, plaid, ibkr_flex"}
+        price_registry = price_registry or _build_default_price_registry()
+        institution = (institution or "").strip() or None
+        if source not in {"all", "snaptrade", "plaid", "ibkr_flex", "schwab"}:
+            return {
+                "status": "error",
+                "message": "source must be one of: all, snaptrade, plaid, ibkr_flex, schwab",
+            }
 
-        current_positions, fmp_ticker_map, build_warnings = _build_current_positions(positions)
+        current_positions, fmp_ticker_map, build_warnings = _build_current_positions(
+            positions,
+            institution=institution,
+        )
         warnings.extend(build_warnings)
 
         if source != "all":
             warnings.append(
-                "source filter applies to transactions; current positions remain consolidated for NAV and valuation. "
-                "Short-inference gap logic uses source-aligned holdings when attributable."
+                "source filter applies to transactions; current positions are filtered only by institution "
+                "(when provided), not by source, for NAV and valuation. Short-inference gap logic uses "
+                "source-aligned holdings when attributable."
             )
 
-        payload = fetch_transactions_for_source(user_email=user_email, source=source)
+        fetch_result = fetch_transactions_for_source(user_email=user_email, source=source)
+        payload = getattr(fetch_result, "payload", fetch_result)
+        fetch_metadata_rows = list(getattr(fetch_result, "fetch_metadata", []) or [])
+        warnings.extend(
+            _build_fetch_metadata_warnings(
+                fetch_metadata_rows,
+                source=source,
+                institution=institution,
+            )
+        )
+        schwab_security_lookup = get_schwab_security_lookup(
+            user_email=user_email,
+            source=source,
+            payload=payload,
+        )
+        provider_first_mode = bool(REALIZED_USE_PROVIDER_FLOWS)
+        enabled_provider_flow_sources = {
+            str(token or "").strip().lower()
+            for token in REALIZED_PROVIDER_FLOW_SOURCES
+            if str(token or "").strip()
+        }
+        provider_flow_events_raw: List[Dict[str, Any]] = []
+        provider_fetch_metadata: List[Dict[str, Any]] = []
+        dedup_diagnostics: Dict[str, Any] = {}
+        provider_flow_coverage: Dict[str, Dict[str, Any]] = {}
+        flow_fallback_reasons: List[str] = []
+        flow_source_breakdown = {
+            "provider_authoritative_applied": 0,
+            "provider_authoritative_available": 0,
+            "provider_diagnostics_only": 0,
+            "inferred": 0,
+        }
+
+        if provider_first_mode:
+            try:
+                provider_flow_events_raw, provider_fetch_metadata = extract_provider_flow_events(fetch_result)
+            except Exception as exc:
+                warnings.append(
+                    f"Provider-flow extraction unavailable; using inference-only cash flow reconstruction: {exc}"
+                )
+                provider_first_mode = False
 
         analyzer = TradingAnalyzer(
             plaid_securities=payload.get("plaid_securities", []),
             plaid_transactions=payload.get("plaid_transactions", []),
             snaptrade_activities=payload.get("snaptrade_activities", []),
             ibkr_flex_trades=payload.get("ibkr_flex_trades"),
+            ibkr_flex_cash_rows=payload.get("ibkr_flex_cash_rows"),
+            schwab_transactions=payload.get("schwab_transactions", []),
+            schwab_security_lookup=schwab_security_lookup,
             use_fifo=True,
         )
 
@@ -1606,9 +2376,19 @@ def analyze_realized_performance(
             warnings.append(
                 f"Injected {len(backfill_transactions)} backfill entry transaction(s) from {effective_backfill_path}."
             )
+        if institution:
+            pre_count = len(fifo_transactions)
+            fifo_transactions = [
+                txn
+                for txn in fifo_transactions
+                if match_institution(txn.get("_institution") or "", institution)
+            ]
+            warnings.append(
+                f"Institution filter '{institution}': {len(fifo_transactions)}/{pre_count} transactions matched."
+            )
         fifo_transactions.sort(key=lambda t: _to_datetime(t.get("date")) or datetime.min)
 
-        futures_map = load_exchange_mappings().get("ibkr_futures_to_fmp", {})
+        futures_map = get_ibkr_futures_fmp_map()
         equity_symbols = {
             str(txn.get("symbol") or "").strip().upper()
             for txn in fifo_transactions
@@ -1639,15 +2419,92 @@ def analyze_realized_performance(
 
         now = datetime.now(UTC).replace(tzinfo=None)
         if fifo_transactions:
-            inception_date = min(_to_datetime(t.get("date")) for t in fifo_transactions if _to_datetime(t.get("date")) is not None)
-            inception_date = inception_date or (now - timedelta(days=365))
+            inception_from_transactions = min(
+                _to_datetime(t.get("date"))
+                for t in fifo_transactions
+                if _to_datetime(t.get("date")) is not None
+            )
+            inception_from_transactions = inception_from_transactions or (now - timedelta(days=365))
         else:
-            inception_date = now - timedelta(days=365)
+            inception_from_transactions = now - timedelta(days=365)
             warnings.append(
                 "No transaction history found; using 12-month synthetic inception for current holdings."
             )
 
         income_with_currency = _income_with_currency(analyzer, fifo_transactions, current_positions)
+        if institution:
+            income_with_currency = [
+                inc
+                for inc in income_with_currency
+                if match_institution(inc.get("institution") or "", institution)
+            ]
+
+        provider_flow_events: List[Dict[str, Any]] = []
+        first_authoritative_provider_flow_date: datetime | None = None
+        if provider_first_mode:
+            provider_flow_events = [
+                row
+                for row in provider_flow_events_raw
+                if str(row.get("provider") or "").strip().lower() in enabled_provider_flow_sources
+            ]
+            provider_fetch_metadata = [
+                row
+                for row in provider_fetch_metadata
+                if str(row.get("provider") or "").strip().lower() in enabled_provider_flow_sources
+            ]
+
+            if institution:
+                provider_flow_events = [
+                    row
+                    for row in provider_flow_events
+                    if match_institution(str(row.get("institution") or ""), institution)
+                ]
+                provider_fetch_metadata = [
+                    row
+                    for row in provider_fetch_metadata
+                    if match_institution(str(row.get("institution") or ""), institution)
+                ]
+
+            provider_flow_events, dedup_diagnostics = _deduplicate_provider_flow_events(provider_flow_events)
+            provider_flow_coverage, flow_fallback_reasons = _build_provider_flow_authority(
+                provider_flow_events,
+                provider_fetch_metadata,
+                require_coverage=bool(REALIZED_PROVIDER_FLOWS_REQUIRE_COVERAGE),
+            )
+
+            for event in provider_flow_events:
+                when = _to_datetime(event.get("timestamp") or event.get("date"))
+                if when is None:
+                    continue
+                is_authoritative = _is_authoritative_slice(
+                    provider_flow_coverage,
+                    provider=event.get("provider"),
+                    institution=event.get("institution"),
+                    account_id=event.get("account_id"),
+                    provider_account_ref=event.get("provider_account_ref"),
+                    account_name=event.get("account_name"),
+                    event_date=when,
+                )
+                if not is_authoritative:
+                    continue
+                if first_authoritative_provider_flow_date is None or when < first_authoritative_provider_flow_date:
+                    first_authoritative_provider_flow_date = when
+
+        inception_candidates = [inception_from_transactions]
+        first_income_date = min(
+            (
+                _to_datetime(row.get("date"))
+                for row in income_with_currency
+                if _to_datetime(row.get("date")) is not None
+            ),
+            default=None,
+        )
+        if first_income_date is not None:
+            inception_candidates.append(first_income_date)
+        if provider_first_mode and first_authoritative_provider_flow_date is not None:
+            inception_candidates.append(first_authoritative_provider_flow_date)
+
+        inception_date = min(inception_candidates)
 
         latest_event_date = inception_date
         for txn in fifo_transactions:
@@ -1656,6 +2513,10 @@ def analyze_realized_performance(
                 latest_event_date = dt
         for inc in income_with_currency:
             dt = _to_datetime(inc.get("date"))
+            if dt and dt > latest_event_date:
+                latest_event_date = dt
+        for event in provider_flow_events:
+            dt = _to_datetime(event.get("timestamp") or event.get("date"))
             if dt and dt > latest_event_date:
                 latest_event_date = dt
         end_date = max(now, latest_event_date)
@@ -1667,6 +2528,8 @@ def analyze_realized_performance(
             currencies.add(str(txn.get("currency") or "USD").upper())
         for inc in income_with_currency:
             currencies.add(str(inc.get("currency") or "USD").upper())
+        for event in provider_flow_events:
+            currencies.add(str(event.get("currency") or "USD").upper())
         fx_cache = _build_fx_cache(
             currencies=currencies,
             inception_date=inception_date,
@@ -1828,148 +2691,104 @@ def analyze_realized_performance(
                             break
 
                 fifo_terminal = _option_fifo_terminal_series(ticker, fifo_transactions, end_date)
-                if not option_still_open and not fifo_terminal.empty and not fifo_terminal.dropna().empty:
-                    norm = _series_from_cache(fifo_terminal)
-                    warnings.append(
-                        f"Priced option {ticker} using FIFO close-price terminal heuristic."
-                    )
-                else:
-                    try:
-                        from services.ibkr_data.compat import fetch_ibkr_option_monthly_mark
+                has_fifo_terminal = not fifo_terminal.empty and not fifo_terminal.dropna().empty
+                option_expiry = _option_expiry_datetime(ticker, contract_identity)
+                end_ts = pd.Timestamp(end_date).to_pydatetime().replace(tzinfo=None)
+                option_expired = option_expiry is not None and option_expiry <= end_ts
+                current_shares = _as_float((current_positions.get(ticker) or {}).get("shares"), 0.0)
+                flat_current_holdings = abs(current_shares) <= 1e-9
 
-                        ibkr_series = fetch_ibkr_option_monthly_mark(
-                            ticker,
-                            start_date=price_fetch_start,
-                            end_date=end_date,
-                            contract_identity=contract_identity,
-                        )
-                        norm = _series_from_cache(ibkr_series)
-                        if not norm.empty and not norm.dropna().empty:
-                            warnings.append(
-                                f"Priced option {ticker} via IBKR Gateway fallback ({len(norm)} monthly bars)."
-                            )
-                            ibkr_priced_symbols["option"].add(ticker)
-                        else:
-                            if not contract_identity:
-                                warnings.append(
-                                    f"No contract_identity available for option {ticker}; IBKR option pricing may fail."
-                                )
-                            warnings.append(
-                                f"IBKR fallback returned no data for option {ticker} (entitlements or contract details may be unavailable)."
-                            )
-                            unpriceable_reason = "option_no_fifo_or_ibkr_data"
-                    except Exception as ibkr_exc:
-                        warnings.append(f"IBKR fallback also failed for option {ticker}: {ibkr_exc}")
-                        unpriceable_reason = "option_ibkr_error"
-            else:
-                try:
-                    series = fetch_monthly_close(
-                        ticker,
-                        start_date=price_fetch_start,
-                        end_date=end_date,
-                        fmp_ticker_map=fmp_ticker_map or None,
-                    )
-                    norm = _series_from_cache(series)
-                except Exception as exc:
-                    norm = pd.Series(dtype=float)
-                    if instrument_type == "futures":
+                if has_fifo_terminal and (
+                    (not option_still_open)
+                    or (option_expired and flat_current_holdings)
+                ):
+                    norm = _series_from_cache(fifo_terminal)
+                    if option_still_open and option_expired and flat_current_holdings and option_expiry is not None:
                         warnings.append(
-                            f"FMP price fetch failed for futures {ticker}: {exc}; trying IBKR fallback."
-                        )
-                    elif instrument_type == "fx":
-                        warnings.append(
-                            f"FMP price fetch failed for FX {ticker}: {exc}; trying IBKR fallback."
-                        )
-                    elif instrument_type == "bond":
-                        warnings.append(
-                            f"FMP price fetch failed for bond {ticker}: {exc}; trying IBKR fallback."
+                            f"Priced expired option {ticker} using FIFO close-price terminal heuristic "
+                            f"(expiry {option_expiry.date().isoformat()}, current holdings flat)."
                         )
                     else:
-                        warnings.append(f"Price fetch failed for {ticker}: {exc}")
-                    unpriceable_reason = f"{instrument_type}_fmp_error"
-
-            if norm.empty or norm.dropna().empty:
-                if instrument_type == "futures":
-                    try:
-                        from services.ibkr_data.compat import fetch_ibkr_monthly_close
-
-                        ibkr_series = fetch_ibkr_monthly_close(
-                            ticker,
-                            start_date=price_fetch_start,
-                            end_date=end_date,
+                        warnings.append(
+                            f"Priced option {ticker} using FIFO close-price terminal heuristic."
                         )
-                        norm = _series_from_cache(ibkr_series)
-                        if not norm.empty and not norm.dropna().empty:
-                            warnings.append(
-                                f"Priced futures {ticker} via IBKR Gateway fallback ({len(norm)} monthly bars)."
-                            )
-                            ibkr_priced_symbols["futures"].add(ticker)
-                        else:
-                            warnings.append(
-                                f"IBKR fallback returned no data for futures {ticker} (Gateway may not be running)."
-                            )
-                            unpriceable_reason = "futures_ibkr_no_data"
-                    except Exception as ibkr_exc:
-                        warnings.append(f"IBKR fallback also failed for futures {ticker}: {ibkr_exc}")
-                        unpriceable_reason = "futures_ibkr_error"
-                elif instrument_type == "fx":
-                    try:
-                        from services.ibkr_data.compat import fetch_ibkr_fx_monthly_close
-
-                        ibkr_series = fetch_ibkr_fx_monthly_close(
-                            ticker,
-                            start_date=price_fetch_start,
-                            end_date=end_date,
-                        )
-                        norm = _series_from_cache(ibkr_series)
-                        if not norm.empty and not norm.dropna().empty:
-                            warnings.append(
-                                f"Priced FX {ticker} via IBKR Gateway fallback ({len(norm)} monthly bars)."
-                            )
-                            ibkr_priced_symbols["fx"].add(ticker)
-                        else:
-                            warnings.append(
-                                f"IBKR fallback returned no data for FX {ticker} (Gateway may not be running)."
-                            )
-                            unpriceable_reason = "fx_ibkr_no_data"
-                    except Exception as ibkr_exc:
-                        warnings.append(f"IBKR fallback also failed for FX {ticker}: {ibkr_exc}")
-                        unpriceable_reason = "fx_ibkr_error"
-                elif instrument_type == "bond":
+                else:
+                    price_result = _fetch_price_from_chain(
+                        price_registry.get_price_chain("option"),
+                        ticker,
+                        price_fetch_start,
+                        end_date,
+                        instrument_type="option",
+                        contract_identity=contract_identity,
+                        fmp_ticker_map=fmp_ticker_map or None,
+                    )
+                    norm = _series_from_cache(price_result.series)
+                    chain_reason = _emit_pricing_diagnostics(
+                        ticker=ticker,
+                        instrument_type="option",
+                        contract_identity=contract_identity,
+                        result=price_result,
+                        warnings=warnings,
+                        ibkr_priced_symbols=ibkr_priced_symbols,
+                    )
+                    if norm.empty or norm.dropna().empty:
+                        unpriceable_reason = chain_reason
+            else:
+                chain = price_registry.get_price_chain(instrument_type)
+                if instrument_type == "bond":
+                    has_ibkr = any(provider.provider_name == "ibkr" for provider in chain)
                     con_id = None
                     if isinstance(contract_identity, dict):
                         con_id = contract_identity.get("con_id")
-                    if con_id in (None, ""):
+                    if has_ibkr and con_id in (None, ""):
                         warnings.append(
                             f"No contract_identity.con_id for bond {ticker}; skipping IBKR bond pricing."
                         )
                         unpriceable_reason = "bond_missing_con_id"
                     else:
-                        try:
-                            from services.ibkr_data.compat import fetch_ibkr_bond_monthly_close
-
-                            ibkr_series = fetch_ibkr_bond_monthly_close(
-                                ticker,
-                                start_date=price_fetch_start,
-                                end_date=end_date,
-                                contract_identity=contract_identity,
-                            )
-                            norm = _series_from_cache(ibkr_series)
-                            if not norm.empty and not norm.dropna().empty:
-                                warnings.append(
-                                    f"Priced bond {ticker} via IBKR Gateway fallback ({len(norm)} monthly bars)."
-                                )
-                                ibkr_priced_symbols["bond"].add(ticker)
-                            else:
-                                warnings.append(
-                                    f"IBKR fallback returned no data for bond {ticker} (Gateway/entitlements may be unavailable)."
-                                )
-                                unpriceable_reason = "bond_ibkr_no_data"
-                        except Exception as ibkr_exc:
-                            warnings.append(f"IBKR fallback also failed for bond {ticker}: {ibkr_exc}")
-                            unpriceable_reason = "bond_ibkr_error"
-                elif instrument_type == "equity":
-                    unpriceable_reason = "equity_no_data"
+                        price_result = _fetch_price_from_chain(
+                            chain,
+                            ticker,
+                            price_fetch_start,
+                            end_date,
+                            instrument_type=instrument_type,
+                            contract_identity=contract_identity,
+                            fmp_ticker_map=fmp_ticker_map or None,
+                        )
+                        norm = _series_from_cache(price_result.series)
+                        chain_reason = _emit_pricing_diagnostics(
+                            ticker=ticker,
+                            instrument_type=instrument_type,
+                            contract_identity=contract_identity,
+                            result=price_result,
+                            warnings=warnings,
+                            ibkr_priced_symbols=ibkr_priced_symbols,
+                        )
+                        if norm.empty or norm.dropna().empty:
+                            unpriceable_reason = chain_reason
+                else:
+                    price_result = _fetch_price_from_chain(
+                        chain,
+                        ticker,
+                        price_fetch_start,
+                        end_date,
+                        instrument_type=instrument_type,
+                        contract_identity=contract_identity,
+                        fmp_ticker_map=fmp_ticker_map or None,
+                    )
+                    norm = _series_from_cache(price_result.series)
+                    chain_reason = _emit_pricing_diagnostics(
+                        ticker=ticker,
+                        instrument_type=instrument_type,
+                        contract_identity=contract_identity,
+                        result=price_result,
+                        warnings=warnings,
+                        ibkr_priced_symbols=ibkr_priced_symbols,
+                    )
+                    if norm.empty or norm.dropna().empty:
+                        unpriceable_reason = chain_reason
+                        if instrument_type == "equity":
+                            unpriceable_reason = "equity_no_data"
 
             if norm.empty or norm.dropna().empty:
                 warnings.append(f"No monthly prices found for {ticker}; valuing as 0 when unavailable.")
@@ -2038,10 +2857,439 @@ def analyze_realized_performance(
             )
         transactions_for_cash = fifo_transactions + synthetic_cash_events
 
-        cash_snapshots, external_flows = derive_cash_and_external_flows(
-            fifo_transactions=transactions_for_cash,
-            income_with_currency=income_with_currency,
-            fx_cache=fx_cache,
+        def _compose_cash_and_external_flows(
+            branch_transactions: List[Dict[str, Any]],
+        ) -> Tuple[List[Tuple[datetime, float]], List[Tuple[datetime, float]], Dict[str, int], Dict[str, Any]]:
+            def _window(dates: List[datetime]) -> Dict[str, Optional[str]]:
+                valid_dates = sorted(dt for dt in dates if dt is not None)
+                if not valid_dates:
+                    return {"start": None, "end": None}
+                return {
+                    "start": valid_dates[0].isoformat(),
+                    "end": valid_dates[-1].isoformat(),
+                }
+
+            def _snapshots_to_deltas(snapshots: List[Tuple[datetime, float]]) -> List[Tuple[datetime, float]]:
+                deltas: List[Tuple[datetime, float]] = []
+                prior_cash = 0.0
+                for when, cash_value in sorted(snapshots, key=lambda row: row[0]):
+                    cash_numeric = _as_float(cash_value, 0.0)
+                    deltas.append((when, cash_numeric - prior_cash))
+                    prior_cash = cash_numeric
+                return deltas
+
+            if not provider_first_mode:
+                cash_snapshots_local, external_flows_local = derive_cash_and_external_flows(
+                    fifo_transactions=branch_transactions,
+                    income_with_currency=income_with_currency,
+                    fx_cache=fx_cache,
+                )
+                inferred_dates = [when for when, _ in external_flows_local]
+                inferred_net_usd = float(sum(_as_float(amount, 0.0) for _, amount in external_flows_local))
+                return cash_snapshots_local, external_flows_local, {
+                    "provider_authoritative_applied": 0,
+                    "provider_authoritative_available": 0,
+                    "provider_diagnostics_only": 0,
+                    "inferred": len(external_flows_local),
+                }, {
+                    "mode": "inference_only",
+                    "fallback_slices_present": False,
+                    "replayed_fallback_provider_activity": False,
+                    "total_inferred_event_count": len(external_flows_local),
+                    "total_inferred_net_usd": round(inferred_net_usd, 2),
+                    "inferred_event_window": _window(inferred_dates),
+                    "by_provider": {},
+                    "by_slice": {},
+                }
+
+            authoritative_events: List[Dict[str, Any]] = []
+            authoritative_available_count = 0
+            diagnostics_only_count = 0
+
+            for event in provider_flow_events:
+                provider = _normalize_source_name(event.get("provider"))
+                if provider not in enabled_provider_flow_sources:
+                    continue
+
+                event_date = _to_datetime(event.get("timestamp") or event.get("date"))
+                if event_date is None:
+                    continue
+
+                is_authoritative = _is_authoritative_slice(
+                    provider_flow_coverage,
+                    provider=provider,
+                    institution=event.get("institution"),
+                    account_id=event.get("account_id"),
+                    provider_account_ref=event.get("provider_account_ref"),
+                    account_name=event.get("account_name"),
+                    event_date=event_date,
+                )
+                if not is_authoritative:
+                    diagnostics_only_count += 1
+                    continue
+
+                authoritative_available_count += 1
+                amount = _as_float(event.get("amount"), 0.0)
+                if amount == 0:
+                    # Keep zero-amount authoritative events visible in diagnostics.
+                    diagnostics_only_count += 1
+                    continue
+
+                authoritative_events.append(event)
+
+            if not authoritative_events:
+                has_deterministic_no_flow_authority = any(
+                    bool(row.get("authoritative")) and bool(row.get("deterministic_no_flow"))
+                    for row in provider_flow_coverage.values()
+                )
+                if has_deterministic_no_flow_authority and not flow_fallback_reasons:
+                    cash_no_inference, external_no_inference = derive_cash_and_external_flows(
+                        fifo_transactions=branch_transactions,
+                        income_with_currency=income_with_currency,
+                        fx_cache=fx_cache,
+                        force_disable_inference=True,
+                    )
+                    return cash_no_inference, external_no_inference, {
+                        "provider_authoritative_applied": 0,
+                        "provider_authoritative_available": authoritative_available_count,
+                        "provider_diagnostics_only": diagnostics_only_count,
+                        "inferred": 0,
+                    }, {
+                        "mode": "provider_authoritative_deterministic_no_flow_no_events",
+                        "fallback_slices_present": False,
+                        "replayed_fallback_provider_activity": False,
+                        "total_inferred_event_count": 0,
+                        "total_inferred_net_usd": 0.0,
+                        "inferred_event_window": {"start": None, "end": None},
+                        "by_provider": {},
+                        "by_slice": {},
+                    }
+
+                fallback_cash, fallback_external = derive_cash_and_external_flows(
+                    fifo_transactions=branch_transactions,
+                    income_with_currency=income_with_currency,
+                    fx_cache=fx_cache,
+                )
+                inferred_dates = [when for when, _ in fallback_external]
+                inferred_net_usd = float(sum(_as_float(amount, 0.0) for _, amount in fallback_external))
+                return fallback_cash, fallback_external, {
+                    "provider_authoritative_applied": 0,
+                    "provider_authoritative_available": authoritative_available_count,
+                    "provider_diagnostics_only": diagnostics_only_count,
+                    "inferred": len(fallback_external),
+                }, {
+                    "mode": "provider_no_authoritative_events",
+                    "fallback_slices_present": bool(flow_fallback_reasons),
+                    "replayed_fallback_provider_activity": False,
+                    "total_inferred_event_count": len(fallback_external),
+                    "total_inferred_net_usd": round(inferred_net_usd, 2),
+                    "inferred_event_window": _window(inferred_dates),
+                    "by_provider": {},
+                    "by_slice": {},
+                }
+
+            has_fallback_slices = bool(flow_fallback_reasons)
+            if not has_fallback_slices:
+                composed_cash, composed_external = derive_cash_and_external_flows(
+                    fifo_transactions=branch_transactions,
+                    income_with_currency=income_with_currency,
+                    fx_cache=fx_cache,
+                    provider_flow_events=authoritative_events,
+                )
+                inferred_count = 0
+                inferred_flow_diagnostics = {
+                    "mode": "provider_authoritative_only",
+                    "fallback_slices_present": False,
+                    "replayed_fallback_provider_activity": False,
+                    "total_inferred_event_count": 0,
+                    "total_inferred_net_usd": 0.0,
+                    "inferred_event_window": {"start": None, "end": None},
+                    "by_provider": {},
+                    "by_slice": {},
+                }
+            else:
+                authoritative_branch_transactions: List[Dict[str, Any]] = []
+                out_of_window_branch_transactions: List[Dict[str, Any]] = []
+                fallback_branch_transactions: List[Dict[str, Any]] = []
+                fallback_provider_activity_count = 0
+                out_of_window_provider_activity_count = 0
+                for txn in branch_transactions:
+                    if str(txn.get("source") or "").strip().lower() == "synthetic_cash_event":
+                        authoritative_branch_transactions.append(txn)
+                        continue
+
+                    event_date = _to_datetime(txn.get("date"))
+                    if event_date is None:
+                        fallback_branch_transactions.append(txn)
+                        continue
+
+                    provider = _normalize_source_name(txn.get("source"))
+                    if provider not in enabled_provider_flow_sources:
+                        fallback_branch_transactions.append(txn)
+                        continue
+
+                    authority_status = _authoritative_slice_status(
+                        provider_flow_coverage,
+                        provider=provider,
+                        institution=txn.get("_institution") or txn.get("institution"),
+                        account_id=txn.get("account_id"),
+                        provider_account_ref=txn.get("provider_account_ref"),
+                        account_name=txn.get("account_name"),
+                        event_date=event_date,
+                    )
+                    if authority_status == "authoritative_in_window":
+                        authoritative_branch_transactions.append(txn)
+                    elif authority_status == "authoritative_out_of_window":
+                        out_of_window_branch_transactions.append(txn)
+                        out_of_window_provider_activity_count += 1
+                    else:
+                        fallback_branch_transactions.append(txn)
+                        fallback_provider_activity_count += 1
+
+                authoritative_branch_income: List[Dict[str, Any]] = []
+                out_of_window_branch_income: List[Dict[str, Any]] = []
+                fallback_branch_income: List[Dict[str, Any]] = []
+                fallback_provider_income_count = 0
+                out_of_window_provider_income_count = 0
+                for inc in income_with_currency:
+                    event_date = _to_datetime(inc.get("date"))
+                    if event_date is None:
+                        fallback_branch_income.append(inc)
+                        continue
+
+                    provider = _normalize_source_name(inc.get("source"))
+                    if provider not in enabled_provider_flow_sources:
+                        fallback_branch_income.append(inc)
+                        continue
+
+                    authority_status = _authoritative_slice_status(
+                        provider_flow_coverage,
+                        provider=provider,
+                        institution=inc.get("institution"),
+                        account_id=inc.get("account_id"),
+                        provider_account_ref=None,
+                        account_name=inc.get("account_name"),
+                        event_date=event_date,
+                    )
+                    if authority_status == "authoritative_in_window":
+                        authoritative_branch_income.append(inc)
+                    elif authority_status == "authoritative_out_of_window":
+                        out_of_window_branch_income.append(inc)
+                        out_of_window_provider_income_count += 1
+                    else:
+                        fallback_branch_income.append(inc)
+                        fallback_provider_income_count += 1
+
+                if fallback_provider_activity_count == 0 and fallback_provider_income_count == 0:
+                    composed_cash, composed_external = derive_cash_and_external_flows(
+                        fifo_transactions=branch_transactions,
+                        income_with_currency=income_with_currency,
+                        fx_cache=fx_cache,
+                        provider_flow_events=authoritative_events,
+                    )
+                    inferred_count = 0
+                    inferred_flow_diagnostics = {
+                        "mode": "provider_authoritative_only_no_fallback_activity",
+                        "fallback_slices_present": True,
+                        "replayed_fallback_provider_activity": False,
+                        "total_inferred_event_count": 0,
+                        "total_inferred_net_usd": 0.0,
+                        "inferred_event_window": {"start": None, "end": None},
+                        "by_provider": {},
+                        "by_slice": {},
+                    }
+                else:
+                    fallback_partitions: Dict[str, Dict[str, Any]] = {}
+
+                    def _partition_key_for_transaction(txn: Dict[str, Any]) -> Tuple[str, str, Optional[str]]:
+                        source = str(txn.get("source") or "").strip().lower()
+                        if source == "synthetic_cash_event":
+                            return "non_provider|synthetic_cash_event", "synthetic_cash_event", None
+
+                        provider = _normalize_source_name(txn.get("source"))
+                        if provider in enabled_provider_flow_sources:
+                            slice_key = _flow_slice_key(
+                                provider=provider,
+                                institution=txn.get("_institution") or txn.get("institution"),
+                                account_id=txn.get("account_id"),
+                                provider_account_ref=txn.get("provider_account_ref"),
+                                account_name=txn.get("account_name"),
+                            )
+                            return f"slice|{slice_key}", provider, slice_key
+
+                        return f"non_provider|{provider}", provider, None
+
+                    def _partition_key_for_income(inc: Dict[str, Any]) -> Tuple[str, str, Optional[str]]:
+                        provider = _normalize_source_name(inc.get("source"))
+                        if provider in enabled_provider_flow_sources:
+                            slice_key = _flow_slice_key(
+                                provider=provider,
+                                institution=inc.get("institution"),
+                                account_id=inc.get("account_id"),
+                                provider_account_ref=None,
+                                account_name=inc.get("account_name"),
+                            )
+                            return f"slice|{slice_key}", provider, slice_key
+                        return f"non_provider|{provider}", provider, None
+
+                    for txn in fallback_branch_transactions:
+                        part_key, provider_name, slice_key = _partition_key_for_transaction(txn)
+                        row = fallback_partitions.setdefault(
+                            part_key,
+                            {
+                                "provider": provider_name,
+                                "slice_key": slice_key,
+                                "transactions": [],
+                                "income": [],
+                            },
+                        )
+                        row["transactions"].append(txn)
+
+                    for inc in fallback_branch_income:
+                        part_key, provider_name, slice_key = _partition_key_for_income(inc)
+                        row = fallback_partitions.setdefault(
+                            part_key,
+                            {
+                                "provider": provider_name,
+                                "slice_key": slice_key,
+                                "transactions": [],
+                                "income": [],
+                            },
+                        )
+                        row["income"].append(inc)
+
+                    authoritative_cash, authoritative_external = derive_cash_and_external_flows(
+                        fifo_transactions=authoritative_branch_transactions,
+                        income_with_currency=authoritative_branch_income,
+                        fx_cache=fx_cache,
+                        provider_flow_events=authoritative_events,
+                    )
+                    out_of_window_cash, out_of_window_external = derive_cash_and_external_flows(
+                        fifo_transactions=out_of_window_branch_transactions,
+                        income_with_currency=out_of_window_branch_income,
+                        fx_cache=fx_cache,
+                        force_disable_inference=True,
+                    )
+
+                    fallback_deltas: List[Tuple[datetime, float]] = []
+                    fallback_external: List[Tuple[datetime, float]] = []
+                    by_slice: Dict[str, Dict[str, Any]] = {}
+                    by_provider_acc: Dict[str, Dict[str, Any]] = {}
+
+                    for row in fallback_partitions.values():
+                        partition_transactions = list(row.get("transactions") or [])
+                        partition_income = list(row.get("income") or [])
+                        partition_cash, partition_external = derive_cash_and_external_flows(
+                            fifo_transactions=partition_transactions,
+                            income_with_currency=partition_income,
+                            fx_cache=fx_cache,
+                        )
+                        fallback_deltas.extend(_snapshots_to_deltas(partition_cash))
+                        fallback_external.extend(partition_external)
+
+                        provider_name = str(row.get("provider") or "unknown")
+                        slice_key = row.get("slice_key")
+                        activity_dates = [
+                            _to_datetime(txn.get("date"))
+                            for txn in partition_transactions
+                            if _to_datetime(txn.get("date")) is not None
+                        ]
+                        activity_dates.extend(
+                            _to_datetime(inc.get("date"))
+                            for inc in partition_income
+                            if _to_datetime(inc.get("date")) is not None
+                        )
+                        inferred_dates = [when for when, _ in partition_external]
+                        inferred_net_usd = float(sum(_as_float(amount, 0.0) for _, amount in partition_external))
+
+                        provider_row = by_provider_acc.setdefault(
+                            provider_name,
+                            {
+                                "provider": provider_name,
+                                "slice_count": 0,
+                                "transaction_count": 0,
+                                "income_count": 0,
+                                "inferred_event_count": 0,
+                                "inferred_net_usd": 0.0,
+                                "_activity_dates": [],
+                                "_inferred_dates": [],
+                            },
+                        )
+                        provider_row["slice_count"] += 1
+                        provider_row["transaction_count"] += len(partition_transactions)
+                        provider_row["income_count"] += len(partition_income)
+                        provider_row["inferred_event_count"] += len(partition_external)
+                        provider_row["inferred_net_usd"] += inferred_net_usd
+                        provider_row["_activity_dates"].extend(activity_dates)
+                        provider_row["_inferred_dates"].extend(inferred_dates)
+
+                        if slice_key:
+                            by_slice[slice_key] = {
+                                "provider": provider_name,
+                                "transaction_count": len(partition_transactions),
+                                "income_count": len(partition_income),
+                                "inferred_event_count": len(partition_external),
+                                "inferred_net_usd": round(inferred_net_usd, 2),
+                                "activity_window": _window(activity_dates),
+                                "inferred_event_window": _window(inferred_dates),
+                            }
+
+                    authoritative_deltas = _snapshots_to_deltas(authoritative_cash)
+                    out_of_window_deltas = _snapshots_to_deltas(out_of_window_cash)
+                    fallback_cash = _combine_cash_snapshots([], fallback_deltas) if fallback_deltas else []
+
+                    composed_cash = _combine_cash_snapshots(
+                        fallback_cash,
+                        authoritative_deltas + out_of_window_deltas,
+                    )
+                    composed_external = sorted(
+                        authoritative_external + out_of_window_external + fallback_external,
+                        key=lambda row: row[0],
+                    )
+                    inferred_count = len(fallback_external)
+                    total_inferred_net_usd = float(sum(_as_float(amount, 0.0) for _, amount in fallback_external))
+                    inferred_dates = [when for when, _ in fallback_external]
+
+                    by_provider: Dict[str, Dict[str, Any]] = {}
+                    for provider_name, row in by_provider_acc.items():
+                        by_provider[provider_name] = {
+                            "slice_count": int(_as_float(row.get("slice_count"), 0.0)),
+                            "transaction_count": int(_as_float(row.get("transaction_count"), 0.0)),
+                            "income_count": int(_as_float(row.get("income_count"), 0.0)),
+                            "inferred_event_count": int(_as_float(row.get("inferred_event_count"), 0.0)),
+                            "inferred_net_usd": round(_as_float(row.get("inferred_net_usd"), 0.0), 2),
+                            "activity_window": _window(list(row.get("_activity_dates") or [])),
+                            "inferred_event_window": _window(list(row.get("_inferred_dates") or [])),
+                        }
+
+                    inferred_flow_diagnostics = {
+                        "mode": "provider_mixed_authority_partitioned_fallback",
+                        "fallback_slices_present": True,
+                        "replayed_fallback_provider_activity": True,
+                        "total_inferred_event_count": inferred_count,
+                        "total_inferred_net_usd": round(total_inferred_net_usd, 2),
+                        "inferred_event_window": _window(inferred_dates),
+                        "out_of_window_provider_activity_count": int(out_of_window_provider_activity_count),
+                        "out_of_window_provider_income_count": int(out_of_window_provider_income_count),
+                        "by_provider": dict(sorted(by_provider.items())),
+                        "by_slice": dict(sorted(by_slice.items())),
+                    }
+
+            external_authoritative_applied = sum(
+                1
+                for event in authoritative_events
+                if bool(event.get("is_external_flow")) and abs(_as_float(event.get("amount"), 0.0)) > 0.0
+            )
+
+            return composed_cash, composed_external, {
+                "provider_authoritative_applied": len(authoritative_events),
+                "provider_authoritative_available": authoritative_available_count,
+                "provider_diagnostics_only": diagnostics_only_count,
+                "inferred": inferred_count if has_fallback_slices else max(0, len(composed_external) - external_authoritative_applied),
+            }, inferred_flow_diagnostics
+
+        cash_snapshots, external_flows, flow_source_breakdown, inferred_flow_diagnostics = _compose_cash_and_external_flows(
+            transactions_for_cash,
         )
 
         monthly_nav = compute_monthly_nav(
@@ -2064,10 +3312,8 @@ def analyze_realized_performance(
             incomplete_trades=[],
             fmp_ticker_map=fmp_ticker_map or None,
         )
-        observed_cash_snapshots, observed_external_flows = derive_cash_and_external_flows(
-            fifo_transactions=fifo_transactions,
-            income_with_currency=income_with_currency,
-            fx_cache=fx_cache,
+        observed_cash_snapshots, observed_external_flows, _observed_flow_breakdown, _observed_inferred_flow_diagnostics = _compose_cash_and_external_flows(
+            fifo_transactions,
         )
         observed_monthly_nav = compute_monthly_nav(
             position_timeline=observed_position_timeline,
@@ -2076,10 +3322,16 @@ def analyze_realized_performance(
             fx_cache=fx_cache,
             cash_snapshots=observed_cash_snapshots,
         )
-        observed_net_flows, _ = compute_monthly_external_flows(
+        observed_net_flows, observed_tw_flows = compute_monthly_external_flows(
             external_flows=observed_external_flows,
             month_ends=month_ends,
         )
+
+        if provider_first_mode and flow_fallback_reasons:
+            warnings.append(
+                f"Provider-flow fallback applied on {len(flow_fallback_reasons)} slice(s); "
+                "inference used for non-authoritative partitions."
+            )
 
         monthly_returns, return_warnings = compute_monthly_returns(
             monthly_nav=monthly_nav,
@@ -2268,6 +3520,8 @@ def analyze_realized_performance(
         )
         benchmark_returns = calc_monthly_returns(benchmark_prices)
         benchmark_returns = _series_from_cache(benchmark_returns)
+        monthly_returns = _normalize_monthly_index(monthly_returns)
+        benchmark_returns = _normalize_monthly_index(benchmark_returns)
 
         aligned = pd.DataFrame(
             {
@@ -2282,22 +3536,6 @@ def analyze_realized_performance(
                 "message": f"No overlapping monthly returns between portfolio and benchmark {benchmark_ticker}.",
                 "data_warnings": sorted(set(warnings)),
             }
-
-        start_iso = aligned.index.min().date().isoformat()
-        end_iso = aligned.index.max().date().isoformat()
-
-        risk_free_rate = _safe_treasury_rate(inception_date, end_date)
-        min_capm = DATA_QUALITY_THRESHOLDS.get("min_observations_for_capm_regression", 24)
-
-        performance_metrics = compute_performance_metrics(
-            portfolio_returns=aligned["portfolio"],
-            benchmark_returns=aligned["benchmark"],
-            risk_free_rate=risk_free_rate,
-            benchmark_ticker=benchmark_ticker,
-            start_date=start_iso,
-            end_date=end_iso,
-            min_capm_observations=min_capm,
-        )
 
         source_breakdown = dict(Counter(str(t.get("source") or "unknown") for t in fifo_transactions))
         realized_pnl = float(_compute_realized_pnl_usd(fifo_result.closed_trades, fx_cache))
@@ -2443,6 +3681,48 @@ def analyze_realized_performance(
                 "HIGH CONFIDENCE GATE FAILED: NAV P&L is highly sensitive to synthetic reconstruction."
             )
 
+        risk_free_rate = _safe_treasury_rate(inception_date, end_date)
+        min_capm = DATA_QUALITY_THRESHOLDS.get("min_observations_for_capm_regression", 24)
+        selected_aligned = aligned
+        if has_high_synthetic_sensitivity:
+            observed_monthly_returns, _observed_return_warnings = compute_monthly_returns(
+                monthly_nav=observed_monthly_nav,
+                net_flows=observed_net_flows,
+                time_weighted_flows=observed_tw_flows,
+            )
+            warnings.extend(_observed_return_warnings)
+            observed_monthly_returns = observed_monthly_returns.replace([np.inf, -np.inf], np.nan).dropna()
+            observed_monthly_returns = _normalize_monthly_index(observed_monthly_returns)
+            observed_aligned = pd.DataFrame(
+                {
+                    "portfolio": observed_monthly_returns,
+                    "benchmark": benchmark_returns,
+                }
+            ).dropna()
+            if not observed_aligned.empty:
+                selected_aligned = observed_aligned
+                warnings.append(
+                    "Return metrics are computed from observed-only NAV because synthetic reconstruction "
+                    "sensitivity is high."
+                )
+            else:
+                warnings.append(
+                    "Observed-only return series was unavailable; falling back to synthetic-enhanced return metrics."
+                )
+
+        start_iso = selected_aligned.index.min().date().isoformat()
+        end_iso = selected_aligned.index.max().date().isoformat()
+
+        performance_metrics = compute_performance_metrics(
+            portfolio_returns=selected_aligned["portfolio"],
+            benchmark_returns=selected_aligned["benchmark"],
+            risk_free_rate=risk_free_rate,
+            benchmark_ticker=benchmark_ticker,
+            start_date=start_iso,
+            end_date=end_iso,
+            min_capm_observations=min_capm,
+        )
+
         if confidence_failures:
             warnings.extend(confidence_failures)
         high_confidence_realized = len(confidence_failures) == 0
@@ -2453,10 +3733,34 @@ def analyze_realized_performance(
         }
         ibkr_pricing_total = int(sum(ibkr_pricing_by_type.values()))
 
+        provider_flow_coverage_serialized: Dict[str, Dict[str, Any]] = {}
+        for key, row in provider_flow_coverage.items():
+            provider_flow_coverage_serialized[key] = {
+                "authoritative": bool(row.get("authoritative")),
+                "has_metadata": bool(row.get("has_metadata")),
+                "event_count": int(_as_float(row.get("event_count"), 0.0)),
+                "coverage_start": (
+                    _to_datetime(row.get("coverage_start")).isoformat()
+                    if _to_datetime(row.get("coverage_start")) is not None
+                    else None
+                ),
+                "coverage_end": (
+                    _to_datetime(row.get("coverage_end")).isoformat()
+                    if _to_datetime(row.get("coverage_end")) is not None
+                    else None
+                ),
+                "has_error": bool(row.get("has_error")),
+                "has_partial": bool(row.get("has_partial")),
+                "deterministic_no_flow": bool(row.get("deterministic_no_flow")),
+                "unmapped_row_count": int(_as_float(row.get("unmapped_row_count"), 0.0)),
+            }
+
         realized_metadata = {
             "realized_pnl": round(realized_pnl, 2),
             "unrealized_pnl": round(unrealized_pnl, 2),
             "net_contributions": round(net_contributions, 2),
+            "external_net_flows_usd": round(cumulative_net_external_flows, 2),
+            "net_contributions_definition": "trade_cash_legs_legacy",
             "nav_pnl_usd": round(nav_pnl_usd, 2),
             "nav_pnl_synthetic_enhanced_usd": round(nav_pnl_usd, 2),
             "nav_pnl_observed_only_usd": round(observed_nav_pnl_usd, 2),
@@ -2476,6 +3780,7 @@ def analyze_realized_performance(
                 "interest": round(_as_float(income_summary_usd.get("interest"), 0.0), 2),
                 "by_month": income_analysis.by_month,
                 "by_symbol": income_analysis.by_symbol,
+                "by_institution": income_summary_usd.get("by_institution", {}),
                 "current_monthly_rate": round(_as_float(income_summary_usd.get("current_monthly_rate"), 0.0), 2),
                 "projected_annual": round(_as_float(income_summary_usd.get("projected_annual"), 0.0), 2),
                 "yield_on_cost": round(income_yield_on_cost, 4),
@@ -2502,6 +3807,11 @@ def analyze_realized_performance(
                 "by_instrument_type": ibkr_pricing_by_type,
             },
             "source_breakdown": source_breakdown,
+            "flow_source_breakdown": flow_source_breakdown,
+            "inferred_flow_diagnostics": inferred_flow_diagnostics,
+            "provider_flow_coverage": provider_flow_coverage_serialized,
+            "flow_fallback_reasons": flow_fallback_reasons,
+            "dedup_diagnostics": dedup_diagnostics,
             "data_warnings": sorted(set(warnings)),
             "_postfilter": {
                 "portfolio_monthly_returns": {
@@ -2560,6 +3870,8 @@ def analyze_realized_performance(
         performance_metrics["nav_metrics_estimated"] = realized_metadata["nav_metrics_estimated"]
         performance_metrics["high_confidence_realized"] = realized_metadata["high_confidence_realized"]
         performance_metrics["pnl_basis"] = realized_metadata["pnl_basis"]
+        performance_metrics["external_net_flows_usd"] = realized_metadata["external_net_flows_usd"]
+        performance_metrics["net_contributions_definition"] = realized_metadata["net_contributions_definition"]
 
         from core.result_objects import RealizedPerformanceResult
         return RealizedPerformanceResult.from_analysis_dict(performance_metrics)

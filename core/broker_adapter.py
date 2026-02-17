@@ -5,9 +5,23 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
 
+from core.trade_objects import BrokerAccount, CancelResult, OrderPreview, OrderResult, OrderStatus
+
 
 class BrokerAdapter(ABC):
-    """Abstract interface for broker-specific trade operations."""
+    """Abstract trade adapter contract used by ``TradeExecutionService``.
+
+    Called by:
+    - ``services.trade_execution_service.TradeExecutionService``.
+
+    Implemented by:
+    - SnapTrade/IBKR/Schwab adapter classes.
+
+    Contract semantics:
+    - Methods should raise clear exceptions on broker-side errors.
+    - Returned dataclasses in ``core.trade_objects`` must be populated with
+      broker-native details in ``broker_data`` where available.
+    """
 
     @property
     @abstractmethod
@@ -19,7 +33,7 @@ class BrokerAdapter(ABC):
         """Return True if this adapter manages the given account_id."""
 
     @abstractmethod
-    def list_accounts(self) -> List[Dict[str, Any]]:
+    def list_accounts(self) -> List[BrokerAccount]:
         """List tradeable accounts managed by this broker."""
 
     @abstractmethod
@@ -38,7 +52,7 @@ class BrokerAdapter(ABC):
         limit_price: Optional[float] = None,
         stop_price: Optional[float] = None,
         symbol_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
+    ) -> OrderPreview:
         """Preview an order and return estimated cost/commission."""
 
     @abstractmethod
@@ -46,7 +60,7 @@ class BrokerAdapter(ABC):
         self,
         account_id: str,
         order_params: Dict[str, Any],
-    ) -> Dict[str, Any]:
+    ) -> OrderResult:
         """Place an order and return execution details."""
 
     @abstractmethod
@@ -55,7 +69,7 @@ class BrokerAdapter(ABC):
         account_id: str,
         state: str = "all",
         days: int = 30,
-    ) -> List[Dict[str, Any]]:
+    ) -> List[OrderStatus]:
         """Fetch order history from the broker."""
 
     @abstractmethod
@@ -63,7 +77,7 @@ class BrokerAdapter(ABC):
         self,
         account_id: str,
         order_id: str,
-    ) -> Dict[str, Any]:
+    ) -> CancelResult:
         """Cancel an order and return status."""
 
     @abstractmethod

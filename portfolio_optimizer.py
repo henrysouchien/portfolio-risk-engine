@@ -548,7 +548,7 @@ def print_what_if_report(
     
     # Get reference data for position labeling
     try:
-        from run_portfolio_risk import get_cash_positions
+        from core.portfolio_config import get_cash_positions
         from utils.etf_mappings import get_etf_to_industry_map, format_ticker_with_label
         cash_positions = get_cash_positions()
         industry_map = get_etf_to_industry_map()
@@ -674,8 +674,6 @@ def run_what_if_scenario(
     proxies: Dict[str, Any],
     shift_dict: Optional[Dict[str, str]] = None,
     scenario_yaml: Optional[str] = None,
-    portfolio_yaml_path: str,
-    risk_yaml_path: str,
 ):
     """
     Runs a portfolio what-if scenario and returns the full risk report.
@@ -753,15 +751,17 @@ def run_what_if_scenario(
     delta, new_weights = parse_delta(yaml_path=scenario_yaml, literal_shift=shift_dict)
 
     fmp_ticker_map = config.get("fmp_ticker_map")
+    max_single_factor_loss = risk_config.get("max_single_factor_loss") or -0.08
 
     # get proxy-level beta caps
     from settings import PORTFOLIO_DEFAULTS
     lookback_years = PORTFOLIO_DEFAULTS.get('worst_case_lookback_years', 10)
     max_betas, max_betas_by_proxy, historical_analysis = calc_max_factor_betas(
-        portfolio_yaml=portfolio_yaml_path,
-        risk_yaml=risk_yaml_path,
         lookback_years=lookback_years,
-        echo=False
+        echo=False,
+        stock_factor_proxies=proxies,
+        fmp_ticker_map=fmp_ticker_map,
+        max_single_factor_loss=max_single_factor_loss,
     )
 
     # construct summary_new
@@ -800,7 +800,7 @@ def run_what_if_scenario(
         from risk_helpers import compute_max_betas
         max_betas = compute_max_betas(
             proxies, config["start_date"], config["end_date"],
-            loss_limit_pct=risk_config["max_single_factor_loss"],
+            loss_limit_pct=max_single_factor_loss,
             fmp_ticker_map=fmp_ticker_map,
         )
         return evaluate_portfolio_beta_limits(
@@ -1268,6 +1268,7 @@ def run_max_return_portfolio(
         evaluate_portfolio_risk_limits,
     )
     from risk_helpers import compute_max_betas, calc_max_factor_betas
+    max_single_factor_loss = risk_config.get("max_single_factor_loss") or -0.08
 
     # 1. Optimise weights
     w_opt = solve_max_return_with_risk_limits(
@@ -1303,16 +1304,17 @@ def run_max_return_portfolio(
         proxies,
         config["start_date"],
         config["end_date"],
-        loss_limit_pct = risk_config["max_single_factor_loss"],
+        loss_limit_pct = max_single_factor_loss,
         fmp_ticker_map = fmp_ticker_map,
     )
     from settings import PORTFOLIO_DEFAULTS
     lookback_years = PORTFOLIO_DEFAULTS.get('worst_case_lookback_years', 10)
     _, max_betas_by_proxy, _ = calc_max_factor_betas(
-        portfolio_yaml = "portfolio.yaml",
-        risk_yaml      = "risk_limits.yaml",
         lookback_years = lookback_years,
         echo = False,
+        stock_factor_proxies=proxies,
+        fmp_ticker_map=fmp_ticker_map,
+        max_single_factor_loss=max_single_factor_loss,
     )
 
     # 5. Run beta check with proxy caps
@@ -1378,5 +1380,3 @@ def print_max_return_report(
 
 
 # In[ ]:
-
-

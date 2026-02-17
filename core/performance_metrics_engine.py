@@ -1,3 +1,16 @@
+"""Shared performance-metrics computation engine.
+
+Called by:
+- ``portfolio_risk.calculate_portfolio_performance_metrics``.
+- Core/service wrappers that need canonical performance metric payloads.
+
+Contract notes:
+- Inputs must be aligned monthly return series with identical DatetimeIndex.
+- Output is a JSON-serializable dict consumed by result-object builders.
+- CAPM regression may return ``None`` fields with warning metadata when data
+  quality thresholds are not met.
+"""
+
 import pandas as pd
 import numpy as np
 import statsmodels.api as sm
@@ -12,6 +25,18 @@ def compute_performance_metrics(
     end_date,
     min_capm_observations=None,
 ):
+    """Compute portfolio/benchmark return, risk, and CAPM summary metrics.
+
+    Ownership:
+    - This is the canonical metrics engine; wrappers should not duplicate
+      Sharpe/Sortino/CAPM logic.
+
+    Debug pointer:
+    - If alpha/beta fields are missing, inspect CAPM preconditions and warning
+      text in the returned payload.
+    """
+
+    eps = 1e-12
     if len(portfolio_returns) != len(benchmark_returns):
         raise ValueError("portfolio_returns and benchmark_returns must have the same length")
     if not isinstance(portfolio_returns.index, pd.DatetimeIndex) or not isinstance(
@@ -83,13 +108,34 @@ def compute_performance_metrics(
     capm_warning = None
     if len(portfolio_returns) >= min_capm_observations:  # Need sufficient data for regression
         try:
-            # Simple linear regression: portfolio_excess = alpha + beta * benchmark_excess
-            X = sm.add_constant(benchmark_excess)
-            model = sm.OLS(portfolio_excess, X).fit()
-            alpha_monthly = model.params.iloc[0]  # Use .iloc for position-based access
-            beta = model.params.iloc[1]  # Use .iloc for position-based access
-            alpha_annual = alpha_monthly * 12
-            r_squared = model.rsquared
+            bench_std = float(benchmark_excess.std(ddof=0))
+            port_std = float(portfolio_excess.std(ddof=0))
+
+            # Degenerate series (zero variance) can produce noisy warnings in statsmodels.
+            # Use closed-form fallback instead of forcing OLS on singular inputs.
+            if bench_std <= eps or port_std <= eps:
+                beta = 0.0
+                alpha_annual = float(portfolio_excess.mean() * 12.0)
+                r_squared = 0.0
+            else:
+                # Simple linear regression: portfolio_excess = alpha + beta * benchmark_excess
+                X = pd.DataFrame(
+                    {
+                        "const": np.ones(len(benchmark_excess), dtype=float),
+                        "benchmark_excess": benchmark_excess.to_numpy(dtype=float),
+                    },
+                    index=benchmark_excess.index,
+                )
+                y = portfolio_excess.to_numpy(dtype=float)
+                model = sm.OLS(y, X).fit()
+                alpha_monthly = float(model.params.iloc[0])  # const
+                beta = float(model.params.iloc[1])  # benchmark_excess
+                alpha_annual = alpha_monthly * 12.0
+
+                y_hat = model.fittedvalues.to_numpy(dtype=float)
+                sst = float(np.sum((y - y.mean()) ** 2))
+                sse = float(np.sum((y - y_hat) ** 2))
+                r_squared = 1.0 - (sse / sst) if sst > eps else 0.0
         except Exception as exc:
             alpha_annual = None
             beta = None

@@ -658,7 +658,7 @@ for item in get_all_plaid_items():
 ## Related Documents
 
 - [Position Module Plan](./POSITION_MODULE_PLAN.md) - Overall position architecture
-- [Backend Architecture](../architecture/backend_architecture.md) - System design
+- [Backend Architecture](../architecture/legacy/backend_architecture.md) - System design
 
 ---
 

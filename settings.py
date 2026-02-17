@@ -1,5 +1,17 @@
 #Date settings for portfolio analysis are in settings.py
 import os
+from functools import lru_cache
+from pathlib import Path
+
+# Ensure local ".env" is loaded even for direct Python invocations
+# (e.g., scripts/tools that bypass mcp_server.py bootstrapping).
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(Path(__file__).resolve().parent / ".env", override=False)
+except Exception:
+    # Fail open: settings still support explicit process env and file fallback.
+    pass
 
 # URL Configuration
 FRONTEND_BASE_URL = os.getenv('FRONTEND_BASE_URL', 'http://localhost:3000')
@@ -10,19 +22,129 @@ BACKEND_BASE_URL = os.getenv('BACKEND_BASE_URL', 'http://localhost:5001')
 # 🤖 MCP / CLI Default User Configuration
 # ═══════════════════════════════════════════════════════════════════════════════
 
+RISK_MODULE_USER_EMAIL_ENV = "RISK_MODULE_USER_EMAIL"
+
+
+def _default_dotenv_path() -> Path:
+    return Path(__file__).resolve().parent / ".env"
+
+
+def _normalize_email_value(value: str | None) -> str | None:
+    """Normalize env/file values and strip optional wrapping quotes."""
+    if value is None:
+        return None
+    normalized = value.strip()
+    if len(normalized) >= 2 and normalized[0] == normalized[-1] and normalized[0] in {"'", '"'}:
+        normalized = normalized[1:-1].strip()
+    return normalized or None
+
+
+@lru_cache(maxsize=16)
+def _read_key_from_env_file(file_path: str, key: str) -> str | None:
+    """Read a key from a dotenv-style file without requiring dotenv import."""
+    try:
+        with open(file_path, "r", encoding="utf-8") as handle:
+            for raw_line in handle:
+                line = raw_line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                current_key, raw_value = line.split("=", 1)
+                if current_key.strip() != key:
+                    continue
+                value = raw_value.split("#", 1)[0].strip()
+                return _normalize_email_value(value)
+    except OSError:
+        return None
+    return None
+
+
+def _read_env_or_dotenv(key: str, default: str | None = None) -> str | None:
+    """Read a setting from runtime env first, then project .env fallback."""
+    env_value = _normalize_email_value(os.getenv(key))
+    if env_value is not None:
+        return env_value
+
+    dotenv_value = _read_key_from_env_file(str(_default_dotenv_path()), key)
+    if dotenv_value is not None:
+        return dotenv_value
+
+    return default
+
+
+def resolve_default_user() -> tuple[str | None, str]:
+    """
+    Resolve default user email for MCP/CLI flows.
+
+    Resolution order:
+    1) Runtime environment variable (`RISK_MODULE_USER_EMAIL`)
+    2) Project `.env` file fallback
+    """
+    env_user = _normalize_email_value(os.getenv(RISK_MODULE_USER_EMAIL_ENV))
+    if env_user:
+        return env_user, "env"
+
+    dotenv_user = _read_key_from_env_file(
+        str(_default_dotenv_path()),
+        RISK_MODULE_USER_EMAIL_ENV,
+    )
+    if dotenv_user:
+        return dotenv_user, "dotenv"
+
+    return None, "none"
+
+
+def get_default_user_context() -> dict[str, object]:
+    """Return user-resolution debug context for MCP diagnostics."""
+    user, source = resolve_default_user()
+    dotenv_path = _default_dotenv_path()
+    return {
+        "user_email": user,
+        "source": source,
+        "env_var": RISK_MODULE_USER_EMAIL_ENV,
+        "dotenv_path": str(dotenv_path),
+        "dotenv_exists": dotenv_path.exists(),
+    }
+
+
+def resolve_user_email(user_email: str | None = None) -> tuple[str | None, dict[str, object]]:
+    """
+    Resolve tool user_email with explicit argument taking precedence.
+    Returns `(resolved_email, debug_context)`.
+    """
+    explicit_user = _normalize_email_value(user_email)
+    context = get_default_user_context()
+
+    if explicit_user:
+        context["user_email"] = explicit_user
+        context["source"] = "argument"
+        return explicit_user, context
+
+    return context["user_email"], context
+
+
+def format_missing_user_error(context: dict[str, object] | None = None) -> str:
+    """Build a consistent actionable error for missing user context."""
+    ctx = context or get_default_user_context()
+    dotenv_location = str(ctx.get("dotenv_path", _default_dotenv_path()))
+    if not bool(ctx.get("dotenv_exists", False)):
+        dotenv_location = f"{dotenv_location} (not found)"
+
+    return (
+        "No user specified and RISK_MODULE_USER_EMAIL not configured. "
+        f"Checked user_email argument, env var {ctx.get('env_var', RISK_MODULE_USER_EMAIL_ENV)}, "
+        f"and .env fallback at {dotenv_location}. "
+        "Set RISK_MODULE_USER_EMAIL in MCP server config or pass user_email explicitly."
+    )
+
+
 def get_default_user() -> str | None:
     """
     Get the default user email for MCP tools and CLI commands.
 
-    Reads from RISK_MODULE_USER_EMAIL environment variable, which is set:
-    - In .mcp.json for Claude Code MCP server
-    - In shell environment for CLI usage
-    - In .env for local development
-
-    Returns:
-        str | None: User email if configured, None otherwise
+    Reads from `RISK_MODULE_USER_EMAIL` env var first, then project `.env` fallback.
     """
-    return os.getenv('RISK_MODULE_USER_EMAIL')
+    user, _source = resolve_default_user()
+    return user
 
 # settings.py  
 PORTFOLIO_DEFAULTS = {
@@ -98,7 +220,8 @@ DATA_QUALITY_THRESHOLDS = {
     "max_peer_drop_rate": 0.8,                   # Warning if >80% of peers dropped due to data issues
     
     # Expected returns calculation
-    "min_observations_for_expected_returns": 12,  # Minimum months of data for reliable expected return calculation
+    # 11 monthly returns ~= 12 months of price history.
+    "min_observations_for_expected_returns": 11,  # Minimum monthly return observations for reliable expected return calculation
     
     # CAPM regression calculation
     "min_observations_for_capm_regression": 12,   # Minimum months for alpha/beta calculation (1 year)
@@ -116,6 +239,18 @@ BACKFILL_FILE_PATH = os.getenv(
 REALIZED_COVERAGE_TARGET = float(os.getenv("REALIZED_COVERAGE_TARGET", "95.0"))
 REALIZED_MAX_INCOMPLETE_TRADES = int(os.getenv("REALIZED_MAX_INCOMPLETE_TRADES", "0"))
 REALIZED_MAX_RECONCILIATION_GAP_PCT = float(os.getenv("REALIZED_MAX_RECONCILIATION_GAP_PCT", "2.0"))
+
+# Provider-native flow controls for realized performance.
+# Rollback: set REALIZED_USE_PROVIDER_FLOWS=false (subordinate flags are ignored).
+REALIZED_USE_PROVIDER_FLOWS = os.getenv("REALIZED_USE_PROVIDER_FLOWS", "true").lower() == "true"
+REALIZED_PROVIDER_FLOW_SOURCES = [
+    token.strip().lower()
+    for token in os.getenv("REALIZED_PROVIDER_FLOW_SOURCES", "schwab,plaid,snaptrade,ibkr_flex").split(",")
+    if token.strip()
+]
+REALIZED_PROVIDER_FLOWS_REQUIRE_COVERAGE = (
+    os.getenv("REALIZED_PROVIDER_FLOWS_REQUIRE_COVERAGE", "true").lower() == "true"
+)
 
 # Risk Analysis Thresholds
 # These constants define the hardcoded limits and thresholds used throughout the risk analysis system
@@ -574,10 +709,10 @@ INSTITUTION_PROVIDER_MAPPING = {
 # ═══════════════════════════════════════════════════════════════════════════════
 #
 # Controls which provider supplies TRANSACTIONS for each institution.
-# Positions already route correctly (each provider only returns its own
-# institutions' positions). Transactions need explicit routing because
-# Plaid returns transactions for accounts that are also connected via
-# other providers (IBKR Flex, SnapTrade).
+# Position routing is configured separately in POSITION_ROUTING below.
+# Transactions need explicit routing because Plaid may return activity for
+# institutions that are also connected via direct providers (IBKR Flex,
+# Schwab direct, SnapTrade).
 #
 # When an institution is listed here with a canonical transaction provider,
 # Plaid transactions tagged with that institution's name are SKIPPED
@@ -592,7 +727,44 @@ TRANSACTION_ROUTING = {
     # institution_slug → canonical transaction provider
     # When canonical != "plaid", Plaid transactions for this institution are skipped
     "interactive_brokers": "ibkr_flex",
+    "charles_schwab": "schwab",
 }
+
+# Controls which provider supplies POSITIONS for each institution.
+# Add institutions here as direct position providers become available.
+# IBKR can be added once an IBKR position provider is wired up.
+POSITION_ROUTING = {
+    # institution_slug → canonical position provider
+    "charles_schwab": "schwab",
+}
+
+# Default providers for institutions not explicitly routed.
+# Keep both aggregators by default to avoid dropping data for single-aggregator institutions.
+_default_position_providers_raw = os.getenv("DEFAULT_POSITION_PROVIDERS", "snaptrade,plaid")
+DEFAULT_POSITION_PROVIDERS = [
+    provider.strip().lower()
+    for provider in _default_position_providers_raw.split(",")
+    if provider.strip()
+]
+
+_default_transaction_providers_raw = os.getenv("DEFAULT_TRANSACTION_PROVIDERS", "snaptrade,plaid")
+DEFAULT_TRANSACTION_PROVIDERS = [
+    provider.strip().lower()
+    for provider in _default_transaction_providers_raw.split(",")
+    if provider.strip()
+]
+
+# Transaction fetch policy for source="all":
+# - balanced: fetch all enabled/required providers, then partition by routing.
+# - direct_first: prefer direct providers (ibkr_flex/schwab), and call aggregators
+#   only for institutions without a healthy direct provider.
+_transaction_fetch_policy_raw = os.getenv(
+    "TRANSACTION_FETCH_POLICY",
+    "direct_first",
+).strip().lower()
+if _transaction_fetch_policy_raw not in {"balanced", "direct_first"}:
+    _transaction_fetch_policy_raw = "balanced"
+TRANSACTION_FETCH_POLICY = _transaction_fetch_policy_raw
 
 # Maps various provider institution name strings to canonical slugs.
 # Plaid institution names come from AWS secret path: split("/")[-1].replace("-"," ").title()
@@ -602,6 +774,8 @@ TRANSACTION_ROUTING = {
 INSTITUTION_SLUG_ALIASES = {
     "interactive brokers": "interactive_brokers",
     "ibkr": "interactive_brokers",
+    "charles schwab": "charles_schwab",
+    "schwab": "charles_schwab",
 }
 
 # 📋 INSTITUTION SLUG NAMING CONVENTION:
@@ -645,8 +819,34 @@ IBKR_AUTHORIZED_ACCOUNTS = [
 IBKR_FLEX_TOKEN = os.getenv("IBKR_FLEX_TOKEN", "")
 IBKR_FLEX_QUERY_ID = os.getenv("IBKR_FLEX_QUERY_ID", "")
 
+# Provider credential requirements (used by providers.routing)
+PROVIDER_CREDENTIALS: dict[str, list[str]] = {
+    "plaid": [],
+    "snaptrade": [],
+    "ibkr": [],
+    "ibkr_flex": ["IBKR_FLEX_TOKEN", "IBKR_FLEX_QUERY_ID"],
+    "schwab": ["SCHWAB_APP_KEY", "SCHWAB_APP_SECRET"],
+}
+
+# Schwab (Direct API) Configuration
+SCHWAB_ENABLED = (_read_env_or_dotenv("SCHWAB_ENABLED", "false") or "false").lower() == "true"
+SCHWAB_APP_KEY = _read_env_or_dotenv("SCHWAB_APP_KEY", "") or ""
+SCHWAB_APP_SECRET = _read_env_or_dotenv("SCHWAB_APP_SECRET", "") or ""
+SCHWAB_CALLBACK_URL = _read_env_or_dotenv("SCHWAB_CALLBACK_URL", "https://127.0.0.1:8182") or "https://127.0.0.1:8182"
+SCHWAB_TOKEN_PATH = os.path.expanduser(
+    _read_env_or_dotenv("SCHWAB_TOKEN_PATH", "~/.schwab_token.json") or "~/.schwab_token.json"
+)
+SCHWAB_HISTORY_DAYS = int(_read_env_or_dotenv("SCHWAB_HISTORY_DAYS", "365") or "365")
+SCHWAB_TRANSACTIONS_CACHE_PATH = os.path.expanduser(
+    _read_env_or_dotenv(
+        "SCHWAB_TRANSACTIONS_CACHE_PATH",
+        os.path.join(os.path.dirname(__file__), "cache", "schwab_transactions.json"),
+    ) or os.path.join(os.path.dirname(__file__), "cache", "schwab_transactions.json")
+)
+
 # Provider-specific cache TTL (hours)
 PROVIDER_CACHE_HOURS = {
     "plaid": int(os.getenv("PLAID_CACHE_HOURS", "72")),
     "snaptrade": int(os.getenv("SNAPTRADE_CACHE_HOURS", "24")),
+    "schwab": int(os.getenv("SCHWAB_CACHE_HOURS", "24")),
 }

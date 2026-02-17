@@ -2,17 +2,27 @@
 # coding: utf-8
 
 """
-Core scenario analysis business logic.
-Extracted from run_risk.py as part of the refactoring to create a clean service layer.
+Core what-if scenario analysis business logic.
+
+Called by:
+- ``run_risk.run_what_if`` wrapper paths.
+- Service/API layers that execute scenario comparisons.
+
+Calls into:
+- ``portfolio_optimizer.run_what_if_scenario`` for scenario engine execution.
+
+Contract notes:
+- Accepts portfolio/risk config as paths or typed objects via config adapters.
+- Returns canonical ``WhatIfResult`` object for CLI/API formatting layers.
 """
 
-import yaml
 import pandas as pd
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Union
 from datetime import datetime, UTC
 
-from run_portfolio_risk import (
-    load_portfolio_config,
+from core.data_objects import PortfolioData, RiskLimitsData
+from core.config_adapters import resolve_portfolio_config, resolve_risk_config
+from core.portfolio_config import (
     standardize_portfolio_input,
     latest_price,
 )
@@ -31,10 +41,10 @@ from utils.logging import (
 @log_portfolio_operation_decorator("scenario_analysis")
 @log_performance(5.0)
 def analyze_scenario(
-    filepath: str,
-    risk_limits_yaml: str,
+    portfolio: Union[str, PortfolioData],
+    risk_limits: Union[str, RiskLimitsData, Dict[str, Any], None] = None,
     scenario_yaml: Optional[str] = None,
-    delta: Optional[str] = None
+    delta: Optional[Union[str, Dict[str, str]]] = None
 ) -> WhatIfResult:
     """
     Core scenario analysis business logic.
@@ -45,8 +55,8 @@ def analyze_scenario(
     
     Parameters
     ----------
-    filepath : str
-        Path to the primary portfolio YAML file.
+    portfolio : Union[str, PortfolioData]
+        Portfolio input as YAML filepath or in-memory PortfolioData object.
     scenario_yaml : str, optional
         Path to a YAML file containing scenario definitions. Two supported formats:
         
@@ -73,8 +83,9 @@ def analyze_scenario(
         - Basis points: "+500bp", "-200bps" 
         - Percentages: "+2%", "-1.5%"
         - Decimals: "+0.02", "-0.015"
-    risk_limits_yaml : str, optional
-        Path to the risk limits YAML file. Defaults to "risk_limits.yaml".
+    risk_limits : Union[str, RiskLimitsData, Dict[str, Any], None], optional
+        Risk limits input as path, typed object, dict, or None (defaults to
+        "risk_limits.yaml" via resolver fallback).
         
     Returns
     -------
@@ -99,12 +110,11 @@ def analyze_scenario(
     # LOGGING: Add scenario analysis start logging and timing here
     
     # --- load configs ------------------------------------------------------
-    config = load_portfolio_config(filepath)
+    config, filepath = resolve_portfolio_config(portfolio)
     # LOGGING: Add config loading performance timing here
     # LOGGING: Add workflow state logging for scenario analysis workflow here
     # LOGGING: Add resource usage monitoring for scenario analysis here
-    with open(risk_limits_yaml, "r") as f:
-        risk_config = yaml.safe_load(f)
+    risk_config = resolve_risk_config(risk_limits)
 
     fmp_ticker_map = config.get("fmp_ticker_map")
     currency_map = config.get("currency_map")
@@ -156,8 +166,6 @@ def analyze_scenario(
         proxies      = config["stock_factor_proxies"],
         scenario_yaml = scenario_yaml,
         shift_dict   = shift_dict,
-        portfolio_yaml_path = filepath,
-        risk_yaml_path = risk_limits_yaml,
     )
     
     # split beta table between factors and industry

@@ -3,17 +3,30 @@
 
 """
 Core portfolio optimization business logic.
-Extracted from run_risk.py as part of the refactoring to create a clean service layer.
+
+Agent orientation:
+    Canonical pure-function optimization entrypoints. Start here for min-var or
+    max-return behavior before checking service/CLI wrappers.
+
+Called by:
+    - ``run_risk.run_min_variance``
+    - ``run_risk.run_max_return``
+
+Primary flow:
+    1) Resolve portfolio/risk config.
+    2) Standardize weights.
+    3) Run optimization engine.
+    4) Return ``OptimizationResult``.
 """
 
-import yaml
-from typing import Dict, Any, Optional, Tuple, Union
+from typing import Dict, Any, Union
 from datetime import datetime, UTC
 
 from core.result_objects import OptimizationResult
+from core.data_objects import PortfolioData, RiskLimitsData
+from core.config_adapters import resolve_portfolio_config, resolve_risk_config
 
-from run_portfolio_risk import (
-    load_portfolio_config,
+from core.portfolio_config import (
     standardize_portfolio_input,
     latest_price,
 )
@@ -21,7 +34,6 @@ from portfolio_optimizer import (
     run_min_var,
     run_max_return_portfolio,
 )
-from utils.serialization import make_json_safe
 
 # Import logging decorators for optimization
 from utils.logging import (
@@ -35,17 +47,22 @@ from utils.logging import (
 @log_portfolio_operation_decorator("min_variance_optimization")
 @log_resource_usage_decorator(monitor_memory=True, monitor_cpu=True)
 @log_performance(10.0)
-def optimize_min_variance(filepath: str, risk_yaml: str = "risk_limits.yaml") -> 'OptimizationResult':
+def optimize_min_variance(
+    portfolio: Union[str, PortfolioData],
+    risk_limits: Union[str, RiskLimitsData, Dict[str, Any], None] = "risk_limits.yaml",
+) -> OptimizationResult:
     """
-    Core minimum variance optimization business logic.
-    
-    This function contains the pure business logic extracted from run_min_variance(),
-    without any CLI or dual-mode concerns.
+    Run minimum-variance optimization and return ``OptimizationResult``.
+
+    Contract notes:
+    - ``portfolio`` accepts YAML path or ``PortfolioData``.
+    - ``risk_limits`` accepts YAML path, typed object, raw dict, or ``None``.
+    - Output is consumed unchanged by CLI/API wrappers.
     
     Parameters
     ----------
-    filepath : str
-        Path to the portfolio YAML file.
+    portfolio : Union[str, PortfolioData]
+        Portfolio input as YAML filepath or PortfolioData object.
         
     Returns
     -------
@@ -60,9 +77,8 @@ def optimize_min_variance(filepath: str, risk_yaml: str = "risk_limits.yaml") ->
     # LOGGING: Add min variance optimization start logging and timing here
     
     # --- load configs ------------------------------------------------------
-    config = load_portfolio_config(filepath)
-    with open(risk_yaml, "r") as f:
-        risk_config = yaml.safe_load(f)
+    config, source_file = resolve_portfolio_config(portfolio)
+    risk_config = resolve_risk_config(risk_limits)
 
     fmp_ticker_map = config.get("fmp_ticker_map")
     currency_map = config.get("currency_map")
@@ -106,7 +122,7 @@ def optimize_min_variance(filepath: str, risk_yaml: str = "risk_limits.yaml") ->
         optimization_metadata={
             "optimization_type": "min_variance",
             "analysis_date": datetime.now(UTC).isoformat(),
-            "portfolio_file": filepath,
+            "portfolio_file": source_file,
             "original_weights": weights,
             "total_positions": len(w),
             "active_positions": len([v for v in w.values() if abs(v) > 0.001])
@@ -119,17 +135,21 @@ def optimize_min_variance(filepath: str, risk_yaml: str = "risk_limits.yaml") ->
 @log_portfolio_operation_decorator("max_return_optimization")
 @log_resource_usage_decorator(monitor_memory=True, monitor_cpu=True)
 @log_performance(10.0)
-def optimize_max_return(filepath: str, risk_yaml: str = "risk_limits.yaml") -> OptimizationResult:
+def optimize_max_return(
+    portfolio: Union[str, PortfolioData],
+    risk_limits: Union[str, RiskLimitsData, Dict[str, Any], None] = "risk_limits.yaml",
+) -> OptimizationResult:
     """
-    Core maximum return optimization business logic.
-    
-    This function contains the pure business logic extracted from run_max_return(),
-    without any CLI or dual-mode concerns.
+    Run maximum-return optimization and return ``OptimizationResult``.
+
+    Contract notes:
+    - Same input flexibility as ``optimize_min_variance``.
+    - Includes factor/proxy check tables for downstream diagnostics.
     
     Parameters
     ----------
-    filepath : str
-        Path to the portfolio YAML file.
+    portfolio : Union[str, PortfolioData]
+        Portfolio input as YAML filepath or PortfolioData object.
         
     Returns
     -------
@@ -144,14 +164,8 @@ def optimize_max_return(filepath: str, risk_yaml: str = "risk_limits.yaml") -> O
     """
     
     # --- load configs ------------------------------------------------------
-    config = load_portfolio_config(filepath)
-    
-    # Handle case where risk_yaml is None (use default)
-    if risk_yaml is None:
-        risk_yaml = "risk_limits.yaml"
-    
-    with open(risk_yaml, "r") as f:
-        risk_config = yaml.safe_load(f)
+    config, source_file = resolve_portfolio_config(portfolio)
+    risk_config = resolve_risk_config(risk_limits)
 
     fmp_ticker_map = config.get("fmp_ticker_map")
     currency_map = config.get("currency_map")
@@ -193,8 +207,8 @@ def optimize_max_return(filepath: str, risk_yaml: str = "risk_limits.yaml") -> O
         optimization_metadata={
             "optimization_type": "max_return",
             "analysis_date": datetime.now(UTC).isoformat(),
-            "portfolio_file": filepath,
-            "risk_limits_file": risk_yaml,
+            "portfolio_file": source_file,
+            "risk_limits_file": risk_limits if isinstance(risk_limits, str) else None,
             "original_weights": weights,
             "risk_limits": risk_config  # Pass the actual risk limits configuration
         }

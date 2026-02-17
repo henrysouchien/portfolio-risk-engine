@@ -3,7 +3,18 @@
 
 """
 Core AI interpretation business logic.
-Extracted from run_risk.py as part of the refactoring to create a clean service layer.
+
+Called by:
+- ``run_risk.run_and_interpret`` wrapper path.
+- Service/API interpretation endpoints that already have portfolio output data.
+
+Calls into:
+- ``gpt_helpers.interpret_portfolio_risk`` for language-model interpretation.
+
+Contract notes:
+- Returns canonical ``InterpretationResult`` for wrapper serialization.
+- Supports two entry modes: run-analysis-and-interpret, or interpret existing
+  structured portfolio output.
 """
 
 from typing import Optional, Dict, Any

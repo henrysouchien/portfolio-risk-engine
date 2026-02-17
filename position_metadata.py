@@ -7,7 +7,7 @@ Focuses on cash position detection and simple formatting utilities.
 """
 
 from typing import Dict, Optional, Set, Any
-from run_portfolio_risk import get_cash_positions
+from core.portfolio_config import get_cash_positions
 
 
 # Note: The user-specific metadata function is kept for potential future use

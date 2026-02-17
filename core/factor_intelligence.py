@@ -552,6 +552,13 @@ def fetch_factor_universe(use_database: bool = True) -> Dict[str, List[str]]:
     """
     Build the factor ETF universe categorized by factor/asset classes.
 
+    Called by:
+    - ``services.factor_intelligence_service.FactorIntelligenceService``.
+
+    Calls into:
+    - DB-first proxy loaders (industry/exchange/asset/cash), with YAML/hardcoded
+      fallbacks in loader functions.
+
     Returns
     -------
     Dict[str, List[str]]
@@ -634,6 +641,9 @@ def build_factor_returns_panel(
 
     This is the public API function that maintains backward compatibility.
     It computes a hash of the universe and delegates to the cached implementation.
+
+    Called by:
+    - ``FactorIntelligenceService._panel`` as the main returns-panel boundary.
 
     Parameters
     ----------

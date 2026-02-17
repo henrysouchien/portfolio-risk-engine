@@ -298,6 +298,13 @@ class PositionResult:
     """
     Transport/serialization layer for position data.
 
+    Called by:
+    - Position/routing services that return normalized holdings payloads.
+
+    Used by:
+    - API routes, Claude tools, and downstream analyzers expecting stable
+      ``to_api_response`` / ``to_cli_report`` contracts.
+
     Wraps PositionsData and adds:
     - to_api_response() for API/MCP envelope
     - to_cli_report() for terminal display
@@ -1665,7 +1672,7 @@ class RiskAnalysisResult:
         # Import CLI utilities to match exact labeling format
         try:
             from utils.etf_mappings import get_etf_to_industry_map, format_ticker_with_label
-            from run_portfolio_risk import get_cash_positions
+            from core.portfolio_config import get_cash_positions
             
             cash_positions = get_cash_positions()
             industry_map = get_etf_to_industry_map()
@@ -3714,7 +3721,7 @@ class PerformanceResult:
         # CRITICAL: Must produce identical output to current implementation
         lines = ["📊 Portfolio Performance Analysis"]
         lines.append("=" * 50)
-        lines.append(f"📁 Portfolio file: {self.portfolio_file}")
+        lines.append(f"📁 Portfolio file: {self.portfolio_file or '(in-memory)'}")
         lines.append(f"📅 Analysis period: {self.analysis_period['start_date']} to {self.analysis_period['end_date']}")
         # Get positions count from position_count method or analysis_period
         positions = self.get_position_count() or self.analysis_period.get('positions', 'N/A')
@@ -3824,6 +3831,7 @@ class RealizedIncomeMetrics:
     interest: float
     by_month: Dict[str, Any]
     by_symbol: Dict[str, Any]
+    by_institution: Dict[str, Any]
     current_monthly_rate: float
     projected_annual: float
     yield_on_cost: float
@@ -3836,6 +3844,7 @@ class RealizedIncomeMetrics:
             "interest": self.interest,
             "by_month": self.by_month,
             "by_symbol": self.by_symbol,
+            "by_institution": self.by_institution,
             "current_monthly_rate": self.current_monthly_rate,
             "projected_annual": self.projected_annual,
             "yield_on_cost": self.yield_on_cost,
@@ -3850,6 +3859,7 @@ class RealizedIncomeMetrics:
             interest=d.get("interest", 0.0),
             by_month=d.get("by_month", {}),
             by_symbol=d.get("by_symbol", {}),
+            by_institution=d.get("by_institution", {}),
             current_monthly_rate=d.get("current_monthly_rate", 0.0),
             projected_annual=d.get("projected_annual", 0.0),
             yield_on_cost=d.get("yield_on_cost", 0.0),
@@ -3888,6 +3898,12 @@ class RealizedMetadata:
 
     This is the typed equivalent of the ``realized_metadata`` nested dict returned by
     ``analyze_realized_performance()``.
+
+    Contract semantics:
+    - ``nav_pnl_*`` fields represent NAV/flow-derived tracks.
+    - ``lot_pnl_usd`` is FIFO lot-based realized+unrealized+income composition.
+    - ``provider_flow_coverage`` and ``flow_fallback_reasons`` explain when
+      provider-authoritative flow replay was used vs inferred fallback flows.
     """
 
     realized_pnl: float
@@ -3921,7 +3937,14 @@ class RealizedMetadata:
     unpriceable_reasons: Dict[str, str]
     ibkr_pricing_coverage: Dict[str, Any]
     source_breakdown: Dict[str, int]
-    data_warnings: List[str]
+    flow_source_breakdown: Dict[str, int] = field(default_factory=dict)
+    inferred_flow_diagnostics: Dict[str, Any] = field(default_factory=dict)
+    provider_flow_coverage: Dict[str, Any] = field(default_factory=dict)
+    flow_fallback_reasons: List[str] = field(default_factory=list)
+    dedup_diagnostics: Dict[str, Any] = field(default_factory=dict)
+    external_net_flows_usd: float = 0.0
+    net_contributions_definition: str = "trade_cash_legs_legacy"
+    data_warnings: List[str] = field(default_factory=list)
     monthly_nav: Optional[Dict[str, float]] = None
     growth_of_dollar: Optional[Dict[str, float]] = None
     _postfilter: Optional[Dict[str, Any]] = None
@@ -3959,6 +3982,13 @@ class RealizedMetadata:
             "unpriceable_reasons": self.unpriceable_reasons,
             "ibkr_pricing_coverage": self.ibkr_pricing_coverage,
             "source_breakdown": self.source_breakdown,
+            "flow_source_breakdown": self.flow_source_breakdown,
+            "inferred_flow_diagnostics": self.inferred_flow_diagnostics,
+            "provider_flow_coverage": self.provider_flow_coverage,
+            "flow_fallback_reasons": self.flow_fallback_reasons,
+            "dedup_diagnostics": self.dedup_diagnostics,
+            "external_net_flows_usd": self.external_net_flows_usd,
+            "net_contributions_definition": self.net_contributions_definition,
             "data_warnings": self.data_warnings,
         }
         if self.monthly_nav is not None:
@@ -4003,6 +4033,13 @@ class RealizedMetadata:
             unpriceable_reasons=d.get("unpriceable_reasons", {}),
             ibkr_pricing_coverage=d.get("ibkr_pricing_coverage", {}),
             source_breakdown=d.get("source_breakdown", {}),
+            flow_source_breakdown=d.get("flow_source_breakdown", {}),
+            inferred_flow_diagnostics=d.get("inferred_flow_diagnostics", {}),
+            provider_flow_coverage=d.get("provider_flow_coverage", {}),
+            flow_fallback_reasons=d.get("flow_fallback_reasons", []),
+            dedup_diagnostics=d.get("dedup_diagnostics", {}),
+            external_net_flows_usd=d.get("external_net_flows_usd", 0.0),
+            net_contributions_definition=d.get("net_contributions_definition", "trade_cash_legs_legacy"),
             data_warnings=d.get("data_warnings", []),
             monthly_nav=d.get("monthly_nav"),
             growth_of_dollar=d.get("growth_of_dollar"),
@@ -4019,6 +4056,13 @@ class RealizedPerformanceResult:
     Core metric fields (returns, risk_metrics, etc.) come from the shared
     ``compute_performance_metrics()`` engine. Realized-specific data lives
     in ``realized_metadata``.
+
+    Called by:
+    - Realized performance service/API boundaries that wrap raw analysis dicts.
+
+    Contract:
+    - ``to_dict`` preserves the historical realized-performance payload shape.
+    - ``to_api_response`` emits the standardized envelope for API/AI clients.
     """
 
     analysis_period: Dict[str, Any]
@@ -4089,6 +4133,8 @@ class RealizedPerformanceResult:
             "nav_metrics_estimated": self.realized_metadata.nav_metrics_estimated,
             "high_confidence_realized": self.realized_metadata.high_confidence_realized,
             "pnl_basis": self.realized_metadata.pnl_basis.to_dict(),
+            "external_net_flows_usd": self.realized_metadata.external_net_flows_usd,
+            "net_contributions_definition": self.realized_metadata.net_contributions_definition,
         }
         if self.warnings:
             d["warnings"] = self.warnings
@@ -4167,6 +4213,9 @@ class RealizedPerformanceResult:
             "realized_pnl": meta.realized_pnl,
             "unrealized_pnl": meta.unrealized_pnl,
             "income_total": income.total,
+            "income_dividends": income.dividends,
+            "income_interest": income.interest,
+            "income_by_institution": income.by_institution,
             "income_yield_on_cost": income.yield_on_cost,
             "income_yield_on_value": income.yield_on_value,
             "data_coverage": meta.data_coverage,
@@ -5269,7 +5318,7 @@ class WhatIfResult:
         
         # Get reference data for position labeling
         try:
-            from run_portfolio_risk import get_cash_positions
+            from core.portfolio_config import get_cash_positions
             from utils.etf_mappings import get_etf_to_industry_map, format_ticker_with_label
             cash_positions = get_cash_positions()
             industry_map = get_etf_to_industry_map()

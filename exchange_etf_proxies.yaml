@@ -147,6 +147,11 @@ EURONEXT:             # Pan-Europe
   momentum: IMTM     # iShares MSCI Intl Momentum Factor
   value: EFV
 
+LSE:                  # London Stock Exchange
+  market: EWU        # iShares MSCI United Kingdom
+  momentum: IMTM     # iShares MSCI Intl Momentum Factor
+  value: EFV         # iShares MSCI EAFE Value
+
 NSE:                  # India (EM sleeve)
   market: INDA       # iShares MSCI India
   momentum: EEMO     # Invesco S&P Emerging Markets Momentum ETF
