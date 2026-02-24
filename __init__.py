@@ -1,1 +1,0 @@
-# Core package for risk module data objects and exceptions 

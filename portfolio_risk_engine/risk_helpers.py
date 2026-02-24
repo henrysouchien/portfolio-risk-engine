@@ -1,0 +1,371 @@
+#!/usr/bin/env python
+# coding: utf-8
+
+# In[ ]:
+
+
+# === Imports for Risk Helper Functions ===
+
+from portfolio_risk_engine.data_loader import fetch_monthly_close, fetch_monthly_total_return_price
+from portfolio_risk_engine.factor_utils import calc_monthly_returns
+
+# In[ ]:
+
+
+from typing import Dict, Union, List, Optional, Any, Tuple
+import pandas as pd
+
+def get_worst_monthly_factor_losses(
+    stock_factor_proxies: Dict[str, Dict[str, Union[str, List[str]]]],
+    start_date: str,
+    end_date: str,
+    fmp_ticker_map: Dict[str, str] | None = None,
+) -> Dict[str, float]:
+    """
+    For each unique factor proxy (ETF or peer group), fetch monthly returns over
+    a historical window and compute the worst single-month return (min).
+
+    Only includes factor types: market, momentum, value, and industry.
+
+    Implementation notes (updated):
+    - Returns prefer dividend-adjusted (total-return) prices for improved
+      accuracy, with a safe fallback to close-only series when needed.
+
+    Args:
+        stock_factor_proxies (Dict): From portfolio.yaml — maps tickers to their factor proxies.
+        start_date (str): Start date for return window (YYYY-MM-DD).
+        end_date (str): End date for return window (YYYY-MM-DD).
+
+    Returns:
+        Dict[str, float]: {proxy: worst 1-month return}
+    """
+    # LOGGING: Add risk calculation timing
+    # LOGGING: Add mathematical operation logging
+    # LOGGING: Add validation step logging
+    # LOGGING: Add error context logging
+    from portfolio_risk_engine.data_loader import fetch_monthly_close, fetch_monthly_total_return_price
+    from portfolio_risk_engine.factor_utils import calc_monthly_returns
+
+    allowed_factors = {"market", "momentum", "value", "industry"}
+    unique_proxies = set()
+
+    for proxy_map in stock_factor_proxies.values():
+        for k, v in proxy_map.items():
+            if k not in allowed_factors:
+                continue  # skip subindustry and others
+            if isinstance(v, list):
+                unique_proxies.update(v)
+            else:
+                unique_proxies.add(v)
+
+    worst_losses = {}
+
+    for proxy in sorted(unique_proxies):
+        try:
+            try:
+                prices = fetch_monthly_total_return_price(
+                    proxy,
+                    start_date,
+                    end_date,
+                    fmp_ticker_map=fmp_ticker_map,
+                )
+            except Exception:
+                prices = fetch_monthly_close(
+                    proxy,
+                    start_date,
+                    end_date,
+                    fmp_ticker_map=fmp_ticker_map,
+                )
+            returns = calc_monthly_returns(prices)
+            if not returns.empty:
+                worst_losses[proxy] = float(returns.min())
+        except Exception as e:
+            print(f"⚠️ Failed for proxy {proxy}: {e}")
+
+    return worst_losses
+
+
+# In[ ]:
+
+
+from typing import Dict, Union, List, Tuple
+
+def aggregate_worst_losses_by_factor_type(
+    stock_factor_proxies: Dict[str, Dict[str, Union[str, List[str]]]],
+    worst_losses: Dict[str, float]
+) -> Dict[str, Tuple[str, float]]:
+    """
+    Aggregate the worst 1-month return per factor type by scanning all proxies
+    assigned to each factor type across the portfolio and selecting the worst-performing one.
+
+    Args:
+        stock_factor_proxies (Dict): Mapping from tickers to their factor proxy assignments.
+        worst_losses (Dict): Precomputed worst monthly return per ETF or peer.
+
+    Returns:
+        Dict[str, Tuple[str, float]]: {factor_type: (proxy, worst_return)}
+    """
+    factor_types = ["market", "momentum", "value", "industry"]
+    factor_to_proxies: Dict[str, set] = {ftype: set() for ftype in factor_types}
+
+    for proxy_map in stock_factor_proxies.values():
+        for ftype in factor_types:
+            proxy = proxy_map.get(ftype)
+            if isinstance(proxy, list):
+                factor_to_proxies[ftype].update(proxy)
+            elif proxy:
+                factor_to_proxies[ftype].add(proxy)
+
+    factor_worst: Dict[str, Tuple[str, float]] = {}
+    for ftype, proxies in factor_to_proxies.items():
+        worst_proxy = None
+        worst_val = float("inf")
+        for proxy in proxies:
+            val = worst_losses.get(proxy)
+            if val is not None and val < worst_val:
+                worst_val = val
+                worst_proxy = proxy
+        if worst_proxy is not None:
+            factor_worst[ftype] = (worst_proxy, worst_val)
+
+    return factor_worst
+
+
+# In[ ]:
+
+
+# ─── risk_helpers.py ──────────────────────────────────────────────
+
+from typing import Dict, Tuple, List
+import pandas as pd
+
+def compute_max_betas(
+    proxies: Dict[str, Dict[str, List[str] | str]],
+    start_date: str,
+    end_date:   str,
+    loss_limit_pct: float,
+    fmp_ticker_map: Dict[str, str] | None = None,
+) -> Dict[str, float]:
+    """
+    Pure function – NO YAML reads, NO printing.
+
+    Parameters
+    ----------
+    proxies : dict          # stock_factor_proxies section
+    start_date, end_date : str  # analysis window (YYYY-MM-DD)
+    loss_limit_pct : float      # e.g. -0.10
+
+    Returns
+    -------
+    {factor_type: max_beta}
+    """
+    from portfolio_risk_engine.risk_helpers import (
+        get_worst_monthly_factor_losses,
+        aggregate_worst_losses_by_factor_type,
+    )
+
+    worst_losses   = get_worst_monthly_factor_losses(
+        proxies,
+        start_date,
+        end_date,
+        fmp_ticker_map=fmp_ticker_map,
+    )
+    worst_by_type  = aggregate_worst_losses_by_factor_type(proxies, worst_losses)
+
+    return {
+        ftype: float("inf") if worst >= 0 else loss_limit_pct / worst
+        for ftype, (_, worst) in worst_by_type.items()
+    }
+
+
+# In[ ]:
+
+
+# ─── risk_helpers.py ─────────────────────────────────────────────────────────
+
+from typing import Dict, Tuple, List, Any
+from datetime import datetime
+from pathlib import Path
+import yaml
+import pandas as pd
+
+_PROJECT_ROOT = Path(__file__).resolve().parent
+
+
+def _resolve_yaml_path(path: str) -> Path:
+    """
+    Resolve YAML config paths robustly when server cwd differs from project root.
+    """
+    candidate = Path(path)
+    if candidate.is_absolute():
+        return candidate
+    if candidate.exists():
+        return candidate.resolve()
+
+    project_candidate = _PROJECT_ROOT / candidate
+    if project_candidate.exists():
+        return project_candidate.resolve()
+    return candidate
+
+def calc_max_factor_betas(
+    portfolio_yaml: str = "portfolio.yaml",
+    risk_yaml: str = "risk_limits.yaml",
+    lookback_years: int = None,
+    echo: bool = True,
+    *,
+    stock_factor_proxies: Optional[Dict] = None,
+    fmp_ticker_map: Optional[Dict] = None,
+    max_single_factor_loss: Optional[float] = None,
+) -> Tuple[Dict[str, float], Dict[str, float], Dict[str, Any]]:
+    """
+    Derive max-allowable portfolio betas for each factor type and industry
+    from historical worst 1-month factor proxy returns.
+
+    Parameters
+    ----------
+    portfolio_yaml : str
+        Path to the YAML file containing `stock_factor_proxies`.
+    risk_yaml : str
+        Path to YAML containing `max_single_factor_loss`.
+    lookback_years : int, optional
+        Historical window length to scan (ending today).
+        If None, uses PORTFOLIO_DEFAULTS['worst_case_lookback_years'].
+    echo : bool
+        If True, pretty-prints the intermediate tables to stdout.
+    stock_factor_proxies : dict, optional
+        Direct proxies map (skips reading portfolio_yaml).
+    fmp_ticker_map : dict, optional
+        Optional ticker mapping for proxy lookups.
+    max_single_factor_loss : float, optional
+        Direct loss limit (skips reading risk_yaml).
+
+    Returns
+    -------
+    Tuple[Dict[str, float], Dict[str, float], Dict[str, Any]]
+        - max_betas:         {factor_type: max_beta}
+        - max_betas_by_proxy: {industry_proxy: max_beta}
+        - historical_analysis: {
+            'worst_per_proxy': {proxy: worst_monthly_loss},
+            'worst_by_factor': {factor_type: (proxy_name, worst_loss)},
+            'analysis_period': {'start': start_date, 'end': end_date, 'years': lookback_years},
+            'loss_limit': loss_limit_pct
+          }
+    """
+    # 1. --- load configs -----------------------------------------------------
+    # Resolve proxies: kwarg takes precedence over file
+    if stock_factor_proxies is not None:
+        proxies = stock_factor_proxies
+        fmp_map = fmp_ticker_map
+    elif portfolio_yaml is not None:
+        resolved_portfolio_yaml = _resolve_yaml_path(portfolio_yaml)
+        with open(resolved_portfolio_yaml, "r") as f:
+            port_cfg = yaml.safe_load(f)
+        proxies = port_cfg["stock_factor_proxies"]
+        fmp_map = port_cfg.get("fmp_ticker_map")
+    else:
+        raise ValueError("Must provide stock_factor_proxies or portfolio_yaml")
+
+    # Resolve loss limit: kwarg takes precedence over file
+    if max_single_factor_loss is not None:
+        loss_limit = max_single_factor_loss
+    elif risk_yaml is not None:
+        resolved_risk_yaml = _resolve_yaml_path(risk_yaml)
+        with open(resolved_risk_yaml, "r") as f:
+            risk_cfg = yaml.safe_load(f)
+        loss_limit = risk_cfg["max_single_factor_loss"]
+    else:
+        raise ValueError("Must provide max_single_factor_loss or risk_yaml")
+    
+    # Use default from settings if not specified
+    if lookback_years is None:
+        from portfolio_risk_engine.config import PORTFOLIO_DEFAULTS
+        lookback_years = PORTFOLIO_DEFAULTS['worst_case_lookback_years']
+
+    if not proxies:
+        empty_analysis = {
+            "worst_per_proxy": {},
+            "worst_by_factor": {},
+            "analysis_period": {"start": None, "end": None, "years": lookback_years},
+            "loss_limit": loss_limit,
+        }
+        return {}, {}, empty_analysis
+
+    # 2. --- date window ------------------------------------------------------
+    end_dt = datetime.today()
+    start_dt = end_dt - pd.DateOffset(years=lookback_years)
+    end_str, start_str = end_dt.strftime("%Y-%m-%d"), start_dt.strftime("%Y-%m-%d")
+
+    # 3. --- worst per-proxy --------------------------------------------------
+    worst_per_proxy = get_worst_monthly_factor_losses(
+        proxies,
+        start_str,
+        end_str,
+        fmp_ticker_map=fmp_map,
+    )
+
+    # 4. --- worst per factor-type -------------------------------------------
+    worst_by_factor = aggregate_worst_losses_by_factor_type(
+        proxies, worst_per_proxy
+    )
+
+    # 5. --- max beta per factor type ----------------------------------------------------
+    max_betas = compute_max_betas(
+        proxies,
+        start_str,
+        end_str,
+        loss_limit,
+        fmp_ticker_map=fmp_map,
+    )
+
+    # 6. Compute per-industry-proxy max betas
+    industry_proxies = set()
+    for proxy_map in proxies.values():
+        proxy = proxy_map.get("industry")
+        if isinstance(proxy, list):
+            industry_proxies.update(proxy)
+        elif proxy:
+            industry_proxies.add(proxy)
+
+    max_betas_by_proxy = {}
+    for proxy in sorted(industry_proxies):
+        worst = worst_per_proxy.get(proxy)
+        if worst is None or worst >= 0:
+            max_betas_by_proxy[proxy] = float("inf")
+        else:
+            max_betas_by_proxy[proxy] = loss_limit / worst
+
+    # --- pretty print block --------------------------------------------------
+    if echo:
+        print(f"\n=== Historical Worst-Case Analysis ({lookback_years}-year lookback) ===")
+        print(f"Analysis Period: {start_str} to {end_str}")
+        
+        print("\n=== Worst Monthly Losses per Proxy ===")
+        for p, v in sorted(worst_per_proxy.items(), key=lambda kv: kv[1]):
+            print(f"{p:<12} : {v:.2%}")
+
+        print("\n=== Worst Monthly Losses per Factor Type ===")
+        for ftype, (p, v) in worst_by_factor.items():
+            print(f"{ftype:<10} → {p:<12} : {v:.2%}")
+
+        print(f"\n=== Max Allowable Beta per Factor "
+              f"(Loss Limit = {loss_limit:.0%}) ===")
+        for ftype, beta in max_betas.items():
+            print(f"{ftype:<10} → β ≤ {beta:.2f}")
+
+        print("\n=== Max Beta per Industry Proxy ===")
+        for p, b in sorted(max_betas_by_proxy.items()):
+            print(f"{p:<12} → β ≤ {b:.2f}")
+
+    # Package historical analysis data for CLI and API reporting
+    historical_analysis = {
+        'worst_per_proxy': worst_per_proxy,
+        'worst_by_factor': worst_by_factor,
+        'analysis_period': {
+            'start': start_str,
+            'end': end_str,
+            'years': lookback_years
+        },
+        'loss_limit': loss_limit
+    }
+    
+    return max_betas, max_betas_by_proxy, historical_analysis
