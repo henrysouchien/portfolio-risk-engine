@@ -1,8 +1,8 @@
 # Frontend Phase 2 — Working Doc
 
 **Parent doc:** `FRONTEND_PACKAGE_DESIGN.md`
-**Status:** Wave 1 complete, Wave 2 next
-**Last verified:** 2026-02-27 — Chrome visual audit after Wave 1 implementation + post-fixes
+**Status:** Wave 1 complete + formatting foundation complete, Wave 2 next
+**Last verified:** 2026-02-27 — Chrome visual audit after formatting module migration
 
 ### Related Docs
 | Doc | Purpose |
@@ -11,6 +11,7 @@
 | `FRONTEND_WAVE1_IMPLEMENTATION_PLAN.md` | Wave 1 detailed implementation plan (Codex-reviewed) |
 | `FRONTEND_COMPONENT_VISUAL_MAP.md` | Visual guide: what you see on screen → code component |
 | `FRONTEND_DATA_WIRING_AUDIT.md` | Container/adapter audit (ported into this doc) |
+| `FRONTEND_FORMATTING_MODULE_PLAN.md` | Shared formatting module plan (Codex-reviewed, complete) |
 
 ---
 
@@ -319,29 +320,26 @@ Components that appear unused or are explicitly marked as such:
 | Dead components cleaned | 1 | PerformanceChart.tsx deleted |
 | Backend endpoints unused by frontend | 9 | `/api/direct/*`, `/api/factors/*`, `/api/positions/*` |
 
-### Cross-Cutting: Shared Number Formatting
+### Cross-Cutting: Shared Number Formatting — COMPLETE
 
-**Problem:** No shared formatting layer. ~100+ inline formatting calls across containers and presentation components using 3 inconsistent approaches (`.toFixed()`, `.toLocaleString()`, `Intl.NumberFormat`). Each new container reinvents formatting — the percentage rounding bug in Wave 1 was a direct symptom.
+**Problem:** No shared formatting layer. ~150+ inline formatting calls across 5 incompatible local formatters using `.toFixed()`, `.toLocaleString()`, `Intl.NumberFormat`.
 
-**Current state:**
-- `formatCurrency()` exists only in `RiskMetricsContainer.tsx` (not shared)
-- Market cap formatting (B/M/T suffixes) exists only in `StockLookup.tsx` (not shared)
-- No standard decimal places (mix of 0, 1, 2 digits)
-- No standard locale handling (some specify `'en-US'`, some rely on defaults)
-
-**Proposal:** Create `@risk/chassis/src/utils/formatting.ts` with 5 shared formatters:
+**Solution:** `@risk/chassis/src/utils/formatting.ts` — 6 shared functions:
 
 | Function | Purpose | Example output |
 |----------|---------|---------------|
-| `formatCurrency(value)` | Dollar amounts with sign | `$1,255`, `-$42,891` |
-| `formatPercent(value, decimals?)` | Percentages with symbol | `8.5%`, `-55.9%` |
-| `formatNumber(value, decimals?)` | General numeric display | `1.05`, `18,442` |
-| `formatCompact(value)` | Large numbers with suffix | `$2.8M`, `$1.2B` |
-| `formatRatio(value, decimals?)` | Financial ratios | `1.714`, `0.72` |
+| `formatCurrency(value, opts?)` | Dollar amounts, optional compact | `$1,255`, `$1.2M` |
+| `formatPercent(value, opts?)` | Percentages with optional sign | `8.5%`, `+12.35%` |
+| `formatNumber(value, opts?)` | General numeric display | `1.05`, `+2` |
+| `formatCompact(value, opts?)` | Large numbers with suffix | `1.2T`, `$450B` |
+| `formatBasisPoints(value)` | Basis points from decimal | `42 bp` |
+| `roundTo(value, decimals?)` | Numeric rounding (not display) | `1.23` |
 
-**Location:** `@risk/chassis` (base package, imported by all). Migrate existing inline calls incrementally — no big-bang rewrite needed.
+**Safety:** NaN/Infinity → `"—"`, -0 normalized, Intl caching, hardcoded `en-US`/`USD`.
 
-**Priority:** Do before Wave 2 — new containers will use shared formatters from the start, and Wave 2 tasks (holdings enrichment, stock prices) will benefit immediately.
+**Migrated files (14):** RiskMetricsContainer, PerformanceView, StrategyBuilder, HoldingsView, PortfolioOverview, FactorRiskModel, RiskAnalysisAdapter, PerformanceAdapter, RiskSettingsAdapter, useAnalysisReport, registry. All local formatters deleted, all `.toFixed()` replaced.
+
+**Status:** COMPLETE — Codex implemented (2 rounds: v1 + 3 follow-up fixes), verified in Chrome 2026-02-27. See `FRONTEND_FORMATTING_MODULE_PLAN.md`.
 
 ---
 

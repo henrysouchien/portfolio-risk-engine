@@ -172,8 +172,16 @@ Dragged up by Schwab's +33% distortion. IBKR and Plaid are both now in reasonabl
 
 ## Next Steps
 
-1. **Synthetic price_hint accuracy**: The remaining Schwab +33% distortion is from synthetic positions entering at current price instead of historical price at inception. Investigate whether historical price data can be used for `price_hint` at inception date.
+**P5: V_start Seeding + Budget-Based Incomplete Trade Suppression** (`docs/planning/CASH_REPLAY_P5_VSTART_SEEDING_PLAN.md`)
 
-2. **Consider coverage-based gating**: When coverage < 50% (IBKR at 45%), consider suppressing returns entirely rather than producing misleading numbers.
+Two changes targeting the remaining Schwab +33% and IBKR +10% distortions:
 
-3. **IBKR price_hint refinement**: Investigate whether using sell_price as inception price_hint for incomplete trades introduces systematic bias.
+1. **V_start seeding**: Seed `compute_monthly_returns()` with initial NAV at inception from pre-existing (synthetic) positions. Currently V_start is hardcoded to 0, so any synthetic position appreciation appears as free gains on zero invested capital. This is the primary driver of Schwab's +33% distortion.
+
+2. **Budget-based incomplete trade cash suppression**: Suppress the unmatched portion of incomplete trade SELLs in the cash replay. Currently all SELL cash enters replay at full notional, even when FIFO couldn't match the SELL to a prior BUY. This creates unbalanced cash that distorts IBKR returns.
+
+Acceptance gates: IBKR gap <= 10pp (from 20pp), Schwab gap <= 21pp (from 41pp), no source regresses > 5pp.
+
+**Stream C: Output Gating** (design in `WORKSTREAM_PLANS.md`, not yet implemented)
+
+When data quality is poor, add `reliable: bool` + `reliability_note` to agent snapshots. Coverage-based and synthetic-dominance gates.

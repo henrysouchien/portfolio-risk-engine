@@ -98,11 +98,13 @@ def analyze_portfolio(
             t,
             fmp_ticker_map=fmp_ticker_map,
             currency=currency_map.get(t) if currency_map else None,
+            instrument_types=instrument_types,
         )
     else:
         price_fetcher = lambda t: latest_price(
             t,
             currency=currency_map.get(t) if currency_map else None,
+            instrument_types=instrument_types,
         )
     standardized_keys = (
         "weights",

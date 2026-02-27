@@ -48,7 +48,7 @@ from providers.flows.extractor import extract_provider_flow_events
 from providers.ibkr_price import IBKRPriceProvider
 from providers.interfaces import PriceSeriesProvider
 from providers.normalizers.schwab import get_schwab_security_lookup
-from providers.routing import get_canonical_provider
+from providers.routing import get_canonical_provider, resolve_provider_token
 from providers.registry import ProviderRegistry
 from settings import (
     BACKFILL_FILE_PATH,
@@ -77,20 +77,6 @@ TYPE_ORDER = {
 }
 _FX_PAIR_SYMBOL_RE = re.compile(r"^[A-Z]{3}\.[A-Z]{3}$")
 _IBKR_ACCOUNT_ID_RE = re.compile(r"^u\d+$", re.IGNORECASE)
-_REALIZED_SOURCE_TOKEN_MAP = {
-    "snaptrade": "snaptrade",
-    "snap trade": "snaptrade",
-    "plaid": "plaid",
-    "schwab": "schwab",
-    "charles schwab": "schwab",
-    "ibkr": "ibkr_flex",
-    "ibkr flex": "ibkr_flex",
-    "ibkr_flex": "ibkr_flex",
-    "interactive brokers": "ibkr_flex",
-    "interactive brokers llc": "ibkr_flex",
-    "interactive_brokers": "ibkr_flex",
-    "interactive_brokers_llc": "ibkr_flex",
-}
 # Provider alias normalization used only by realized cash replay overlap dedupe.
 # Keep synchronized with docs/planning/CASH_REPLAY_P2_FIX_PLAN.md.
 REALIZED_PROVIDER_ALIAS_MAP = {
@@ -504,6 +490,7 @@ def _normalize_monthly_index(series: Optional[pd.Series]) -> pd.Series:
 def _build_current_positions(
     positions: "PositionResult",
     institution: Optional[str] = None,
+    account: Optional[str] = None,
     rows_override: Optional[List[Dict[str, Any]]] = None,
 ) -> Tuple[Dict[str, Dict[str, Any]], Dict[str, str], List[str]]:
     """Build ticker->position map and fmp_ticker map from PositionResult."""
@@ -512,6 +499,7 @@ def _build_current_positions(
     warnings: List[str] = []
     filtered_positions = 0
     missing_brokerage_name = 0
+    account_filtered_positions = 0
 
     rows = rows_override if rows_override is not None else list(getattr(positions.data, "positions", []) or [])
     for pos in rows:
@@ -522,6 +510,9 @@ def _build_current_positions(
                 if not brokerage_name.strip():
                     missing_brokerage_name += 1
                 continue
+        if account and not _match_account(pos, account):
+            account_filtered_positions += 1
+            continue
 
         ticker = pos.get("ticker")
         if not ticker or not isinstance(ticker, str):
@@ -583,6 +574,10 @@ def _build_current_positions(
             f"Institution filter '{institution}': excluded {filtered_positions} position row(s)"
             f" ({missing_brokerage_name} missing brokerage_name)."
         )
+    if account and account_filtered_positions:
+        warnings.append(
+            f"Account filter '{account}': excluded {account_filtered_positions} position row(s)."
+        )
 
     return current_positions, fmp_ticker_map, warnings
 
@@ -598,14 +593,17 @@ class SourceScopedHoldings:
 
 
 def _normalize_source_token(value: Any) -> Optional[str]:
-    raw = str(value or "").strip().lower()
-    if not raw:
-        return None
-    collapsed = " ".join(raw.replace("_", " ").replace("-", " ").split())
-    mapped = _REALIZED_SOURCE_TOKEN_MAP.get(collapsed)
-    if mapped:
-        return mapped
-    return None
+    return resolve_provider_token(str(value or ""))
+
+
+def _match_account(row: Dict[str, Any], account_filter: Optional[str]) -> bool:
+    """Match account filter against account_id or account_name (exact, case-insensitive)."""
+    normalized_filter = str(account_filter or "").strip().lower()
+    if not normalized_filter:
+        return True
+    account_id = str(row.get("account_id") or "").strip().lower()
+    account_name = str(row.get("account_name") or "").strip().lower()
+    return normalized_filter in {account_id, account_name}
 
 
 def _is_ibkr_identity_field(field_name: str, normalized_value: str) -> bool:
@@ -681,6 +679,7 @@ def _build_source_scoped_holdings(
     source: str,
     warnings: List[str],
     institution: Optional[str] = None,
+    account: Optional[str] = None,
 ) -> SourceScopedHoldings:
     """Build source-scoped holdings with deterministic attribution and leakage diagnostics."""
     if source == "all":
@@ -698,6 +697,7 @@ def _build_source_scoped_holdings(
     row_level_ambiguous_symbols: set[str] = set()
     institution_filtered_rows = 0
     institution_missing_brokerage_name = 0
+    account_filtered_rows = 0
 
     for pos in list(getattr(getattr(positions, "data", None), "positions", []) or []):
         if institution:
@@ -707,6 +707,9 @@ def _build_source_scoped_holdings(
                 if not brokerage_name.strip():
                     institution_missing_brokerage_name += 1
                 continue
+        if account and not _match_account(pos, account):
+            account_filtered_rows += 1
+            continue
 
         ticker = pos.get("ticker")
         if not ticker or not isinstance(ticker, str):
@@ -773,6 +776,10 @@ def _build_source_scoped_holdings(
         warnings.append(
             f"Institution filter '{institution}': excluded {institution_filtered_rows} source-scoped position row(s)"
             f" ({institution_missing_brokerage_name} missing brokerage/institution)."
+        )
+    if account and account_filtered_rows:
+        warnings.append(
+            f"Account filter '{account}': excluded {account_filtered_rows} source-scoped position row(s)."
         )
 
     strict_rows = [
@@ -2801,6 +2808,7 @@ def analyze_realized_performance(
     benchmark_ticker: str = "SPY",
     source: str = "all",
     institution: Optional[str] = None,
+    account: Optional[str] = None,
     include_series: bool = False,
     backfill_path: Optional[str] = None,
     price_registry: ProviderRegistry | None = None,
@@ -2834,6 +2842,7 @@ def analyze_realized_performance(
         source = source.lower().strip()
         price_registry = price_registry or _build_default_price_registry()
         institution = (institution or "").strip() or None
+        account = (account or "").strip() or None
         if source not in {"all", "snaptrade", "plaid", "ibkr_flex", "schwab"}:
             return {
                 "status": "error",
@@ -2849,6 +2858,7 @@ def analyze_realized_performance(
                 source,
                 warnings,
                 institution=institution,
+                account=account,
             )
             current_positions = scoped_holdings.current_positions
             fmp_ticker_map = dict(scoped_holdings.fmp_ticker_map)
@@ -2859,13 +2869,21 @@ def analyze_realized_performance(
             current_positions, fmp_ticker_map, build_warnings = _build_current_positions(
                 positions,
                 institution=institution,
+                account=account,
             )
             warnings.extend(build_warnings)
             source_holding_symbols = sorted(current_positions.keys())
             cross_source_holding_leakage_symbols: List[str] = []
             holdings_scope = "institution_scoped" if institution else "consolidated"
 
-        fetch_result = fetch_transactions_for_source(user_email=user_email, source=source)
+        if institution:
+            fetch_result = fetch_transactions_for_source(
+                user_email=user_email,
+                source=source,
+                institution=institution,
+            )
+        else:
+            fetch_result = fetch_transactions_for_source(user_email=user_email, source=source)
         payload = getattr(fetch_result, "payload", fetch_result)
         fetch_metadata_rows = list(getattr(fetch_result, "fetch_metadata", []) or [])
         warnings.extend(
@@ -2923,6 +2941,7 @@ def analyze_realized_performance(
             schwab_transactions=payload.get("schwab_transactions", []),
             schwab_security_lookup=schwab_security_lookup,
             use_fifo=True,
+            account_filter=account,
         )
 
         fifo_transactions = list(analyzer.fifo_transactions)
@@ -2954,6 +2973,15 @@ def analyze_realized_performance(
             ]
             warnings.append(
                 f"Institution filter '{institution}': {len(fifo_transactions)}/{pre_count} transactions matched."
+            )
+        if account:
+            pre_count = len(fifo_transactions)
+            fifo_transactions = [
+                txn for txn in fifo_transactions
+                if _match_account(txn, account)
+            ]
+            warnings.append(
+                f"Account filter '{account}': {len(fifo_transactions)}/{pre_count} transactions matched."
             )
         fifo_transactions.sort(key=lambda t: _to_datetime(t.get("date")) or datetime.min)
 
@@ -3007,6 +3035,12 @@ def analyze_realized_performance(
                 for inc in income_with_currency
                 if match_institution(inc.get("institution") or "", institution)
             ]
+        if account:
+            income_with_currency = [
+                inc
+                for inc in income_with_currency
+                if _match_account(inc, account)
+            ]
 
         provider_flow_events: List[Dict[str, Any]] = []
         first_authoritative_provider_flow_date: datetime | None = None
@@ -3032,6 +3066,17 @@ def analyze_realized_performance(
                     row
                     for row in provider_fetch_metadata
                     if match_institution(str(row.get("institution") or ""), institution)
+                ]
+            if account:
+                provider_flow_events = [
+                    row
+                    for row in provider_flow_events
+                    if _match_account(row, account)
+                ]
+                provider_fetch_metadata = [
+                    row
+                    for row in provider_fetch_metadata
+                    if _match_account(row, account)
                 ]
 
             provider_flow_events, dedup_diagnostics = _deduplicate_provider_flow_events(provider_flow_events)

@@ -1321,6 +1321,9 @@ def compute_factor_performance_profiles(
     t0 = time.time()
     start = returns_panel.attrs.get("start_date")
     end = returns_panel.attrs.get("end_date")
+    instrument_types = returns_panel.attrs.get("instrument_types")
+    if not isinstance(instrument_types, dict):
+        instrument_types = None
 
     profiles: Dict[str, Dict[str, Any]] = {}
     errors: Dict[str, str] = {}
@@ -1328,7 +1331,13 @@ def compute_factor_performance_profiles(
     for t in returns_panel.columns:
         weights = {t: 1.0}
         try:
-            perf = calculate_portfolio_performance_metrics(weights, start, end, benchmark_ticker=benchmark_ticker)
+            perf = calculate_portfolio_performance_metrics(
+                weights,
+                start,
+                end,
+                benchmark_ticker=benchmark_ticker,
+                instrument_types=instrument_types,
+            )
             profiles[t] = _perf_pick_fields(perf)
         except Exception as e:
             errors[t] = str(e)
@@ -1370,6 +1379,9 @@ def compute_composite_performance(
     t0 = time.time()
     start = returns_panel.attrs.get("start_date")
     end = returns_panel.attrs.get("end_date")
+    instrument_types = returns_panel.attrs.get("instrument_types")
+    if not isinstance(instrument_types, dict):
+        instrument_types = None
     cats = returns_panel.attrs.get("categories", {})
 
     def _weights_for_tickers(tks: List[str]) -> Dict[str, float]:
@@ -1397,7 +1409,13 @@ def compute_composite_performance(
             if len(tks) < 1:
                 continue
             try:
-                perf = calculate_portfolio_performance_metrics(_weights_for_tickers(tks), start, end, benchmark_ticker=benchmark_ticker)
+                perf = calculate_portfolio_performance_metrics(
+                    _weights_for_tickers(tks),
+                    start,
+                    end,
+                    benchmark_ticker=benchmark_ticker,
+                    instrument_types=instrument_types,
+                )
                 macro_perf[name] = _perf_pick_fields(perf)
             except Exception:
                 continue
@@ -1409,7 +1427,13 @@ def compute_composite_performance(
             if len(tks) < 1:
                 continue
             try:
-                perf = calculate_portfolio_performance_metrics(_weights_for_tickers(tks), start, end, benchmark_ticker=benchmark_ticker)
+                perf = calculate_portfolio_performance_metrics(
+                    _weights_for_tickers(tks),
+                    start,
+                    end,
+                    benchmark_ticker=benchmark_ticker,
+                    instrument_types=instrument_types,
+                )
                 category_perf[cat_name] = _perf_pick_fields(perf)
             except Exception:
                 continue

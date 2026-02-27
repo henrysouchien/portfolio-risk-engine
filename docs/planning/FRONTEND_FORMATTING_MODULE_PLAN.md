@@ -1,7 +1,7 @@
 # Shared Number Formatting Module
 
 **Date**: 2026-02-27
-**Status**: PLAN — Codex review v1 FAIL (6 issues), v2 addresses all
+**Status**: COMPLETE — implemented by Codex, verified in Chrome (2026-02-27)
 **Parent doc**: `FRONTEND_PHASE2_WORKING_DOC.md` (Cross-Cutting section)
 
 ## Context
