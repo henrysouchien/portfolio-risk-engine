@@ -1,0 +1,168 @@
+# Exchange ETF Proxy Configuration
+# 
+# PRIMARY PURPOSE: Exchange-Based Factor Proxy Mappings for Risk Analysis
+# ======================================================================
+# This file provides exchange-to-ETF proxy mappings used primarily for:
+# 1. **Factor Analysis**: Maps stock exchanges to representative ETFs for risk modeling
+# 2. **Portfolio Risk Analysis**: Exchange exposure calculations via proxy ETFs
+# 3. **Geographic Diversification**: Regional market exposure through exchange proxies
+#
+# MAIN USAGE: Exchange Factor Proxies
+# ==================================
+# The primary use case is mapping stock exchanges to factor ETFs:
+# - US exchanges (NYSE, NASDAQ, AMEX) → SPY (market), MTUM (momentum), IWD (value)
+# - Canadian exchange (TSX) → ACWX (market), IMTM (momentum), EFV (value)
+# - Asian exchanges (HKEX, SSE, TSE) → Regional ETFs for emerging/developed markets
+# - European exchanges (EURONEXT) → VGK (market), IMTM (momentum), EFV (value)
+#
+# This enables factor regression analysis by exchange:
+# Stock_Return = α + β₁*Exchange_Market + β₂*Exchange_Momentum + β₃*Exchange_Value + ε
+#
+# INTEGRATION WITH FACTOR ANALYSIS SYSTEM:
+# ========================================
+# Used in proxy_builder.py for building factor proxies:
+# - build_proxy_for_ticker() maps ticker exchange to factor ETFs
+# - Factor regression models use these ETFs as exchange exposure proxies
+# - Risk analysis calculates portfolio geographic exposures via exchange proxies
+#
+# USAGE IN CODE:
+# =============
+# **Primary Usage - Factor Analysis:**
+# - proxy_builder.load_exchange_proxy_map() (loads from exchange_proxies database table)
+# - DatabaseClient.get_exchange_mappings() (retrieves 42 mappings from database)
+# - proxy_builder.map_exchange_proxies() (gets factor ETFs for exchange)
+# - Factor regression models use these ETFs as exchange exposure proxies
+# - Risk analysis calculates portfolio geographic exposures via exchange proxies
+#
+# **Fallback Usage - YAML Backup:**
+# - Only used if database connection fails (rare)
+# - This YAML file serves as documentation and emergency fallback
+#
+# **Integration Points:**
+# - app.py: Loads exchange mappings for portfolio risk analysis
+# - proxy_builder.py: Core factor proxy building functionality
+# - Factor models: Geographic exposure calculations
+#
+# DATABASE SYNCHRONIZATION:
+# ========================
+# This file follows the 3-tier architecture pattern:
+# 1. DATABASE (Primary): exchange_proxies table - live production data (42 mappings)
+# 2. YAML (Source of Truth): This file - configuration management and development
+# 3. HARDCODED (Ultimate): Built-in mappings in proxy_builder.py
+#
+# DEVELOPMENT WORKFLOW:
+# ====================
+# 1. **Edit YAML**: Modify this file for new mappings or changes (easier to work with)
+# 2. **Upload to Database**: Sync changes to production database when ready
+# 3. **Production Use**: Database serves all runtime requests
+#
+# CURRENT STATUS: Database is PRIMARY for runtime, YAML is SOURCE OF TRUTH for config
+# - exchange_proxies table: 42 rows (14 exchanges × 3 factors: market, momentum, value)
+# - This YAML file: Configuration source and development workspace
+# - Database includes factor_type column for structured factor mappings
+#
+# MAPPING FORMATS:
+# ===============
+# Exchange format:
+#   EXCHANGE_NAME:
+#     market: ETF_TICKER      # Broad market exposure ETF
+#     momentum: ETF_TICKER    # Momentum factor ETF  
+#     value: ETF_TICKER       # Value factor ETF
+#
+# EXAMPLES:
+# ========
+# **US Exchanges (Domestic Market):**
+# NYSE:
+#   market: SPY        # S&P 500 broad market
+#   momentum: MTUM     # US momentum factor
+#   value: IWD         # US value factor
+#
+# **International Exchanges (Developed Markets):**
+# TSX:                 # Canada
+#   market: ACWX       # Developed ex-US market
+#   momentum: IMTM     # International momentum
+#   value: EFV         # International value
+#
+# **Emerging Market Exchanges:**
+# HKEX:                # Hong Kong
+#   market: EEM        # Emerging markets broad
+#   momentum: EMFM     # EM momentum factor
+#   value: DGS         # EM value factor
+#
+# **DEFAULT Fallback:**
+# DEFAULT:             # Unknown exchanges
+#   market: ACWX       # Global ex-US default
+#   momentum: IMTM     # International momentum
+#   value: EFV         # International value
+#
+# ============================================================================
+
+OTC:
+  market: SPY        # iShares Core S&P 500
+  momentum: MTUM     # iShares MSCI USA Momentum Factor
+  value: IWD         # iShares Russell 1000 Value
+
+AMEX:
+  market: SPY         # iShares Core S&P 500
+  momentum: MTUM      # iShares MSCI USA Momentum Factor
+  value: IWD          # iShares Russell 1000 Value
+
+NYSE:
+  market: SPY         # iShares Core S&P 500
+  momentum: MTUM      # iShares MSCI USA Momentum Factor
+  value: IWD         
+
+Nasdaq:
+  market: SPY        # iShares Core S&P 500
+  momentum: MTUM     # iShares MSCI USA Momentum Factor
+  value: IWD         # iShares Russell 1000 Value
+
+TSX:                  # Canada (developed ex-US bucket)
+  market: ACWX       # iShares MSCI ACWI ex USA
+  momentum: IMTM     # iShares MSCI Intl Momentum Factor
+  value: EFV         # iShares MSCI EAFE Value
+
+HKEX:                 # Hong Kong (EM sleeve in this framework)
+  market: EEM        # iShares MSCI Emerging Markets
+  momentum: EMFM     # Global X MSCI Next EM & Frontier Momentum
+  value: DGS         # WisdomTree EM SmallCap Dividend (Value tilt)
+
+SSE:                  # Shanghai – treat as EM China
+  market: EEM        # iShares MSCI Emerging Markets
+  momentum: EEMO     # Invesco S&P Emerging Markets Momentum ETF
+  value: EMVL.L        # iShares Edge MSCI EM Value Factor UCITS ETF
+
+SZSE:                 # Shenzhen – same China A-share proxies
+  market: EEM        # iShares MSCI Emerging Markets
+  momentum: EEMO     # Invesco S&P Emerging Markets Momentum ETF
+  value: EMVL.L        # iShares Edge MSCI EM Value Factor UCITS ETF
+
+TSE:                  # Japan (JPX)
+  market: EWJ        # iShares MSCI Japan
+  momentum: IMTM     # Developed-ex-US momentum basket (Japan ~25%)
+  value: EWJV        # iShares MSCI Japan Value
+
+EURONEXT:             # Pan-Europe
+  market: VGK        # Vanguard FTSE Europe
+  momentum: IMTM     # iShares MSCI Intl Momentum Factor
+  value: EFV
+
+LSE:                  # London Stock Exchange
+  market: EWU        # iShares MSCI United Kingdom
+  momentum: IMTM     # iShares MSCI Intl Momentum Factor
+  value: EFV         # iShares MSCI EAFE Value
+
+NSE:                  # India (EM sleeve)
+  market: INDA       # iShares MSCI India
+  momentum: EEMO     # Invesco S&P Emerging Markets Momentum ETF
+  value: EMVL.L        # iShares Edge MSCI EM Value Factor UCITS ETF
+
+TADAWUL:              # Saudi Arabia (GCC / EM)
+  market: KSA        # iShares MSCI Saudi Arabia
+  momentum: EEMO     # Invesco S&P Emerging Markets Momentum ETF
+  value: EMVL.L        # iShares Edge MSCI EM Value Factor UCITS ETF
+
+DEFAULT:              # Fallback for any other exchange
+  market: ACWX       # iShares MSCI ACWI ex USA
+  momentum: IMTM     # iShares MSCI Intl Momentum Factor 
+  value: EFV         # iShares MSCI EAFE Value

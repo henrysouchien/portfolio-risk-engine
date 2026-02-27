@@ -1,0 +1,136 @@
+{
+  "status": "success",
+  "format": "agent",
+  "snapshot": {
+    "mode": "realized",
+    "period": {
+      "start_date": "2025-04-30",
+      "end_date": "2026-01-31",
+      "months": 10,
+      "years": 0.8,
+      "inception_date": "2025-02-25"
+    },
+    "returns": {
+      "total_return_pct": 133.96,
+      "annualized_return_pct": 177.31,
+      "best_month_pct": 138.15,
+      "worst_month_pct": -3.93,
+      "win_rate_pct": 50.0
+    },
+    "risk": {
+      "volatility_pct": 151.62,
+      "max_drawdown_pct": -4.41,
+      "sharpe_ratio": 1.142,
+      "sortino_ratio": 27.34
+    },
+    "benchmark": {
+      "ticker": "SPY",
+      "alpha_annual_pct": null,
+      "beta": null,
+      "portfolio_return_pct": 133.96,
+      "benchmark_return_pct": 23.7,
+      "excess_return_pct": 148.24
+    },
+    "pnl": {
+      "nav_pnl_usd": 34489.02,
+      "realized_pnl": -842.57,
+      "unrealized_pnl": 5715.63
+    },
+    "income": {
+      "total": -25.19,
+      "dividends": 301.63,
+      "interest": -326.82,
+      "yield_on_cost_pct": -0.7564,
+      "yield_on_value_pct": -0.5844
+    },
+    "data_quality": {
+      "coverage_pct": 45.45,
+      "high_confidence": false,
+      "reliable": false,
+      "reliability_reasons": [
+        "Data coverage 45.45% is below target 95.00%.",
+        "Incomplete trades (21) exceed max allowed (0).",
+        "Reconciliation gap 466.78% exceeds max 2.00%.",
+        "NAV metrics include estimated inputs (synthetic positions, low coverage, or unpriceable symbols).",
+        "NAV P&L is highly sensitive to synthetic reconstruction."
+      ],
+      "reliability_reason_codes": [
+        "LOW_DATA_COVERAGE",
+        "INCOMPLETE_TRADES_EXCEED_LIMIT",
+        "RECONCILIATION_GAP_EXCEED_LIMIT",
+        "NAV_METRICS_ESTIMATED",
+        "SYNTHETIC_PNL_SENSITIVITY"
+      ],
+      "synthetic_impact_usd": -12614.33,
+      "holdings_scope": "source_scoped",
+      "source_transaction_count": 82,
+      "source_holding_count": 11,
+      "cross_source_holding_leakage_count": 0,
+      "nav_metrics_estimated": true,
+      "synthetic_count": 6,
+      "warning_count": 29
+    },
+    "verdict": "good",
+    "insights": [
+      "\u2022 Reliability warning: realized metrics are low confidence (LOW_DATA_COVERAGE, INCOMPLETE_TRADES_EXCEED_LIMIT, RECONCILIATION_GAP_EXCEED_LIMIT, ...)",
+      "\u2022 High volatility (151.6% vs 7.7% benchmark)"
+    ]
+  },
+  "flags": [
+    {
+      "type": "realized_reliability_warning",
+      "severity": "warning",
+      "message": "Realized metrics are marked low reliability; use caution for decisioning.",
+      "reason_codes": [
+        "LOW_DATA_COVERAGE",
+        "INCOMPLETE_TRADES_EXCEED_LIMIT",
+        "RECONCILIATION_GAP_EXCEED_LIMIT",
+        "NAV_METRICS_ESTIMATED",
+        "SYNTHETIC_PNL_SENSITIVITY"
+      ],
+      "reasons": [
+        "Data coverage 45.45% is below target 95.00%.",
+        "Incomplete trades (21) exceed max allowed (0).",
+        "Reconciliation gap 466.78% exceeds max 2.00%.",
+        "NAV metrics include estimated inputs (synthetic positions, low coverage, or unpriceable symbols).",
+        "NAV P&L is highly sensitive to synthetic reconstruction."
+      ]
+    },
+    {
+      "type": "low_data_coverage",
+      "severity": "warning",
+      "message": "Transaction data covers only 45% of portfolio",
+      "coverage_pct": 45.5
+    },
+    {
+      "type": "high_volatility",
+      "severity": "info",
+      "message": "Portfolio volatility is 151.6% (above average)",
+      "volatility_pct": 151.62
+    },
+    {
+      "type": "data_quality_issues",
+      "severity": "info",
+      "message": "29 data quality warnings detected",
+      "warning_count": 29
+    },
+    {
+      "type": "synthetic_positions",
+      "severity": "info",
+      "message": "6 position(s) inferred from current holdings (no opening trade found)",
+      "synthetic_count": 6
+    },
+    {
+      "type": "nav_metrics_estimated",
+      "severity": "info",
+      "message": "NAV-based metrics (return, drawdown) are estimated - not all cash flows observed"
+    },
+    {
+      "type": "outperforming",
+      "severity": "success",
+      "message": "Beating SPY by 148.2% annualized excess return",
+      "excess_return_pct": 148.24
+    }
+  ],
+  "file_path": null
+}

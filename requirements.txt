@@ -1,0 +1,59 @@
+# Core Data & Analysis
+pandas>=2.2.0
+numpy>=2.2.0
+statsmodels>=0.14.0
+pyarrow>=10.0.0  # Required for parquet operations in data_loader.py and fmp/cache.py
+
+# Web Framework & API (FastAPI-based)
+fastapi>=0.116.0
+uvicorn[standard]>=0.35.0
+pydantic>=2.10.0
+starlette>=0.27.0  # SessionMiddleware used in app.py
+
+# Rate Limiting & Middleware
+slowapi>=0.1.9
+
+# Database & Connection Pooling
+psycopg2-binary>=2.9.5
+
+# Caching & Performance
+cachetools>=5.5.0
+redis>=6.1.0
+
+# Data Fetching & HTTP
+requests>=2.32.0
+httpx>=0.27.0  # Async HTTP client for gateway proxy (routes/gateway_proxy.py)
+
+# Configuration & Environment
+python-dotenv>=1.0.0
+pyyaml>=6.0
+
+# Authentication & Security
+google-auth>=2.15.0  # google.oauth2.id_token + google.auth.transport in services/auth_service.py
+certifi>=2022.0.0  # SSL fix for IBKR Flex (ibkr/flex.py), also used by plaid_loader.py
+
+# AI & Language Models
+anthropic>=0.56.0
+openai>=1.65.0
+fastmcp>=2.0.0  # MCP server for Claude Code integration (mcp_server.py, fmp_mcp_server.py, ibkr_mcp_server.py)
+
+# Date Utilities
+python-dateutil>=2.8.0  # relativedelta used in mcp_tools/tax_harvest.py
+
+# Financial Data Integration
+plaid-python>=34.0.0
+snaptrade-python-sdk>=11.0.0
+ib_async>=2.1.0
+nest-asyncio>=1.6.0  # Required for ib_async inside FastMCP event loop (ibkr/market_data.py)
+schwab-py==1.5.0
+
+# AWS (Secrets Manager for Plaid/SnapTrade credentials)
+boto3>=1.38.0
+
+# Testing Dependencies
+pytest>=8.4.0
+psutil>=5.9.0  # Used in tests/performance and utils/logging.py
+watchdog>=4.0.0  # File watcher for living code map (tools/watch_and_update.py)
+
+# Optimization & Mathematical Computing
+cvxpy>=1.6.0

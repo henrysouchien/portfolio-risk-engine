@@ -1,0 +1,108 @@
+# Cash Mapping Configuration
+# 
+# PRIMARY PURPOSE: Cash Position Proxy Mappings for Asset Classification
+# =====================================================================
+# This file provides cash-to-ETF proxy mappings used primarily for:
+# 1. **Asset Classification**: Tier 1 cash proxy detection in 5-tier system
+# 2. **Cash Position Mapping**: Convert broker cash tickers to tradable ETF proxies
+# 3. **Currency Exposure**: Map multi-currency cash positions to appropriate ETFs
+#
+# MAIN USAGE: Cash Proxy Detection (Tier 1 - Highest Priority)
+# ============================================================
+# The primary use case is identifying cash positions for immediate classification:
+# - USD cash positions → SGOV (US Treasury Bills ETF)
+# - EUR cash positions → ESTR (Euro short-term rates ETF)  
+# - GBP cash positions → IB01 (UK government bonds ETF)
+# - Broker cash tickers (CUR:USD, USD CASH) → Currency mapping → ETF proxy
+#
+# This enables immediate cash classification in the 5-tier asset class system:
+# Tier 1: Cash Proxy (THIS FILE) → Direct 'cash' classification (highest priority)
+#
+# INTEGRATION WITH ASSET CLASS SYSTEM:
+# ===================================
+# Tier 1: Cash Proxy           → THIS FILE - Immediate cash detection
+# Tier 2: Database Cache       → Cached asset class results
+# Tier 3: FMP Industry         → Industry-based classification  
+# Tier 4: Security Type        → Basic type-based mapping
+# Tier 5: AI Fallback          → GPT analysis for complex cases
+#
+# USAGE IN CODE:
+# =============
+# **Primary Usage - Asset Classification (Tier 1):**
+# - SecurityTypeService._classify_cash_proxies() (Tier 1 implementation)
+# - DatabaseClient.get_cash_mappings() (retrieves from cash_proxies + cash_aliases tables)
+# - SecurityTypeService.get_asset_classes() (calls Tier 1 first)
+# - Uses TTL cache (5-10 minutes) for performance
+# - Database-first loading with YAML fallback
+#
+# **Fallback Usage - YAML Backup:**
+# - Only used if database connection fails (rare)
+# - This YAML file serves as documentation and emergency fallback
+#
+# **Secondary Usage - Cash Position Mapping:**
+# - plaid_loader.py: map_cash_to_proxy() (converts Plaid cash to ETF proxies)
+# - snaptrade_loader.py: Cash balance processing via portfolio_manager
+# - Broker integration: Raw cash tickers → Currency codes → ETF proxies
+#
+# **Integration Points:**
+# - SecurityTypeService: Tier 1 cash proxy detection (highest priority)
+# - Portfolio loaders: Cash position normalization
+# - Risk analysis: Cash exposure calculations
+#
+# DATABASE SYNCHRONIZATION:
+# ========================
+# This file follows the 3-tier architecture pattern:
+# 1. DATABASE (Primary): cash_proxies + cash_aliases tables - live production data
+# 2. YAML (Source of Truth): This file - configuration management and development
+# 3. HARDCODED (Ultimate): Built-in mappings in SecurityTypeService
+#
+# DEVELOPMENT WORKFLOW:
+# ====================
+# 1. **Edit YAML**: Modify this file for new mappings or changes (easier to work with)
+# 2. **Upload to Database**: Sync changes to production database when ready
+# 3. **Production Use**: Database serves all runtime requests
+#
+# CURRENT STATUS: Database is PRIMARY for runtime, YAML is SOURCE OF TRUTH for config
+# - cash_proxies table: 3 + 8 rows (USD→SGOV, EUR→ESTR, GBP→IB01)
+# - cash_aliases table: 8 rows (broker ticker aliases like CUR:USD, USD CASH)
+# - This YAML file: Configuration source and development workspace
+# - TTL Cache: 5-10 minute cache for performance optimization
+#
+# MAPPING FORMATS:
+# ===============
+# Currency proxy format:
+#   proxy_by_currency:
+#     CURRENCY_CODE: ETF_TICKER    # ISO currency → Cash equivalent ETF
+#
+# Broker alias format:  
+#   alias_to_currency:
+#     BROKER_TICKER: CURRENCY_CODE # Broker cash ticker → ISO currency
+#
+# EXAMPLES:
+# ========
+# **Currency to ETF Mapping:**
+# proxy_by_currency:
+#   USD: SGOV    # US Dollar → US Treasury Bills ETF
+#   EUR: ESTR    # Euro → Euro Short Term Rate ETF
+#   GBP: IB01    # British Pound → UK Government Bond ETF
+#
+# **Broker Ticker Aliases:**
+# alias_to_currency:
+#   CUR:USD: USD           # Interactive Brokers cash format
+#   USD CASH: USD          # Generic cash format
+#   CASH: USD              # Simple cash fallback
+#   BASE_CURRENCY: USD     # Account base currency
+#
+# ============================================================================
+
+proxy_by_currency:        # ① Which ETF to use for each ISO currency
+  USD: SGOV               #iShares 0-3 Month Treasury Bond ETF
+  EUR: IBGE.L             #iShares € Govt Bond 0-1yr UCITS ETF
+  GBP: ERNS.L             #iShares £ Ultrashort Bond UCITS ETFF  
+
+alias_to_currency:        # ② Any broker cash tickers → currency code
+  CUR:USD: USD            # Interactive Brokers
+  USD CASH: USD
+  CASH: USD               # generic fallback
+  BASE_CURRENCY: USD
+  CUR:EUR: EUR            # example for multi-ccy accounts

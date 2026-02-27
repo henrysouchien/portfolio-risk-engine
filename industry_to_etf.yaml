@@ -1,0 +1,378 @@
+# Industry to ETF Mapping Configuration
+# 
+# PRIMARY PURPOSE: Industry ETF Proxy Mappings for Factor Analysis
+# ===============================================================
+# This file provides industry-to-ETF proxy mappings used primarily for:
+# 1. **Factor Analysis**: Maps industries to representative ETFs for risk modeling
+# 2. **Asset Class Classification**: Tier 3 of the 5-tier classification system
+# 3. **Portfolio Risk Analysis**: Industry exposure calculations via proxy ETFs
+#
+# MAIN USAGE: Industry ETF Proxies
+# ===============================
+# The primary use case is mapping company industries to representative ETFs:
+# - Technology companies → XLK (Technology Select Sector SPDR Fund)
+# - Healthcare companies → XLV (Health Care Select Sector SPDR Fund)  
+# - Financial companies → XLF (Financial Select Sector SPDR Fund)
+# - REITs → VNQ (Vanguard Real Estate ETF) + real_estate classification
+# - Gold mining → GLD (SPDR Gold Shares) + commodity classification
+#
+# This enables factor regression analysis: 
+# Stock_Return = α + β₁*Market + β₂*Momentum + β₃*Value + β₄*Industry_ETF + ε
+#
+# INTEGRATION WITH ASSET CLASS SYSTEM:
+# ===================================
+# Tier 1: Cash Proxy           → Direct cash detection
+# Tier 2: Database Cache       → Cached asset class results  
+# Tier 3: FMP Industry         → DATABASE industry_proxies table (this file as backup)
+# Tier 4: Security Type        → Basic type-based mapping (equity → equity)
+# Tier 5: AI Fallback          → GPT analysis for complex cases
+#
+# USAGE IN CODE:
+# =============
+# **Primary Usage - Factor Analysis:**
+# - proxy_builder.load_industry_etf_map() (loads from industry_proxies database table)
+# - DatabaseClient.get_industry_mappings() (retrieves 175 mappings from database)
+# - proxy_builder.map_industry_etf() (gets ETF proxy for industry)
+# - Factor regression models use these ETFs as industry exposure proxies
+# - Risk analysis calculates portfolio industry exposures via proxy ETFs
+#
+# CORE SECTOR ETFs (matches database bootstrap)
+# ============================================
+# Keep these high-level sectors in YAML so database + YAML stay aligned.
+# They mirror the seed rows inserted into industry_proxies via schema.sql.
+Technology:
+  etf: XLK
+  asset_class: equity
+Healthcare:
+  etf: XLV
+  asset_class: equity
+Financial Services:
+  etf: XLF
+  asset_class: equity
+Consumer Discretionary:
+  etf: XLY
+  asset_class: equity
+Consumer Staples:
+  etf: XLP
+  asset_class: equity
+Energy:
+  etf: XLE
+  asset_class: equity
+Industrials:
+  etf: XLI
+  asset_class: equity
+Materials:
+  etf: XLB
+  asset_class: equity
+Real Estate:
+  etf: XLRE
+  asset_class: real_estate
+Utilities:
+  etf: XLU
+  asset_class: equity
+Communication Services:
+  etf: XLC
+  asset_class: equity
+
+# **Secondary Usage - Asset Classification:**
+# - SecurityTypeService._classify_asset_class_from_fmp_industry() (Tier 3)
+# - proxy_builder.map_industry_asset_class() (uses database asset_class overrides)
+#
+# **Development Usage - YAML Source of Truth:**
+# - Edit this file for new mappings (easier than database commands)
+# - Upload changes to database when ready for production
+# - Serves as configuration source and emergency fallback
+#
+# DATABASE SYNCHRONIZATION:
+# ========================
+# This file follows the 3-tier architecture pattern:
+# 1. DATABASE (Primary): industry_proxies table - live production data (175 mappings)
+# 2. YAML (Source of Truth): This file - configuration management and development
+# 3. HARDCODED (Ultimate): Built-in mappings in proxy_builder.py
+#
+# DEVELOPMENT WORKFLOW:
+# ====================
+# 1. **Edit YAML**: Modify this file for new mappings or changes (easier to work with)
+# 2. **Upload to Database**: Sync changes to production database when ready
+# 3. **Production Use**: Database serves all runtime requests
+#
+# CURRENT STATUS: Database is PRIMARY for runtime, YAML is SOURCE OF TRUTH for config
+# - industry_proxies table: 175 rows with ETF mappings + 24 asset_class overrides
+# - This YAML file: Configuration source and development workspace
+# - Database includes asset_class column for real_estate, commodity, bond, crypto overrides
+#
+# To manage via admin tools:
+#   python admin/manage_reference_data.py industry list
+#   python admin/manage_reference_data.py industry add [industry] [etf]
+#   # Or edit this YAML file directly and re-upload to database
+#
+# MAPPING FORMATS:
+# ===============
+# Simple format (ETF only):
+#   Industry Name: ETF_TICKER
+#
+# Extended format (ETF + asset class override + optional sector group):
+#   Industry Name:
+#     etf: ETF_TICKER
+#     asset_class: ASSET_CLASS
+#     group: SECTOR_GROUP
+#
+# ASSET CLASS OVERRIDES:
+# =====================
+# The asset_class field overrides the default equity classification.
+# This is crucial for industries that should map to different asset classes:
+# - REITs → real_estate (not equity)
+# - Commodity industries → commodity (not equity)  
+# - Financial services → varies based on business model
+#
+# EXAMPLES:
+# ========
+# **Primary Use - Industry ETF Proxies:**
+# Technology: XLK                    # Tech companies use XLK as industry proxy ETF
+# Healthcare: XLV                    # Healthcare companies use XLV as industry proxy ETF
+# 
+# **Extended Use - ETF Proxy + Asset Class Override:**
+# Gold:                              # Gold mining companies:
+#   etf: GLD                         #   - Use GLD as industry proxy ETF  
+#   asset_class: commodity           #   - Override asset class to commodity (not equity)
+#   group: defensive                 #   - Optional sector group bucket (defensive / cyclical / sensitive)
+#
+# Real Estate Investment Trusts:     # REITs:
+#   etf: VNQ                         #   - Use VNQ as industry proxy ETF
+#   asset_class: real_estate         #   - Override asset class to real_estate (not equity)
+#   group: defensive
+#
+# ============================================================================
+
+Semiconductors: SOXX
+Software - Application: XSW
+Oil & Gas Exploration & Production:
+  etf: XOP
+  asset_class: commodity
+Oil & Gas E&P:
+  etf: XOP
+  asset_class: commodity
+Biotechnology: XBI
+Credit Services: KCE
+Internet Retail: FDN
+Pharmaceuticals: IHE
+
+Steel:
+  etf: XME
+  asset_class: commodity
+Silver:
+  etf: SLV
+  asset_class: commodity
+Other Precious Metals:
+  etf: XME
+  asset_class: commodity
+Gold:
+  etf: GDX
+  asset_class: commodity
+  group: defensive
+Copper:
+  etf: XME
+  asset_class: commodity
+Aluminum:
+  etf: XME
+  asset_class: commodity
+Paper, Lumber & Forest Products: WOOD
+Industrial Materials: XLB
+Construction Materials: XLB
+Chemicals - Specialty: XLB
+Chemicals: XLB
+Agricultural Inputs:
+  etf: MOO
+  asset_class: commodity
+
+Telecommunications Services: IYZ
+Internet Content & Information: XLC
+Publishing: XLC
+Broadcasting: XLC
+Advertising Agencies: XLC
+Entertainment: XLC
+Travel Lodging: XLY
+Travel Services: XLY
+
+Specialty Retail: XRT
+Luxury Goods: XLY
+Home Improvement: XHB
+Residential Construction: XHB
+Department Stores: XRT
+Personal Products & Services: XLP
+Leisure: XLY
+Gambling, Resorts & Casinos: XLY
+Furnishings, Fixtures & Appliances: ITB
+Restaurants: XLY
+
+Auto - Parts: IDRV
+Auto - Manufacturers: IDRV
+Auto - Recreational Vehicles: IDRV
+Auto - Dealerships: IDRV
+
+Apparel - Retail: XRT
+Apparel - Manufacturers: XRT
+Apparel - Footwear & Accessories: XRT
+Packaging & Containers: XLB
+Tobacco: XLP
+Grocery Stores: XLP
+Discount Stores: XLP
+Household & Personal Products: XLP
+Packaged Foods: XLP
+Food Distribution: XLP
+Food Confectioners: XLP
+Agricultural Farm Products: MOO
+Education & Training Services: XLY
+
+Beverages - Wineries & Distilleries: XLP
+Beverages - Non-Alcoholic: XLP
+Beverages - Alcoholic: XLP
+
+Uranium: URA
+Solar: ICLN
+Oil & Gas Refining & Marketing: XLE
+Oil & Gas Midstream: AMLP
+Oil & Gas Integrated: XLE
+Oil & Gas Equipment & Services: IEZ
+Oil & Gas Energy: XLE
+Oil & Gas Drilling: IEZ
+Coal: XME
+Shell Companies: XLF
+
+Investment - Banking & Investment Services: KCE
+Insurance - Specialty: KIE
+Insurance - Reinsurance: KIE
+Insurance - Property & Casualty: KIE
+Insurance - Life: KIE
+Insurance - Diversified: KIE
+Insurance - Brokers: KIE
+Financial - Mortgages: REM
+Financial - Diversified: XLF
+Financial - Data & Stock Exchanges: KCE
+Financial - Credit Services: KCE
+Financial - Conglomerates: XLF
+Financial - Capital Markets: KCE
+Banks - Regional: KRE
+Banks - Diversified: KBE
+Banks: KBE
+
+Asset Management: KCE
+Asset Management - Bonds:
+  etf: KCE
+  asset_class: bond
+  group: sensitive
+Asset Management - Income: KCE
+Asset Management - Leveraged: KCE
+Asset Management - Cryptocurrency:
+  etf: BITQ
+  asset_class: crypto
+Asset Management - Global: KCE
+
+Medical - Specialties: XHS
+Medical - Pharmaceuticals: IHE
+Medical - Instruments & Supplies: IHI
+Medical - Healthcare Plans: IHF
+Medical - Healthcare Information Services: XHS
+Medical - Equipment & Services: XHS
+Medical - Distribution: XHS
+Medical - Diagnostics & Research: IDNA
+Medical - Devices: IHI
+Medical - Care Facilities: IHF
+Drug Manufacturers - Specialty & Generic: XPH
+Drug Manufacturers - General: IHE
+
+Waste Management: EVX
+Trucking: XTN
+Railroads: IYT
+Aerospace & Defense: ITA
+Marine Shipping: SEA
+Integrated Freight & Logistics: IYT
+Airlines, Airports & Air Services: JETS
+General Transportation: IYT
+
+Manufacturing - Tools & Accessories: XLI
+Manufacturing - Textiles: XLY
+Manufacturing - Miscellaneous: XLI
+Manufacturing - Metal Fabrication: XLI
+Industrial - Distribution: XLI
+Industrial - Specialties: XLI
+Industrial - Pollution & Treatment Controls: PBD
+Environmental Services: PBD
+Industrial - Machinery: XLI
+Industrial - Infrastructure Operations: PAVE
+Industrial - Capital Goods: XLI
+
+Consulting Services: XLI
+Business Equipment & Supplies: XLI
+Staffing & Employment Services: XLI
+Rental & Leasing Services: XLI
+Engineering & Construction: PKB
+Security & Protection Services: HACK
+Specialty Business Services: XLI
+Construction: PKB
+Conglomerates: XLI
+Electrical Equipment & Parts: XLI
+
+Agricultural - Machinery: MOO
+Agricultural - Commodities/Milling: DBA
+
+REIT - Specialty:
+  etf: IYR
+  asset_class: real_estate
+REIT - Retail:
+  etf: IYR
+  asset_class: real_estate
+REIT - Residential:
+  etf: REZ
+  asset_class: real_estate
+REIT - Office:
+  etf: IYR
+  asset_class: real_estate
+REIT - Mortgage:
+  etf: REM
+  asset_class: real_estate
+REIT - Industrial:
+  etf: INDS
+  asset_class: real_estate
+REIT - Hotel & Motel:
+  etf: XLY
+  asset_class: real_estate
+REIT - Healthcare Facilities:
+  etf: IHF
+  asset_class: real_estate
+REIT - Diversified:
+  etf: IYR
+  asset_class: real_estate
+
+Real Estate - Services:
+  etf: IYR
+  asset_class: real_estate
+Real Estate - Diversified:
+  etf: IYR
+  asset_class: real_estate
+Real Estate - Development:
+  etf: IYR
+  asset_class: real_estate
+Real Estate - General:
+  etf: IYR
+  asset_class: real_estate
+
+Information Technology Services: XLK
+Hardware, Equipment & Parts: XLK
+Computer Hardware: XLK
+Electronic Gaming & Multimedia: ESPO
+Software - Services: IGV
+Software - Infrastructure: IGV
+
+Media & Entertainment: XLC
+Communication Equipment: XTL
+Technology Distributors: XTL
+Consumer Electronics: XLK
+
+Renewable Utilities: ICLN
+Regulated Water: PHO
+Regulated Gas: XLU
+Regulated Electric: XLU
+Independent Power Producers: XLU
+Diversified Utilities: XLU
+General Utilities: XLU

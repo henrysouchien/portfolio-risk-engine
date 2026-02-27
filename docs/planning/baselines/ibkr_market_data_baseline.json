@@ -1,0 +1,10 @@
+{
+  "captured_at": "2026-02-15",
+  "source": "docs/performance-bugs.md",
+  "phase": "phase_0_baseline",
+  "realized_performance": {
+    "unpriceable_symbol_count": 20,
+    "official_metrics_estimated": null,
+    "high_confidence_realized": null
+  }
+}

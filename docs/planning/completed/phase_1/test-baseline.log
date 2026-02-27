@@ -1,0 +1,12 @@
+
+> portfolio-risk-frontend@0.1.0 test
+> react-scripts test --watchAll=false --testResultsProcessor=jest-json-reporter
+
+● Validation Error:
+
+  Module jest-json-reporter in the testResultsProcessor option was not found.
+         <rootDir> is: /Users/henrychien/Documents/Jupyter/risk_module/frontend
+
+  Configuration Documentation:
+  https://jestjs.io/docs/configuration
+
