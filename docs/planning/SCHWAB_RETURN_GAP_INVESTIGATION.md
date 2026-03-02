@@ -321,7 +321,7 @@ The fix: switch from Monthly Modified Dietz to **daily TWR** (see Fix H below).
 
 Account 252 gap closed from **-5.08pp to +0.91pp** — the Jan 31 deposit timing issue is fully resolved by daily TWR.
 
-Plan doc: `docs/planning/DAILY_TWR_PLAN.md`
+Plan doc: `docs/planning/completed/DAILY_TWR_PLAN.md`
 
 ### Fix I implemented: GIPS BOD TWR formula + CASH_RECEIPT date alignment
 
@@ -352,7 +352,7 @@ Fix H's daily TWR used `pre_flow_nav = day_nav - flow_amt` to derive the pre-flo
 
 **Account 165 & IBKR**: Unchanged within tolerance, confirming no regression from the shared formula change.
 
-Plan doc: `docs/planning/GIPS_BOD_TWR_FIX_PLAN.md`
+Plan doc: `docs/planning/completed/GIPS_BOD_TWR_FIX_PLAN.md`
 
 ## Conclusion
 

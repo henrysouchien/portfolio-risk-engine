@@ -21,7 +21,7 @@ Sources: `baseline_extracted_data.json`, broker statements in `performance-actua
 | Schwab 165 | -8.30% | -8.29% | **0.01pp** | Yes |
 | Schwab 013 | -14.73% | -14.69% | **0.04pp** | Yes |
 | Schwab 252 | +28.37% | +10.65% | 17.7pp | No (tiny starting balance $21, large deposits) |
-| IBKR | +15.71% | -9.35% | ~25pp | No (March +308% synthetic jump) |
+| IBKR | -11.37% | -9.35% | **2.02pp** | Yes |
 
 ---
 
@@ -91,14 +91,14 @@ Column mapping:
 
 ### 4. Observed-only NAV branch fix (`b503cf76`)
 
-- **Plan**: `docs/planning/CASH_REPLAY_P2_FIX_PLAN.md` + remediation plan doc
+- **Plan**: `docs/planning/completed/CASH_REPLAY_P2_FIX_PLAN.md` + remediation plan doc
 - **Implementation**: `core/realized_performance_analysis.py` — observed-only NAV replay
 - Observed-only NAV branch now excludes provider-authoritative flows
 - Added regression coverage for observed-vs-provider NAV impact
 
 ### 5. P2B: Futures fee-only + income/provider dedup + P3 plan (`1d943108`)
 
-- **Plan**: `docs/planning/CASH_REPLAY_P2_FIX_PLAN.md` (Workstreams A, B, C)
+- **Plan**: `docs/planning/completed/CASH_REPLAY_P2_FIX_PLAN.md` (Workstreams A, B, C)
 - **Implementation**: `core/realized_performance_analysis.py` — `derive_cash_and_external_flows()`, metadata, result objects
 - Futures BUY/SELL cash impact reduced to fee-only (suppressed $519K notional)
 - Income/provider-flow overlap dedup (dropped 40 duplicate rows, -$1,178 net)
@@ -108,7 +108,7 @@ Column mapping:
 
 ### 6. P3: Global inception + futures incomplete trade filter (`0e533cb7`)
 
-- **Plan**: `docs/planning/CASH_REPLAY_P3_TIMELINE_FIX_PLAN.md`
+- **Plan**: `docs/planning/completed/CASH_REPLAY_P3_TIMELINE_FIX_PLAN.md`
 - **Implementation**: `core/realized_performance_analysis.py` — `build_position_timeline()` line 1196 + futures filter after line 1253
 - All `synthetic_current_position` entries now use global inception (no mid-period NAV jumps)
 - Futures `synthetic_incomplete_trade` entries filtered from position timeline
@@ -119,7 +119,7 @@ Column mapping:
 
 ### 7. P3.1: Futures compensating events + incomplete trade synthetics at inception
 
-- **Plan**: `docs/planning/CASH_REPLAY_P4_INCOMPLETE_TRADE_FIX_PLAN.md`
+- **Plan**: `docs/planning/completed/CASH_REPLAY_P4_INCOMPLETE_TRADE_FIX_PLAN.md`
 - **Implementation**: `core/realized_performance_analysis.py` — `build_position_timeline()`
 - Two changes:
   1. **Futures compensating events**: For each filtered futures IncompleteTrade (MES, MGC, MHI), add a compensating +qty event at sell_date - 1s to balance the unmatched SELL. Position nets to 0 at month-end. Skips keys with current-position synthetics (already covered by `required_entry_qty = abs(shares) + exit_qty`).
@@ -129,7 +129,7 @@ Column mapping:
 
 ### 8. P3.2: Schwab cross-source attribution fix (native-over-aggregator tiebreaker)
 
-- **Plan**: `docs/planning/SCHWAB_CROSS_SOURCE_ATTRIBUTION_FIX_PLAN.md`
+- **Plan**: `docs/planning/completed/SCHWAB_CROSS_SOURCE_ATTRIBUTION_FIX_PLAN.md`
 - **Implementation**: `core/realized_performance_analysis.py` — `_provider_matches_from_position_row()` + `_build_source_scoped_holdings()`
 - Two changes:
   1. **Row-level tiebreaker** (line 665): When `position_source="plaid,schwab"` (consolidated row), narrow SECONDARY matches to native sources only. Handles `consolidate=True` case.
@@ -149,7 +149,7 @@ Column mapping:
 
 ### 10. Remove Extreme Month Exclusion Filter
 
-- **Plan**: `docs/planning/REMOVE_EXTREME_MONTH_FILTER_PLAN.md`
+- **Plan**: `docs/planning/completed/REMOVE_EXTREME_MONTH_FILTER_PLAN.md`
 - **Implementation**: `core/realized_performance_analysis.py` — deleted `extreme_month_filter_active` gate, NaN-ification branch, and `EXTREME_MONTHLY_RETURNS_EXCLUDED` flag. Deleted corresponding test.
 - The filter was introduced in commit `25165d7c` as a band-aid for pre-P1 data quality bugs. After P1-P3.2 + Schwab fixes, the extreme returns that remain are structurally expected artifacts of incomplete transaction history — not bugs. The cost-basis flow injection plan will address them properly.
 - **Effect**: IBKR -71.78% → +15.27% (March 2025 +308% restored to chain-linking). Schwab/Plaid/Combined unchanged.
@@ -163,12 +163,23 @@ Column mapping:
 
 ### 12. Fix I: GIPS BOD TWR formula + CASH_RECEIPT date alignment (`794623d1`)
 
-- **Plan**: `docs/planning/GIPS_BOD_TWR_FIX_PLAN.md`
+- **Plan**: `docs/planning/completed/GIPS_BOD_TWR_FIX_PLAN.md`
 - **Implementation**: `core/realized_performance_analysis.py` — rewrite TWR inner loop to GIPS BOD method; `providers/flows/schwab.py` — use `time` for CASH_RECEIPT rows
 - Two changes:
   1. **BOD method**: Use `V_{D-1}` instead of `day_nav - flow` for pre-flow sub-period end
   2. **CASH_RECEIPT date**: Use `time` (actual receipt) instead of `tradeDate` (T+1 settlement)
 - **Effect**: Account 013 gap: +11pp → 0.05pp. Headline aggregated numbers unchanged.
+
+### 13. Fix J: Futures daily MTM settlement (`3ce88f1c`)
+
+- **Plan**: `docs/planning/completed/FUTURES_MTM_SETTLEMENT_PLAN.md`
+- **Implementation**: `ibkr/flex.py` — parse StmtFunds section for daily MTM; `core/realized_performance_analysis.py` — new `FUTURES_MTM` event type in cash replay
+- Root cause: IBKR accounts for futures via daily mark-to-market cash settlement (commodities column = $0 in EquitySummaryInBase). Our system only captured commissions (~$40), missing all actual P&L (e.g., MHI -$30K Hang Seng crash Apr 7).
+- Three-layer fix:
+  1. **Parse**: `normalize_flex_futures_mtm()` extracts Position MTM rows from StmtFunds, deduplicates currency-segment duplicates
+  2. **Thread**: `ibkr_flex_futures_mtm` key through data_fetcher → ibkr_transactions → analyzer
+  3. **Consume**: `FUTURES_MTM` event type in `derive_cash_and_external_flows()` — TYPE_ORDER priority 5 (after BUY/COVER), `is_futures=False` to bypass trade branch, mixed-authority partitioning
+- **Effect**: IBKR +15.71% → **-11.37%** (broker: -9.35%). Gap: **25pp → 2pp**. March +308% spike eliminated. Schwab/Plaid unchanged.
 
 ---
 
@@ -178,13 +189,12 @@ Column mapping:
 
 Accounts 165 (-8.30% vs -8.29%) and 013 (-14.73% vs -14.69%) are essentially exact. Account 252 (+28.37% vs broker +10.65%) remains distorted — tiny starting balance ($21) with $46K of deposits creates TWR sensitivity to timing. Schwab work continues in a separate session.
 
-### IBKR: +10.99% 2025 (actual: -9.35%) — ~20pp off
+### IBKR: -11.37% 2025 (actual: -9.35%) — ~2pp off
 
-IBKR return restored after extreme month filter removal (#10). March 2025 +308% now included in chain-linking. Remaining factors:
+After Fix J (futures daily MTM settlement), IBKR is within 2pp of broker actual. The remaining gap likely comes from:
 - 6 synthetic current positions ($15.7K market value) with estimated inception values
-- 2 unpriceable futures symbols (MGC, ZF) — priced via IBKR Gateway fallback
-- Incomplete trade `price_hint` (sell_price used as proxy for inception value) may overstate position value at inception
-- 45% data coverage means many months have limited position data
+- Incomplete trade `price_hint` (sell_price used as proxy for inception value)
+- 45% data coverage means some months have limited position data
 - System inception is Feb 28 (first transaction) vs broker Dec 31, 2024 — period mismatch
 
 ### Plaid: +1.21% (actual: -12.49%) — ~14pp off
@@ -225,5 +235,5 @@ IBKR regressed to -47% because synthetic `price_hints` are unreliable for 21 pos
 ## Next Steps
 
 - **Schwab account 252**: TWR sensitivity on tiny starting balance. Being investigated in separate session.
-- **IBKR**: March +308% from V_start=0 with $142K synthetic NAV. Needs fundamentally different approach — either transaction backfill or V_start seeding from broker statement beginning value.
+- **IBKR**: Now within 2pp of broker actual (-11.37% vs -9.35%). Remaining gap likely from synthetic position inception values and period mismatch. Low priority.
 - **Plaid**: Investigate regression from -12.93% to +1.21% after Fix H/I. May be a TWR formula interaction with the observed-only track.

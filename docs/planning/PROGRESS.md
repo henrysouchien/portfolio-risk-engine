@@ -14,7 +14,7 @@ Daily log of completed work. Most recent first.
 - Aggregates recomputed on filtered set (total_pnl, win_rate, timing scores)
 - Non-recomputable fields nulled: grades → `""`, realized_performance/behavioral/return_stats → `None`
 - Date validation via `pd.Timestamp()` with `start_date <= end_date` enforcement
-- Plan: `docs/planning/TRADING_DATE_RANGE_PLAN.md` (3 Codex review rounds)
+- Plan: `docs/planning/completed/TRADING_DATE_RANGE_PLAN.md` (3 Codex review rounds)
 - Commit: `5919122e`
 - Tests: 33 passing (model filter, MCP validation, agent format)
 - Live MCP test: `get_trading_analysis(start_date="2025-06-01", end_date="2025-12-31")` → 18 trades, $1,483 P&L
@@ -38,7 +38,7 @@ Daily log of completed work. Most recent first.
 - 4 Greeks flags in `core/option_portfolio_flags.py`: `theta_drain`, `significant_net_delta`, `high_vega_exposure`, `greeks_computation_failures`
 - IBKR live Greeks path deferred (comment placeholder)
 
-**Plan:** `docs/planning/OPTIONS_PORTFOLIO_RISK_PLAN.md` (2 Codex review rounds)
+**Plan:** `docs/planning/completed/OPTIONS_PORTFOLIO_RISK_PLAN.md` (2 Codex review rounds)
 **Commit:** `6e62c5d6`
 **Tests:** 76 passing (portfolio Greeks, enrichment, flags, position result)
 

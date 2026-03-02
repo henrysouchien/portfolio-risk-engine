@@ -2,7 +2,7 @@
 
 **Date**: 2026-02-27
 **Updated**: 2026-02-27 (post-Futures P2 landing)
-**Status**: Complete
+**Status**: Phase 1-3 complete; Phase 4 (docs/tests cleanup) pending
 **Prerequisite**: `PRICING_PROVIDER_ARCHITECTURE_REVIEW.md` (Codex-verified)
 **Goal**: Unify the two equity/general pricing abstractions so adding a new provider = implement one interface + register once. Futures pricing stays in its own dedicated chain by design.
 

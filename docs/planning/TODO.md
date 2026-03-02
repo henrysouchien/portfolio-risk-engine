@@ -10,6 +10,9 @@ MCP server is registered. Need to test the full relay pipeline end-to-end: Claud
 
 ## Next Up (Actionable)
 
+### Institution-Based Realized Performance Routing
+Make `get_performance` MCP tool route purely by institution (e.g., `institution="merrill"`) with the backend automatically resolving which provider pipeline to use (Merrill → Plaid, Schwab → Schwab API, IBKR → IBKR Flex). The `source` parameter becomes an internal implementation detail rather than a user-facing concept. Requires adding institution→provider mappings to `TRANSACTION_ROUTING` in `providers/routing_config.py` (currently only has `interactive_brokers → ibkr_flex` and `charles_schwab → schwab`; Merrill is missing). Depends on: per-account aggregation generalization (plan: `PER_ACCOUNT_AGGREGATION_PLAN.md`).
+
 ### Frontend Views → Defined Workflows
 Workflow design doc: `docs/planning/WORKFLOW_DESIGN.md` (2,457 lines).
 
@@ -18,9 +21,9 @@ Workflow design doc: `docs/planning/WORKFLOW_DESIGN.md` (2,457 lines).
 **Phase 2 — Backend workflow layer:** Not started. Approach: **Option A (orchestrator functions)** — lightweight Python functions that chain existing MCP tools, passing outputs between steps. Each workflow becomes a composable function that UI or agent can call. No heavy state machine needed for now; evolve toward persistence/resumability (Option B) only for workflows that need it (e.g., Strategy Design with multi-day iteration). See `WORKFLOW_DESIGN.md` → Implementation Approach for full option comparison.
 
 **Start with cross-cutting gaps** before workflow orchestration — these unblock execution in all 7 workflows:
-- ~~**Rebalance trade generator** (highest leverage)~~ — COMPLETE. `generate_rebalance_trades()` MCP tool. Plan: `REBALANCE_TRADE_GENERATOR_PLAN.md`. Commit `e19f9e28`.
-- ~~**Batch scenario/optimization comparison**~~ — COMPLETE. `compare_scenarios()` MCP tool. Plan: `BATCH_COMPARISON_PLAN.md`. Commit `56d773a8`.
-- **Action audit trail** — Risk, Allocation, Performance lack history of which recommendations were taken
+- ~~**Rebalance trade generator** (highest leverage)~~ — COMPLETE. `generate_rebalance_trades()` MCP tool. Plan: `docs/planning/completed/REBALANCE_TRADE_GENERATOR_PLAN.md`. Commit `e19f9e28`.
+- ~~**Batch scenario/optimization comparison**~~ — COMPLETE. `compare_scenarios()` MCP tool. Plan: `docs/planning/completed/BATCH_COMPARISON_PLAN.md`. Commit `56d773a8`.
+- ~~**Action audit trail**~~ — COMPLETE. `record_workflow_action()`, `update_action_status()`, `get_action_history()` MCP tools. Plan: `docs/planning/completed/ACTION_AUDIT_TRAIL_PLAN.md`.
 
 **Phase 3 — UI second pass:** Not started. Upgrade each view from data display to interactive multi-step workflow. Depends on Phase 2.
 
@@ -28,46 +31,54 @@ Workflow design doc: `docs/planning/WORKFLOW_DESIGN.md` (2,457 lines).
 
 ## Recently Completed
 
+### ~~IBKR Package: Connection Infrastructure~~ — COMPLETE (2026-03-02)
+Four-phase infrastructure overhaul of the `ibkr/` package:
+1. **Option snapshot fix**: `snapshot=True` doesn't work for options on IBKR — switched to streaming mode with `modelGreeks` polling. Commits `19614630`, `6f28865b`. Plan: `docs/planning/completed/IBKR_CONNECTION_FIXES_PLAN.md`.
+2. **Config centralization + structured logging**: 10 env var constants in `ibkr/config.py`, `log_event()` helper, `TimingContext`, `get_connection_status()` diagnostic. Commit `89be2b88`. Plan: `docs/planning/completed/IBKR_CONFIG_LOGGING_PLAN.md`.
+3. **Ephemeral connection mode** (default): `IBKR_CONNECTION_MODE=ephemeral` creates fresh IB per request, eliminating stale client ID collisions from multiple ibkr-mcp processes. Toggle to `persistent` via env var. Commit `d9dc2eaf`. Plan: `docs/planning/completed/IBKR_EPHEMERAL_CONNECTION_PLAN.md`.
+4. **MCP diagnostics**: `get_ibkr_status` tool + `_error_str()` for exception type fallback. Commit `4567db1b`.
+- Full architecture docs in `ibkr/README.md` (3 client IDs, connection routing, troubleshooting).
+
 ### ~~Frontend: Package Formalization + Component Data Wiring~~ — COMPLETE (2026-02-27 to 2026-03-01)
-All 3 phases done. Audit: `docs/planning/FRONTEND_DATA_WIRING_AUDIT.md`.
+All 3 phases done. Audit: `docs/planning/completed/FRONTEND_DATA_WIRING_AUDIT.md`.
 - **Phase 1** — Package formalization (chassis/connectors/ui split, boundaries enforced, build works)
 - **Phase 2** — Data wiring audit (9/9 containers wired to real APIs, no mock stubs)
 - **Phase 3** — Backend data enrichment (7 items): Holdings (`FRONTEND_HOLDINGS_ENRICHMENT_PLAN.md`), MCP positions (`MCP_POSITIONS_ENRICHMENT_PLAN.md`), Performance attribution (`PERFORMANCE_ATTRIBUTION_PLAN.md`), Factor attribution (`FACTOR_ATTRIBUTION_PLAN.md`), Benchmark selection (`BENCHMARK_SELECTION_UI_PLAN.md`), Hedging (`FRONTEND_HEDGING_WIRING_PLAN.md`), Asset allocation + period selector + drift (`P5_ASSET_ALLOCATION_PLAN.md`)
 
 ### ~~Frontend: Block Component Refactoring~~ — COMPLETE
-5 block components adopted across 9 views in 3 waves. Plans: `FRONTEND_BLOCK_REFACTOR_PLAN.md`, `FRONTEND_BLOCK_REFACTOR_WAVE{1,2,3}.md`. Commits: `9506643d`, `93e5ed9e`, `750dea25`.
+5 block components adopted across 9 views in 3 waves. Plans: `docs/planning/completed/FRONTEND_BLOCK_REFACTOR_PLAN.md`, `docs/planning/completed/FRONTEND_BLOCK_REFACTOR_WAVE{1,2,3}.md`. Commits: `9506643d`, `93e5ed9e`, `750dea25`.
 
 ### ~~Frontend: TypeScript Cleanup~~ — COMPLETE
-16 TS errors→0, `no-explicit-any` 590→0 (100%), `as any` 180→5, total lint warnings 704→114. See `docs/planning/FRONTEND_TYPESCRIPT_CLEANUP_PLAN.md`.
+16 TS errors→0, `no-explicit-any` 590→0 (100%), `as any` 180→5, total lint warnings 704→114. See `docs/planning/completed/FRONTEND_TYPESCRIPT_CLEANUP_PLAN.md`.
 
 ### ~~Performance: Short Portfolio Return History~~ — COMPLETE
-Fixed `compute_portfolio_returns()` truncation. Added `compute_portfolio_returns_partial()` with gross-exposure scaling. Verified in Chrome 2026-03-01. See `docs/planning/PORTFOLIO_RETURN_HISTORY_FIX_PLAN.md`.
+Fixed `compute_portfolio_returns()` truncation. Added `compute_portfolio_returns_partial()` with gross-exposure scaling. Verified in Chrome 2026-03-01. See `docs/planning/completed/PORTFOLIO_RETURN_HISTORY_FIX_PLAN.md`.
 
 ### ~~Trading Analysis: Date Range Parameters~~ — COMPLETE
-Added `start_date`/`end_date` to `get_trading_analysis()`. Commit `5919122e`. See `docs/planning/TRADING_DATE_RANGE_PLAN.md`.
+Added `start_date`/`end_date` to `get_trading_analysis()`. Commit `5919122e`. See `docs/planning/completed/TRADING_DATE_RANGE_PLAN.md`.
 
 ### ~~Target Allocations: DB Migration + MCP Set/Get Tools~~ — COMPLETE
-Write path for target allocations: DB migration (`003_target_allocations.sql`), `save_target_allocations()` in database_client + repository, `set_target_allocation()` + `get_target_allocation()` MCP tools, target_allocation DB load in MCP risk path. 12 tests. Drift now flows end-to-end in `get_risk_analysis()`. Commit `55967d7b`. Plan: `docs/planning/TARGET_ALLOCATIONS_PLAN.md`.
+Write path for target allocations: DB migration (`003_target_allocations.sql`), `save_target_allocations()` in database_client + repository, `set_target_allocation()` + `get_target_allocation()` MCP tools, target_allocation DB load in MCP risk path. 12 tests. Drift now flows end-to-end in `get_risk_analysis()`. Commit `55967d7b`. Plan: `docs/planning/completed/TARGET_ALLOCATIONS_PLAN.md`.
 
 ### ~~Architecture: Fix Circular Imports in app.py~~ — COMPLETE
-Extracted rate limiter to `utils/rate_limiter.py` (breaking `app → routes → app` circular import). Deleted dead `routes/claude.py` (replaced by gateway channel). Commit `5c4d3995`. Plan: `docs/planning/CIRCULAR_IMPORT_FIX_PLAN.md`.
+Extracted rate limiter to `utils/rate_limiter.py` (breaking `app → routes → app` circular import). Deleted dead `routes/claude.py` (replaced by gateway channel). Commit `5c4d3995`. Plan: `docs/planning/completed/CIRCULAR_IMPORT_FIX_PLAN.md`.
 
 ### ~~Frontend: SDK Testing (Phase 1+2)~~ — COMPLETE
-75 Vitest tests across 8 files. Phase 1: pure function tests (54 tests, commit `5d490407`). Phase 2: hook tests (21 tests, commit `6c59f7e7`). Plan: `FRONTEND_SDK_TESTING_PLAN.md`.
+75 Vitest tests across 8 files. Phase 1: pure function tests (54 tests, commit `5d490407`). Phase 2: hook tests (21 tests, commit `6c59f7e7`). Plan: `docs/planning/completed/FRONTEND_SDK_TESTING_PLAN.md`.
 
 ### ~~Frontend: Analyst Mode~~ — COMPLETE
-Chat-focused UI at `/analyst` — thin icon sidebar with 3 views (chat, holdings, connections). Reuses all existing auth, services, chat, and portfolio infrastructure. Commit `ea9f2fd3`. Plan: `ANALYST_MODE_PLAN.md`.
+Chat-focused UI at `/analyst` — thin icon sidebar with 3 views (chat, holdings, connections). Reuses all existing auth, services, chat, and portfolio infrastructure. Commit `ea9f2fd3`. Plan: `docs/planning/completed/ANALYST_MODE_PLAN.md`.
 
 ### ~~Rebalance Trade Generator~~ — COMPLETE
-`generate_rebalance_trades()` MCP tool in `mcp_tools/rebalance.py`. Accepts `target_weights` or `weight_changes`, produces sequenced BUY/SELL legs. 26 tests. Commit `e19f9e28`. Plan: `REBALANCE_TRADE_GENERATOR_PLAN.md`.
+`generate_rebalance_trades()` MCP tool in `mcp_tools/rebalance.py`. Accepts `target_weights` or `weight_changes`, produces sequenced BUY/SELL legs. 26 tests. Commit `e19f9e28`. Plan: `docs/planning/completed/REBALANCE_TRADE_GENERATOR_PLAN.md`.
 
 ### ~~Concentration: Leverage-Aware Flag~~ — COMPLETE
-Added `leveraged_concentration` flag to `core/position_flags.py`. Fires when leverage > 1.1x and a single-issuer position exceeds 25% of net equity. Shows both equity and gross weight perspectives. Existing gross-based concentration unchanged. 8 new tests (40 total). Commit `8741d6ac`. Plan: `LEVERAGED_CONCENTRATION_FLAG_PLAN.md`.
+Added `leveraged_concentration` flag to `core/position_flags.py`. Fires when leverage > 1.1x and a single-issuer position exceeds 25% of net equity. Shows both equity and gross weight perspectives. Existing gross-based concentration unchanged. 8 new tests (40 total). Commit `8741d6ac`. Plan: `docs/planning/completed/LEVERAGED_CONCENTRATION_FLAG_PLAN.md`.
 
 ## Backlog
 
 ### ~~IBKR Direct Trading via IB Gateway~~ — COMPLETE
-Two bugs fixed: (1) connection leak from non-singleton `IBKRConnectionManager` — added module-level singleton, (2) account routing gap — added `TRADE_ROUTING` + `TRADE_ACCOUNT_MAP` in `routing_config.py` (follows `TRANSACTION_ROUTING`/`POSITION_ROUTING` pattern). Position validation resolves mapped account aliases. Verified live: both SnapTrade UUID and native IBKR account ID route correctly. Commits `ab8bff60`, `8a20f4b8`. Plan: `docs/planning/IBKR_DIRECT_TRADING_PLAN.md`.
+Two bugs fixed: (1) connection leak from non-singleton `IBKRConnectionManager` — added module-level singleton, (2) account routing gap — added `TRADE_ROUTING` + `TRADE_ACCOUNT_MAP` in `routing_config.py` (follows `TRANSACTION_ROUTING`/`POSITION_ROUTING` pattern). Position validation resolves mapped account aliases. Verified live: both SnapTrade UUID and native IBKR account ID route correctly. Commits `ab8bff60`, `8a20f4b8`. Plan: `docs/planning/completed/IBKR_DIRECT_TRADING_PLAN.md`.
 - **Remaining:** End-to-end execute test (preview works, haven't confirmed actual order placement yet)
 
 ### Frontend: SDK Testing — Remaining Coverage (backlog)
@@ -94,9 +105,10 @@ Full design: `docs/planning/FUTURES_DESIGN.md`. Phased implementation (8 phases)
 - [x] **Phase 3 — Portfolio integration**: Done (commit `dcf481a0`).
 - [x] **Phase 4 — Risk integration**: Done (commit `a1c4aefc`).
 - [x] **Phase 5 — Performance + trading**: Done. Futures P&L metadata threading + segment filter on `get_trading_analysis()` (commit `a5f82977`, `0a7b2691`).
-- [x] **Phase 6 — Monthly contracts, curve & roll**: Done. Monthly contract resolution, `get_futures_curve()` term structure tool, `preview_futures_roll()`/`execute_futures_roll()` BAG combo orders (commits `8ff76db9`, `63a948a0`). Plan: `docs/planning/FUTURES_MONTHLY_CURVE_ROLL_PLAN.md`.
+- [x] **Phase 6 — Monthly contracts, curve & roll**: Done. Monthly contract resolution, `get_futures_curve()` term structure tool, `preview_futures_roll()`/`execute_futures_roll()` BAG combo orders (commits `8ff76db9`, `63a948a0`). Plan: `docs/planning/completed/FUTURES_MONTHLY_CURVE_ROLL_PLAN.md`.
 - [x] **Phase 7 — Contract verification**: ESTX50 and DAX verified live against TWS (conIds 621358639, 621358482; monthly close data confirmed; ESTX50 via FMP `^STOXX50E`, DAX via IBKR fallback since `^GDAXI` returns 402). IBV removed — not available on IBKR (no CME Ibovespa futures product found). Contract catalog: 26 symbols.
 - [ ] **Phase 8 — Polish (backlog)**: Daily bars → risk pipeline (requires frequency-aware refactor of 8+ annualization sites), DB persistence for `instrument_types`.
+- [ ] **Phase 9 — Live futures pricing in trade preview**: Add `fetch_snapshot()` to `preview_futures_roll` (same pattern as multi-leg options preview) for live bid/ask/mid on front and back contracts before `whatIfOrder`. Currently roll preview only returns margin/commission estimates.
 
 ### EDGAR FastAPI Migration — Phase 4 Cleanup
 Phases 0-3 complete (2026-02-27). nginx on `financialmodelupdater.com` now routes `/api/*` → FastAPI (port 8000), everything else → Flask (port 5000). 36/36 parity tests pass. All 6 edgar-mcp tools + AI-excel-addin gateway validated. No client code changes needed.
@@ -135,7 +147,7 @@ Identified during hedging workflow definition (see `docs/planning/WORKFLOW_DESIG
 Identified across all 7 workflow definitions (see `docs/planning/WORKFLOW_DESIGN.md`). These gaps appear in 3+ workflows and are the highest-leverage items to build.
 
 - [x] ~~**Rebalance trade generator**~~ — COMPLETE. `generate_rebalance_trades()` MCP tool in `mcp_tools/rebalance.py`. Accepts `target_weights` or `weight_changes`, produces sequenced BUY/SELL legs. Shared helpers in `mcp_tools/trading_helpers.py`. 26 tests. Commit `e19f9e28`.
-- [x] ~~**Batch scenario/optimization comparison**~~ — COMPLETE. `compare_scenarios()` MCP tool in `mcp_tools/compare.py`. Runs N scenarios on same portfolio (deep-copied per run), ranks by configurable metric, 5 comparison-level flags. 32 tests. Commit `56d773a8`. Plan: `BATCH_COMPARISON_PLAN.md`.
+- [x] ~~**Batch scenario/optimization comparison**~~ — COMPLETE. `compare_scenarios()` MCP tool in `mcp_tools/compare.py`. Runs N scenarios on same portfolio (deep-copied per run), ranks by configurable metric, 5 comparison-level flags. 32 tests. Commit `56d773a8`. Plan: `docs/planning/completed/BATCH_COMPARISON_PLAN.md`.
 - [ ] **Action audit trail** — Persist which recommendations were generated, accepted, rejected, and executed. No tracking today — conversation context only. Needed by: Risk Review, Allocation Review, Performance Review.
 
 ### Workflow Gaps: Scenario & Strategy Infrastructure
@@ -190,8 +202,11 @@ Source-agnostic pipeline to ingest ideas from any origin (manual reading, newsle
 **Phases:**
 1. ~~**Pipeline core**~~ — COMPLETE. `IdeaPayload` dataclass + `ingest_idea()` + `ingest_batch()` in `api/memory/ingest.py`. Dedup (create vs append), source log audit trail, strict ticker validation. 36 tests. Commit `632a551`.
 2. ~~**First connectors**~~ — COMPLETE. Two connectors in `api/memory/connectors/`: `from_estimate_revisions()` (estimate revision screen → IdeaPayloads) and `from_quality_screen()` (quality screener → IdeaPayloads). Pure functions, None-safe, NaN-safe, conditional pandas. 28 tests. Commit `de30308`.
-3. **Enrichment workflow** — `fmp_profile` on new tickers (sector, market cap). Tiered enrichment on stage advancement.
-4. **Additional connectors** — Newsletter (Gmail MCP), insider trades, corporate events, earnings transcripts. Each independent.
+3. **Enrichment + orchestration** — needs real usage to inform design. Two parts identified:
+   - **A. Ingestion-time enrichment** — pure function `enrich_from_profile(ticker, profile_data, workspace)` that writes company_name/sector/market_cap to ticker files. Takes pre-fetched data (consistent with connector pattern). Lives in `api/memory/enrich.py`.
+   - **B. Stage-based enrichment** — analyst-claude runs tiered tools (Tier 1/2/3) when advancing `process_stage`. This is agent behavior defined in AGENT.md, not pipeline code.
+   - **Caller TBD** — agent via MCP + local tools, skill, or scheduled script. Start putting data through the pipeline first to see what orchestration is actually needed.
+4. **Additional connectors** — Newsletter (Gmail MCP), insider trades, corporate events, earnings transcripts. Each independent. Dev guides: `AI-excel-addin/docs/design/connector-development-guide.md`, `investment_tools/docs/IDEA_SOURCE_DEVELOPMENT_GUIDE.md`.
 5. **Analyst-claude queue** — Idea pickup + triage workflow, enrichment tied to process stage transitions.
 
 **Process stages:** `idea` → `initial_review` → `diligence` → `decision` → `monitoring`
@@ -202,6 +217,7 @@ Source-agnostic pipeline to ingest ideas from any origin (manual reading, newsle
 - [ ] Define process stage transitions and criteria (what triggers advancement from `idea` → `initial_review`, etc.)
 - [ ] Update analyst-claude system prompt / AGENT.md with process stage definitions so it knows when to advance ideas
 - [ ] Define what enrichment tier runs at each stage (Tier 1 at initial_review, Tier 2 at diligence, Tier 3 at decision)
+- [ ] Start running screens through the pipeline end-to-end to inform enrichment/orchestration design
 
 ### Autonomous Analyst-Claude (Overnight Work)
 Infrastructure and workflow design for analyst-claude to work autonomously during off-hours (overnight), running longer-form research and analysis projects that are ready for review in the morning.

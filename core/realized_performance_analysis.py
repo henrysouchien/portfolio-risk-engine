@@ -76,6 +76,8 @@ TYPE_ORDER = {
     "PROVIDER_FLOW": 2,
     "BUY": 3,
     "COVER": 4,
+    # After BUY/COVER so same-day futures opens adjust position state before MTM settles.
+    "FUTURES_MTM": 5,
 }
 _FX_PAIR_SYMBOL_RE = re.compile(r"^[A-Z]{3}\.[A-Z]{3}$")
 _IBKR_ACCOUNT_ID_RE = re.compile(r"^u\d+$", re.IGNORECASE)
@@ -1547,6 +1549,7 @@ def derive_cash_and_external_flows(
     income_with_currency: List[Dict[str, Any]],
     fx_cache: Dict[str, pd.Series],
     provider_flow_events: Optional[List[Dict[str, Any]]] = None,
+    futures_mtm_events: Optional[List[Dict[str, Any]]] = None,
     *,
     disable_inference_when_provider_mode: bool = True,
     force_disable_inference: bool = False,
@@ -1566,6 +1569,8 @@ def derive_cash_and_external_flows(
         replay_diagnostics.setdefault("futures_fee_cash_impact_usd", 0.0)
         replay_diagnostics.setdefault("futures_unknown_action_count", 0)
         replay_diagnostics.setdefault("futures_missing_fx_count", 0)
+        replay_diagnostics.setdefault("futures_mtm_event_count", 0)
+        replay_diagnostics.setdefault("futures_mtm_cash_impact_usd", 0.0)
         replay_diagnostics.setdefault("income_flow_overlap_dropped_count", 0)
         replay_diagnostics.setdefault("income_flow_overlap_dropped_net_usd", 0.0)
         replay_diagnostics.setdefault("income_flow_overlap_dropped_by_provider", {})
@@ -1607,6 +1612,7 @@ def derive_cash_and_external_flows(
     _skipped_unknown = 0
     _skipped_fx = 0
     _futures_count = 0
+    _futures_mtm_count = 0
 
     for txn in fifo_transactions:
         date = _to_datetime(txn.get("date"))
@@ -1687,6 +1693,26 @@ def derive_cash_and_external_flows(
             }
         )
 
+    for mtm in (futures_mtm_events or []):
+        date = _to_datetime(mtm.get("date"))
+        if date is None:
+            continue
+        amount = _as_float(mtm.get("amount"), 0.0)
+        if amount == 0:
+            continue
+        _futures_mtm_count += 1
+        events.append(
+            {
+                "date": date,
+                "event_type": "FUTURES_MTM",
+                "amount": amount,
+                "currency": str(mtm.get("currency") or "USD").upper(),
+                "symbol": str(mtm.get("symbol") or "").strip().upper(),
+                # MTM settlement is a cash event, not a futures trade event.
+                "is_futures": False,
+            }
+        )
+
     events.sort(key=lambda e: (e["date"], TYPE_ORDER.get(e["event_type"], 99)))
 
     cash = 0.0
@@ -1700,11 +1726,16 @@ def derive_cash_and_external_flows(
     futures_fee_cash_impact_usd = 0.0
     futures_unknown_action_count = 0
     futures_missing_fx_count = 0
+    futures_mtm_cash_impact_usd = 0.0
 
     for event in events:
         event_type = event["event_type"]
         is_futures = bool(event.get("is_futures", False))
         if is_futures:
+            fx, missing_fx = _fx_with_futures_default(event.get("currency", "USD"), event["date"])
+            if missing_fx:
+                futures_missing_fx_count += 1
+        elif event_type == "FUTURES_MTM":
             fx, missing_fx = _fx_with_futures_default(event.get("currency", "USD"), event["date"])
             if missing_fx:
                 futures_missing_fx_count += 1
@@ -1739,6 +1770,10 @@ def derive_cash_and_external_flows(
                 cash += signed_amount
                 if bool(event.get("is_external_flow")):
                     external_flows.append((event["date"], signed_amount))
+            elif event_type == "FUTURES_MTM":
+                mtm_cash_impact = event.get("amount", 0.0) * fx
+                cash += mtm_cash_impact
+                futures_mtm_cash_impact_usd += mtm_cash_impact
 
         if is_futures:
             symbol = str(event.get("symbol") or "").strip().upper()
@@ -1812,6 +1847,13 @@ def derive_cash_and_external_flows(
         replay_diagnostics["futures_missing_fx_count"] = int(
             _as_float(replay_diagnostics.get("futures_missing_fx_count"), 0.0)
         ) + futures_missing_fx_count
+        replay_diagnostics["futures_mtm_event_count"] = int(
+            _as_float(replay_diagnostics.get("futures_mtm_event_count"), 0.0)
+        ) + _futures_mtm_count
+        replay_diagnostics["futures_mtm_cash_impact_usd"] = _as_float(
+            replay_diagnostics.get("futures_mtm_cash_impact_usd"),
+            0.0,
+        ) + futures_mtm_cash_impact_usd
         replay_diagnostics["income_flow_overlap_dropped_count"] = int(
             _as_float(replay_diagnostics.get("income_flow_overlap_dropped_count"), 0.0)
         ) + int(_as_float(overlap_diagnostics.get("dropped_count"), 0.0))
@@ -3132,6 +3174,7 @@ def _analyze_realized_performance_single_scope(
             snaptrade_activities=payload.get("snaptrade_activities", []),
             ibkr_flex_trades=payload.get("ibkr_flex_trades"),
             ibkr_flex_cash_rows=payload.get("ibkr_flex_cash_rows"),
+            ibkr_flex_futures_mtm=payload.get("ibkr_flex_futures_mtm"),
             schwab_transactions=payload.get("schwab_transactions", []),
             schwab_security_lookup=schwab_security_lookup,
             use_fifo=True,
@@ -3139,6 +3182,7 @@ def _analyze_realized_performance_single_scope(
         )
 
         fifo_transactions = list(analyzer.fifo_transactions)
+        futures_mtm_events = list(payload.get("ibkr_flex_futures_mtm") or [])
         backfill_metadata: Dict[str, Dict[str, Any]] = {}
         effective_backfill_path = backfill_path if backfill_path is not None else BACKFILL_FILE_PATH
         existing_transaction_ids = {
@@ -3168,6 +3212,11 @@ def _analyze_realized_performance_single_scope(
             warnings.append(
                 f"Institution filter '{institution}': {len(fifo_transactions)}/{pre_count} transactions matched."
             )
+            futures_mtm_events = [
+                event
+                for event in futures_mtm_events
+                if match_institution(str(event.get("_institution") or event.get("institution") or ""), institution)
+            ]
         if account:
             pre_count = len(fifo_transactions)
             fifo_transactions = [
@@ -3177,7 +3226,31 @@ def _analyze_realized_performance_single_scope(
             warnings.append(
                 f"Account filter '{account}': {len(fifo_transactions)}/{pre_count} transactions matched."
             )
+            futures_mtm_events = [
+                event for event in futures_mtm_events
+                if _match_account(event, account)
+            ]
         fifo_transactions.sort(key=lambda t: _to_datetime(t.get("date")) or datetime.min)
+        futures_mtm_events.sort(key=lambda row: _to_datetime(row.get("date")) or datetime.min)
+
+        ibkr_stmtfunds_present_values = [
+            row.get("stmtfunds_section_present")
+            for row in fetch_metadata_rows
+            if str(row.get("provider") or "").strip().lower() == "ibkr_flex"
+            and row.get("stmtfunds_section_present") is not None
+        ]
+        stmtfunds_section_present: bool | None = None
+        if ibkr_stmtfunds_present_values:
+            stmtfunds_section_present = any(bool(v) for v in ibkr_stmtfunds_present_values)
+        has_futures_transactions = any(
+            _infer_instrument_type_from_transaction(txn) == "futures"
+            for txn in fifo_transactions
+        )
+        if stmtfunds_section_present is False and has_futures_transactions:
+            warnings.append(
+                "IBKR Flex StmtFunds section is missing while futures trades are present; "
+                "daily futures MTM settlement is unavailable and realized performance can be materially distorted."
+            )
 
         futures_map = get_ibkr_futures_fmp_map()
         equity_symbols = {
@@ -3309,6 +3382,16 @@ def _analyze_realized_performance_single_scope(
         )
         if first_income_date is not None:
             inception_candidates.append(first_income_date)
+        first_futures_mtm_date = min(
+            (
+                _to_datetime(row.get("date"))
+                for row in futures_mtm_events
+                if _to_datetime(row.get("date")) is not None
+            ),
+            default=None,
+        )
+        if first_futures_mtm_date is not None:
+            inception_candidates.append(first_futures_mtm_date)
         if provider_first_mode and first_authoritative_provider_flow_date is not None:
             inception_candidates.append(first_authoritative_provider_flow_date)
 
@@ -3327,6 +3410,10 @@ def _analyze_realized_performance_single_scope(
             dt = _to_datetime(event.get("timestamp") or event.get("date"))
             if dt and dt > latest_event_date:
                 latest_event_date = dt
+        for mtm in futures_mtm_events:
+            dt = _to_datetime(mtm.get("date"))
+            if dt and dt > latest_event_date:
+                latest_event_date = dt
         end_date = max(now, latest_event_date)
 
         currencies = {"USD"}
@@ -3338,6 +3425,10 @@ def _analyze_realized_performance_single_scope(
             currencies.add(str(inc.get("currency") or "USD").upper())
         for event in provider_flow_events:
             currencies.add(str(event.get("currency") or "USD").upper())
+        for mtm in futures_mtm_events:
+            ccy = str(mtm.get("currency") or "USD").upper()
+            if ccy != "USD":
+                currencies.add(ccy)
         fx_cache = _build_fx_cache(
             currencies=currencies,
             inception_date=inception_date,
@@ -3707,6 +3798,8 @@ def _analyze_realized_performance_single_scope(
                 "futures_fee_cash_impact_usd": 0.0,
                 "futures_unknown_action_count": 0,
                 "futures_missing_fx_count": 0,
+                "futures_mtm_event_count": 0,
+                "futures_mtm_cash_impact_usd": 0.0,
                 "income_flow_overlap_dropped_count": 0,
                 "income_flow_overlap_dropped_net_usd": 0.0,
                 "income_flow_overlap_dropped_by_provider": {},
@@ -3728,6 +3821,11 @@ def _analyze_realized_performance_single_scope(
                     ),
                     "futures_unknown_action_count": int(_as_float(replay_diag.get("futures_unknown_action_count"), 0.0)),
                     "futures_missing_fx_count": int(_as_float(replay_diag.get("futures_missing_fx_count"), 0.0)),
+                    "futures_mtm_event_count": int(_as_float(replay_diag.get("futures_mtm_event_count"), 0.0)),
+                    "futures_mtm_cash_impact_usd": round(
+                        _as_float(replay_diag.get("futures_mtm_cash_impact_usd"), 0.0),
+                        2,
+                    ),
                     "income_flow_overlap_dropped_count": int(
                         _as_float(replay_diag.get("income_flow_overlap_dropped_count"), 0.0)
                     ),
@@ -3754,6 +3852,7 @@ def _analyze_realized_performance_single_scope(
                     fifo_transactions=branch_transactions,
                     income_with_currency=income_with_currency,
                     fx_cache=fx_cache,
+                    futures_mtm_events=futures_mtm_events,
                     warnings=warnings,
                     replay_diagnostics=replay_diag,
                 )
@@ -3820,6 +3919,7 @@ def _analyze_realized_performance_single_scope(
                         fifo_transactions=branch_transactions,
                         income_with_currency=income_with_currency,
                         fx_cache=fx_cache,
+                        futures_mtm_events=futures_mtm_events,
                         force_disable_inference=True,
                         warnings=warnings,
                         replay_diagnostics=replay_diag,
@@ -3844,6 +3944,7 @@ def _analyze_realized_performance_single_scope(
                     fifo_transactions=branch_transactions,
                     income_with_currency=income_with_currency,
                     fx_cache=fx_cache,
+                    futures_mtm_events=futures_mtm_events,
                     warnings=warnings,
                     replay_diagnostics=replay_diag,
                 )
@@ -3872,6 +3973,7 @@ def _analyze_realized_performance_single_scope(
                     income_with_currency=income_with_currency,
                     fx_cache=fx_cache,
                     provider_flow_events=authoritative_events,
+                    futures_mtm_events=futures_mtm_events,
                     warnings=warnings,
                     replay_diagnostics=replay_diag,
                 )
@@ -3959,12 +4061,51 @@ def _analyze_realized_performance_single_scope(
                         fallback_branch_income.append(inc)
                         fallback_provider_income_count += 1
 
-                if fallback_provider_activity_count == 0 and fallback_provider_income_count == 0:
+                authoritative_branch_mtm: List[Dict[str, Any]] = []
+                out_of_window_branch_mtm: List[Dict[str, Any]] = []
+                fallback_branch_mtm: List[Dict[str, Any]] = []
+                fallback_provider_mtm_count = 0
+                out_of_window_provider_mtm_count = 0
+                for mtm in futures_mtm_events:
+                    event_date = _to_datetime(mtm.get("date"))
+                    if event_date is None:
+                        fallback_branch_mtm.append(mtm)
+                        continue
+
+                    provider = _normalize_source_name(mtm.get("provider"))
+                    if provider not in enabled_provider_flow_sources:
+                        fallback_branch_mtm.append(mtm)
+                        continue
+
+                    authority_status = _authoritative_slice_status(
+                        provider_flow_coverage,
+                        provider=provider,
+                        institution=mtm.get("institution"),
+                        account_id=mtm.get("account_id"),
+                        provider_account_ref=mtm.get("provider_account_ref"),
+                        account_name=mtm.get("account_name"),
+                        event_date=event_date,
+                    )
+                    if authority_status == "authoritative_in_window":
+                        authoritative_branch_mtm.append(mtm)
+                    elif authority_status == "authoritative_out_of_window":
+                        out_of_window_branch_mtm.append(mtm)
+                        out_of_window_provider_mtm_count += 1
+                    else:
+                        fallback_branch_mtm.append(mtm)
+                        fallback_provider_mtm_count += 1
+
+                if (
+                    fallback_provider_activity_count == 0
+                    and fallback_provider_income_count == 0
+                    and fallback_provider_mtm_count == 0
+                ):
                     composed_cash, composed_external = derive_cash_and_external_flows(
                         fifo_transactions=branch_transactions,
                         income_with_currency=income_with_currency,
                         fx_cache=fx_cache,
                         provider_flow_events=authoritative_events,
+                        futures_mtm_events=futures_mtm_events,
                         warnings=warnings,
                         replay_diagnostics=replay_diag,
                     )
@@ -4013,6 +4154,19 @@ def _analyze_realized_performance_single_scope(
                             return f"slice|{slice_key}", provider, slice_key
                         return f"non_provider|{provider}", provider, None
 
+                    def _partition_key_for_mtm(mtm: Dict[str, Any]) -> Tuple[str, str, Optional[str]]:
+                        provider = _normalize_source_name(mtm.get("provider"))
+                        if provider in enabled_provider_flow_sources:
+                            slice_key = _flow_slice_key(
+                                provider=provider,
+                                institution=mtm.get("institution"),
+                                account_id=mtm.get("account_id"),
+                                provider_account_ref=mtm.get("provider_account_ref"),
+                                account_name=mtm.get("account_name"),
+                            )
+                            return f"slice|{slice_key}", provider, slice_key
+                        return f"non_provider|{provider}", provider, None
+
                     for txn in fallback_branch_transactions:
                         part_key, provider_name, slice_key = _partition_key_for_transaction(txn)
                         row = fallback_partitions.setdefault(
@@ -4022,6 +4176,7 @@ def _analyze_realized_performance_single_scope(
                                 "slice_key": slice_key,
                                 "transactions": [],
                                 "income": [],
+                                "mtm": [],
                             },
                         )
                         row["transactions"].append(txn)
@@ -4035,15 +4190,31 @@ def _analyze_realized_performance_single_scope(
                                 "slice_key": slice_key,
                                 "transactions": [],
                                 "income": [],
+                                "mtm": [],
                             },
                         )
                         row["income"].append(inc)
+
+                    for mtm in fallback_branch_mtm:
+                        part_key, provider_name, slice_key = _partition_key_for_mtm(mtm)
+                        row = fallback_partitions.setdefault(
+                            part_key,
+                            {
+                                "provider": provider_name,
+                                "slice_key": slice_key,
+                                "transactions": [],
+                                "income": [],
+                                "mtm": [],
+                            },
+                        )
+                        row["mtm"].append(mtm)
 
                     authoritative_cash, authoritative_external = derive_cash_and_external_flows(
                         fifo_transactions=authoritative_branch_transactions,
                         income_with_currency=authoritative_branch_income,
                         fx_cache=fx_cache,
                         provider_flow_events=authoritative_events,
+                        futures_mtm_events=authoritative_branch_mtm,
                         warnings=warnings,
                         replay_diagnostics=replay_diag,
                     )
@@ -4051,6 +4222,7 @@ def _analyze_realized_performance_single_scope(
                         fifo_transactions=out_of_window_branch_transactions,
                         income_with_currency=out_of_window_branch_income,
                         fx_cache=fx_cache,
+                        futures_mtm_events=out_of_window_branch_mtm,
                         force_disable_inference=True,
                         warnings=warnings,
                         replay_diagnostics=replay_diag,
@@ -4064,10 +4236,12 @@ def _analyze_realized_performance_single_scope(
                     for row in fallback_partitions.values():
                         partition_transactions = list(row.get("transactions") or [])
                         partition_income = list(row.get("income") or [])
+                        partition_mtm = list(row.get("mtm") or [])
                         partition_cash, partition_external = derive_cash_and_external_flows(
                             fifo_transactions=partition_transactions,
                             income_with_currency=partition_income,
                             fx_cache=fx_cache,
+                            futures_mtm_events=partition_mtm,
                             warnings=warnings,
                             replay_diagnostics=replay_diag,
                         )
@@ -4086,6 +4260,11 @@ def _analyze_realized_performance_single_scope(
                             for inc in partition_income
                             if _to_datetime(inc.get("date")) is not None
                         )
+                        activity_dates.extend(
+                            _to_datetime(mtm.get("date"))
+                            for mtm in partition_mtm
+                            if _to_datetime(mtm.get("date")) is not None
+                        )
                         inferred_dates = [when for when, _ in partition_external]
                         inferred_net_usd = float(sum(_as_float(amount, 0.0) for _, amount in partition_external))
 
@@ -4096,6 +4275,7 @@ def _analyze_realized_performance_single_scope(
                                 "slice_count": 0,
                                 "transaction_count": 0,
                                 "income_count": 0,
+                                "mtm_count": 0,
                                 "inferred_event_count": 0,
                                 "inferred_net_usd": 0.0,
                                 "_activity_dates": [],
@@ -4105,6 +4285,7 @@ def _analyze_realized_performance_single_scope(
                         provider_row["slice_count"] += 1
                         provider_row["transaction_count"] += len(partition_transactions)
                         provider_row["income_count"] += len(partition_income)
+                        provider_row["mtm_count"] += len(partition_mtm)
                         provider_row["inferred_event_count"] += len(partition_external)
                         provider_row["inferred_net_usd"] += inferred_net_usd
                         provider_row["_activity_dates"].extend(activity_dates)
@@ -4115,6 +4296,7 @@ def _analyze_realized_performance_single_scope(
                                 "provider": provider_name,
                                 "transaction_count": len(partition_transactions),
                                 "income_count": len(partition_income),
+                                "mtm_count": len(partition_mtm),
                                 "inferred_event_count": len(partition_external),
                                 "inferred_net_usd": round(inferred_net_usd, 2),
                                 "activity_window": _window(activity_dates),
@@ -4143,6 +4325,7 @@ def _analyze_realized_performance_single_scope(
                             "slice_count": int(_as_float(row.get("slice_count"), 0.0)),
                             "transaction_count": int(_as_float(row.get("transaction_count"), 0.0)),
                             "income_count": int(_as_float(row.get("income_count"), 0.0)),
+                            "mtm_count": int(_as_float(row.get("mtm_count"), 0.0)),
                             "inferred_event_count": int(_as_float(row.get("inferred_event_count"), 0.0)),
                             "inferred_net_usd": round(_as_float(row.get("inferred_net_usd"), 0.0), 2),
                             "activity_window": _window(list(row.get("_activity_dates") or [])),
@@ -4158,6 +4341,7 @@ def _analyze_realized_performance_single_scope(
                         "inferred_event_window": _window(inferred_dates),
                         "out_of_window_provider_activity_count": int(out_of_window_provider_activity_count),
                         "out_of_window_provider_income_count": int(out_of_window_provider_income_count),
+                        "out_of_window_provider_mtm_count": int(out_of_window_provider_mtm_count),
                         "by_provider": dict(sorted(by_provider.items())),
                         "by_slice": dict(sorted(by_slice.items())),
                     }
@@ -4247,6 +4431,7 @@ def _analyze_realized_performance_single_scope(
             fifo_transactions=fifo_transactions,
             income_with_currency=income_with_currency,
             fx_cache=fx_cache,
+            futures_mtm_events=futures_mtm_events,
             warnings=warnings,
         )
         if legacy_monthly_return_path:
@@ -4807,6 +4992,13 @@ def _analyze_realized_performance_single_scope(
             "futures_missing_fx_count": int(
                 _as_float(cash_replay_diagnostics.get("futures_missing_fx_count"), 0.0)
             ),
+            "futures_mtm_event_count": int(
+                _as_float(cash_replay_diagnostics.get("futures_mtm_event_count"), 0.0)
+            ),
+            "futures_mtm_cash_impact_usd": round(
+                _as_float(cash_replay_diagnostics.get("futures_mtm_cash_impact_usd"), 0.0),
+                2,
+            ),
             "income_flow_overlap_dropped_count": int(
                 _as_float(cash_replay_diagnostics.get("income_flow_overlap_dropped_count"), 0.0)
             ),
@@ -4982,32 +5174,52 @@ def _prefetch_fifo_transactions(
     return fifo_transactions
 
 
+def _discover_account_ids(
+    positions: "PositionResult",
+    fifo_transactions: List[Dict[str, Any]],
+    institution: str,
+) -> List[str]:
+    """Discover account IDs from positions and normalized transactions."""
+    seen: set[str] = set()
+
+    for pos in list(getattr(getattr(positions, "data", None), "positions", []) or []):
+        brokerage_name = str(pos.get("brokerage_name") or pos.get("institution") or "")
+        if not match_institution(brokerage_name, institution):
+            continue
+        account_name = str(pos.get("account_name") or "").strip()
+        if account_name:
+            seen.add(account_name)
+            continue
+        account_id = str(pos.get("account_id") or "").strip()
+        if account_id:
+            seen.add(account_id)
+
+    for txn in fifo_transactions or []:
+        txn_institution = str(txn.get("_institution") or txn.get("institution") or "")
+        if not match_institution(txn_institution, institution):
+            continue
+        account_name = str(txn.get("account_name") or "").strip()
+        if account_name:
+            seen.add(account_name)
+            continue
+        account_id = str(txn.get("account_id") or "").strip()
+        if account_id:
+            seen.add(account_id)
+
+    return sorted(seen)
+
+
 def _discover_schwab_account_ids(
     positions: "PositionResult",
     fifo_transactions: List[Dict[str, Any]],
     institution: Optional[str],
 ) -> List[str]:
-    """Discover Schwab account IDs from positions and normalized transactions."""
-    del institution
-    seen: set[str] = set()
-
-    for pos in list(getattr(getattr(positions, "data", None), "positions", []) or []):
-        brokerage_name = str(pos.get("brokerage_name") or pos.get("institution") or "")
-        if not match_institution(brokerage_name, "schwab"):
-            continue
-        account_name = str(pos.get("account_name") or "").strip()
-        if account_name:
-            seen.add(account_name)
-
-    for txn in fifo_transactions or []:
-        txn_institution = str(txn.get("_institution") or txn.get("institution") or "")
-        if not match_institution(txn_institution, "schwab"):
-            continue
-        account_name = str(txn.get("account_name") or "").strip()
-        if account_name:
-            seen.add(account_name)
-
-    return sorted(seen)
+    """Backward-compatible alias for callers/tests expecting Schwab defaults."""
+    return _discover_account_ids(
+        positions=positions,
+        fifo_transactions=fifo_transactions,
+        institution=(institution or "schwab"),
+    )
 
 
 def _dict_to_series(values: Optional[Dict[str, Any]]) -> pd.Series:
@@ -5753,6 +5965,8 @@ def _build_aggregated_result(
             "futures_fee_cash_impact_usd": round(_sum_field("futures_fee_cash_impact_usd"), 2),
             "futures_unknown_action_count": _sum_int_field("futures_unknown_action_count"),
             "futures_missing_fx_count": _sum_int_field("futures_missing_fx_count"),
+            "futures_mtm_event_count": _sum_int_field("futures_mtm_event_count"),
+            "futures_mtm_cash_impact_usd": round(_sum_field("futures_mtm_cash_impact_usd"), 2),
             "income_flow_overlap_dropped_count": _sum_int_field("income_flow_overlap_dropped_count"),
             "income_flow_overlap_dropped_net_usd": round(_sum_field("income_flow_overlap_dropped_net_usd"), 2),
             "income_flow_overlap_dropped_by_provider": dict(sorted(income_overlap_by_provider.items())),
@@ -5878,6 +6092,8 @@ def _analyze_realized_performance_account_aggregated(
     from core.result_objects import RealizedPerformanceResult
     perf_logger = logging.getLogger("performance")
 
+    assert institution is not None
+
     account_ids: List[str] = []
     fmp_ticker_map: Dict[str, str] = {}
 
@@ -5904,7 +6120,7 @@ def _analyze_realized_performance_account_aggregated(
             source=source,
             institution=institution,
         )
-        account_ids = _discover_schwab_account_ids(
+        account_ids = _discover_account_ids(
             positions,
             prefetch_fifo,
             institution,
@@ -5954,7 +6170,7 @@ def _analyze_realized_performance_account_aggregated(
                 include_series=False,
                 backfill_path=backfill_path,
                 price_registry=price_registry,
-                use_per_symbol_inception=True,
+                use_per_symbol_inception=bool(match_institution(institution, "schwab")),
             )
             if isinstance(account_result, dict):
                 if account_result.get("status") == "error":
@@ -5996,7 +6212,7 @@ def _analyze_realized_performance_account_aggregated(
         if isinstance(fallback, RealizedPerformanceResult):
             fallback_warnings = list(fallback.realized_metadata.data_warnings or [])
             fallback_warnings.append(
-                "Account aggregation fallback: all discovered Schwab accounts failed account-scoped analysis."
+                f"Account aggregation fallback: all discovered {institution} accounts failed account-scoped analysis."
             )
             fallback.realized_metadata.data_warnings = sorted(set(fallback_warnings))
         return fallback
@@ -6025,9 +6241,24 @@ def analyze_realized_performance(
     source = (source or "all").lower().strip()
     institution = (institution or "").strip() or None
     account = (account or "").strip() or None
-    is_schwab = (
-        (institution is not None and match_institution(institution, "schwab"))
-        or source == "schwab"
+    _SOURCE_TO_INSTITUTION = {
+        "schwab": "schwab",
+        "ibkr_flex": "ibkr",
+    }
+
+    if institution is not None and source not in {"all"}:
+        expected_inst = _SOURCE_TO_INSTITUTION.get(source)
+        if expected_inst and not match_institution(institution, expected_inst):
+            return {
+                "status": "error",
+                "message": f"source={source!r} conflicts with institution={institution!r}",
+            }
+
+    if institution is None and source not in {"all"}:
+        institution = _SOURCE_TO_INSTITUTION.get(source)
+
+    use_per_symbol_inception = bool(
+        institution and match_institution(institution, "schwab")
     )
 
     if source not in {"all", "snaptrade", "plaid", "ibkr_flex", "schwab"}:
@@ -6041,16 +6272,10 @@ def analyze_realized_performance(
             include_series=include_series,
             backfill_path=backfill_path,
             price_registry=price_registry,
-            use_per_symbol_inception=is_schwab,
+            use_per_symbol_inception=use_per_symbol_inception,
         )
 
-    should_aggregate = (
-        not account
-        and (
-            (institution is not None and match_institution(institution, "schwab"))
-            or source == "schwab"
-        )
-    )
+    should_aggregate = not account and institution is not None
 
     if should_aggregate:
         return _analyze_realized_performance_account_aggregated(
@@ -6074,7 +6299,7 @@ def analyze_realized_performance(
         include_series=include_series,
         backfill_path=backfill_path,
         price_registry=price_registry,
-        use_per_symbol_inception=is_schwab,
+        use_per_symbol_inception=use_per_symbol_inception,
     )
 
 
