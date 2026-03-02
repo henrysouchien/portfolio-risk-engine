@@ -28,6 +28,13 @@ from .optimization import OptimizationResult
 from .whatif import WhatIfResult
 from .stock_analysis import StockAnalysisResult
 from .basket import BasketAnalysisResult
+from .basket_trading import (
+    BasketTradeLeg,
+    BasketTradePreviewResult,
+    BasketExecutionLeg,
+    BasketTradeExecutionResult,
+)
+from .rebalance import RebalanceLeg, RebalanceTradeResult
 from .interpretation import InterpretationResult
 from .factor_intelligence import (
     FactorCorrelationResult,
@@ -50,6 +57,12 @@ __all__ = [
     "WhatIfResult",
     "StockAnalysisResult",
     "BasketAnalysisResult",
+    "BasketTradeLeg",
+    "BasketTradePreviewResult",
+    "BasketExecutionLeg",
+    "BasketTradeExecutionResult",
+    "RebalanceLeg",
+    "RebalanceTradeResult",
     "InterpretationResult",
     "FactorCorrelationResult",
     "FactorPerformanceResult",

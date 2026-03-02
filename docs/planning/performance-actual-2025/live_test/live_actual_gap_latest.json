@@ -1,0 +1,114 @@
+{
+  "as_of": "2026-02-25",
+  "summary": [
+    {
+      "source": "all",
+      "system_return_pct": -23.84,
+      "coverage_pct": 58.33,
+      "source_txn_count": 224,
+      "synthetic_count": 13,
+      "reasons": [
+        "LOW_DATA_COVERAGE",
+        "INCOMPLETE_TRADES_EXCEED_LIMIT",
+        "RECONCILIATION_GAP_EXCEED_LIMIT",
+        "NAV_METRICS_ESTIMATED",
+        "HIGH_SEVERITY_UNPRICEABLE",
+        "SYNTHETIC_PNL_SENSITIVITY"
+      ],
+      "reconciliation_gap_usd": -64090.76,
+      "nav_pnl_usd": -54028.68,
+      "lot_pnl_usd": 10062.08,
+      "futures_notional_suppressed_usd": 518945.37,
+      "income_overlap_dropped_count": 40,
+      "cross_source_holding_leakage_symbols": []
+    },
+    {
+      "source": "ibkr_flex",
+      "system_return_pct": -100.0,
+      "coverage_pct": 45.45,
+      "source_txn_count": 82,
+      "synthetic_count": 6,
+      "reasons": [
+        "LOW_DATA_COVERAGE",
+        "INCOMPLETE_TRADES_EXCEED_LIMIT",
+        "RECONCILIATION_GAP_EXCEED_LIMIT",
+        "NAV_METRICS_ESTIMATED"
+      ],
+      "reconciliation_gap_usd": -58867.42,
+      "nav_pnl_usd": -54019.55,
+      "lot_pnl_usd": 4847.87,
+      "futures_notional_suppressed_usd": 519047.58,
+      "income_overlap_dropped_count": 25,
+      "cross_source_holding_leakage_symbols": [],
+      "actual_return_pct": -9.353273068,
+      "gap_pp": -90.646726932
+    },
+    {
+      "source": "schwab",
+      "system_return_pct": 49.76,
+      "coverage_pct": 66.67,
+      "source_txn_count": 88,
+      "synthetic_count": 4,
+      "reasons": [
+        "LOW_DATA_COVERAGE",
+        "RECONCILIATION_GAP_EXCEED_LIMIT",
+        "NAV_METRICS_ESTIMATED",
+        "CROSS_SOURCE_HOLDING_LEAKAGE"
+      ],
+      "reconciliation_gap_usd": 1755.53,
+      "nav_pnl_usd": 8967.7,
+      "lot_pnl_usd": 7212.17,
+      "futures_notional_suppressed_usd": 0.0,
+      "income_overlap_dropped_count": 0,
+      "cross_source_holding_leakage_symbols": [
+        "DSU",
+        "MSCI",
+        "STWD"
+      ],
+      "actual_range_pct": [
+        -14.69,
+        10.65
+      ]
+    },
+    {
+      "source": "plaid",
+      "system_return_pct": -7.96,
+      "coverage_pct": 0.0,
+      "source_txn_count": 54,
+      "synthetic_count": 1,
+      "reasons": [
+        "LOW_DATA_COVERAGE",
+        "NAV_METRICS_ESTIMATED",
+        "HIGH_SEVERITY_UNPRICEABLE",
+        "SYNTHETIC_PNL_SENSITIVITY",
+        "CROSS_SOURCE_HOLDING_LEAKAGE"
+      ],
+      "reconciliation_gap_usd": -556.61,
+      "nav_pnl_usd": -4849.56,
+      "lot_pnl_usd": -4292.96,
+      "futures_notional_suppressed_usd": 0.0,
+      "income_overlap_dropped_count": 15,
+      "cross_source_holding_leakage_symbols": [
+        "DSU",
+        "MSCI",
+        "STWD"
+      ],
+      "actual_return_pct": -12.49,
+      "gap_pp": 4.53
+    },
+    {
+      "source": "snaptrade",
+      "system_return_pct": null,
+      "coverage_pct": null,
+      "source_txn_count": null,
+      "synthetic_count": null,
+      "reasons": [],
+      "reconciliation_gap_usd": null,
+      "nav_pnl_usd": null,
+      "lot_pnl_usd": null,
+      "futures_notional_suppressed_usd": null,
+      "income_overlap_dropped_count": null,
+      "cross_source_holding_leakage_symbols": []
+    }
+  ]
+}

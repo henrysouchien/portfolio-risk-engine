@@ -1,0 +1,94 @@
+{
+  "generated_at": "2026-02-25T11:00:08.692875",
+  "request": {
+    "mode": "realized",
+    "source": "snaptrade",
+    "format": "agent"
+  },
+  "ok": true,
+  "result": {
+    "status": "success",
+    "format": "agent",
+    "snapshot": {
+      "mode": "realized",
+      "period": {
+        "start_date": "2025-03-31",
+        "end_date": "2026-01-31",
+        "months": 11,
+        "years": 0.9,
+        "inception_date": "2025-02-25"
+      },
+      "returns": {
+        "total_return_pct": 0.0,
+        "annualized_return_pct": 0.0,
+        "best_month_pct": 0.0,
+        "worst_month_pct": 0.0,
+        "win_rate_pct": 0.0
+      },
+      "risk": {
+        "volatility_pct": 0.0,
+        "max_drawdown_pct": 0.0,
+        "sharpe_ratio": 0,
+        "sortino_ratio": -3.464
+      },
+      "benchmark": {
+        "ticker": "SPY",
+        "alpha_annual_pct": null,
+        "beta": null,
+        "portfolio_return_pct": 0.0,
+        "benchmark_return_pct": 16.46,
+        "excess_return_pct": -18.08
+      },
+      "pnl": {
+        "nav_pnl_usd": -7660.8,
+        "realized_pnl": 0.0,
+        "unrealized_pnl": 5670.91
+      },
+      "income": {
+        "total": 0.0,
+        "dividends": 0.0,
+        "interest": 0.0,
+        "yield_on_cost_pct": 0.0,
+        "yield_on_value_pct": 0.0
+      },
+      "data_quality": {
+        "coverage_pct": 0.0,
+        "high_confidence": false,
+        "nav_metrics_estimated": true,
+        "synthetic_count": 24,
+        "warning_count": 31
+      },
+      "verdict": "poor",
+      "insights": [
+        "\u2022 Poor risk-adjusted returns (Sharpe: 0.00)",
+        "\u2022 Low consistency (0% positive months)"
+      ]
+    },
+    "flags": [
+      {
+        "type": "low_data_coverage",
+        "severity": "warning",
+        "message": "Transaction data covers only 0% of portfolio",
+        "coverage_pct": 0.0
+      },
+      {
+        "type": "data_quality_issues",
+        "severity": "info",
+        "message": "31 data quality warnings detected",
+        "warning_count": 31
+      },
+      {
+        "type": "synthetic_positions",
+        "severity": "info",
+        "message": "24 position(s) inferred from current holdings (no opening trade found)",
+        "synthetic_count": 24
+      },
+      {
+        "type": "nav_metrics_estimated",
+        "severity": "info",
+        "message": "NAV-based metrics (return, drawdown) are estimated - not all cash flows observed"
+      }
+    ],
+    "file_path": null
+  }
+}

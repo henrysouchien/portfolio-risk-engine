@@ -98,7 +98,8 @@ DATA_QUALITY_THRESHOLDS = {
     # General data quality checks
     "min_observations_for_returns_calculation": 2,  # Minimum observations needed to calculate returns
     "min_observations_for_regression": 3,        # Minimum observations for any regression analysis
-    
+    "min_observations_for_factor_attribution": 6,  # Minimum monthly observations for portfolio factor attribution
+
     # Subindustry peer filtering
     "min_valid_peers_for_median": 1,             # Minimum peers needed to calculate subindustry median
     "max_peer_drop_rate": 0.8,                   # Warning if >80% of peers dropped due to data issues
@@ -276,7 +277,7 @@ FACTOR_INTELLIGENCE_DEFAULTS = {
         "industry_granularity": "industry",
     },
     "portfolio_offsets": {
-        "correlation_threshold": -0.2,
+        "correlation_threshold": 0.3,    # positive: "least correlated" diversifiers (equity sectors rarely have negative correlations)
         "max_recs_per_driver": 5,
         "industry_granularity": DEFAULT_INDUSTRY_GRANULARITY,
         "driver_budget": 0.06,
@@ -366,19 +367,7 @@ def _load_crash_scenario_mappings():
 SECURITY_TYPE_CRASH_MAPPING = _load_crash_scenario_mappings()
 
 # SnapTrade Configuration
-SNAPTRADE_CLIENT_ID = os.getenv("SNAPTRADE_CLIENT_ID", "")
-SNAPTRADE_CONSUMER_KEY = os.getenv("SNAPTRADE_CONSUMER_KEY", "")
-SNAPTRADE_BASE_URL = os.getenv("SNAPTRADE_BASE_URL", "https://api.snaptrade.com/api/v1")
-SNAPTRADE_ENVIRONMENT = os.getenv("SNAPTRADE_ENVIRONMENT", "production")  # or "sandbox"
 ENABLE_SNAPTRADE = True  # Always enabled
-
-# SnapTrade Rate Limits
-SNAPTRADE_RATE_LIMIT = int(os.getenv("SNAPTRADE_RATE_LIMIT", "250"))  # requests per minute
-SNAPTRADE_HOLDINGS_DAILY_LIMIT = int(os.getenv("SNAPTRADE_HOLDINGS_DAILY_LIMIT", "4"))  # per user per day
-
-# SnapTrade Webhook Configuration
-SNAPTRADE_WEBHOOK_SECRET = os.getenv("SNAPTRADE_WEBHOOK_SECRET", "")
-SNAPTRADE_WEBHOOK_URL = os.getenv("SNAPTRADE_WEBHOOK_URL", "")
 
 from providers.routing_config import (
     DEFAULT_POSITION_PROVIDERS,
@@ -431,12 +420,6 @@ PROVIDER_CREDENTIALS: dict[str, list[str]] = {
 
 # Schwab (Direct API) Configuration
 SCHWAB_ENABLED = (_read_env_or_dotenv("SCHWAB_ENABLED", "false") or "false").lower() == "true"
-SCHWAB_APP_KEY = _read_env_or_dotenv("SCHWAB_APP_KEY", "") or ""
-SCHWAB_APP_SECRET = _read_env_or_dotenv("SCHWAB_APP_SECRET", "") or ""
-SCHWAB_CALLBACK_URL = _read_env_or_dotenv("SCHWAB_CALLBACK_URL", "https://127.0.0.1:8182") or "https://127.0.0.1:8182"
-SCHWAB_TOKEN_PATH = os.path.expanduser(
-    _read_env_or_dotenv("SCHWAB_TOKEN_PATH", "~/.schwab_token.json") or "~/.schwab_token.json"
-)
 SCHWAB_HISTORY_DAYS = int(_read_env_or_dotenv("SCHWAB_HISTORY_DAYS", "365") or "365")
 SCHWAB_TRANSACTIONS_CACHE_PATH = os.path.expanduser(
     _read_env_or_dotenv(

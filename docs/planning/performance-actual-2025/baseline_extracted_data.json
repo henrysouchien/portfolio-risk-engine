@@ -1,0 +1,412 @@
+{
+  "account_summary": [
+    {
+      "institution": "Charles Schwab",
+      "statement_file": "Portfolio Performance _ Charles Schwab.mhtml",
+      "account_label": "Rollover IRA",
+      "account_id": "165",
+      "period_start": "Jan 1, 2025",
+      "period_end": "Dec 31, 2025",
+      "as_of": "2/24/2026",
+      "beginning_value_usd": 21198.09,
+      "net_contributions_usd": 0.0,
+      "ending_value_usd": 19440.73,
+      "investment_change_usd": -1757.36,
+      "investment_gain_loss_usd": -2428.82,
+      "income_usd": 671.46,
+      "fees_expenses_usd": 0.0,
+      "contributions_usd": 0.0,
+      "withdrawals_usd": 0.0,
+      "market_value_usd": 19440.73,
+      "accrued_value_usd": 0.0,
+      "cumulative_return_pct": -8.29,
+      "time_weighted_return_pct": -8.29,
+      "benchmark_name": null,
+      "benchmark_return_pct": null,
+      "notes": "Schwab Portfolio Performance page snapshot (selected period shown in UI)."
+    },
+    {
+      "institution": "Charles Schwab",
+      "statement_file": "Portfolio Performance2 _ Charles Schwab.mhtml",
+      "account_label": "Contributory",
+      "account_id": "013",
+      "period_start": "Jan 1, 2025",
+      "period_end": "Dec 31, 2025",
+      "as_of": "2/24/2026",
+      "beginning_value_usd": 134.14,
+      "net_contributions_usd": 4900.0,
+      "ending_value_usd": 5107.68,
+      "investment_change_usd": 73.54,
+      "investment_gain_loss_usd": 65.61,
+      "income_usd": 7.93,
+      "fees_expenses_usd": 0.0,
+      "contributions_usd": 4900.0,
+      "withdrawals_usd": 0.0,
+      "market_value_usd": 5095.72,
+      "accrued_value_usd": 11.96,
+      "cumulative_return_pct": -14.69,
+      "time_weighted_return_pct": -14.69,
+      "benchmark_name": null,
+      "benchmark_return_pct": null,
+      "notes": "Schwab Portfolio Performance page snapshot (selected period shown in UI)."
+    },
+    {
+      "institution": "Charles Schwab",
+      "statement_file": "Portfolio Performance3 _ Charles Schwab.mhtml",
+      "account_label": "Individual",
+      "account_id": "252",
+      "period_start": "Jan 1, 2025",
+      "period_end": "Dec 31, 2025",
+      "as_of": "2/24/2026",
+      "beginning_value_usd": 21.16,
+      "net_contributions_usd": 46193.68,
+      "ending_value_usd": 53097.67,
+      "investment_change_usd": 6882.83,
+      "investment_gain_loss_usd": 2255.25,
+      "income_usd": 5533.66,
+      "fees_expenses_usd": -906.08,
+      "contributions_usd": 66285.47,
+      "withdrawals_usd": -20091.79,
+      "market_value_usd": 52574.81,
+      "accrued_value_usd": 522.86,
+      "cumulative_return_pct": 10.65,
+      "time_weighted_return_pct": 10.65,
+      "benchmark_name": null,
+      "benchmark_return_pct": null,
+      "notes": "Schwab Portfolio Performance page snapshot (selected period shown in UI)."
+    },
+    {
+      "institution": "Charles Schwab (Derived Aggregate)",
+      "statement_file": "Portfolio Performance*.mhtml (3 accounts)",
+      "account_label": "All Brokerage Accounts (derived)",
+      "account_id": "Schwab_ALL",
+      "period_start": "Jan 1, 2025",
+      "period_end": "Dec 31, 2025",
+      "as_of": "2/24/2026",
+      "beginning_value_usd": 21353.39,
+      "net_contributions_usd": 51093.68,
+      "ending_value_usd": 77646.08,
+      "investment_change_usd": 5199.01,
+      "investment_gain_loss_usd": -107.96000000000016,
+      "income_usd": 6213.05,
+      "fees_expenses_usd": -906.08,
+      "contributions_usd": 71185.47,
+      "withdrawals_usd": -20091.79,
+      "market_value_usd": 77111.26,
+      "accrued_value_usd": 534.82,
+      "cumulative_return_pct": null,
+      "time_weighted_return_pct": null,
+      "benchmark_name": null,
+      "benchmark_return_pct": null,
+      "notes": "Derived by summing the three Schwab account snapshots for selected 2025 period."
+    },
+    {
+      "institution": "Merrill Edge",
+      "statement_file": "Merrill Edge - Historical Performance.pdf",
+      "account_label": "CMA-Edge 42X-71X13",
+      "account_id": "CMA-Edge 42X-71X13",
+      "period_start": "January 1, 2025",
+      "period_end": "January 31, 2026",
+      "as_of": "02/25/2026 10:08 AM ET",
+      "beginning_value_usd": 23726.84,
+      "net_contributions_usd": 14605.0,
+      "ending_value_usd": 32873.09,
+      "investment_change_usd": -8406.58,
+      "investment_gain_loss_usd": -8406.58,
+      "income_usd": 2947.83,
+      "fees_expenses_usd": null,
+      "contributions_usd": 14605.0,
+      "withdrawals_usd": null,
+      "market_value_usd": 32873.09,
+      "accrued_value_usd": null,
+      "cumulative_return_pct": -12.49,
+      "time_weighted_return_pct": -12.49,
+      "benchmark_name": "S&P 500 TR",
+      "benchmark_return_pct": 19.59,
+      "notes": "Merrill Historical Performance export; period reflects selected range on export. Change in dollar value shown: +$9,146.25"
+    },
+    {
+      "institution": "Interactive Brokers LLC",
+      "statement_file": "U2471778_20241231_20251231.csv",
+      "account_label": "U2471778",
+      "account_id": "U2471778",
+      "period_start": "December 31, 2024",
+      "period_end": "December 31, 2025",
+      "as_of": "2026-02-25, 10:10:58 EST",
+      "beginning_value_usd": 24188.67376617,
+      "net_contributions_usd": null,
+      "ending_value_usd": 21926.241057258,
+      "investment_change_usd": -2262.432708911998,
+      "investment_gain_loss_usd": -2830.95159717,
+      "income_usd": null,
+      "fees_expenses_usd": null,
+      "contributions_usd": null,
+      "withdrawals_usd": null,
+      "market_value_usd": 21926.241057258,
+      "accrued_value_usd": null,
+      "cumulative_return_pct": -9.353273068,
+      "time_weighted_return_pct": -9.353273068,
+      "benchmark_name": null,
+      "benchmark_return_pct": null,
+      "notes": "IBKR Realized Summary export. Total realized P/L=-8066.22320517, total unrealized P/L=5235.271608."
+    }
+  ],
+  "schwab_returns": [
+    {
+      "institution": "Charles Schwab",
+      "account_id": "165",
+      "statement_file": "Portfolio Performance _ Charles Schwab.mhtml",
+      "selected_period_pct": -8.29,
+      "ytd_pct": -8.29,
+      "one_year_pct": -8.29,
+      "three_year_pct": null,
+      "since_inception_pct": -32.15
+    },
+    {
+      "institution": "Charles Schwab",
+      "account_id": "013",
+      "statement_file": "Portfolio Performance2 _ Charles Schwab.mhtml",
+      "selected_period_pct": -14.69,
+      "ytd_pct": -14.69,
+      "one_year_pct": -14.69,
+      "three_year_pct": -26.35,
+      "since_inception_pct": -9.65
+    },
+    {
+      "institution": "Charles Schwab",
+      "account_id": "252",
+      "statement_file": "Portfolio Performance3 _ Charles Schwab.mhtml",
+      "selected_period_pct": 10.65,
+      "ytd_pct": 10.65,
+      "one_year_pct": 10.65,
+      "three_year_pct": -26.92,
+      "since_inception_pct": -19.99
+    }
+  ],
+  "merrill_year_breakdown": [
+    {
+      "institution": "Merrill Edge",
+      "account_id": "CMA-Edge 42X-71X13",
+      "year_or_period": "2025",
+      "opening_balance_usd": 23726.84,
+      "contributions_withdrawals_usd": 14605.0,
+      "interest_dividends_usd": 2552.74,
+      "appreciation_depreciation_usd": -8057.18,
+      "closing_balance_usd": 32827.4
+    },
+    {
+      "institution": "Merrill Edge",
+      "account_id": "CMA-Edge 42X-71X13",
+      "year_or_period": "2026",
+      "opening_balance_usd": 32827.4,
+      "contributions_withdrawals_usd": 0.0,
+      "interest_dividends_usd": 395.09,
+      "appreciation_depreciation_usd": -349.4,
+      "closing_balance_usd": 32873.09
+    },
+    {
+      "institution": "Merrill Edge",
+      "account_id": "CMA-Edge 42X-71X13",
+      "year_or_period": "Total (Selected Range)",
+      "opening_balance_usd": 23726.84,
+      "contributions_withdrawals_usd": 14605.0,
+      "interest_dividends_usd": 2947.83,
+      "appreciation_depreciation_usd": -8406.58,
+      "closing_balance_usd": 32873.09
+    }
+  ],
+  "ibkr_pnl_totals": [
+    {
+      "institution": "Interactive Brokers LLC",
+      "account_id": "U2471778",
+      "asset_category": "Stocks",
+      "realized_total_usd": -4141.89288197,
+      "unrealized_total_usd": 5510.172382,
+      "total_pnl_usd": 1368.27950003
+    },
+    {
+      "institution": "Interactive Brokers LLC",
+      "account_id": "U2471778",
+      "asset_category": "Equity and Index Options",
+      "realized_total_usd": -1901.1915132,
+      "unrealized_total_usd": -280.0379,
+      "total_pnl_usd": -2181.2294132
+    },
+    {
+      "institution": "Interactive Brokers LLC",
+      "account_id": "U2471778",
+      "asset_category": "Futures",
+      "realized_total_usd": -2049.94534,
+      "unrealized_total_usd": 0.0,
+      "total_pnl_usd": -2049.94534
+    },
+    {
+      "institution": "Interactive Brokers LLC",
+      "account_id": "U2471778",
+      "asset_category": "Forex",
+      "realized_total_usd": 26.80653,
+      "unrealized_total_usd": 5.137126,
+      "total_pnl_usd": 31.943656
+    },
+    {
+      "institution": "Interactive Brokers LLC",
+      "account_id": "U2471778",
+      "asset_category": "Total (All Assets)",
+      "realized_total_usd": -8066.22320517,
+      "unrealized_total_usd": 5235.271608,
+      "total_pnl_usd": -2830.95159717
+    }
+  ],
+  "ibkr_trade_counts": [
+    {
+      "institution": "Interactive Brokers LLC",
+      "account_id": "U2471778",
+      "asset_category": "Equity and Index Options",
+      "trade_row_count": 35,
+      "unique_symbol_count": 12
+    },
+    {
+      "institution": "Interactive Brokers LLC",
+      "account_id": "U2471778",
+      "asset_category": "Forex",
+      "trade_row_count": 4,
+      "unique_symbol_count": 2
+    },
+    {
+      "institution": "Interactive Brokers LLC",
+      "account_id": "U2471778",
+      "asset_category": "Futures",
+      "trade_row_count": 14,
+      "unique_symbol_count": 7
+    },
+    {
+      "institution": "Interactive Brokers LLC",
+      "account_id": "U2471778",
+      "asset_category": "Stocks",
+      "trade_row_count": 46,
+      "unique_symbol_count": 28
+    }
+  ],
+  "ibkr_open_positions": [
+    {
+      "institution": "Interactive Brokers LLC",
+      "account_id": "U2471778",
+      "asset_category": "Stocks",
+      "symbol": "EQT",
+      "quantity": 40.0,
+      "cost_basis_usd": 2001.0014,
+      "value_usd": 2144.0,
+      "unrealized_pnl_usd": 142.9986
+    },
+    {
+      "institution": "Interactive Brokers LLC",
+      "account_id": "U2471778",
+      "asset_category": "Stocks",
+      "symbol": "FIG",
+      "quantity": 100.0,
+      "cost_basis_usd": 3401.0022,
+      "value_usd": 3737.0,
+      "unrealized_pnl_usd": 335.9978
+    },
+    {
+      "institution": "Interactive Brokers LLC",
+      "account_id": "U2471778",
+      "asset_category": "Stocks",
+      "symbol": "IGIC",
+      "quantity": 100.0,
+      "cost_basis_usd": 2376.0048,
+      "value_usd": 2509.0,
+      "unrealized_pnl_usd": 132.9952
+    },
+    {
+      "institution": "Interactive Brokers LLC",
+      "account_id": "U2471778",
+      "asset_category": "Stocks",
+      "symbol": "KINS",
+      "quantity": 150.0,
+      "cost_basis_usd": 2200.074925,
+      "value_usd": 2524.5,
+      "unrealized_pnl_usd": 324.425075
+    },
+    {
+      "institution": "Interactive Brokers LLC",
+      "account_id": "U2471778",
+      "asset_category": "Stocks",
+      "symbol": "NVDA",
+      "quantity": 25.0,
+      "cost_basis_usd": 2883.965895,
+      "value_usd": 4662.5,
+      "unrealized_pnl_usd": 1778.534105
+    },
+    {
+      "institution": "Interactive Brokers LLC",
+      "account_id": "U2471778",
+      "asset_category": "Stocks",
+      "symbol": "RNMBY",
+      "quantity": 3.0,
+      "cost_basis_usd": 1246.000001,
+      "value_usd": 1096.5,
+      "unrealized_pnl_usd": -149.500001
+    },
+    {
+      "institution": "Interactive Brokers LLC",
+      "account_id": "U2471778",
+      "asset_category": "Stocks",
+      "symbol": "SFM",
+      "quantity": 14.0,
+      "cost_basis_usd": 1972.34049,
+      "value_usd": 1115.38,
+      "unrealized_pnl_usd": -856.96049
+    },
+    {
+      "institution": "Interactive Brokers LLC",
+      "account_id": "U2471778",
+      "asset_category": "Stocks",
+      "symbol": "SLV",
+      "quantity": 100.0,
+      "cost_basis_usd": 3178.70725,
+      "value_usd": 6442.0,
+      "unrealized_pnl_usd": 3263.29275
+    },
+    {
+      "institution": "Interactive Brokers LLC",
+      "account_id": "U2471778",
+      "asset_category": "Stocks",
+      "symbol": "TKO",
+      "quantity": 12.0,
+      "cost_basis_usd": 2078.200552,
+      "value_usd": 2508.0,
+      "unrealized_pnl_usd": 429.799448
+    },
+    {
+      "institution": "Interactive Brokers LLC",
+      "account_id": "U2471778",
+      "asset_category": "Stocks",
+      "symbol": "V",
+      "quantity": 3.0,
+      "cost_basis_usd": 943.540105,
+      "value_usd": 1052.13,
+      "unrealized_pnl_usd": 108.589895
+    },
+    {
+      "institution": "Interactive Brokers LLC",
+      "account_id": "U2471778",
+      "asset_category": "Equity and Index Options",
+      "symbol": "NMM 16JAN26 70 C",
+      "quantity": 1.0,
+      "cost_basis_usd": 210.04395,
+      "value_usd": 11.58,
+      "unrealized_pnl_usd": -198.46395
+    },
+    {
+      "institution": "Interactive Brokers LLC",
+      "account_id": "U2471778",
+      "asset_category": "Equity and Index Options",
+      "symbol": "NMM 16JAN26 85 C",
+      "quantity": 1.0,
+      "cost_basis_usd": 85.04395,
+      "value_usd": 3.47,
+      "unrealized_pnl_usd": -81.57395
+    }
+  ]
+}

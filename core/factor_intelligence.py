@@ -773,6 +773,54 @@ def _build_industry_series_by_granularity(
     return label_to_series, info
 
 
+def _compute_basket_cross_correlations(panel: pd.DataFrame) -> Optional[pd.DataFrame]:
+    """Compute pairwise correlations between basket columns and all factors.
+
+    Returns an N*M DataFrame (rows=all columns, cols=all columns) with pairwise
+    correlations filled for basket-vs-factor pairs, or None if no baskets exist.
+    Uses pairwise dropna (not global) to maximize observation count per pair.
+    """
+    categories = panel.attrs.get("categories", {})
+    basket_cols = [c for c, cat in categories.items() if cat == "user_baskets" and c in panel.columns]
+    if not basket_cols:
+        return None
+
+    all_cols = list(panel.columns)
+    labels_map = panel.attrs.get("labels", {})
+
+    # Build pairwise correlation dict using display labels
+    corr_data: Dict[str, Dict[str, float]] = {}
+    for bc in basket_cols:
+        bc_label = labels_map.get(bc, bc)
+        corr_data[bc_label] = {}
+        for oc in all_cols:
+            oc_label = labels_map.get(oc, oc)
+            if bc == oc:
+                corr_data[bc_label][oc_label] = 1.0
+                continue
+            pair = panel[[bc, oc]].dropna()
+            if len(pair) < 3:
+                continue
+            corr_val = pair.iloc[:, 0].corr(pair.iloc[:, 1])
+            if np.isfinite(corr_val):
+                corr_data[bc_label][oc_label] = round(float(corr_val), 4)
+
+    # Also add factor-vs-basket entries so the matrix is symmetric
+    for oc in all_cols:
+        oc_label = labels_map.get(oc, oc)
+        if oc_label not in corr_data:
+            corr_data[oc_label] = {}
+        for bc in basket_cols:
+            bc_label = labels_map.get(bc, bc)
+            if bc_label in corr_data and oc_label in corr_data[bc_label]:
+                corr_data[oc_label][bc_label] = corr_data[bc_label][oc_label]
+
+    if not corr_data:
+        return None
+
+    return pd.DataFrame.from_dict(corr_data, orient="index")
+
+
 def compute_per_category_correlation_matrices(
     returns_panel: pd.DataFrame,
     industry_granularity: str = 'industry',
@@ -906,6 +954,17 @@ def compute_per_category_correlation_matrices(
         matrices[cat] = _apply_labels(df.corr())
         dq[cat] = {"status": "ok", "tickers_used": df.columns.tolist(), "observations": int(df.shape[0])}
         per_cat_ms[cat] = int((time.time() - c0) * 1000)
+
+    # Basket cross-correlation overlay (baskets × all factors)
+    basket_overlay = _compute_basket_cross_correlations(returns_panel)
+    if basket_overlay is not None:
+        matrices["basket_overlay"] = basket_overlay
+        basket_cols = [c for c, cat in categories.items() if cat == "user_baskets"]
+        dq["basket_overlay"] = {
+            "status": "ok",
+            "basket_columns": basket_cols,
+            "observations": "pairwise",
+        }
 
     out = {
         "matrices": matrices,
@@ -1328,7 +1387,47 @@ def compute_factor_performance_profiles(
     profiles: Dict[str, Dict[str, Any]] = {}
     errors: Dict[str, str] = {}
 
+    categories = returns_panel.attrs.get("categories", {})
+
+    # Risk-free rate for basket Sharpe computation (annual decimal)
+    risk_free_rate = 0.04
+    try:
+        from portfolio_risk_engine.data_loader import fetch_monthly_treasury_rates
+        rates = fetch_monthly_treasury_rates("month3", start, end)
+        if rates is not None and not rates.empty:
+            mean_rate = float(rates.mean())
+            if np.isfinite(mean_rate):
+                risk_free_rate = mean_rate / 100.0
+    except Exception:
+        pass  # fall back to 4%
+
     for t in returns_panel.columns:
+        # Basket columns: compute metrics directly from panel series (no FMP re-fetch)
+        if categories.get(t) == "user_baskets":
+            try:
+                series = returns_panel[t].dropna()
+                if len(series) < 3:
+                    errors[t] = "insufficient data for basket"
+                    continue
+                total_return = float((1 + series).prod() - 1)
+                n_months = len(series)
+                ann_return = float((1 + total_return) ** (12 / n_months) - 1) if total_return > -1 else 0.0
+                vol = float(series.std() * np.sqrt(12))
+                # Max drawdown from cumulative returns
+                cum = (1 + series).cumprod()
+                running_max = cum.cummax()
+                drawdown = ((cum - running_max) / running_max).min()
+                profiles[t] = {
+                    "annual_return": round(ann_return * 100, 2),
+                    "volatility": round(vol * 100, 2),
+                    "sharpe_ratio": round((ann_return - risk_free_rate) / vol, 3) if vol > 0 else None,
+                    "max_drawdown": round(float(drawdown) * 100, 2),
+                    "beta_to_market": None,
+                }
+            except Exception as e:
+                errors[t] = str(e)
+            continue
+
         weights = {t: 1.0}
         try:
             perf = calculate_portfolio_performance_metrics(

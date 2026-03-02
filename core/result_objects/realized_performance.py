@@ -156,6 +156,7 @@ class RealizedMetadata:
     monthly_nav: Optional[Dict[str, float]] = None
     growth_of_dollar: Optional[Dict[str, float]] = None
     _postfilter: Optional[Dict[str, Any]] = None
+    account_aggregation: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         d = {
@@ -226,6 +227,8 @@ class RealizedMetadata:
             d["growth_of_dollar"] = self.growth_of_dollar
         if self._postfilter is not None:
             d["_postfilter"] = self._postfilter
+        if self.account_aggregation is not None:
+            d["account_aggregation"] = self.account_aggregation
         return d
 
     @classmethod
@@ -306,6 +309,7 @@ class RealizedMetadata:
             monthly_nav=d.get("monthly_nav"),
             growth_of_dollar=d.get("growth_of_dollar"),
             _postfilter=d.get("_postfilter"),
+            account_aggregation=d.get("account_aggregation"),
         )
 
 @dataclass

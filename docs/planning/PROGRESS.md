@@ -4,6 +4,46 @@ Daily log of completed work. Most recent first.
 
 ---
 
+## 2026-03-01
+
+### Trading Analysis: Date Range Parameters — Complete
+- Added `start_date`/`end_date` optional params to `get_trading_analysis()` MCP tool
+- FIFO runs on full transaction history (preserves lot matching integrity)
+- Post-analysis filtering on `FullAnalysisResult`: trades by exit_date (closed) or entry_date (open), timing by sell_date
+- Income events pre-filtered before `run_full_analysis()` (safe — not used in FIFO)
+- Aggregates recomputed on filtered set (total_pnl, win_rate, timing scores)
+- Non-recomputable fields nulled: grades → `""`, realized_performance/behavioral/return_stats → `None`
+- Date validation via `pd.Timestamp()` with `start_date <= end_date` enforcement
+- Plan: `docs/planning/TRADING_DATE_RANGE_PLAN.md` (3 Codex review rounds)
+- Commit: `5919122e`
+- Tests: 33 passing (model filter, MCP validation, agent format)
+- Live MCP test: `get_trading_analysis(start_date="2025-06-01", end_date="2025-12-31")` → 18 trades, $1,483 P&L
+
+### Options Portfolio Risk Integration (Phases 1-2 Complete)
+
+**Phase 1 — Option Position Enrichment:**
+- `enrich_option_positions()` in `services/position_enrichment.py` — in-place mutation following futures enrichment pattern
+- Detection: `type == "option"` primary, symbol parser fallback via `parse_option_contract_identity_from_symbol()`
+- Fields added: `option_type`, `strike`, `expiry`, `underlying`, `days_to_expiry`, `is_option`
+- Unparseable symbols: `option_parse_failed: True` (counted in exposure, excluded from Greeks)
+- `options_exposure` section in `get_exposure_snapshot()` (count, calls/puts, nearest expiry, by underlying)
+- 3 position flags: `expired_options` (error), `near_expiry_options` (warning), `options_concentration` (info)
+
+**Phase 2 — Portfolio Greeks Aggregation:**
+- `PortfolioGreeksSummary` + `compute_portfolio_greeks()` in `options/portfolio_greeks.py`
+- Dollar Greeks scaling: delta×qty×mult×S, gamma×qty×mult, theta×qty×mult, vega×qty×mult
+- IV solved from option market price via `implied_volatility()`, fallback to 30% default
+- Risk-free rate from treasury provider, fallback to 5%
+- Wired into `get_exposure_snapshot()` in `core/result_objects/positions.py` (core layer, not MCP)
+- 4 Greeks flags in `core/option_portfolio_flags.py`: `theta_drain`, `significant_net_delta`, `high_vega_exposure`, `greeks_computation_failures`
+- IBKR live Greeks path deferred (comment placeholder)
+
+**Plan:** `docs/planning/OPTIONS_PORTFOLIO_RISK_PLAN.md` (2 Codex review rounds)
+**Commit:** `6e62c5d6`
+**Tests:** 76 passing (portfolio Greeks, enrichment, flags, position result)
+
+---
+
 ## 2026-02-24
 
 ### Frontend Three-Package Split (Phase A Complete)
@@ -196,7 +236,8 @@ Daily log of completed work. Most recent first.
 **Live IBKR Gateway Testing Results (International Futures)**
 - Tested all 9 international futures contracts against live gateway:
   - Working: NKD (534 bars), MNK (331 bars), NIY (534 bars), Z (542 bars), HSI (525 bars)
-  - Failed: IBV (contract not found — needs symbol verification), ESTX50/DAX (need Eurex subscription)
+  - Failed: IBV (contract not found — removed from catalog, not available on IBKR)
+  - Phase 7 verified: ESTX50 (conId=621358639), DAX (conId=621358482) — both working after Eurex subscription added
 - Currency detection priority fix found during testing: reordered to futures YAML → FMP profile (was FMP first, which defaulted ^HSI to USD)
 
 ### Codebase Cleanup & Organization

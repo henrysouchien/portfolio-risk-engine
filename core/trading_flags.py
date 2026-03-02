@@ -147,6 +147,36 @@ def generate_trading_flags(snapshot: dict) -> list[dict]:
             }
         )
 
+    # --- Futures flags ---
+    futures_breakdown = snapshot.get("futures_breakdown") if isinstance(snapshot, dict) else None
+    if isinstance(futures_breakdown, dict):
+        futures_pnl = futures_breakdown.get("futures_pnl_usd", 0)
+        futures_count = futures_breakdown.get("futures_trade_count", 0)
+
+        if futures_pnl < -5000 and futures_count >= 3:
+            flags.append(
+                {
+                    "type": "futures_trading_losses",
+                    "severity": "warning",
+                    "message": f"Futures trading lost ${abs(futures_pnl):,.0f} across {futures_count} trades",
+                    "futures_pnl_usd": futures_pnl,
+                    "futures_trade_count": futures_count,
+                }
+            )
+
+        equity_pnl = futures_breakdown.get("equity_pnl_usd", 0)
+        total_abs_pnl = abs(futures_pnl) + abs(equity_pnl)
+        if total_abs_pnl > 0 and abs(futures_pnl) / total_abs_pnl > 0.6:
+            futures_pnl_pct = abs(futures_pnl) / total_abs_pnl * 100
+            flags.append(
+                {
+                    "type": "futures_pnl_dominant",
+                    "severity": "info",
+                    "message": f"Futures account for {futures_pnl_pct:.0f}% of total trading P&L",
+                    "futures_pnl_pct": round(futures_pnl_pct, 1),
+                }
+            )
+
     # --- Positive signals ---
     if overall and overall == "A":
         flags.append(

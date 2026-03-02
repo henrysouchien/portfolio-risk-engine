@@ -244,10 +244,8 @@ def get_proxy_cache_stats():
 
 import requests
 import os
-from dotenv import load_dotenv
 
 # Load API key
-load_dotenv()
 FMP_API_KEY = os.getenv("FMP_API_KEY")
 BASE_URL = "https://financialmodelingprep.com/stable"
 

@@ -1,0 +1,474 @@
+{
+  "generated_at": "2026-02-25T11:01:23.967311",
+  "request": {
+    "mode": "realized",
+    "source": "plaid",
+    "format": "full"
+  },
+  "ok": true,
+  "result": {
+    "analysis_period": {
+      "start_date": "2024-09-30",
+      "end_date": "2026-01-31",
+      "total_months": 17,
+      "years": 1.42
+    },
+    "returns": {
+      "total_return": 8.0,
+      "annualized_return": 5.59,
+      "best_month": 20.58,
+      "worst_month": -11.5,
+      "positive_months": 10,
+      "negative_months": 7,
+      "win_rate": 58.8
+    },
+    "risk_metrics": {
+      "volatility": 30.02,
+      "maximum_drawdown": -27.38,
+      "downside_deviation": 28.57,
+      "tracking_error": 25.83
+    },
+    "risk_adjusted_returns": {
+      "sharpe_ratio": 0.044,
+      "sortino_ratio": 0.046,
+      "information_ratio": -0.387,
+      "calmar_ratio": 0.204
+    },
+    "benchmark_analysis": {
+      "benchmark_ticker": "SPY",
+      "alpha_annual": -11.05,
+      "beta": 1.508,
+      "r_squared": 0.293,
+      "excess_return": -9.99
+    },
+    "benchmark_comparison": {
+      "portfolio_total_return": 8.0,
+      "benchmark_total_return": 22.76,
+      "portfolio_return": 5.59,
+      "benchmark_return": 15.57,
+      "portfolio_volatility": 30.02,
+      "benchmark_volatility": 10.78,
+      "portfolio_sharpe": 0.044,
+      "benchmark_sharpe": 1.049
+    },
+    "monthly_stats": {
+      "average_monthly_return": 0.8,
+      "average_win": 6.55,
+      "average_loss": -7.43,
+      "win_loss_ratio": 0.88
+    },
+    "risk_free_rate": 4.26,
+    "monthly_returns": {
+      "2024-09-30": 0.1144,
+      "2024-10-31": 0.0244,
+      "2024-11-30": 0.2058,
+      "2024-12-31": -0.1021,
+      "2025-01-31": 0.0948,
+      "2025-02-28": 0.0248,
+      "2025-03-31": -0.0938,
+      "2025-04-30": -0.0458,
+      "2025-05-31": 0.0871,
+      "2025-06-30": 0.0327,
+      "2025-07-31": -0.0496,
+      "2025-08-31": -0.0432,
+      "2025-09-30": -0.0704,
+      "2025-10-31": -0.115,
+      "2025-11-30": 0.0047,
+      "2025-12-31": 0.054,
+      "2026-01-31": 0.0128
+    },
+    "realized_metadata": {
+      "realized_pnl": -6.0,
+      "unrealized_pnl": 5670.91,
+      "net_contributions": 31338.7,
+      "nav_pnl_usd": -1140.63,
+      "nav_pnl_synthetic_enhanced_usd": -1140.63,
+      "nav_pnl_observed_only_usd": 1295.94,
+      "nav_pnl_synthetic_impact_usd": -2436.56,
+      "lot_pnl_usd": 8619.02,
+      "reconciliation_gap_usd": -9759.65,
+      "pnl_basis": {
+        "nav": "nav_flow_synthetic_enhanced",
+        "nav_observed_only": "nav_flow_observed_only",
+        "lot": "fifo_observed_lots"
+      },
+      "nav_metrics_estimated": true,
+      "high_confidence_realized": false,
+      "income": {
+        "total": 2954.11,
+        "dividends": 3736.92,
+        "interest": -782.81,
+        "by_month": {
+          "2026-01": 302.89,
+          "2025-12": 65.88000000000001,
+          "2025-11": 112.74000000000001,
+          "2025-10": 313.59000000000003,
+          "2025-09": 65.47999999999999,
+          "2025-08": 114.34,
+          "2025-07": 341.90000000000003,
+          "2025-06": 108.32999999999998,
+          "2025-05": 144.46,
+          "2025-04": 353.54,
+          "2025-03": 102.63,
+          "2025-02": 140.79,
+          "2025-01": 131.71,
+          "2024-12": 3.33,
+          "2024-11": 35.3,
+          "2024-10": 319.70000000000005,
+          "2024-09": 124.36999999999999,
+          "2024-08": 173.13
+        },
+        "by_symbol": {
+          "CUR:USD": -782.81,
+          "DSU": 2538.73,
+          "STWD": 990.72,
+          "MSCI": 207.47
+        },
+        "by_institution": {
+          "Merrill": {
+            "dividends": 3736.92,
+            "interest": -782.81,
+            "total": 2954.11
+          }
+        },
+        "current_monthly_rate": 160.5,
+        "projected_annual": 1926.04,
+        "yield_on_cost": 1.2039,
+        "yield_on_value": 1.1878
+      },
+      "data_coverage": 12.5,
+      "inception_date": "2024-08-30",
+      "synthetic_positions": [
+        {
+          "ticker": "AT.L",
+          "currency": "GBP",
+          "direction": "LONG"
+        },
+        {
+          "ticker": "BXMT",
+          "currency": "USD",
+          "direction": "LONG"
+        },
+        {
+          "ticker": "CBL",
+          "currency": "USD",
+          "direction": "LONG"
+        },
+        {
+          "ticker": "CPPMF",
+          "currency": "USD",
+          "direction": "LONG"
+        },
+        {
+          "ticker": "DSU",
+          "currency": "USD",
+          "direction": "LONG"
+        },
+        {
+          "ticker": "ENB",
+          "currency": "USD",
+          "direction": "LONG"
+        },
+        {
+          "ticker": "EQT",
+          "currency": "USD",
+          "direction": "LONG"
+        },
+        {
+          "ticker": "FIG",
+          "currency": "USD",
+          "direction": "LONG"
+        },
+        {
+          "ticker": "GLBE",
+          "currency": "USD",
+          "direction": "LONG"
+        },
+        {
+          "ticker": "IGIC",
+          "currency": "USD",
+          "direction": "LONG"
+        },
+        {
+          "ticker": "IT",
+          "currency": "USD",
+          "direction": "LONG"
+        },
+        {
+          "ticker": "KINS",
+          "currency": "USD",
+          "direction": "LONG"
+        },
+        {
+          "ticker": "LIFFF",
+          "currency": "USD",
+          "direction": "LONG"
+        },
+        {
+          "ticker": "MRP",
+          "currency": "USD",
+          "direction": "LONG"
+        },
+        {
+          "ticker": "MSCI",
+          "currency": "USD",
+          "direction": "LONG"
+        },
+        {
+          "ticker": "NVDA",
+          "currency": "USD",
+          "direction": "LONG"
+        },
+        {
+          "ticker": "PCTY",
+          "currency": "USD",
+          "direction": "LONG"
+        },
+        {
+          "ticker": "RNMBY",
+          "currency": "USD",
+          "direction": "LONG"
+        },
+        {
+          "ticker": "SFM",
+          "currency": "USD",
+          "direction": "LONG"
+        },
+        {
+          "ticker": "SLV",
+          "currency": "USD",
+          "direction": "LONG"
+        },
+        {
+          "ticker": "SPY",
+          "currency": "USD",
+          "direction": "LONG"
+        },
+        {
+          "ticker": "STWD",
+          "currency": "USD",
+          "direction": "LONG"
+        },
+        {
+          "ticker": "TKO",
+          "currency": "USD",
+          "direction": "LONG"
+        },
+        {
+          "ticker": "V",
+          "currency": "USD",
+          "direction": "LONG"
+        }
+      ],
+      "synthetic_entry_count": 24,
+      "synthetic_current_position_count": 24,
+      "synthetic_current_position_tickers": [
+        "AT.L",
+        "BXMT",
+        "CBL",
+        "CPPMF",
+        "DSU",
+        "ENB",
+        "EQT",
+        "FIG",
+        "GLBE",
+        "IGIC",
+        "IT",
+        "KINS",
+        "LIFFF",
+        "MRP",
+        "MSCI",
+        "NVDA",
+        "PCTY",
+        "RNMBY",
+        "SFM",
+        "SLV",
+        "SPY",
+        "STWD",
+        "TKO",
+        "V"
+      ],
+      "synthetic_current_market_value": 162154.11,
+      "synthetic_incomplete_trade_count": 0,
+      "first_transaction_exit_count": 0,
+      "first_transaction_exit_details": [],
+      "extreme_return_months": [
+        {
+          "month_end": "2024-08-31",
+          "raw_return_pct": 4385.93,
+          "action": "excluded_from_chain_linking",
+          "reason": "extreme-return low-confidence filter",
+          "monthly_nav": 9459.92,
+          "monthly_net_flow": 210.88
+        }
+      ],
+      "data_quality_flags": [
+        {
+          "code": "UNPRICEABLE_SYMBOLS",
+          "severity": "high",
+          "count": 1,
+          "symbols": [
+            "US Treasury Note - 4.25% 15/10/2025 USD 100"
+          ]
+        },
+        {
+          "code": "SYNTHETIC_OPENING_POSITIONS",
+          "severity": "high",
+          "count": 24,
+          "symbols": [
+            "AT.L",
+            "BXMT",
+            "CBL",
+            "CPPMF",
+            "DSU",
+            "ENB",
+            "EQT",
+            "FIG",
+            "GLBE",
+            "IGIC",
+            "IT",
+            "KINS",
+            "LIFFF",
+            "MRP",
+            "MSCI",
+            "NVDA",
+            "PCTY",
+            "RNMBY",
+            "SFM",
+            "SLV",
+            "SPY",
+            "STWD",
+            "TKO",
+            "V"
+          ],
+          "estimated_current_market_value": 162154.11
+        },
+        {
+          "code": "EXTREME_MONTHLY_RETURNS_EXCLUDED",
+          "severity": "high",
+          "count": 1,
+          "threshold_abs_return": 3.0,
+          "months": [
+            {
+              "month_end": "2024-08-31",
+              "raw_return_pct": 4385.93,
+              "action": "excluded_from_chain_linking",
+              "reason": "extreme-return low-confidence filter",
+              "monthly_nav": 9459.92,
+              "monthly_net_flow": 210.88
+            }
+          ]
+        }
+      ],
+      "unpriceable_symbol_count": 1,
+      "unpriceable_symbols": [
+        "US Treasury Note - 4.25% 15/10/2025 USD 100"
+      ],
+      "unpriceable_reason_counts": {
+        "bond_missing_con_id": 1
+      },
+      "unpriceable_reasons": {
+        "US Treasury Note - 4.25% 15/10/2025 USD 100": "bond_missing_con_id"
+      },
+      "ibkr_pricing_coverage": {
+        "total_symbols_priced_via_ibkr": 0,
+        "by_instrument_type": {
+          "futures": 0,
+          "fx": 0,
+          "bond": 0,
+          "option": 0
+        }
+      },
+      "source_breakdown": {
+        "plaid": 54
+      },
+      "flow_source_breakdown": {
+        "provider_authoritative_applied": 61,
+        "provider_authoritative_available": 61,
+        "provider_diagnostics_only": 0,
+        "inferred": 0
+      },
+      "inferred_flow_diagnostics": {
+        "mode": "provider_authoritative_only",
+        "fallback_slices_present": false,
+        "replayed_fallback_provider_activity": false,
+        "total_inferred_event_count": 0,
+        "total_inferred_net_usd": 0.0,
+        "inferred_event_window": {
+          "start": null,
+          "end": null
+        },
+        "by_provider": {},
+        "by_slice": {}
+      },
+      "provider_flow_coverage": {
+        "plaid|merrill|16Yk8NJ5E5u3jz1zoKEJsyRZ9jBeybUg59bBx": {
+          "authoritative": true,
+          "has_metadata": true,
+          "event_count": 61,
+          "coverage_start": "2024-08-30T00:00:00",
+          "coverage_end": "2026-01-30T00:00:00",
+          "has_error": false,
+          "has_partial": false,
+          "deterministic_no_flow": false,
+          "unmapped_row_count": 0
+        }
+      },
+      "flow_fallback_reasons": [],
+      "dedup_diagnostics": {
+        "input_count": 61,
+        "output_count": 61,
+        "duplicates_dropped_by_provider": {},
+        "duplicates_dropped_by_slice": {}
+      },
+      "external_net_flows_usd": 28951.07,
+      "net_contributions_definition": "trade_cash_legs_legacy",
+      "data_warnings": [
+        "2024-08-31: Excluding extreme return from chain-link metrics (4385.93%, |r|>3.00) due to low-confidence data coverage.",
+        "Created 24 synthetic cash event(s) for cash-flow reconstruction.",
+        "Excluded 3 mixed-source position symbol(s) from plaid holdings alignment for short-inference gap logic (DSU, MSCI, STWD); provider attribution is ambiguous in consolidated rows.",
+        "HIGH CONFIDENCE GATE FAILED: NAV metrics include estimated inputs (synthetic positions, low coverage, or unpriceable symbols).",
+        "HIGH CONFIDENCE GATE FAILED: data coverage 12.50% is below target 95.00%.",
+        "HIGH CONFIDENCE GATE FAILED: high-severity unpriceable symbols are present.",
+        "HIGH CONFIDENCE GATE FAILED: reconciliation gap 26.04% exceeds max 2.00%.",
+        "HIGH DATA QUALITY FLAG: 1 symbol(s) could not be priced (US Treasury Note - 4.25% 15/10/2025 USD 100). These symbols are valued at 0 in NAV and unrealized P&L.",
+        "HIGH DATA QUALITY FLAG: Synthetic opening positions inferred for 24 symbol(s) (AT.L, BXMT, CBL, CPPMF, DSU, ...). NAV/return metrics include these synthetic lots, but realized/unrealized P&L only includes observed transaction lots, so the metrics can diverge.",
+        "No contract_identity.con_id for bond US Treasury Note - 4.25% 15/10/2025 USD 100; skipping IBKR bond pricing.",
+        "No monthly prices found for US Treasury Note - 4.25% 15/10/2025 USD 100; valuing as 0 when unavailable.",
+        "Used synthetic price hint for FIG (LONG) on 2024-08-29 because no historical price was available.",
+        "Used synthetic price hint for MRP (LONG) on 2024-08-29 because no historical price was available.",
+        "source filter applies to transactions; current positions are filtered only by institution (when provided), not by source, for NAV and valuation. Short-inference gap logic uses source-aligned holdings when attributable."
+      ]
+    },
+    "realized_pnl": -6.0,
+    "unrealized_pnl": 5670.91,
+    "income_total": 2954.11,
+    "income_yield_on_cost": 1.2039,
+    "income_yield_on_value": 1.1878,
+    "data_coverage": 12.5,
+    "inception_date": "2024-08-30",
+    "nav_pnl_usd": -1140.63,
+    "nav_pnl_observed_only_usd": 1295.94,
+    "nav_pnl_synthetic_impact_usd": -2436.56,
+    "lot_pnl_usd": 8619.02,
+    "reconciliation_gap_usd": -9759.65,
+    "nav_metrics_estimated": true,
+    "high_confidence_realized": false,
+    "pnl_basis": {
+      "nav": "nav_flow_synthetic_enhanced",
+      "nav_observed_only": "nav_flow_observed_only",
+      "lot": "fifo_observed_lots"
+    },
+    "external_net_flows_usd": 28951.07,
+    "net_contributions_definition": "trade_cash_legs_legacy",
+    "status": "success",
+    "mode": "realized",
+    "performance_category": "poor",
+    "key_insights": [
+      "\u2022 Underperforming benchmark (-11.1% alpha)",
+      "\u2022 Poor risk-adjusted returns (Sharpe: 0.04)",
+      "\u2022 High volatility (30.0% vs 10.8% benchmark)",
+      "\u2022 Significant drawdown risk (max: -27.4%)"
+    ]
+  }
+}

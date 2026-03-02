@@ -116,6 +116,11 @@ class PerformanceResult:
     
     # Dividend metrics (optional)
     dividend_metrics: Optional[Dict[str, Any]] = None
+
+    # Performance attribution (optional)
+    sector_attribution: Optional[List[Dict[str, Any]]] = None
+    security_attribution: Optional[List[Dict[str, Any]]] = None
+    factor_attribution: Optional[List[Dict[str, Any]]] = None
     
     @classmethod  
     def from_core_analysis(cls,
@@ -235,6 +240,10 @@ class PerformanceResult:
             analysis_notes=performance_metrics.get("analysis_notes"), # Analysis notes about data quality
             # Dividend metrics
             dividend_metrics=performance_metrics.get("dividend_metrics"),
+            # Performance attribution
+            sector_attribution=performance_metrics.get("sector_attribution"),
+            security_attribution=performance_metrics.get("security_attribution"),
+            factor_attribution=performance_metrics.get("factor_attribution"),
         )
     
     def get_summary(self) -> Dict[str, Any]:
@@ -551,6 +560,10 @@ class PerformanceResult:
             "analysis_notes": self.analysis_notes, # Analysis notes about data quality
             # Dividend metrics (optional)
             "dividend_metrics": self.dividend_metrics,
+            # Performance attribution (optional)
+            "sector_attribution": self.sector_attribution,
+            "security_attribution": self.security_attribution,
+            "factor_attribution": self.factor_attribution,
         }
 
 
@@ -699,4 +712,3 @@ class PerformanceResult:
             self.analysis_period.get("years", 0)
         )
         return hash(key_data)
-

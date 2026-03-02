@@ -8,6 +8,7 @@ from datetime import datetime, UTC
 import json
 import numpy as np
 from dataclasses import dataclass, field
+from portfolio_risk_engine.allocation_drift import compute_allocation_drift
 from utils.serialization import make_json_safe
 from core.constants import get_asset_class_color, get_asset_class_display_name
 from ._helpers import (_convert_to_json_serializable, _clean_nan_values, _format_df_as_text, _abbreviate_labels, _DEFAULT_INDUSTRY_ABBR_MAP)
@@ -172,6 +173,8 @@ class RiskAnalysisResult:
     leverage: Optional[float] = None
     total_value: Optional[float] = None
     dollar_exposure: Optional[Dict[str, float]] = None
+    notional_leverage: Optional[float] = None
+    fx_attribution: Optional[Dict[str, Dict[str, Any]]] = None
     
     @property
     def portfolio_weights(self) -> Optional[Dict[str, float]]:
@@ -196,6 +199,7 @@ class RiskAnalysisResult:
             "net_exposure": self.net_exposure,
             "gross_exposure": self.gross_exposure,
             "leverage": self.leverage,
+            "notional_leverage": self.notional_leverage,
             "position_count": position_count,
             "volatility_annual": self.volatility_annual,
             "volatility_monthly": self.volatility_monthly,
@@ -879,20 +883,54 @@ class RiskAnalysisResult:
             asset_groups[asset_class]['total_value'] += dollar_value
             asset_groups[asset_class]['holdings'].append(ticker)
         
+        current_allocation_pct = {
+            asset_class: float(data["total_weight"]) * 100.0
+            for asset_class, data in asset_groups.items()
+        }
+        raw_target_allocation = (self.analysis_metadata or {}).get("target_allocation")
+        target_allocation = raw_target_allocation if isinstance(raw_target_allocation, dict) else {}
+        drift_rows = compute_allocation_drift(current_allocation_pct, target_allocation) if target_allocation else []
+        drift_by_class = {str(row["asset_class"]): row for row in drift_rows}
+
         # Build frontend-compatible array
         allocation_breakdown = []
         for asset_class, data in asset_groups.items():
             period_return = perf_data.get(asset_class)
+            drift = drift_by_class.get(asset_class)
             allocation_breakdown.append({
                 # Keep category as canonical key (snake_case) for frontend adapters
                 'category': asset_class,
                 'percentage': round(data['total_weight'] * 100, 1),
+                'target_pct': drift.get('target_pct') if drift else None,
+                'drift_pct': drift.get('drift_pct') if drift else None,
+                'drift_status': drift.get('drift_status') if drift else None,
+                'drift_severity': drift.get('drift_severity') if drift else None,
                 'value': f"${data['total_value']:,.0f}",
                 'change': (f"{period_return:+.1%}" if isinstance(period_return, (int, float)) else "+0.0%"),
                 'changeType': _classify_change(period_return if isinstance(period_return, (int, float)) else 0.0),
                 'color': get_asset_class_color(asset_class),
                 'holdings': data['holdings']
             })
+
+        current_classes = set(asset_groups.keys())
+        for asset_class, drift in drift_by_class.items():
+            if asset_class in current_classes:
+                continue
+            allocation_breakdown.append(
+                {
+                    "category": asset_class,
+                    "percentage": 0.0,
+                    "target_pct": drift.get("target_pct"),
+                    "drift_pct": drift.get("drift_pct"),
+                    "drift_status": drift.get("drift_status"),
+                    "drift_severity": drift.get("drift_severity"),
+                    "value": "$0",
+                    "change": "+0.0%",
+                    "changeType": "neutral",
+                    "color": get_asset_class_color(asset_class),
+                    "holdings": [],
+                }
+            )
         
         return sorted(allocation_breakdown, key=lambda x: x['percentage'], reverse=True)
 
@@ -1059,6 +1097,7 @@ class RiskAnalysisResult:
                 "active_positions": (self.analysis_metadata or {}).get("active_positions"), # Active Positions
                 "expected_returns": self.expected_returns,  # EXPECTED RETURNS
                 "asset_classes": (self.analysis_metadata or {}).get("asset_classes"),  # NEW: Asset class classifications
+                "target_allocation": (self.analysis_metadata or {}).get("target_allocation"),
             },
             "asset_allocation": self._build_asset_allocation_breakdown(),  # NEW: Asset allocation breakdown for frontend charts
             "formatted_report": self.to_cli_report(),  # Formatted Report
@@ -1521,6 +1560,8 @@ class RiskAnalysisResult:
             leverage=portfolio_summary.get("leverage"),
             total_value=portfolio_summary.get("total_value"),  # Used by to_api_response()
             dollar_exposure=portfolio_summary.get("dollar_exposure"),  # Used by to_api_response()
+            notional_leverage=portfolio_summary.get("notional_leverage"),
+            fx_attribution=portfolio_summary.get("fx_attribution"),
             # New structured fields from parameters
             risk_checks=risk_checks,
             beta_checks=beta_checks, 
@@ -2438,4 +2479,3 @@ class RiskScoreResult:
             len(self.limits_analysis.get("recommendations", []))
         )
         return hash(key_data)
-

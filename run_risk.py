@@ -14,6 +14,9 @@ import pandas as pd
 from io import StringIO
 import numpy as np
 from datetime import datetime
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from risk_summary import (
     get_detailed_stock_factor_profile,

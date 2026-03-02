@@ -1,7 +1,7 @@
 # Stock Basket Phase 3: Basket as Custom Factor
 
 **Date**: 2026-02-27
-**Status**: Planned
+**Status**: Complete (commit `509326b0`)
 **Depends on**: Phase 2 (returns analysis, complete)
 **Codex review**: 4 rounds — PASS. R1: 4 HIGH (correlation buckets, perf re-fetch, cache fingerprint, portfolio recs threading). R2: 2 HIGH (recs path, perf schema), 2 MEDIUM (overlay sampling, cache threading). R3: 2 MEDIUM (Sharpe risk-free, returns date alignment), 1 LOW (overlay duplication). R4: PASS — 3 MEDIUM (returns date scope, label→column mapping for Sharpe lookup, fingerprint on failure), 2 LOW. All addressed below.
 **Risk**: Medium — injects into existing factor panel + requires targeted changes to correlation overlay and performance computation to handle synthetic (non-ticker) columns

@@ -76,20 +76,20 @@ FMP endpoint mapping (uses `stable` base URL, matching current FMPClient behavio
 
 Replace `FMPRateLimitError`/`FMPAPIError` checks with HTTP status code checks (429, 5xx).
 
-### Step 3: API Layer — Add Estimate Routes to edgar_api
+### Step 3: API Layer — Add Estimate Routes to edgar_api ✅ DONE
 
-Create `edgar_api/routes/estimates.py` with 6 endpoints following existing patterns (auth via `require_api_key`, rate limiting via `limiter`).
+`edgar_api/routes/estimates.py` already implemented with 6 endpoints following existing patterns (auth via `require_api_key`, rate limiting via `limiter`, async via `run_in_executor`). Registered in `edgar_api/routes/__init__.py`. Startup validation via `initialize_estimates_router()` in `main.py`.
 
-| Endpoint | Params | Maps to |
-|----------|--------|---------|
+**Important — `/api` prefix**: The EDGAR migration plan (`docs/plans/PLAN-fastapi-migration-audit.md`) adds an `/api` prefix to the shared `api_router`. This means all estimate endpoints will be served at `/api/estimates/*`, not `/estimates/*`. All paths in this plan reflect that.
+
 | Endpoint | Params | Maps to | Response Shape |
 |----------|--------|---------|----------------|
-| `GET /estimates/latest` | `ticker`, `period` | `EstimateStore.get_latest()` | `list[dict]` — each dict is a snapshot row with `ticker`, `fiscal_date`, `snapshot_date`, `estimated_eps`, `estimated_revenue`, etc. |
-| `GET /estimates/revisions` | `ticker`, `fiscal_date`, `period` | `EstimateStore.get_revisions()` | `list[dict]` — same shape as `/latest`, ordered by `snapshot_date` ascending |
-| `GET /estimates/revision-summary` | `tickers` (comma-sep), `days`, `period` | `EstimateStore.get_revision_summary()` | `list[dict]` — each dict has `ticker`, `fiscal_date`, `latest`, `baseline`, `eps_delta`, `revenue_delta`, `direction` |
-| `GET /estimates/freshness` | `tickers` (comma-sep), `period` | `EstimateStore.get_freshness()` | `dict[str, str|null]` — map of `{ticker: latest_snapshot_date_iso}` |
-| `GET /estimates/failures` | `min_runs` | `EstimateStore.get_failure_summary()` | `list[dict]` — each dict has `ticker`, `period`, `error_type`, `failure_count`, `last_failure` |
-| `GET /estimates/tickers` | (none) | `EstimateStore.list_tickers()` | `list[str]` — plain list of ticker strings |
+| `GET /api/estimates/latest` | `ticker`, `period` | `EstimateStore.get_latest()` | `list[dict]` — each dict is a snapshot row with `ticker`, `fiscal_date`, `snapshot_date`, `estimated_eps`, `estimated_revenue`, etc. |
+| `GET /api/estimates/revisions` | `ticker`, `fiscal_date`, `period` | `EstimateStore.get_revisions()` | `list[dict]` — same shape as `/latest`, ordered by `snapshot_date` ascending |
+| `GET /api/estimates/revision-summary` | `tickers` (comma-sep), `days`, `period` | `EstimateStore.get_revision_summary()` | `list[dict]` — each dict has `ticker`, `fiscal_date`, `latest`, `baseline`, `eps_delta`, `revenue_delta`, `direction` |
+| `GET /api/estimates/freshness` | `tickers` (comma-sep), `period` | `EstimateStore.get_freshness()` | `dict[str, str|null]` — map of `{ticker: latest_snapshot_date_iso}` |
+| `GET /api/estimates/failures` | `min_runs` | `EstimateStore.get_failure_summary()` | `list[dict]` — each dict has `ticker`, `period`, `error_type`, `failure_count`, `last_failure` |
+| `GET /api/estimates/tickers` | (none) | `EstimateStore.list_tickers()` | `list[str]` — plain list of ticker strings |
 
 **Note on response wrapping:** All endpoints return the raw store output as JSON. No additional envelope (`{data: ...}`) is needed — the MCP tools consume the raw shapes directly. The `_api_get` helper in Step 5 must handle the varying return types: `list[dict]`, `dict[str, ...]`, and `list[str]`.
 
@@ -112,11 +112,9 @@ def get_store() -> EstimateStore:
 
 **Validation → HTTP error mapping:** `EstimateStore._clean_period()` raises `ValueError` for invalid period values, and `get_failure_summary()` raises `ValueError` if `min_runs < 1`. Wrap store calls with `try/except ValueError` → `HTTPException(400, str(e))` to avoid 500s on bad input.
 
-Register in `edgar_api/routes/__init__.py`:
-```python
-from .estimates import router as estimates_router
-api_router.include_router(estimates_router)
-```
+Already registered in `edgar_api/routes/__init__.py`.
+
+**Nginx dependency:** The EDGAR migration plan (`docs/plans/PLAN-fastapi-migration-audit.md`) configures nginx to route `/api/*` to FastAPI. This is a **prerequisite** for the estimate endpoints to be externally reachable — without it, `/api/estimates/*` requests would hit Flask (which has no estimate routes) and 404. Coordinate timing: nginx `/api/*` routing must be active before Step 5 (MCP tools switch to HTTP).
 
 **Service env wiring:** The existing `edgar_api.service` does NOT load `.env` — it only sets `PATH`. Add `EnvironmentFile=/var/www/edgar_updater/.env` to the `[Service]` section of `edgar_api.service` (same as the collector service). This makes `FMP_DATA_DATABASE_URL` available to the API process. Alternatively, add it as an explicit `Environment=` line in the service file.
 
@@ -165,7 +163,10 @@ _ESTIMATE_API_URL = os.getenv("ESTIMATE_API_URL")  # e.g. "https://financialmode
 _ESTIMATE_API_KEY = os.getenv("EDGAR_API_KEY")
 
 def _api_get(path: str, params: dict) -> list | dict:
-    """Fetch from the estimates API. Returns the raw JSON — may be list[dict], dict, or list[str]."""
+    """Fetch from the estimates API. Returns the raw JSON — may be list[dict], dict, or list[str].
+
+    path should be relative to the /api prefix, e.g. "/api/estimates/latest".
+    """
     if _ESTIMATE_API_KEY:
         params["key"] = _ESTIMATE_API_KEY
     resp = requests.get(f"{_ESTIMATE_API_URL}{path}", params=params, timeout=15)
@@ -174,8 +175,8 @@ def _api_get(path: str, params: dict) -> list | dict:
 ```
 
 Changes per tool:
-- `get_estimate_revisions`: replace `store.get_latest()` / `store.get_revisions()` with `_api_get()`. Keep `_select_default_fiscal_date()` and delta computation local.
-- `screen_estimate_revisions`: replace `store.get_revision_summary()` with `_api_get()`. Keep direction filtering and sorting local.
+- `get_estimate_revisions`: replace `store.get_latest()` / `store.get_revisions()` with `_api_get("/api/estimates/latest", ...)` and `_api_get("/api/estimates/revisions", ...)`. Keep `_select_default_fiscal_date()` and delta computation local.
+- `screen_estimate_revisions`: replace `store.get_revision_summary()` with `_api_get("/api/estimates/revision-summary", ...)`. Keep direction filtering and sorting local.
 
 **Transition**: when `ESTIMATE_API_URL` is unset, fall back to local EstimateStore. Remove fallback after verification.
 
@@ -246,8 +247,8 @@ pg_restore -h <rds-endpoint> -U estimateadmin -d fmp_data_db --no-owner /tmp/fmp
 
 ## Verification
 
-1. `curl https://financialmodelupdater.com/estimates/tickers` → returns ticker list
-2. `curl https://financialmodelupdater.com/estimates/latest?ticker=AAPL&period=quarter` → returns snapshots
+1. `curl https://financialmodelupdater.com/api/estimates/tickers?key=$EDGAR_API_KEY` → returns ticker list
+2. `curl https://financialmodelupdater.com/api/estimates/latest?ticker=AAPL&period=quarter&key=$EDGAR_API_KEY` → returns snapshots
 3. MCP: `get_estimate_revisions(ticker="AAPL")` → same data as before
 4. MCP: `screen_estimate_revisions(direction="up", days=30)` → same data as before
 5. `systemctl status estimate_collector.timer` → active, next trigger visible

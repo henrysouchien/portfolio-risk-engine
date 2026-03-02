@@ -1,8 +1,8 @@
 # Frontend Phase 2 — Working Doc
 
 **Parent doc:** `FRONTEND_PACKAGE_DESIGN.md`
-**Status:** Wave 1 complete + formatting foundation complete, Wave 2 next
-**Last verified:** 2026-02-27 — Chrome visual audit after formatting module migration
+**Status:** Wave 1 complete + formatting complete + Wave 2a (Holdings) complete, Wave 2b-2e next
+**Last verified:** 2026-02-27 — Holdings enrichment verified in Chrome
 
 ### Related Docs
 | Doc | Purpose |
@@ -12,6 +12,8 @@
 | `FRONTEND_COMPONENT_VISUAL_MAP.md` | Visual guide: what you see on screen → code component |
 | `FRONTEND_DATA_WIRING_AUDIT.md` | Container/adapter audit (ported into this doc) |
 | `FRONTEND_FORMATTING_MODULE_PLAN.md` | Shared formatting module plan (Codex-reviewed, complete) |
+| `FRONTEND_HOLDINGS_ENRICHMENT_PLAN.md` | Holdings enrichment via PositionService + sector (COMPLETE) |
+| `MCP_POSITIONS_ENRICHMENT_PLAN.md` | MCP agent format: sector + P&L + 4 new flags (planning) |
 
 ---
 
@@ -31,7 +33,7 @@ All active hook → service → endpoint flows are wired end-to-end. No critical
 | Max-return opt | `/api/max-return` | usePortfolioOptimization | PortfolioOptimizationAdapter | StrategyBuilderContainer | WIRED |
 | Stock analysis | `/api/direct/stock` | useStockAnalysis | StockAnalysisAdapter | StockLookupContainer | WIRED |
 | Risk settings | `/api/risk-settings` | useRiskSettings | RiskSettingsAdapter | RiskSettingsContainer | WIRED |
-| Holdings | composite | usePortfolioSummary | — | HoldingsViewModernContainer | WIRED |
+| Holdings | `/api/positions/holdings` | usePositions | PositionsAdapter | HoldingsViewModernContainer | WIRED (Wave 2a) |
 | Asset allocation | `/api/analyze` | useRiskAnalysis | RiskAnalysisAdapter | AssetAllocationContainer | WIRED |
 | Chat | `/api/gateway/chat` | usePortfolioChat | — | AIChat/ChatCore | WIRED |
 | Tool approval | `/api/gateway/tool-approval` | usePortfolioChat | — | — | WIRED |
@@ -53,7 +55,7 @@ All active hook → service → endpoint flows are wired end-to-end. No critical
 | `/api/direct/interpret` | No frontend consumer |
 | `/api/factors/*` | Factor intelligence routes — no frontend consumer |
 | `/api/factor-groups/*` | Factor group CRUD — no frontend consumer |
-| `/api/positions/monitor` | Position monitor — no frontend consumer |
+| `/api/positions/monitor` | Position monitor — no frontend consumer (holdings uses `/api/positions/holdings`) |
 
 ---
 
@@ -207,26 +209,18 @@ Additionally: Risk Settings and Account Connections accessible via Settings — 
 - [x] Map VaR/Beta/Vol/Drawdown from backend
 - [x] Fix percentage rounding (post-fix)
 
-#### 11. Holdings per-position enrichment
+#### 11. Holdings per-position enrichment — DONE (Wave 2a)
 
-- **Location:** `HoldingsViewModernContainer.tsx`
-- **What users see:** Holdings table with 7 fields hardcoded to zero/placeholder:
-  - `sector`: always 'Unknown' (backend has sector from FMP profile)
-  - `avgCost`: always 0 (available from IBKR Flex, Schwab transactions)
-  - `currentPrice`: always 0 (available from `latest_price()`)
-  - `totalReturn`: always 0 (computable from cost basis + price)
-  - `riskScore`: always 0 (per-position risk score not implemented)
-  - `volatility`: always 0 (available from `analyze_portfolio`)
-  - `aiScore`: always 0 (not implemented)
-  - Alert count badge: always 0 (could derive from risk flags)
-- **Data source:** Hardcoded zeros/placeholders
-- **Backend data available?** Most fields exist in backend — sector, price, cost basis,
-  volatility all available. riskScore and aiScore would need new computation.
-- **Cross-ref:** `FRONTEND_DATA_WIRING_AUDIT.md` Gap 1
-- [ ] Enrich `/api/portfolio/summary` response with per-holding data
-- [ ] Wire sector, currentPrice, avgCost, totalReturn, volatility
-- [ ] Design per-position riskScore computation (or remove)
-- [ ] Wire alert counts to risk flags
+- **Location:** `HoldingsViewModernContainer.tsx` → `usePositions()` → `/api/positions/holdings`
+- **Status:** ✅ Core fields wired via `PositionsAdapter` from `PositionService.to_monitor_view()` + `PortfolioService.enrich_positions_with_sectors()`
+- **What's real now:** ticker, value, weight, currency, type, account, brokerage, sector (via FMP), P&L (unrealized_pnl_usd, pnl_percent), cost basis, current price, quantity, gross/net exposure
+- **Implementation:** New `/api/positions/holdings` endpoint, `usePositions()` hook (direct TanStack Query), `PositionsAdapter` with null→undefined normalization. Weight formatting fix applied.
+- **Cross-ref:** `FRONTEND_HOLDINGS_ENRICHMENT_PLAN.md` (COMPLETE), `FRONTEND_DATA_WIRING_AUDIT.md` Gap 1
+- **Remaining fields** (see "Remaining Holdings Fields" section below): volatility, riskScore, aiScore, alerts, trend, dayChange
+- [x] New `/api/positions/holdings` endpoint with P&L + sector
+- [x] Wire sector via `PortfolioService.enrich_positions_with_sectors()`
+- [x] Wire price, cost basis, P&L, weight, exposure
+- [ ] Wire remaining fields (volatility, alerts — see future wave)
 
 #### 12. Stock Research — real-time market data
 
@@ -316,7 +310,7 @@ Components that appear unused or are explicitly marked as such:
 | Fully wired views (real data end-to-end) | 4 of 8 views | Factor Analysis, Scenario, Chat, Settings |
 | Partially wired views (mix of real + mock) | 4 of 8 views | Overview, Holdings, Performance, Strategy Builder |
 | Fully mock views | 0 of 8 views | — (Factor Analysis moved to fully wired after Wave 1) |
-| Total mock data items | 16 total, **4 resolved** (Wave 1) | Items 6, 8, 10, 15 done. 12 remaining. |
+| Total mock data items | 16 total, **5 resolved** (Wave 1 + 2a) | Items 6, 8, 10, 11, 15 done. 11 remaining. |
 | Dead components cleaned | 1 | PerformanceChart.tsx deleted |
 | Backend endpoints unused by frontend | 9 | `/api/direct/*`, `/api/factors/*`, `/api/positions/*` |
 
@@ -366,13 +360,28 @@ Backend endpoint changes needed to provide data that frontend is ready to consum
 
 | # | Task | Items | Effort | Description |
 |---|------|-------|--------|-------------|
-| 2a | Holdings enrichment | 11 | Medium | Enrich `/api/portfolio/summary` with per-holding sector, currentPrice, avgCost, totalReturn, volatility. Backend data exists, just not threaded to endpoint. |
-| 2b | Hedging suggestions | 14 | Medium | Populate `RiskAnalysisAdapter` hedging fields (beforeVaR, afterVaR, riskReduction, portfolioBeta) from backend risk analysis response. Remove hardcoded fallback. |
-| 2c | Performance attribution | 7 (partial) | Medium | Thread sector/factor attribution from `analyze_portfolio` into performance endpoint. Frontend already has UI for it but backend returns empty arrays. |
+| 2a | Holdings enrichment | 11 | Medium | ✅ DONE — `/api/positions/holdings` + `usePositions()` + `PositionsAdapter` + sector via FMP. Plan: `FRONTEND_HOLDINGS_ENRICHMENT_PLAN.md`. |
+| 2b | Hedging suggestions | 14 | Medium-High | ✅ DONE — `useHedgingRecommendations` hook + `HedgingAdapter` + container wiring (commit `1c66dae7`). Backend fixes: ETF→sector label resolution, correlation threshold -0.2→0.3, readable driver labels (commit `475a67e5`). Verified in Chrome 2026-02-28. Plan: `FRONTEND_HEDGING_WIRING_PLAN.md`. |
+| 2c | Performance attribution | 7 (partial) | Medium | ✅ DONE — Sector + security attribution computed in `calculate_portfolio_performance_metrics()` from `df_ret` + `filtered_weights`. FMP profile sector lookup. Threaded through `PerformanceResult` → API → `PerformanceAdapter` → `PerformanceView`. Factor attribution deferred to P2b. Verified in Chrome 2026-02-28. Plan: `PERFORMANCE_ATTRIBUTION_PLAN.md`. |
 | 2d | Stock Research prices | 12 | Medium | Wire FMP real-time quotes (price, market cap, volume) to `StockLookupContainer`. |
 | 2e | FactorRiskModel Performance tab + R² | 6 (residual) | Medium | Wire Factor Alpha (from `historical_analysis`), Information Ratio (compute from alpha/tracking error), R² (compute from `variance_decomposition.factor_variance / 100`). Wire Key Risk Insights text from real factor betas instead of hardcoded text. Also expose R² in header badge. t-stat: requires regression p-values from backend — low priority. |
 
-**Status:** Ready — Wave 1 complete
+**Status:** 2a COMPLETE, P1-MCP COMPLETE, 2b COMPLETE, 2c COMPLETE. 2d-2e remaining — both need backend work. 2d (stock prices) is likely simplest.
+
+#### Remaining Holdings Fields (Future Wave)
+
+Fields not covered by Wave 2a holdings enrichment — require additional backend work or product decisions:
+
+| Field | Current State | What's Needed | Effort |
+|-------|--------------|---------------|--------|
+| `volatility` (per-holding) | Always 0 | Compute from `df_stock_returns` in risk analysis, or FMP historical prices. Data exists at portfolio level but not surfaced per-position. | Medium |
+| `riskScore` (per-holding) | Always 0 | Needs product design: what does per-position risk mean? Options: concentration risk, volatility-weighted, drawdown-based, or composite. | Medium-High |
+| `aiScore` | Always 0 | Undefined — no clear spec. Could derive from stock analysis or factor exposure. Likely remove from UI if not planned. | Low (remove) or High (build) |
+| `alerts` | Always 0 | Derive from risk flags / exit signals per-ticker. Infrastructure exists in `core/*_flags.py`. | Medium |
+| `trend` (sparkline) | Always `[]` | Requires historical price series per ticker — could use FMP historical prices. Frontend rendering exists. | Medium |
+| `dayChange` / `dayChangePercent` | Always 0 | FMP real-time quote endpoint (already used in stock lookup). | Low-Medium |
+
+These can be tackled incrementally — each is independent and can be added to the adapter mapping without changing the holdings pipeline. Suggest fitting into Wave 3 or as a Wave 2.5 batch.
 
 #### Wave 3: Design Decisions + New Features
 

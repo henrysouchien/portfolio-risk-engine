@@ -1,0 +1,126 @@
+{
+  "generated_at": "2026-02-25T10:59:44.822310",
+  "request": {
+    "mode": "realized",
+    "source": "all",
+    "format": "agent"
+  },
+  "ok": true,
+  "result": {
+    "status": "success",
+    "format": "agent",
+    "snapshot": {
+      "mode": "realized",
+      "period": {
+        "start_date": "2024-05-31",
+        "end_date": "2026-01-31",
+        "months": 20,
+        "years": 1.7,
+        "inception_date": "2024-04-29"
+      },
+      "returns": {
+        "total_return_pct": -64.37,
+        "annualized_return_pct": -46.16,
+        "best_month_pct": 24.16,
+        "worst_month_pct": -73.63,
+        "win_rate_pct": 55.0
+      },
+      "risk": {
+        "volatility_pct": 61.29,
+        "max_drawdown_pct": -73.63,
+        "sharpe_ratio": -0.826,
+        "sortino_ratio": -0.655
+      },
+      "benchmark": {
+        "ticker": "SPY",
+        "alpha_annual_pct": -92.77,
+        "beta": 3.993,
+        "portfolio_return_pct": -64.37,
+        "benchmark_return_pct": 39.05,
+        "excess_return_pct": -68.03
+      },
+      "pnl": {
+        "nav_pnl_usd": 17274.64,
+        "realized_pnl": -1491.12,
+        "unrealized_pnl": 2231.7
+      },
+      "income": {
+        "total": 9321.51,
+        "dividends": 11495.29,
+        "interest": -2173.78,
+        "yield_on_cost_pct": 3.8046,
+        "yield_on_value_pct": 3.7543
+      },
+      "data_quality": {
+        "coverage_pct": 58.33,
+        "high_confidence": false,
+        "nav_metrics_estimated": true,
+        "synthetic_count": 13,
+        "warning_count": 44
+      },
+      "verdict": "poor",
+      "insights": [
+        "\u2022 Underperforming benchmark (-92.8% alpha)",
+        "\u2022 Poor risk-adjusted returns (Sharpe: -0.83)",
+        "\u2022 High volatility (61.3% vs 10.2% benchmark)",
+        "\u2022 Significant drawdown risk (max: -73.6%)"
+      ]
+    },
+    "flags": [
+      {
+        "type": "negative_total_return",
+        "severity": "warning",
+        "message": "Portfolio is down 64.4% total",
+        "total_return_pct": -64.37
+      },
+      {
+        "type": "benchmark_underperformance",
+        "severity": "warning",
+        "message": "Underperforming SPY by 92.8% annually",
+        "alpha_annual_pct": -92.77
+      },
+      {
+        "type": "low_sharpe",
+        "severity": "warning",
+        "message": "Sharpe ratio is -0.83 (poor risk-adjusted returns)",
+        "sharpe_ratio": -0.826
+      },
+      {
+        "type": "deep_drawdown",
+        "severity": "warning",
+        "message": "Max drawdown of 73.6% experienced",
+        "max_drawdown_pct": -73.63
+      },
+      {
+        "type": "low_data_coverage",
+        "severity": "warning",
+        "message": "Transaction data covers only 58% of portfolio",
+        "coverage_pct": 58.3
+      },
+      {
+        "type": "high_volatility",
+        "severity": "info",
+        "message": "Portfolio volatility is 61.3% (above average)",
+        "volatility_pct": 61.29
+      },
+      {
+        "type": "data_quality_issues",
+        "severity": "info",
+        "message": "44 data quality warnings detected",
+        "warning_count": 44
+      },
+      {
+        "type": "synthetic_positions",
+        "severity": "info",
+        "message": "13 position(s) inferred from current holdings (no opening trade found)",
+        "synthetic_count": 13
+      },
+      {
+        "type": "nav_metrics_estimated",
+        "severity": "info",
+        "message": "NAV-based metrics (return, drawdown) are estimated - not all cash flows observed"
+      }
+    ],
+    "file_path": null
+  }
+}

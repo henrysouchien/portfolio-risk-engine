@@ -1,0 +1,5 @@
+institution,account_id,asset_category,trade_row_count,unique_symbol_count
+Interactive Brokers LLC,U2471778,Equity and Index Options,35,12
+Interactive Brokers LLC,U2471778,Forex,4,2
+Interactive Brokers LLC,U2471778,Futures,14,7
+Interactive Brokers LLC,U2471778,Stocks,46,28

@@ -7,8 +7,12 @@
 import pandas as pd
 from pprint import pprint
 import statsmodels.api as sm
+from dotenv import load_dotenv
 
 from typing import Dict, Callable, Optional, Any, List
+
+load_dotenv()
+
 from factor_utils import (
     calc_monthly_returns,
     fetch_excess_return,

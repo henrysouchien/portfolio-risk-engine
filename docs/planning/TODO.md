@@ -10,31 +10,79 @@ MCP server is registered. Need to test the full relay pipeline end-to-end: Claud
 
 ## Next Up (Actionable)
 
-### Frontend: Package Formalization + Component Data Wiring
-Audit complete — see `docs/planning/FRONTEND_DATA_WIRING_AUDIT.md` for full findings.
+### Frontend Views → Defined Workflows
+Workflow design doc: `docs/planning/WORKFLOW_DESIGN.md` (2,457 lines).
 
-**Phase 1 — Package formalization:** Done (separation clean, boundaries enforced, exports defined, build works)
+**Phase 1 — Define workflows:** COMPLETE. All 7 workflows fully defined with 5-step sequences, tool mappings, inputs/outputs, and gap analysis: Hedging, Scenario Analysis, Allocation Review, Risk Review, Performance Review, Stock Research, Strategy Design.
 
-**Phase 2 — Data wiring audit:** Done (9/9 containers wired to real APIs, no mock stubs)
+**Phase 2 — Backend workflow layer:** Not started. Approach: **Option A (orchestrator functions)** — lightweight Python functions that chain existing MCP tools, passing outputs between steps. Each workflow becomes a composable function that UI or agent can call. No heavy state machine needed for now; evolve toward persistence/resumability (Option B) only for workflows that need it (e.g., Strategy Design with multi-day iteration). See `WORKFLOW_DESIGN.md` → Implementation Approach for full option comparison.
 
-**Phase 3 — Backend data enrichment** (gaps identified in audit):
-- [ ] P1: Holdings enrichment — thread sector, currentPrice, avgCost, totalReturn, volatility into summary endpoint
-- [ ] P2: Performance attribution — thread sector/factor attribution from risk analysis into performance endpoint
-- [ ] P3: Benchmark selection UI — add selector that passes benchmark param to backend
-- [ ] P4: Hedging strategies — new feature, AI-generated recommendations from risk exposures
-- [ ] P5: Asset allocation periods — re-enable when historical snapshots available
+**Start with cross-cutting gaps** before workflow orchestration — these unblock execution in all 7 workflows:
+- **Rebalance trade generator** (highest leverage) — all 7 execution steps need weight → shares → trade list
+- **Batch scenario/optimization comparison** — Hedging, Scenarios, Strategy all need parallel run + rank
+- **Action audit trail** — Risk, Allocation, Performance lack history of which recommendations were taken
 
-### Frontend: Remaining Cleanup — Done
-- [x] ~~Reduce `no-explicit-any` warnings~~ — Complete: 590→0 (100% reduction). `as any` tokens: 180→5.
-- Remaining 114 lint warnings are non-`any`: `no-console` (41), `react/no-array-index-key` (29), `react-hooks/exhaustive-deps` (22), minor (22)
+**Phase 3 — UI second pass:** Not started. Upgrade each view from data display to interactive multi-step workflow. Depends on Phase 2.
 
-### Architecture: Pricing Provider Pluggability Review
-Review the pricing pipeline to ensure we can easily swap or add a new price provider (e.g., replace FMP, add a Bloomberg/Refinitiv feed, or use a different market data vendor). Audit all pricing entry points (`latest_price()`, `get_returns_dataframe()`, `ProviderRegistry` price chain, FMP client calls) and confirm the abstraction boundaries are clean — a new provider should be addable without touching core analysis logic. Identify any hard-coded FMP assumptions or tight coupling that would make switching painful.
+**Phase 4 — Agent integration:** Not started. Workflows callable from Claude Chat/MCP. Depends on Phase 2.
+
+## Recently Completed
+
+### ~~Frontend: Package Formalization + Component Data Wiring~~ — COMPLETE (2026-02-27 to 2026-03-01)
+All 3 phases done. Audit: `docs/planning/FRONTEND_DATA_WIRING_AUDIT.md`.
+- **Phase 1** — Package formalization (chassis/connectors/ui split, boundaries enforced, build works)
+- **Phase 2** — Data wiring audit (9/9 containers wired to real APIs, no mock stubs)
+- **Phase 3** — Backend data enrichment (7 items): Holdings (`FRONTEND_HOLDINGS_ENRICHMENT_PLAN.md`), MCP positions (`MCP_POSITIONS_ENRICHMENT_PLAN.md`), Performance attribution (`PERFORMANCE_ATTRIBUTION_PLAN.md`), Factor attribution (`FACTOR_ATTRIBUTION_PLAN.md`), Benchmark selection (`BENCHMARK_SELECTION_UI_PLAN.md`), Hedging (`FRONTEND_HEDGING_WIRING_PLAN.md`), Asset allocation + period selector + drift (`P5_ASSET_ALLOCATION_PLAN.md`)
+
+### ~~Frontend: Block Component Refactoring~~ — COMPLETE
+5 block components adopted across 9 views in 3 waves. Plans: `FRONTEND_BLOCK_REFACTOR_PLAN.md`, `FRONTEND_BLOCK_REFACTOR_WAVE{1,2,3}.md`. Commits: `9506643d`, `93e5ed9e`, `750dea25`.
+
+### ~~Frontend: TypeScript Cleanup~~ — COMPLETE
+16 TS errors→0, `no-explicit-any` 590→0 (100%), `as any` 180→5, total lint warnings 704→114. See `docs/planning/FRONTEND_TYPESCRIPT_CLEANUP_PLAN.md`.
+
+### ~~Performance: Short Portfolio Return History~~ — COMPLETE
+Fixed `compute_portfolio_returns()` truncation. Added `compute_portfolio_returns_partial()` with gross-exposure scaling. Verified in Chrome 2026-03-01. See `docs/planning/PORTFOLIO_RETURN_HISTORY_FIX_PLAN.md`.
+
+### ~~Trading Analysis: Date Range Parameters~~ — COMPLETE
+Added `start_date`/`end_date` to `get_trading_analysis()`. Commit `5919122e`. See `docs/planning/TRADING_DATE_RANGE_PLAN.md`.
 
 ## Backlog
 
+### Target Allocations: DB Setup + Population
+`target_allocations` table schema defined in `database/schema.sql` but not yet migrated. Drift detection infrastructure is fully built (`allocation_drift.py`, threaded through risk pipeline + frontend) — just needs actual target data.
+- [ ] Run DB migration to create `target_allocations` table
+- [ ] Define default target allocations for the main portfolio (e.g., Equity 60%, Fixed Income 25%, Real Estate 10%, Commodities 5%)
+- [ ] Add MCP tool or API endpoint to set/update target allocations per portfolio
+- [ ] Optional: historical allocation trend tracking (periodic snapshots for time-series view)
+
+### IBKR Direct Trading via IB Gateway
+SnapTrade IBKR connection is **Flex (read-only)** — `preview_trade` returns `"Brokerage INTERACTIVE-BROKERS-FLEX does not support trading"`. To trade IBKR positions, need to route through the direct IBKR adapter (`brokerage/ibkr/adapter.py`) which connects to IB Gateway.
+
+**Investigation findings (2026-03-01):**
+- Account `cb7a1987-bce1-42bb-afd5-6fc2b54bbf12` resolves correctly via SnapTrade
+- Symbol resolution works for existing portfolio tickers (NVDA), fails for non-portfolio tickers (AAPL) on Flex
+- BUY passes validation but fails on buying power (margin account, expected)
+- SELL hits the wall: SnapTrade Flex doesn't support order placement
+- Schwab trading works fine (3 accounts: `25524252`, `87656165`, `51388013`)
+
+**What exists:**
+- `brokerage/ibkr/adapter.py` — IBKR trading adapter with `preview_order()` / `place_order()` via IB Gateway
+- `ibkr/client.py` — IBKRClient facade (read-only data, client ID 20)
+- Trading adapter uses client ID 22 (separate from ibkr-mcp on 20 and market data on 21)
+- `IBKR_AUTHORIZED_ACCOUNTS` env var for account whitelist
+
+**TODO:**
+- [ ] Register `IBKRBrokerAdapter` in `TradeExecutionService` alongside SnapTrade/Schwab adapters
+- [ ] Configure `IBKR_AUTHORIZED_ACCOUNTS` with the real IBKR account number (U-series, not SnapTrade UUID)
+- [ ] Ensure IB Gateway is running when trading (auto-start or pre-flight check)
+- [ ] Account routing: detect when a position came from SnapTrade-IBKR-Flex and route trades to direct IBKR adapter instead
+- [ ] Test end-to-end: preview → confirm → execute for an IBKR equity order
+
+### Concentration: Denominator Choice for Position Flags
+`core/position_flags.py` uses `gross_non_cash` (sum of abs(value) of all non-cash positions) as the denominator for concentration thresholds. For levered portfolios this dilutes concentration — DSU at 35% of net equity shows as 28% of gross positions, potentially missing the threshold. Consider switching to `total_value` (net equity) as the denominator, which better captures leverage-amplified concentration risk. Alternatively, offer both views or use the more conservative denominator.
+
 ### Frontend: SDK Testing
-Set up vitest for the frontend and write tests for the SDK layer. Key areas: DataCatalog (register, describe, search, cycle detection), classifyError (HTTP status mapping, edge cases), useDataSource (resolver integration, loading/error states), conformance checks (descriptor fields match adapter output types), interaction primitives (useSharedState, useFlow). Also test migrated hooks (useRiskScore, useRiskAnalysis, usePerformance) to verify they produce the same output as before via the resolver path.
+Vitest installed and configured. One test file exists (`chassis/src/services/__tests__/DataCatalog.test.ts`). Remaining coverage needed: classifyError (HTTP status mapping, edge cases), useDataSource (resolver integration, loading/error states), conformance checks (descriptor fields match adapter output types), interaction primitives (useSharedState, useFlow). Also test migrated hooks (useRiskScore, useRiskAnalysis, usePerformance) to verify they produce the same output as before via the resolver path.
 
 ### Realized Performance: Investigate Bad Data Quality
 `get_performance(mode="realized", format="agent")` shows poor data quality across all providers. Coverage is low everywhere: Schwab 37.5%, Plaid 12.5%, SnapTrade 0%. Combined gives 58% with 14 synthetic positions.
@@ -43,51 +91,44 @@ Set up vitest for the frontend and write tests for the SDK layer. Key areas: Dat
 - **Plaid**: 12.5% coverage, 24 synthetic — minimal data.
 - Need to diagnose whether this is a transaction sourcing gap, synthetic position inference issue, or cash flow reconstruction problem.
 
-### Realized Performance: Bond/Treasury Pricing — Identifier Capture Done, Pricing TBD
-`US Treasury Note - 4.25% 15/10/2025 USD 100` cannot be priced — valued as $0 in NAV. Root cause: Plaid uses a long description string as the ticker (not a standard symbol), and the bond has no IBKR `con_id` so IBKR pricing is skipped (`bond_missing_con_id`).
-- **Done**: Security identifiers (CUSIP/ISIN from Plaid, CUSIP from Schwab, FIGI from SnapTrade) now captured and threaded into `PortfolioData.security_identifiers`. Bond positions log available identifiers.
-- **Remaining**: Build CUSIP → IBKR con_id resolver (via IBKR contract search API or OpenFIGI) to unlock IBKR bond pricing. Low dollar impact (single position) but demonstrates the pricing gap.
-- See: `docs/planning/SECURITY_IDENTIFIERS_PLAN.md`
-
-### Portfolio System: Currency Position Handling — Done
-~~Brokerage imports include currency positions (`CUR:CAD`, `CUR:HKD`, `CUR:JPY`, `CUR:MXN`). Quick fix applied — added `:` to ticker validation regex so they pass validation. But need to audit how these flow through the full analysis pipeline.~~
-- **Done**: Full pipeline audit complete. `to_portfolio_data()` correctly converts CUR:XXX → cash proxy ETFs via `cash_map.yaml`. `SecurityTypeService` now has explicit CUR: → cash detection in both `get_security_types()` and `get_asset_classes()`. Provider `is_cash_equivalent` flag honored in `to_portfolio_data()`.
-- See: `docs/planning/SECURITY_IDENTIFIERS_PLAN.md`
-
 ### Architecture: Break Up Large Monolithic Files
 - `core/realized_performance_analysis.py` (115KB) — extract pricing chain logic
+- Note: `core/result_objects.py` already split into `core/result_objects/` package (10 submodules, commit `3758c186`)
+
+### Architecture: Fix Circular Imports in app.py
+`app.py` is a 4,602-line monolith with a massive top-level import block (lines 108-223) pulling from models, core/result_objects, inputs, run_risk, services/*, utils/*, and many other internal modules. This causes circular import issues as the dependency graph grows. Needs investigation into which imports are circular, then fix via:
+- Lazy imports (move imports inside functions that need them)
+- Route module extraction (break app.py into smaller route blueprints)
+- Breaking up the file itself (app.py shouldn't define routes + helpers + initialization all in one place)
+- `routes/claude.py` already extracted as a pattern to follow
 
 ### Architecture: Add Settings Validation
 Adopt `pydantic.BaseSettings` (or similar) for `settings.py` to catch misconfiguration at startup. Low priority — settings.py is now 454 lines after consolidation, env is stable, and misconfigurations are rare in practice. Adding pydantic as a dependency may not be worth the migration cost.
 
 ### Futures & Portfolio
-Full design: `docs/planning/FUTURES_DESIGN.md`. Phased implementation (6 phases).
-- **Phase 1 — Data foundation**: Done. `brokerage/futures/` package with `FuturesContractSpec` (27 contracts), notional/P&L math, asset class taxonomy. Multiplier + tick_size in `ibkr/exchange_mappings.yaml`. See `docs/planning/FUTURES_P1_DATA_FOUNDATION_PLAN.md`.
-- **Phase 2 — Pricing dispatch**: Next. Route futures tickers to IBKR/FMP commodity endpoints in `latest_price()` and `get_returns_dataframe()`. Auto-detect currency from contract spec.
-- **Phase 3 — Portfolio integration**: Futures in holdings view with margin + notional overlay.
-- **Phase 4 — Risk integration**: Macro/asset-class factors instead of equity factors. Wire `fx_attribution` into `RiskAnalysisResult`.
-- **Phase 5 — Performance + trading**: Futures P&L with multiplier awareness. Trading analysis integration.
-- **Phase 6 — Polish**: Daily bars → risk pipeline, DB persistence for `instrument_types`, IBKR contract verification (IBV, ESTX50, DAX).
+Full design: `docs/planning/FUTURES_DESIGN.md`. Phased implementation (8 phases). Phases 1-7 complete.
+- [x] **Phase 1 — Data foundation**: Done.
+- [x] **Phase 2 — Pricing dispatch**: Done.
+- [x] **Phase 3 — Portfolio integration**: Done (commit `dcf481a0`).
+- [x] **Phase 4 — Risk integration**: Done (commit `a1c4aefc`).
+- [x] **Phase 5 — Performance + trading**: Done. Futures P&L metadata threading + segment filter on `get_trading_analysis()` (commit `a5f82977`, `0a7b2691`).
+- [x] **Phase 6 — Monthly contracts, curve & roll**: Done. Monthly contract resolution, `get_futures_curve()` term structure tool, `preview_futures_roll()`/`execute_futures_roll()` BAG combo orders (commits `8ff76db9`, `63a948a0`). Plan: `docs/planning/FUTURES_MONTHLY_CURVE_ROLL_PLAN.md`.
+- [x] **Phase 7 — Contract verification**: ESTX50 and DAX verified live against TWS (conIds 621358639, 621358482; monthly close data confirmed; ESTX50 via FMP `^STOXX50E`, DAX via IBKR fallback since `^GDAXI` returns 402). IBV removed — not available on IBKR (no CME Ibovespa futures product found). Contract catalog: 26 symbols.
+- [ ] **Phase 8 — Polish (backlog)**: Daily bars → risk pipeline (requires frequency-aware refactor of 8+ annualization sites), DB persistence for `instrument_types`.
 
-### Migrate EDGAR MCP to FastAPI endpoint
-Currently the `edgar-mcp` package (`edgar_mcp/server.py`) hits the Flask app at `financialmodelupdater.com`. Migrate to use the FastAPI service (`edgar_api`) endpoints instead — simple base URL + path swap. Moves toward Flask = web UI only, FastAPI = all programmatic access.
+### EDGAR FastAPI Migration — Phase 4 Cleanup
+Phases 0-3 complete (2026-02-27). nginx on `financialmodelupdater.com` now routes `/api/*` → FastAPI (port 8000), everything else → Flask (port 5000). 36/36 parity tests pass. All 6 edgar-mcp tools + AI-excel-addin gateway validated. No client code changes needed.
 
-### Earnings Estimates: AWS Migration
-Migrate the estimate collection system (currently local Postgres + launchd) to an AWS instance with its own database. Stand up a simple API to serve estimate revision data externally — decouples it from the local dev machine and makes the data accessible to other services/users. Covers: RDS instance (`fmp_data_db`), EC2/Lambda for the monthly snapshot job, lightweight API (FastAPI or Lambda+API Gateway) for `get_estimate_revisions` and `screen_estimate_revisions` queries.
+**Remaining (Phase 4):** Remove dead Flask `/api/*` route handlers from `app.py` after 1-week stability gate (~March 6). Optionally migrate `/generate_key` webhook to FastAPI. Audit doc: `Edgar_updater/docs/plans/PLAN-fastapi-migration-audit.md`.
+
+### Earnings Estimates: Collection Failure Skip-List — Verify in Production
+Skip-list implemented and deployed (commit `5b8268d` edgar_updater, `6f14ceb6` risk_module). 142 failures from run 1 investigated — all benign: `no_estimates` (95 tickers: warrants, preferred, micro-caps) and `no_income_statement` (6 tickers). Zero `api_error`. `get_skip_set()` added to `EstimateStore` with 180-day decay window. Wired into collector with `--ignore-skip-list` and `--skip-min-runs` flags. After run 2, persistent failures will be auto-skipped on run 3+. Verify skip-list log output after next monthly run (April 1).
 
 ### Research & AI
 - Perplexity MCP — evaluate Perplexity as research/search layer for the investment agent. Compare vs Brave Search.
 
-### Stock Basket / Custom Index
-Plan: `docs/planning/STOCK_BASKET_PLAN.md`. Phase 1 (CRUD MCP tools) complete.
-- [x] Phase 1: CRUD MCP tools — `create_basket`, `list_baskets`, `get_basket`, `update_basket`, `delete_basket` (commit `39930617`)
-- [x] Phase 2: Basket returns analysis — `analyze_basket` tool with weighted returns, Sharpe, drawdown, alpha/beta, component attribution, portfolio correlation (commit `240f00ea`)
-- [ ] Phase 3: Basket as custom factor — inject into `get_factor_analysis()` alongside standard factors
-- [ ] Phase 4: Multi-leg trade execution — `preview_basket_trade`, `execute_basket_trade`
-- [ ] Phase 5: ETF seeding — `create_basket_from_etf` from FMP holdings
-
-### Frontend: AI-Assisted UI Component Development (Post-Gateway)
-Once the gateway channel is live, use Claude with the frontend browser plugin (or Antigravity/Gemini) to adjust, modify, and create UI components that match key functionality. Goal: build a starter kit of polished components that cover the core use cases (risk dashboard, portfolio overview, analysis views, settings). The AI can iterate on layout, styling, and interaction patterns directly in the browser with live feedback.
+### Frontend: AI-Assisted UI Component Development
+Gateway channel is live. Use Claude with the frontend browser plugin (or Antigravity/Gemini) to adjust, modify, and create UI components that match key functionality. Goal: build a starter kit of polished components that cover the core use cases (risk dashboard, portfolio overview, analysis views, settings). The AI can iterate on layout, styling, and interaction patterns directly in the browser with live feedback.
 
 ### Frontend: Agent-Driven Dynamic UI Generation
 Design the chassis + UI infrastructure so that AI agents (analyst-claude, design-claude, visualizer-claude) can build on-the-fly visualizations, workflow UIs, and app scaffolding at runtime. The idea: when a Claude skill needs a visualization or interactive workflow that doesn't exist yet, the agent generates the component dynamically using the chassis primitives and Radix building blocks. This could mean:
@@ -99,12 +140,39 @@ Design the chassis + UI infrastructure so that AI agents (analyst-claude, design
 
 This is the longer-term vision — the chassis + gateway architecture is the foundation that makes this possible.
 
-### Options Tools
-Port option payoff/strategy analysis from draft notebook (`~/Documents/jupyter/investment_system/Option-calculator.ipynb`) into a proper module. Existing `OptionLeg`/`OptionStrategy` class framework covers payoff curves for multi-leg strategies.
-- Payoff calculator: max profit/loss, breakevens, P&L at various DTE
-- Integration with IBKR OI data (overlay strategy payoff on OI clusters)
-- Evaluate IBKR API as primary options data source (chains, Greeks, pricing)
-- Options Greeks could feed into portfolio risk analysis
+### Workflow Gaps: Hedging Infrastructure
+Identified during hedging workflow definition (see `docs/planning/WORKFLOW_DESIGN.md`). These are building blocks needed for the full hedge-to-execution pipeline, but each is independently useful.
+
+- [ ] **Multi-leg options execution** — `preview_option_trade()` / `execute_option_trade()` for atomic multi-leg orders (spreads, collars, strangles). Currently must execute legs individually via `preview_trade()` which creates slippage risk between legs. IBKR supports combo/BAG orders for options (same pattern as futures roll).
+- [ ] **Batch scenario comparison** — Evaluate multiple hedge candidates in one call and rank by risk-reduction / cost efficiency. Current `run_whatif()` is single-scenario only. May need to refactor what-if to accept a list of scenarios, or build a separate `compare_scenarios()` orchestrator. Also evaluate whether `run_whatif()` needs to be more flexible generally (e.g., support mixed instrument types, options payoffs in the risk model).
+- [ ] **Rebalance-to-target trade generator** — Given current portfolio + target weights (from optimization, what-if, or manual), auto-generate the trade list with share quantities, estimated costs, and suggested execution sequence. Currently must manually calculate deltas from what-if output and create trades one by one.
+- [ ] **Live options pricing** — Real-time bid/ask/mid from IBKR via `fetch_snapshot()` for options contracts. Current `analyze_option_strategy()` uses Black-Scholes model pricing. Related to the IBKR live Greeks path below.
+- [ ] **Continuous hedge monitoring** — Alerts when portfolio drifts beyond hedge targets, hedge ratios become stale, or expiring options need rolling. Requires some form of periodic check or event-driven monitoring — may tie into the autonomous analyst / scheduled agent infrastructure.
+
+### Workflow Gaps: Cross-Cutting Infrastructure
+Identified across all 7 workflow definitions (see `docs/planning/WORKFLOW_DESIGN.md`). These gaps appear in 3+ workflows and are the highest-leverage items to build.
+
+- [ ] **Rebalance trade generator** — Given current weights + target weights + portfolio value, auto-generate sequenced trade list (sells first to free capital, then buys) with share quantities, estimated costs, and odd-lot handling. Needed by: all 7 workflows at execution step. Currently must manually compute from what-if `position_changes`.
+- [ ] **Batch scenario/optimization comparison** — Run N scenarios or optimizations in parallel and return a ranked comparison table. Currently must call `run_whatif()` or `run_optimization()` per variant and assemble manually. Needed by: Hedging (Step 4), Scenarios (Step 3), Strategy Design (Step 3).
+- [ ] **Action audit trail** — Persist which recommendations were generated, accepted, rejected, and executed. No tracking today — conversation context only. Needed by: Risk Review, Allocation Review, Performance Review.
+
+### Workflow Gaps: Scenario & Strategy Infrastructure
+Identified during Scenario Analysis and Strategy Design workflow definitions.
+
+- [ ] **Predefined scenario templates** — Backend-driven templates ("defensive rotation", "growth tilt", "derisking") with configurable intensity. Currently templates are hardcoded in frontend only.
+- [ ] **Stress test presets** — Predefined market shock scenarios ("market -20%", "rates +200bp", "stagflation") that translate to delta_changes. No backend implementation today.
+- [ ] **Scenario persistence** — Save/load/history for scenario runs. Currently fire-and-forget.
+- [ ] **Return attribution (Brinson/Fama-French)** — Decompose portfolio returns by factor/sector/selection. Fields exist in `PerformanceResult` but are never populated. Needed by Performance Review workflow.
+- [ ] **Backtesting engine** — Historical strategy validation (walk-forward, out-of-sample). No implementation exists. Needed by Strategy Design workflow.
+- [ ] **Efficient frontier visualization** — Plot optimal portfolios across risk/return spectrum. Requires running optimization at many vol targets. Needed by Strategy Design workflow.
+- [ ] **Strategy versioning** — Track strategy iterations with constraint snapshots and optimization results. Currently save-as-basket only workaround.
+
+### Options: Portfolio Risk Integration
+Core options module complete. IBKR integration done. Chain analysis MCP tool done (`analyze_option_chain` on portfolio-mcp, commit `cd9f032b`). Phases 1-2 complete.
+- [x] Expose `chain_analysis.py` via MCP tool (OI/volume by strike, put/call ratio, max pain) — COMPLETE
+- [x] Option position enrichment — `enrich_option_positions()` with contract metadata (strike, expiry, underlying, DTE), 3 position flags (near_expiry, expired, concentration). Commit `6e62c5d6`.
+- [x] Portfolio Greeks aggregation — `compute_portfolio_greeks()` with dollar-scaled delta/gamma/theta/vega, wired into `get_exposure_snapshot()`, 4 Greeks flags (theta_drain, significant_net_delta, high_vega, computation_failures). Commit `6e62c5d6`.
+- [ ] IBKR live Greeks path — use `fetch_snapshot()` for real-time Greeks instead of computed (Black-Scholes) path. Per-position fallback when TWS unavailable.
 
 ### Macro Review Chart Book
 Build a repeatable macro review workflow that pulls market/economic data, generates charts and visuals, and produces a structured "chart book" for reviewing the current macro landscape. Should be runnable on a regular cadence (weekly/monthly).

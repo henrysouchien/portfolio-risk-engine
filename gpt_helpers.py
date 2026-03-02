@@ -8,10 +8,7 @@
 import openai
 from io import StringIO
 from contextlib import redirect_stdout
-from dotenv import load_dotenv
 import os
-
-load_dotenv()  # This loads variables from .env into the environment
 
 # Now access your keys like this
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -75,11 +72,9 @@ def interpret_portfolio_risk(diagnostics_text: str) -> str:
 
 import os
 from typing import List
-from dotenv import load_dotenv
 import openai
 
 # ── Load env & set up the shared client ───────────────────────────────
-load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
@@ -269,5 +264,4 @@ Examples:
         portfolio_logger.error(f"GPT asset class classification failed for {ticker}: {e}")
         portfolio_logger.debug(f"GPT asset class classification traceback for {ticker}", exc_info=True)
         return "mixed,0.50"  # Return structured response format even on error
-
 

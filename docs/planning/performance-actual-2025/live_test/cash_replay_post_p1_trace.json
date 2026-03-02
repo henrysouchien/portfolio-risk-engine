@@ -1,0 +1,442 @@
+{
+  "all": {
+    "counts": {
+      "fifo_transactions_total": 224,
+      "income_rows_total": 212,
+      "authoritative_provider_flow_events": 238,
+      "skipped_unknown": 0,
+      "skipped_fx_artifact": 4,
+      "futures_txn_count": 12
+    },
+    "month_end_cash_std": {
+      "2025-02": 5538.02,
+      "2025-03": -68813.09,
+      "2025-04": 38401.72,
+      "2025-05": 72299.84
+    },
+    "month_end_cash_alt_fee_only_futures": {
+      "2025-02": 4361.6,
+      "2025-03": 9769.99,
+      "2025-04": 15630.63,
+      "2025-05": 16548.75
+    },
+    "month_end_cash_diff_std_minus_alt": {
+      "2025-02": 1176.42,
+      "2025-03": -78583.08,
+      "2025-04": 22771.09,
+      "2025-05": 55751.09
+    },
+    "futures_rows": [
+      {
+        "date": "2025-02-25",
+        "typ": "BUY",
+        "sym": "MHI",
+        "qty": 10.0,
+        "price": 22770.0,
+        "delta_std": -29213.81,
+        "delta_alt": -2.18,
+        "cash_std": -25760.6,
+        "cash_alt": 3451.03,
+        "open_fut": {
+          "MHI": 10.0
+        }
+      },
+      {
+        "date": "2025-02-27",
+        "typ": "SELL",
+        "sym": "MHI",
+        "qty": 10.0,
+        "price": 23687.0,
+        "delta_std": 30385.87,
+        "delta_alt": -2.18,
+        "cash_std": 6794.01,
+        "cash_alt": 5617.59,
+        "open_fut": {}
+      },
+      {
+        "date": "2025-03-10",
+        "typ": "SELL",
+        "sym": "MES",
+        "qty": 5.0,
+        "price": 5678.0,
+        "delta_std": 28389.38,
+        "delta_alt": -0.62,
+        "cash_std": 39146.04,
+        "cash_alt": 9579.62,
+        "open_fut": {
+          "MES": -5.0
+        }
+      },
+      {
+        "date": "2025-03-13",
+        "typ": "BUY",
+        "sym": "MHI",
+        "qty": 10.0,
+        "price": 23695.0,
+        "delta_std": -30452.63,
+        "delta_alt": -2.18,
+        "cash_std": 4972.14,
+        "cash_alt": 5856.16,
+        "open_fut": {
+          "MES": -5.0,
+          "MHI": 10.0
+        }
+      },
+      {
+        "date": "2025-03-21",
+        "typ": "BUY",
+        "sym": "ZF",
+        "qty": 1000.0,
+        "price": 108.1641,
+        "delta_std": -108165.58,
+        "delta_alt": -1.52,
+        "cash_std": -103193.41,
+        "cash_alt": 5854.67,
+        "open_fut": {
+          "MES": -5.0,
+          "MHI": 10.0,
+          "ZF": 1000.0
+        }
+      },
+      {
+        "date": "2025-03-27",
+        "typ": "SELL",
+        "sym": "MGC",
+        "qty": 10.0,
+        "price": 3046.5,
+        "delta_std": 30464.13,
+        "delta_alt": -0.87,
+        "cash_std": -71162.66,
+        "cash_alt": 7420.42,
+        "open_fut": {
+          "MES": -5.0,
+          "MGC": -10.0,
+          "MHI": 10.0,
+          "ZF": 1000.0
+        }
+      },
+      {
+        "date": "2025-04-01",
+        "typ": "BUY",
+        "sym": "MGC",
+        "qty": 10.0,
+        "price": 3151.2,
+        "delta_std": -31512.87,
+        "delta_alt": -0.87,
+        "cash_std": -100325.96,
+        "cash_alt": 9769.12,
+        "open_fut": {
+          "MES": -5.0,
+          "MHI": 10.0,
+          "ZF": 1000.0
+        }
+      },
+      {
+        "date": "2025-04-04",
+        "typ": "SELL",
+        "sym": "MGC",
+        "qty": 10.0,
+        "price": 3041.2,
+        "delta_std": 30411.13,
+        "delta_alt": -0.87,
+        "cash_std": -73815.64,
+        "cash_alt": 5867.45,
+        "open_fut": {
+          "MES": -5.0,
+          "MGC": -10.0,
+          "MHI": 10.0,
+          "ZF": 1000.0
+        }
+      },
+      {
+        "date": "2025-04-07",
+        "typ": "SELL",
+        "sym": "MHI",
+        "qty": 10.0,
+        "price": 20632.0,
+        "delta_std": 26507.87,
+        "delta_alt": -2.18,
+        "cash_std": -50404.93,
+        "cash_alt": 2768.1,
+        "open_fut": {
+          "MES": -5.0,
+          "MGC": -10.0,
+          "ZF": 1000.0
+        }
+      },
+      {
+        "date": "2025-04-09",
+        "typ": "SELL",
+        "sym": "ZF",
+        "qty": 1000.0,
+        "price": 108.2031,
+        "delta_std": 108201.6,
+        "delta_alt": -1.52,
+        "cash_std": 71674.97,
+        "cash_alt": 16644.88,
+        "open_fut": {
+          "MES": -5.0,
+          "MGC": -10.0
+        }
+      },
+      {
+        "date": "2025-04-14",
+        "typ": "BUY",
+        "sym": "MGC",
+        "qty": 10.0,
+        "price": 3225.9,
+        "delta_std": -32259.87,
+        "delta_alt": -0.87,
+        "cash_std": 38045.46,
+        "cash_alt": 15274.37,
+        "open_fut": {
+          "MES": -5.0
+        }
+      },
+      {
+        "date": "2025-05-28",
+        "typ": "SELL",
+        "sym": "MGC",
+        "qty": 10.0,
+        "price": 3298.0,
+        "delta_std": 32979.13,
+        "delta_alt": -0.87,
+        "cash_std": 72029.12,
+        "cash_alt": 16278.03,
+        "open_fut": {
+          "MES": -5.0,
+          "MGC": -10.0
+        }
+      }
+    ],
+    "flow_authority": {
+      "fallback_reasons": [],
+      "dedup_diagnostics": {
+        "input_count": 241,
+        "output_count": 241,
+        "duplicates_dropped_by_provider": {},
+        "duplicates_dropped_by_slice": {}
+      }
+    }
+  },
+  "ibkr_flex": {
+    "counts": {
+      "fifo_transactions_total": 82,
+      "income_rows_total": 57,
+      "authoritative_provider_flow_events": 50,
+      "skipped_unknown": 0,
+      "skipped_fx_artifact": 4,
+      "futures_txn_count": 12
+    },
+    "month_end_cash_std": {
+      "2025-02": 171.75,
+      "2025-03": -75717.78,
+      "2025-04": 39244.03,
+      "2025-05": 72143.1
+    },
+    "month_end_cash_alt_fee_only_futures": {
+      "2025-02": -1006.68,
+      "2025-03": 2863.29,
+      "2025-04": 16470.92,
+      "2025-05": 16389.99
+    },
+    "month_end_cash_diff_std_minus_alt": {
+      "2025-02": 1178.43,
+      "2025-03": -78581.07,
+      "2025-04": 22773.11,
+      "2025-05": 55753.11
+    },
+    "futures_rows": [
+      {
+        "date": "2025-02-25",
+        "typ": "BUY",
+        "sym": "MHI",
+        "qty": 10.0,
+        "price": 22770.0,
+        "delta_std": -29263.91,
+        "delta_alt": -2.18,
+        "cash_std": -29263.91,
+        "cash_alt": -2.18,
+        "open_fut": {
+          "MHI": 10.0
+        }
+      },
+      {
+        "date": "2025-02-27",
+        "typ": "SELL",
+        "sym": "MHI",
+        "qty": 10.0,
+        "price": 23687.0,
+        "delta_std": 30437.98,
+        "delta_alt": -2.18,
+        "cash_std": 1942.81,
+        "cash_alt": 764.37,
+        "open_fut": {}
+      },
+      {
+        "date": "2025-03-10",
+        "typ": "SELL",
+        "sym": "MES",
+        "qty": 5.0,
+        "price": 5678.0,
+        "delta_std": 28389.38,
+        "delta_alt": -0.62,
+        "cash_std": 33626.14,
+        "cash_alt": 4057.7,
+        "open_fut": {
+          "MES": -5.0
+        }
+      },
+      {
+        "date": "2025-03-13",
+        "typ": "BUY",
+        "sym": "MHI",
+        "qty": 10.0,
+        "price": 23695.0,
+        "delta_std": -30452.63,
+        "delta_alt": -2.18,
+        "cash_std": -547.76,
+        "cash_alt": 334.25,
+        "open_fut": {
+          "MES": -5.0,
+          "MHI": 10.0
+        }
+      },
+      {
+        "date": "2025-03-21",
+        "typ": "BUY",
+        "sym": "ZF",
+        "qty": 1000.0,
+        "price": 108.1641,
+        "delta_std": -108165.58,
+        "delta_alt": -1.52,
+        "cash_std": -108713.34,
+        "cash_alt": 332.73,
+        "open_fut": {
+          "MES": -5.0,
+          "MHI": 10.0,
+          "ZF": 1000.0
+        }
+      },
+      {
+        "date": "2025-03-27",
+        "typ": "SELL",
+        "sym": "MGC",
+        "qty": 10.0,
+        "price": 3046.5,
+        "delta_std": 30464.13,
+        "delta_alt": -0.87,
+        "cash_std": -77382.59,
+        "cash_alt": 1198.48,
+        "open_fut": {
+          "MES": -5.0,
+          "MGC": -10.0,
+          "MHI": 10.0,
+          "ZF": 1000.0
+        }
+      },
+      {
+        "date": "2025-04-01",
+        "typ": "BUY",
+        "sym": "MGC",
+        "qty": 10.0,
+        "price": 3151.2,
+        "delta_std": -31512.87,
+        "delta_alt": -0.87,
+        "cash_std": -107230.65,
+        "cash_alt": 2862.42,
+        "open_fut": {
+          "MES": -5.0,
+          "MHI": 10.0,
+          "ZF": 1000.0
+        }
+      },
+      {
+        "date": "2025-04-04",
+        "typ": "SELL",
+        "sym": "MGC",
+        "qty": 10.0,
+        "price": 3041.2,
+        "delta_std": 30411.13,
+        "delta_alt": -0.87,
+        "cash_std": -75849.57,
+        "cash_alt": 3831.5,
+        "open_fut": {
+          "MES": -5.0,
+          "MGC": -10.0,
+          "MHI": 10.0,
+          "ZF": 1000.0
+        }
+      },
+      {
+        "date": "2025-04-07",
+        "typ": "SELL",
+        "sym": "MHI",
+        "qty": 10.0,
+        "price": 20632.0,
+        "delta_std": 26507.87,
+        "delta_alt": -2.18,
+        "cash_std": -47613.55,
+        "cash_alt": 5557.47,
+        "open_fut": {
+          "MES": -5.0,
+          "MGC": -10.0,
+          "ZF": 1000.0
+        }
+      },
+      {
+        "date": "2025-04-09",
+        "typ": "SELL",
+        "sym": "ZF",
+        "qty": 1000.0,
+        "price": 108.2031,
+        "delta_std": 108201.6,
+        "delta_alt": -1.52,
+        "cash_std": 74466.35,
+        "cash_alt": 19434.24,
+        "open_fut": {
+          "MES": -5.0,
+          "MGC": -10.0
+        }
+      },
+      {
+        "date": "2025-04-14",
+        "typ": "BUY",
+        "sym": "MGC",
+        "qty": 10.0,
+        "price": 3225.9,
+        "delta_std": -32259.87,
+        "delta_alt": -0.87,
+        "cash_std": 40836.84,
+        "cash_alt": 18063.73,
+        "open_fut": {
+          "MES": -5.0
+        }
+      },
+      {
+        "date": "2025-05-28",
+        "typ": "SELL",
+        "sym": "MGC",
+        "qty": 10.0,
+        "price": 3298.0,
+        "delta_std": 32979.13,
+        "delta_alt": -0.87,
+        "cash_std": 72143.1,
+        "cash_alt": 16389.99,
+        "open_fut": {
+          "MES": -5.0,
+          "MGC": -10.0
+        }
+      }
+    ],
+    "flow_authority": {
+      "fallback_reasons": [],
+      "dedup_diagnostics": {
+        "input_count": 50,
+        "output_count": 50,
+        "duplicates_dropped_by_provider": {},
+        "duplicates_dropped_by_slice": {}
+      }
+    }
+  }
+}

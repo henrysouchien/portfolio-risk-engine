@@ -34,7 +34,6 @@ import pandas as pd
 from core.performance_metrics_engine import compute_performance_metrics
 from factor_utils import calc_monthly_returns
 from data_loader import fetch_monthly_close, fetch_monthly_treasury_rates
-from fmp.fx import get_monthly_fx_series
 from ibkr.compat import (
     fetch_ibkr_bond_monthly_close,
     fetch_ibkr_fx_monthly_close,
@@ -42,6 +41,7 @@ from ibkr.compat import (
     fetch_ibkr_option_monthly_mark,
     get_ibkr_futures_fmp_map,
 )
+from portfolio_risk_engine.providers import get_fx_provider
 from providers.fmp_price import FMPPriceProvider
 from providers.flows.common import build_slice_key
 from providers.flows.extractor import extract_provider_flow_events
@@ -65,6 +65,8 @@ from trading_analysis.data_fetcher import fetch_transactions_for_source, match_i
 from trading_analysis.fifo_matcher import FIFOMatcher, IncompleteTrade, OpenLot
 from trading_analysis.instrument_meta import InstrumentMeta, coerce_instrument_type
 from trading_analysis.symbol_utils import parse_option_contract_identity_from_symbol
+
+_ORIGINAL_FETCH_MONTHLY_CLOSE = fetch_monthly_close
 
 
 TYPE_ORDER = {
@@ -276,8 +278,22 @@ class PriceResult:
 
 def _build_default_price_registry() -> ProviderRegistry:
     registry = ProviderRegistry()
+
+    def _fetch_daily_close_for_registry(*args: Any, **kwargs: Any) -> pd.Series:
+        # Preserve monkeypatched test behavior: if this module's
+        # `fetch_monthly_close` has been overridden, route daily fetches through
+        # that override instead of the FMP daily helper.
+        if fetch_monthly_close is not _ORIGINAL_FETCH_MONTHLY_CLOSE:
+            return fetch_monthly_close(*args, **kwargs)
+        from fmp.compat import fetch_daily_close as _fetch_daily_close
+
+        return _fetch_daily_close(*args, **kwargs)
+
     registry.register_price_provider(
-        FMPPriceProvider(fetcher=fetch_monthly_close),
+        FMPPriceProvider(
+            fetcher=fetch_monthly_close,
+            daily_fetcher=_fetch_daily_close_for_registry,
+        ),
         priority=10,
     )
     registry.register_price_provider(
@@ -313,14 +329,25 @@ def _fetch_price_from_chain(
             continue
 
         try:
-            series = provider.fetch_monthly_close(
-                symbol,
-                start_date,
-                end_date,
-                instrument_type=instrument_type,
-                contract_identity=contract_identity,
-                fmp_ticker_map=fmp_ticker_map,
-            )
+            fetch_daily = getattr(provider, "fetch_daily_close", None)
+            if callable(fetch_daily):
+                series = fetch_daily(
+                    symbol,
+                    start_date,
+                    end_date,
+                    instrument_type=instrument_type,
+                    contract_identity=contract_identity,
+                    fmp_ticker_map=fmp_ticker_map,
+                )
+            else:
+                series = provider.fetch_monthly_close(
+                    symbol,
+                    start_date,
+                    end_date,
+                    instrument_type=instrument_type,
+                    contract_identity=contract_identity,
+                    fmp_ticker_map=fmp_ticker_map,
+                )
             if not isinstance(series, pd.Series):
                 series = pd.Series(dtype=float)
             normalized = _series_from_cache(series)
@@ -472,6 +499,19 @@ def _month_end_range(start: datetime, end: datetime) -> List[datetime]:
     return [start_ts.to_period("M").to_timestamp("M").to_pydatetime().replace(tzinfo=None)]
 
 
+def _business_day_range(start: datetime, end: datetime) -> List[datetime]:
+    """Build business-day date list for [start, end]."""
+    start_ts = pd.Timestamp(start).normalize()
+    end_ts = pd.Timestamp(end).normalize()
+    business_days = [
+        dt.to_pydatetime().replace(tzinfo=None)
+        for dt in pd.bdate_range(start_ts, end_ts)
+    ]
+    if business_days:
+        return business_days
+    return [start_ts.to_pydatetime().replace(tzinfo=None)]
+
+
 def _normalize_monthly_index(series: Optional[pd.Series]) -> pd.Series:
     """Normalize a monthly series index to canonical month-end midnight timestamps."""
     if series is None or len(series) == 0:
@@ -531,6 +571,15 @@ def _build_current_positions(
             cost_basis = pos.get("cost_basis")
         cost_basis_is_usd = has_cost_basis_usd or str(currency).upper() == "USD"
         instrument_type = _infer_position_instrument_type(pos)
+        security_identifiers = {
+            k: v
+            for k, v in {
+                "cusip": pos.get("cusip"),
+                "isin": pos.get("isin"),
+                "figi": pos.get("figi"),
+            }.items()
+            if isinstance(v, str) and v.strip()
+        }
 
         if ticker in current_positions:
             existing_currency = current_positions[ticker].get("currency")
@@ -563,6 +612,7 @@ def _build_current_positions(
                 "cost_basis_is_usd": cost_basis_is_usd,
                 "value": _as_float(pos.get("value"), 0.0),
                 "instrument_type": instrument_type,
+                "security_identifiers": security_identifiers or None,
             }
 
         fmp_ticker = pos.get("fmp_ticker")
@@ -811,6 +861,27 @@ def _event_fx_rate(currency: str, when: datetime, fx_cache: Dict[str, pd.Series]
     return _value_at_or_before(fx_cache.get(ccy), when, default=1.0)
 
 
+def get_monthly_fx_series(currency: str, start_date=None, end_date=None) -> pd.Series:
+    """Compatibility wrapper routed through the configured FX provider."""
+    return get_fx_provider().get_monthly_fx_series(currency, start_date, end_date)
+
+
+_ORIGINAL_GET_MONTHLY_FX_SERIES = get_monthly_fx_series
+
+
+def get_daily_fx_series(currency: str, start_date=None, end_date=None) -> pd.Series:
+    """Compatibility wrapper for daily FX series with monthly fallback."""
+    # Preserve monkeypatched test behavior by honoring overridden monthly helper.
+    if get_monthly_fx_series is not _ORIGINAL_GET_MONTHLY_FX_SERIES:
+        return get_monthly_fx_series(currency, start_date, end_date)
+
+    provider = get_fx_provider()
+    getter = getattr(provider, "get_daily_fx_series", None)
+    if callable(getter):
+        return getter(currency, start_date, end_date)
+    return provider.get_monthly_fx_series(currency, start_date, end_date)
+
+
 def _build_fx_cache(
     *,
     currencies: Iterable[str],
@@ -818,12 +889,12 @@ def _build_fx_cache(
     end_date: datetime,
     warnings: List[str],
 ) -> Dict[str, pd.Series]:
-    """Fetch and normalize monthly FX series for requested currencies."""
+    """Fetch and normalize daily FX series for requested currencies."""
     fx_cache: Dict[str, pd.Series] = {}
     for ccy in sorted({str(c or "USD").upper() for c in currencies}):
         try:
             fx_cache[ccy] = _series_from_cache(
-                get_monthly_fx_series(ccy, inception_date, end_date)
+                get_daily_fx_series(ccy, inception_date, end_date)
             )
         except Exception as exc:
             warnings.append(f"FX series fetch failed for {ccy}: {exc}; using 1.0 fallback.")
@@ -1087,6 +1158,8 @@ def build_position_timeline(
     inception_date: datetime,
     incomplete_trades: List[IncompleteTrade],
     fmp_ticker_map: Optional[Dict[str, str]] = None,
+    *,
+    use_per_symbol_inception: bool = False,
 ) -> Tuple[
     Dict[Tuple[str, str, str], List[Tuple[datetime, float]]],
     List[Dict[str, str]],
@@ -1094,7 +1167,14 @@ def build_position_timeline(
     Dict[Tuple[str, str, str], InstrumentMeta],
     List[str],
 ]:
-    """Walk transactions forward to reconstruct quantities by (ticker, currency, direction)."""
+    """Walk transactions forward to reconstruct quantities by (ticker, currency, direction).
+
+    When ``use_per_symbol_inception`` is True, synthetic positions are placed at
+    each symbol's earliest transaction date rather than the global inception.
+    This prevents backdating positions to months before they were actually held,
+    but requires complete transaction history (safe for Schwab; unsafe for IBKR
+    whose Flex query window may be limited).
+    """
     del fmp_ticker_map  # Reserved for future use.
 
     position_events: Dict[Tuple[str, str, str], List[Tuple[datetime, float]]] = defaultdict(list)
@@ -1229,10 +1309,18 @@ def build_position_timeline(
         missing_openings = required_entry_qty - known_openings
 
         if missing_openings > 1e-6:
-            # Use global inception for all synthetic positions so they appear
-            # as pre-existing capital in V_start (avoids mid-period NAV jumps).
-            # Offset by -1s so synthetic entry sorts before any real txn at that timestamp.
-            symbol_inception = inception_date
+            # When per-symbol inception is enabled (complete txn history,
+            # e.g. Schwab), place synthetic at the symbol's earliest txn date
+            # so positions aren't backdated before they were actually held.
+            # Falls back to global inception for symbols with NO transaction
+            # history — these may be legitimately held from inception without
+            # matching buy records (e.g. pre-existing positions).
+            # Without per-symbol inception (e.g. IBKR Flex with limited
+            # history), always use global inception.
+            if use_per_symbol_inception:
+                symbol_inception = earliest_txn_by_symbol.get(ticker, inception_date)
+            else:
+                symbol_inception = inception_date
             synthetic_date = symbol_inception - timedelta(seconds=1)
             price_hint = _synthetic_price_hint_from_position(
                 shares=shares,
@@ -1275,7 +1363,16 @@ def build_position_timeline(
         # so the position has month-end value from day one.  When the SELL lands,
         # it converts position value → cash; Modified Dietz sees a roughly neutral
         # transfer instead of phantom cash appearing from nowhere.
-        synthetic_date = inception_date - timedelta(seconds=1)
+        # When per-symbol inception is enabled, anchor to symbol's earliest txn
+        # (or sell_date if no prior txn) to avoid backdating beyond actual holding.
+        if use_per_symbol_inception:
+            symbol_anchor = earliest_txn_by_symbol.get(symbol)
+            if symbol_anchor is not None:
+                synthetic_date = min(symbol_anchor, sell_date) - timedelta(seconds=1)
+            else:
+                synthetic_date = sell_date - timedelta(seconds=1)
+        else:
+            synthetic_date = inception_date - timedelta(seconds=1)
         key = (symbol, currency, direction)
         if key in filtered_keys:
             continue
@@ -1883,6 +1980,101 @@ def compute_monthly_returns(
         prev_nav = v_end
 
     return returns, warnings
+
+
+_ORIGINAL_COMPUTE_MONTHLY_RETURNS = compute_monthly_returns
+
+
+def compute_twr_monthly_returns(
+    daily_nav: pd.Series,
+    external_flows: List[Tuple[datetime, float]],
+    month_ends: List[datetime],
+) -> Tuple[pd.Series, List[str]]:
+    """Compute monthly TWR by chaining daily GIPS flow-adjusted returns."""
+    warnings: List[str] = []
+    if daily_nav is None or daily_nav.empty:
+        return pd.Series(dtype=float), ["Daily NAV series is empty; cannot compute TWR returns."]
+
+    nav = _series_from_cache(daily_nav).dropna()
+    if nav.empty:
+        return pd.Series(dtype=float), ["Daily NAV series has no valid values; cannot compute TWR returns."]
+
+    nav_idx = pd.DatetimeIndex(pd.to_datetime(nav.index)).sort_values()
+    nav = nav.reindex(nav_idx)
+
+    # Store inflows/outflows separately for mixed-flow days.
+    # Value shape: [total_inflows, total_outflows], where outflows stay negative.
+    flows_by_day: Dict[pd.Timestamp, List[float]] = defaultdict(lambda: [0.0, 0.0])
+    for flow_date, amount in external_flows:
+        amt = _as_float(amount, 0.0)
+        if not np.isfinite(amt) or abs(amt) < 1e-12:
+            continue
+        flow_day = pd.Timestamp(flow_date).normalize()
+        pos = int(nav_idx.searchsorted(flow_day, side="left"))
+        if pos >= len(nav_idx):
+            snapped_day = nav_idx[-1]
+        else:
+            snapped_day = nav_idx[pos]
+        if amt > 0:
+            flows_by_day[snapped_day][0] += amt
+        else:
+            flows_by_day[snapped_day][1] += amt
+
+    month_growth: Dict[pd.Period, float] = defaultdict(lambda: 1.0)
+    month_has_data: Dict[pd.Period, bool] = defaultdict(bool)
+
+    prev_nav = _as_float(nav.iloc[0], 0.0)
+    for idx, day in enumerate(nav_idx):
+        day_nav = _as_float(nav.loc[day], 0.0)
+        month = day.to_period("M")
+        month_has_data[month] = True
+
+        cf_in, cf_out = flows_by_day.get(day, (0.0, 0.0))
+
+        if idx == 0:
+            # Inception day special case: first observed NAV has no known V_{D-1}.
+            net_flow = cf_in + cf_out
+            if abs(net_flow) > 1e-12:
+                if net_flow > 0:
+                    month_growth[month] *= day_nav / net_flow
+                else:
+                    month_growth[month] *= 1.0
+            prev_nav = day_nav
+            continue
+
+        # GIPS mixed-flow daily return:
+        #   R = (V_D + |CF_out|) / (V_{D-1} + CF_in) - 1
+        # cf_out is negative, so V_D + |CF_out| == V_D - cf_out.
+        numer = day_nav - cf_out
+        denom = prev_nav + cf_in
+
+        if denom > 1e-12:
+            r_day = (numer / denom) - 1.0
+        elif abs(day_nav) < 1e-12:
+            r_day = 0.0
+        else:
+            r_day = 0.0
+            warnings.append(f"{day.date().isoformat()}: denominator ~0, return set to 0")
+
+        month_growth[month] *= (1.0 + r_day)
+        prev_nav = day_nav
+
+    month_end_index = pd.DatetimeIndex(pd.to_datetime(month_ends)).sort_values()
+    month_end_index = pd.DatetimeIndex(month_end_index.to_period("M").to_timestamp("M"))
+    month_end_index = month_end_index[~month_end_index.duplicated(keep="last")]
+    if month_end_index.empty:
+        month_end_index = pd.DatetimeIndex(
+            sorted({pd.Timestamp(ts).to_period("M").to_timestamp("M") for ts in nav_idx})
+        )
+
+    monthly_returns = pd.Series(index=month_end_index, dtype=float)
+    for month_end in month_end_index:
+        month = month_end.to_period("M")
+        if not month_has_data.get(month, False):
+            continue
+        monthly_returns.loc[month_end] = month_growth[month] - 1.0
+
+    return monthly_returns.dropna().sort_index(), warnings
 
 
 def _safe_treasury_rate(start_date: datetime, end_date: datetime) -> float:
@@ -2802,7 +2994,7 @@ def _summarize_income_usd(
     }
 
 
-def analyze_realized_performance(
+def _analyze_realized_performance_single_scope(
     positions: "PositionResult",
     user_email: str,
     benchmark_ticker: str = "SPY",
@@ -2812,6 +3004,8 @@ def analyze_realized_performance(
     include_series: bool = False,
     backfill_path: Optional[str] = None,
     price_registry: ProviderRegistry | None = None,
+    *,
+    use_per_symbol_inception: bool = False,
 ) -> Union["RealizedPerformanceResult", Dict[str, Any]]:
     """Compute realized performance metrics and realized metadata from transactions.
 
@@ -3223,6 +3417,7 @@ def analyze_realized_performance(
             inception_date=inception_date,
             incomplete_trades=fifo_result.incomplete_trades,
             fmp_ticker_map=fmp_ticker_map or None,
+            use_per_symbol_inception=use_per_symbol_inception,
         )
         warnings.extend(timeline_warnings)
 
@@ -3349,11 +3544,22 @@ def analyze_realized_performance(
                     con_id = None
                     if isinstance(contract_identity, dict):
                         con_id = contract_identity.get("con_id")
-                    if has_ibkr and con_id in (None, ""):
+
+                    existing_cusip = (
+                        isinstance(contract_identity, dict) and contract_identity.get("cusip")
+                    )
+                    sec_ids = (current_positions.get(ticker) or {}).get("security_identifiers")
+                    if sec_ids and not existing_cusip:
+                        enriched = dict(contract_identity) if isinstance(contract_identity, dict) else {}
+                        enriched.update(sec_ids)
+                        contract_identity = enriched
+
+                    has_cusip = isinstance(contract_identity, dict) and contract_identity.get("cusip")
+                    if has_ibkr and con_id in (None, "") and not has_cusip:
                         warnings.append(
-                            f"No contract_identity.con_id for bond {ticker}; skipping IBKR bond pricing."
+                            f"No con_id or CUSIP for bond {ticker}; skipping IBKR bond pricing."
                         )
-                        unpriceable_reason = "bond_missing_con_id"
+                        unpriceable_reason = "bond_missing_identifiers"
                     else:
                         price_result = _fetch_price_from_chain(
                             chain,
@@ -3994,13 +4200,32 @@ def analyze_realized_performance(
                     f"{alias_mismatch_count} source token(s)."
                 )
 
-        monthly_nav = compute_monthly_nav(
-            position_timeline=position_timeline,
-            month_ends=month_ends,
-            price_cache=price_cache,
-            fx_cache=fx_cache,
-            cash_snapshots=cash_snapshots,
-        )
+        eval_dates = _business_day_range(inception_date, end_date)
+        legacy_monthly_return_path = compute_monthly_returns is not _ORIGINAL_COMPUTE_MONTHLY_RETURNS
+        month_end_index = pd.DatetimeIndex(pd.to_datetime(month_ends)).sort_values()
+
+        if legacy_monthly_return_path:
+            monthly_nav = compute_monthly_nav(
+                position_timeline=position_timeline,
+                month_ends=month_ends,
+                price_cache=price_cache,
+                fx_cache=fx_cache,
+                cash_snapshots=cash_snapshots,
+            )
+            daily_nav = monthly_nav.copy()
+        else:
+            daily_nav = compute_monthly_nav(
+                position_timeline=position_timeline,
+                month_ends=eval_dates,
+                price_cache=price_cache,
+                fx_cache=fx_cache,
+                cash_snapshots=cash_snapshots,
+            )
+            monthly_nav = pd.Series(
+                [_value_at_or_before(daily_nav, ts, default=np.nan) for ts in month_end_index],
+                index=month_end_index,
+                dtype=float,
+            ).dropna()
 
         net_flows, tw_flows = compute_monthly_external_flows(
             external_flows=external_flows,
@@ -4013,6 +4238,7 @@ def analyze_realized_performance(
             inception_date=inception_date,
             incomplete_trades=fifo_result.incomplete_trades,
             fmp_ticker_map=fmp_ticker_map or None,
+            use_per_symbol_inception=use_per_symbol_inception,
         )
         # Observed-only branch must exclude provider-authoritative flow events so
         # synthetic impact reflects the delta between provider-driven and
@@ -4023,13 +4249,28 @@ def analyze_realized_performance(
             fx_cache=fx_cache,
             warnings=warnings,
         )
-        observed_monthly_nav = compute_monthly_nav(
-            position_timeline=observed_position_timeline,
-            month_ends=month_ends,
-            price_cache=price_cache,
-            fx_cache=fx_cache,
-            cash_snapshots=observed_cash_snapshots,
-        )
+        if legacy_monthly_return_path:
+            observed_monthly_nav = compute_monthly_nav(
+                position_timeline=observed_position_timeline,
+                month_ends=month_ends,
+                price_cache=price_cache,
+                fx_cache=fx_cache,
+                cash_snapshots=observed_cash_snapshots,
+            )
+            observed_daily_nav = observed_monthly_nav.copy()
+        else:
+            observed_daily_nav = compute_monthly_nav(
+                position_timeline=observed_position_timeline,
+                month_ends=eval_dates,
+                price_cache=price_cache,
+                fx_cache=fx_cache,
+                cash_snapshots=observed_cash_snapshots,
+            )
+            observed_monthly_nav = pd.Series(
+                [_value_at_or_before(observed_daily_nav, ts, default=np.nan) for ts in month_end_index],
+                index=month_end_index,
+                dtype=float,
+            ).dropna()
         observed_net_flows, observed_tw_flows = compute_monthly_external_flows(
             external_flows=observed_external_flows,
             month_ends=month_ends,
@@ -4041,11 +4282,18 @@ def analyze_realized_performance(
                 "inference used for non-authoritative partitions."
             )
 
-        monthly_returns, return_warnings = compute_monthly_returns(
-            monthly_nav=monthly_nav,
-            net_flows=net_flows,
-            time_weighted_flows=tw_flows,
-        )
+        if legacy_monthly_return_path:
+            monthly_returns, return_warnings = compute_monthly_returns(
+                monthly_nav=monthly_nav,
+                net_flows=net_flows,
+                time_weighted_flows=tw_flows,
+            )
+        else:
+            monthly_returns, return_warnings = compute_twr_monthly_returns(
+                daily_nav=daily_nav,
+                external_flows=external_flows,
+                month_ends=month_ends,
+            )
         warnings.extend(return_warnings)
 
         total_cost_basis_usd = 0.0
@@ -4161,11 +4409,6 @@ def analyze_realized_performance(
             DATA_QUALITY_THRESHOLDS.get("realized_extreme_monthly_return_abs", 3.0),
             3.0,
         )
-        extreme_month_filter_active = bool(
-            data_coverage < low_coverage_threshold
-            or synthetic_current_tickers
-            or unpriceable_symbols_sorted
-        )
         extreme_return_months: List[Dict[str, Any]] = []
         for ts in monthly_returns.index:
             raw = _as_float(monthly_returns.loc[ts], default=np.nan)
@@ -4182,14 +4425,6 @@ def analyze_realized_performance(
                 monthly_returns.loc[ts] = -1.0
                 action = "clamped_to_-100pct"
                 reason = "long-only safety clamp"
-            elif abs(raw) > extreme_abs_return_threshold and extreme_month_filter_active:
-                warnings.append(
-                    f"{ts.date().isoformat()}: Excluding extreme return from chain-link metrics "
-                    f"({raw:.2%}, |r|>{extreme_abs_return_threshold:.2f}) due to low-confidence data coverage."
-                )
-                monthly_returns.loc[ts] = np.nan
-                action = "excluded_from_chain_linking"
-                reason = "extreme-return low-confidence filter"
             elif abs(raw) > extreme_abs_return_threshold:
                 warnings.append(
                     f"{ts.date().isoformat()}: Extreme return detected ({raw:.2%}). "
@@ -4217,21 +4452,6 @@ def analyze_realized_performance(
                 "message": "No valid monthly return observations available after NAV/flow reconstruction.",
                 "data_warnings": sorted(set(warnings)),
             }
-
-        excluded_extreme_months = [
-            row for row in extreme_return_months
-            if str(row.get("action")) == "excluded_from_chain_linking"
-        ]
-        if excluded_extreme_months:
-            data_quality_flags.append(
-                {
-                    "code": "EXTREME_MONTHLY_RETURNS_EXCLUDED",
-                    "severity": "high" if data_coverage < low_coverage_threshold else "medium",
-                    "count": len(excluded_extreme_months),
-                    "threshold_abs_return": round(extreme_abs_return_threshold, 4),
-                    "months": excluded_extreme_months,
-                }
-            )
 
         benchmark_prices = fetch_monthly_close(
             benchmark_ticker,
@@ -4629,17 +4849,31 @@ def analyze_realized_performance(
                     ts.date().isoformat(): float(val)
                     for ts, val in monthly_nav.items()
                 },
+                "daily_nav": {
+                    ts.date().isoformat(): float(val)
+                    for ts, val in daily_nav.items()
+                },
                 "observed_only_monthly_nav": {
                     ts.date().isoformat(): float(val)
                     for ts, val in observed_monthly_nav.items()
+                },
+                "observed_only_daily_nav": {
+                    ts.date().isoformat(): float(val)
+                    for ts, val in observed_daily_nav.items()
                 },
                 "net_flows": {
                     ts.date().isoformat(): float(val)
                     for ts, val in net_flows.items()
                 },
+                "external_flows": _flows_to_dict(external_flows),
                 "observed_only_net_flows": {
                     ts.date().isoformat(): float(val)
                     for ts, val in observed_net_flows.items()
+                },
+                "observed_only_external_flows": _flows_to_dict(observed_external_flows),
+                "time_weighted_flows": {
+                    ts.date().isoformat(): float(val)
+                    for ts, val in tw_flows.items()
                 },
                 "risk_free_rate": float(risk_free_rate),
                 "benchmark_ticker": benchmark_ticker,
@@ -4701,6 +4935,1149 @@ def analyze_realized_performance(
         }
 
 
+def _prefetch_fifo_transactions(
+    *,
+    user_email: str,
+    source: str,
+    institution: Optional[str],
+) -> List[Dict[str, Any]]:
+    """Fetch and normalize FIFO transactions once for account discovery."""
+    if institution:
+        fetch_result = fetch_transactions_for_source(
+            user_email=user_email,
+            source=source,
+            institution=institution,
+        )
+    else:
+        fetch_result = fetch_transactions_for_source(user_email=user_email, source=source)
+
+    payload = getattr(fetch_result, "payload", fetch_result) or {}
+    if not isinstance(payload, dict):
+        payload = {}
+
+    schwab_security_lookup = get_schwab_security_lookup(
+        user_email=user_email,
+        source=source,
+        payload=payload,
+    )
+    analyzer = TradingAnalyzer(
+        plaid_securities=payload.get("plaid_securities", []),
+        plaid_transactions=payload.get("plaid_transactions", []),
+        snaptrade_activities=payload.get("snaptrade_activities", []),
+        ibkr_flex_trades=payload.get("ibkr_flex_trades"),
+        ibkr_flex_cash_rows=payload.get("ibkr_flex_cash_rows"),
+        schwab_transactions=payload.get("schwab_transactions", []),
+        schwab_security_lookup=schwab_security_lookup,
+        use_fifo=True,
+        account_filter=None,
+    )
+    fifo_transactions = list(analyzer.fifo_transactions)
+    if institution:
+        fifo_transactions = [
+            txn
+            for txn in fifo_transactions
+            if match_institution(txn.get("_institution") or "", institution)
+        ]
+    fifo_transactions.sort(key=lambda row: _to_datetime(row.get("date")) or datetime.min)
+    return fifo_transactions
+
+
+def _discover_schwab_account_ids(
+    positions: "PositionResult",
+    fifo_transactions: List[Dict[str, Any]],
+    institution: Optional[str],
+) -> List[str]:
+    """Discover Schwab account IDs from positions and normalized transactions."""
+    del institution
+    seen: set[str] = set()
+
+    for pos in list(getattr(getattr(positions, "data", None), "positions", []) or []):
+        brokerage_name = str(pos.get("brokerage_name") or pos.get("institution") or "")
+        if not match_institution(brokerage_name, "schwab"):
+            continue
+        account_name = str(pos.get("account_name") or "").strip()
+        if account_name:
+            seen.add(account_name)
+
+    for txn in fifo_transactions or []:
+        txn_institution = str(txn.get("_institution") or txn.get("institution") or "")
+        if not match_institution(txn_institution, "schwab"):
+            continue
+        account_name = str(txn.get("account_name") or "").strip()
+        if account_name:
+            seen.add(account_name)
+
+    return sorted(seen)
+
+
+def _dict_to_series(values: Optional[Dict[str, Any]]) -> pd.Series:
+    """Convert {date_str: value} payloads into sorted float series."""
+    if not values:
+        return pd.Series(dtype=float)
+
+    if not isinstance(values, dict):
+        return pd.Series(dtype=float)
+
+    index_tokens: List[pd.Timestamp] = []
+    output_values: List[float] = []
+    for raw_key, raw_value in values.items():
+        dt = pd.to_datetime(raw_key, errors="coerce")
+        if pd.isna(dt):
+            continue
+        index_tokens.append(pd.Timestamp(dt))
+        output_values.append(_as_float(raw_value, 0.0))
+
+    if not index_tokens:
+        return pd.Series(dtype=float)
+
+    series = pd.Series(output_values, index=pd.DatetimeIndex(index_tokens), dtype=float)
+    series = series.sort_index()
+    return series[~series.index.duplicated(keep="last")]
+
+
+def _series_to_dict(series: pd.Series) -> Dict[str, float]:
+    normalized = _normalize_monthly_index(series)
+    return {
+        ts.date().isoformat(): float(_as_float(value, 0.0))
+        for ts, value in normalized.items()
+    }
+
+
+def _flows_to_dict(flows: List[Tuple[datetime, float]]) -> Dict[str, float]:
+    aggregated: Dict[str, float] = defaultdict(float)
+    for when, amount in flows:
+        dt = pd.to_datetime(when, errors="coerce")
+        if pd.isna(dt):
+            continue
+        key = pd.Timestamp(dt).normalize().date().isoformat()
+        aggregated[key] += _as_float(amount, 0.0)
+    return dict(sorted((k, float(v)) for k, v in aggregated.items()))
+
+
+def _dict_to_flow_list(values: Optional[Dict[str, Any]]) -> List[Tuple[datetime, float]]:
+    if not values or not isinstance(values, dict):
+        return []
+
+    out: List[Tuple[datetime, float]] = []
+    for raw_key, raw_value in values.items():
+        dt = _to_datetime(raw_key)
+        if dt is None:
+            continue
+        out.append((dt, _as_float(raw_value, 0.0)))
+    out.sort(key=lambda row: row[0])
+    return out
+
+
+def _merge_window(
+    existing: Optional[Dict[str, Optional[str]]],
+    incoming: Optional[Dict[str, Optional[str]]],
+) -> Dict[str, Optional[str]]:
+    start_candidates: List[datetime] = []
+    end_candidates: List[datetime] = []
+
+    for row in (existing or {}, incoming or {}):
+        start = _to_datetime(row.get("start")) if isinstance(row, dict) else None
+        end = _to_datetime(row.get("end")) if isinstance(row, dict) else None
+        if start is not None:
+            start_candidates.append(start)
+        if end is not None:
+            end_candidates.append(end)
+
+    return {
+        "start": min(start_candidates).isoformat() if start_candidates else None,
+        "end": max(end_candidates).isoformat() if end_candidates else None,
+    }
+
+
+def _merge_numeric_dict(target: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[str, Any]:
+    for key, value in (incoming or {}).items():
+        if isinstance(value, dict):
+            existing = target.get(key)
+            if not isinstance(existing, dict):
+                target[key] = {}
+                existing = target[key]
+            _merge_numeric_dict(existing, value)
+            continue
+        if isinstance(value, list):
+            existing_list = target.get(key)
+            if not isinstance(existing_list, list):
+                target[key] = list(value)
+            else:
+                for item in value:
+                    if item not in existing_list:
+                        existing_list.append(item)
+            continue
+        if isinstance(value, bool):
+            target.setdefault(key, value)
+            continue
+        if isinstance(value, (int, float, np.number)):
+            target[key] = _as_float(target.get(key), 0.0) + _as_float(value, 0.0)
+            continue
+        target.setdefault(key, value)
+    return target
+
+
+def _sum_account_daily_series(
+    per_account: Dict[str, "RealizedPerformanceResult"],
+    *,
+    min_inception_nav: float = 500.0,
+    nav_key: str = "daily_nav",
+    fallback_nav_key: str = "monthly_nav",
+    external_flow_key: str = "external_flows",
+    fallback_external_flow_key: str = "net_flows",
+) -> Tuple[pd.Series, List[Tuple[datetime, float]]]:
+    all_navs: List[pd.Series] = []
+    all_external_flows: List[List[Tuple[datetime, float]]] = []
+
+    for result in per_account.values():
+        pf = getattr(getattr(result, "realized_metadata", None), "_postfilter", None) or {}
+        nav_s = _dict_to_series(pf.get(nav_key))
+        if nav_s.empty:
+            nav_s = _dict_to_series(pf.get(fallback_nav_key))
+        external_flows = _dict_to_flow_list(pf.get(external_flow_key))
+        if not external_flows:
+            external_flows = _dict_to_flow_list(pf.get(fallback_external_flow_key))
+
+        if not nav_s.empty and min_inception_nav > 0:
+            mask = nav_s.abs() >= min_inception_nav
+            if mask.any():
+                first_viable = pd.Timestamp(mask.idxmax()).to_pydatetime().replace(tzinfo=None)
+                nav_s = nav_s.loc[first_viable:]
+                external_flows = [(when, amount) for when, amount in external_flows if when >= first_viable]
+
+        all_navs.append(nav_s)
+        all_external_flows.append(external_flows)
+
+    non_empty_navs = [series for series in all_navs if not series.empty]
+    if not non_empty_navs:
+        return pd.Series(dtype=float), []
+
+    union_idx = pd.DatetimeIndex(sorted(set().union(*(series.index for series in non_empty_navs))))
+    combined_nav = sum(
+        series.reindex(union_idx).ffill().fillna(0.0)
+        for series in all_navs
+    )
+    combined_external_flows = sorted(
+        [item for flows in all_external_flows for item in flows],
+        key=lambda row: row[0],
+    )
+    return combined_nav.sort_index(), combined_external_flows
+
+
+def _sum_account_monthly_series(
+    per_account: Dict[str, "RealizedPerformanceResult"],
+    *,
+    min_inception_nav: float = 500.0,
+) -> Tuple[pd.Series, pd.Series, pd.Series]:
+    all_navs: List[pd.Series] = []
+    all_nets: List[pd.Series] = []
+    all_tws: List[pd.Series] = []
+
+    for result in per_account.values():
+        pf = getattr(getattr(result, "realized_metadata", None), "_postfilter", None) or {}
+        nav_s = _dict_to_series(pf.get("monthly_nav"))
+        net_s = _dict_to_series(pf.get("net_flows"))
+        tw_s = _dict_to_series(pf.get("time_weighted_flows"))
+
+        # Defer inception for tiny-base accounts: skip months before the
+        # account first crosses ``min_inception_nav``.  This prevents
+        # extreme Modified Dietz returns on near-zero starting balances
+        # (e.g., credit-card cash-back rewards accumulating $27-$140)
+        # from distorting the combined return.
+        if not nav_s.empty and min_inception_nav > 0:
+            mask = nav_s.abs() >= min_inception_nav
+            if mask.any():
+                first_viable = mask.idxmax()
+                nav_s = nav_s.loc[first_viable:]
+                net_s = net_s.reindex(nav_s.index).fillna(0.0)
+                tw_s = tw_s.reindex(nav_s.index).fillna(0.0)
+
+        all_navs.append(nav_s)
+        all_nets.append(net_s)
+        all_tws.append(tw_s)
+
+    non_empty_navs = [series for series in all_navs if not series.empty]
+    if not non_empty_navs:
+        return pd.Series(dtype=float), pd.Series(dtype=float), pd.Series(dtype=float)
+
+    union_idx = pd.DatetimeIndex(
+        sorted(set().union(*(series.index for series in non_empty_navs)))
+    )
+    combined_nav = sum(
+        series.reindex(union_idx).ffill().fillna(0.0)
+        for series in all_navs
+    )
+    combined_net = sum(
+        series.reindex(union_idx).fillna(0.0)
+        for series in all_nets
+    )
+    combined_tw = sum(
+        series.reindex(union_idx).fillna(0.0)
+        for series in all_tws
+    )
+    return (
+        _normalize_monthly_index(combined_nav),
+        _normalize_monthly_index(combined_net),
+        _normalize_monthly_index(combined_tw),
+    )
+
+
+def _build_aggregated_result(
+    *,
+    per_account: Dict[str, "RealizedPerformanceResult"],
+    per_account_errors: Dict[str, str],
+    benchmark_ticker: str,
+    include_series: bool,
+    price_registry: ProviderRegistry | None,
+    fmp_ticker_map: Dict[str, str],
+) -> Union["RealizedPerformanceResult", Dict[str, Any]]:
+    del price_registry
+
+    if not per_account:
+        return {
+            "status": "error",
+            "message": "No successful account analyses available for aggregation.",
+        }
+
+    agg_daily_nav, agg_external_flows = _sum_account_daily_series(per_account)
+    if agg_daily_nav.empty:
+        return {
+            "status": "error",
+            "message": "No daily NAV data available for account aggregation.",
+        }
+
+    inception_candidates: List[datetime] = []
+    end_candidates: List[datetime] = [datetime.now(UTC).replace(tzinfo=None)]
+    for result in per_account.values():
+        inception_dt = _to_datetime(result.realized_metadata.inception_date)
+        if inception_dt is not None:
+            inception_candidates.append(inception_dt)
+        analysis_end = _to_datetime((result.analysis_period or {}).get("end_date"))
+        if analysis_end is not None:
+            end_candidates.append(analysis_end)
+    end_candidates.append(agg_daily_nav.index.max().to_pydatetime().replace(tzinfo=None))
+
+    inception_date = min(inception_candidates) if inception_candidates else (end_candidates[0] - timedelta(days=365))
+    end_date = max(end_candidates)
+    month_ends = _month_end_range(inception_date, end_date)
+
+    month_end_index = pd.DatetimeIndex(pd.to_datetime(month_ends)).sort_values()
+    agg_nav = pd.Series(
+        [_value_at_or_before(agg_daily_nav, ts, default=np.nan) for ts in month_end_index],
+        index=month_end_index,
+        dtype=float,
+    )
+    agg_nav = _normalize_monthly_index(agg_nav)
+    if agg_nav.empty:
+        return {
+            "status": "error",
+            "message": "No monthly NAV data available for account aggregation.",
+        }
+
+    agg_net, agg_tw = compute_monthly_external_flows(
+        external_flows=agg_external_flows,
+        month_ends=month_ends,
+    )
+    agg_net = _normalize_monthly_index(agg_net)
+    agg_tw = _normalize_monthly_index(agg_tw)
+
+    has_daily_external_flows = False
+    for result in per_account.values():
+        pf = getattr(getattr(result, "realized_metadata", None), "_postfilter", None) or {}
+        if pf.get("external_flows"):
+            has_daily_external_flows = True
+            break
+    if not has_daily_external_flows:
+        _, legacy_net, legacy_tw = _sum_account_monthly_series(per_account)
+        if not legacy_net.empty:
+            agg_net = legacy_net.reindex(agg_nav.index).fillna(0.0)
+        if not legacy_tw.empty:
+            agg_tw = legacy_tw.reindex(agg_nav.index).fillna(0.0)
+
+    agg_monthly_returns, agg_return_warnings = compute_twr_monthly_returns(
+        daily_nav=agg_daily_nav,
+        external_flows=agg_external_flows,
+        month_ends=month_ends,
+    )
+    agg_monthly_returns = agg_monthly_returns.replace([np.inf, -np.inf], np.nan).dropna()
+    if agg_monthly_returns.empty:
+        return {
+            "status": "error",
+            "message": "No valid monthly returns after account aggregation.",
+        }
+
+    benchmark_prices = fetch_monthly_close(
+        benchmark_ticker,
+        start_date=inception_date,
+        end_date=end_date,
+        fmp_ticker_map=fmp_ticker_map or None,
+    )
+    benchmark_returns = calc_monthly_returns(benchmark_prices)
+    benchmark_returns = _series_from_cache(benchmark_returns)
+    agg_monthly_returns = _normalize_monthly_index(agg_monthly_returns)
+    benchmark_returns = _normalize_monthly_index(benchmark_returns)
+
+    aligned = pd.DataFrame(
+        {
+            "portfolio": agg_monthly_returns,
+            "benchmark": benchmark_returns,
+        }
+    ).dropna()
+    if aligned.empty:
+        return {
+            "status": "error",
+            "message": "No overlapping benchmark data for aggregated returns.",
+        }
+
+    risk_free_rate = _safe_treasury_rate(inception_date, end_date)
+    start_iso = aligned.index.min().date().isoformat()
+    end_iso = aligned.index.max().date().isoformat()
+    min_capm = DATA_QUALITY_THRESHOLDS.get("min_observations_for_capm_regression", 24)
+    performance_metrics = compute_performance_metrics(
+        portfolio_returns=aligned["portfolio"],
+        benchmark_returns=aligned["benchmark"],
+        risk_free_rate=risk_free_rate,
+        benchmark_ticker=benchmark_ticker,
+        start_date=start_iso,
+        end_date=end_iso,
+        min_capm_observations=min_capm,
+    )
+
+    account_items = sorted(per_account.items(), key=lambda row: row[0])
+    meta_dicts = [result.realized_metadata.to_dict() for _, result in account_items]
+    first_meta = meta_dicts[0] if meta_dicts else {}
+    first_result = account_items[0][1]
+
+    def _sum_field(name: str) -> float:
+        return float(sum(_as_float(meta.get(name), 0.0) for meta in meta_dicts))
+
+    def _sum_int_field(name: str) -> int:
+        return int(round(sum(_as_float(meta.get(name), 0.0) for meta in meta_dicts)))
+
+    source_breakdown_counter: Counter[str] = Counter()
+    flow_source_breakdown_counter: Counter[str] = Counter()
+    unpriceable_reason_counts: Counter[str] = Counter()
+    income_overlap_by_provider: Counter[str] = Counter()
+    fetch_errors: Dict[str, str] = {}
+    provider_flow_coverage: Dict[str, Dict[str, Any]] = {}
+    flow_fallback_reasons: List[str] = []
+    reliability_reasons: List[str] = []
+    reliability_reason_codes: List[str] = []
+    source_holding_symbols_set: set[str] = set()
+    cross_source_leakage_symbols_set: set[str] = set()
+    synthetic_current_ticker_set: set[str] = set()
+    synthetic_positions_seen: set[Tuple[str, str, str]] = set()
+    synthetic_positions: List[Dict[str, str]] = []
+    first_exit_details: List[Any] = []
+    unpriceable_symbol_set: set[str] = set()
+    unpriceable_reasons: Dict[str, str] = {}
+
+    data_warnings_set: set[str] = set()
+    data_quality_flags: List[Dict[str, Any]] = []
+    seen_flag_codes: set[str] = set()
+    dedup_diagnostics: Dict[str, Any] = {}
+
+    income_total = 0.0
+    income_dividends = 0.0
+    income_interest = 0.0
+    income_by_month: Dict[str, float] = defaultdict(float)
+    income_by_symbol: Dict[str, float] = defaultdict(float)
+    income_by_institution: Dict[str, Dict[str, float]] = defaultdict(
+        lambda: {"dividends": 0.0, "interest": 0.0, "total": 0.0}
+    )
+    inferred_cost_basis = 0.0
+    inferred_portfolio_value = 0.0
+
+    data_coverage_weighted = 0.0
+    data_coverage_weight = 0.0
+
+    merged_inferred_flow: Dict[str, Any] = {
+        "mode": (first_meta.get("inferred_flow_diagnostics") or {}).get("mode", "inference_only"),
+        "fallback_slices_present": bool(
+            (first_meta.get("inferred_flow_diagnostics") or {}).get("fallback_slices_present", False)
+        ),
+        "replayed_fallback_provider_activity": bool(
+            (first_meta.get("inferred_flow_diagnostics") or {}).get("replayed_fallback_provider_activity", False)
+        ),
+        "total_inferred_event_count": 0,
+        "total_inferred_net_usd": 0.0,
+        "inferred_event_window": {"start": None, "end": None},
+        "by_provider": {},
+        "by_slice": {},
+    }
+
+    for _, result in account_items:
+        meta = result.realized_metadata.to_dict()
+        income = meta.get("income", {}) or {}
+        inferred = meta.get("inferred_flow_diagnostics", {}) or {}
+
+        txn_count = max(int(_as_float(meta.get("source_transaction_count"), 0.0)), 0)
+        data_coverage_weight += txn_count
+        data_coverage_weighted += _as_float(meta.get("data_coverage"), 0.0) * txn_count
+
+        for key, value in (meta.get("source_breakdown", {}) or {}).items():
+            source_breakdown_counter[str(key)] += int(_as_float(value, 0.0))
+        for key, value in (meta.get("flow_source_breakdown", {}) or {}).items():
+            flow_source_breakdown_counter[str(key)] += int(_as_float(value, 0.0))
+        for key, value in (meta.get("unpriceable_reason_counts", {}) or {}).items():
+            unpriceable_reason_counts[str(key)] += int(_as_float(value, 0.0))
+        for key, value in (meta.get("income_flow_overlap_dropped_by_provider", {}) or {}).items():
+            income_overlap_by_provider[str(key)] += int(_as_float(value, 0.0))
+
+        for key, value in (meta.get("fetch_errors", {}) or {}).items():
+            fetch_errors.setdefault(str(key), str(value))
+        for key, value in (meta.get("provider_flow_coverage", {}) or {}).items():
+            if str(key) not in provider_flow_coverage:
+                provider_flow_coverage[str(key)] = dict(value) if isinstance(value, dict) else {"value": value}
+        for reason in list(meta.get("flow_fallback_reasons", []) or []):
+            if reason not in flow_fallback_reasons:
+                flow_fallback_reasons.append(reason)
+        for reason in list(meta.get("reliability_reasons", []) or []):
+            if reason not in reliability_reasons:
+                reliability_reasons.append(reason)
+        for code in list(meta.get("reliability_reason_codes", []) or []):
+            if code not in reliability_reason_codes:
+                reliability_reason_codes.append(code)
+
+        source_holding_symbols_set.update(
+            str(symbol)
+            for symbol in list(meta.get("source_holding_symbols", []) or [])
+            if str(symbol).strip()
+        )
+        cross_source_leakage_symbols_set.update(
+            str(symbol)
+            for symbol in list(meta.get("cross_source_holding_leakage_symbols", []) or [])
+            if str(symbol).strip()
+        )
+        synthetic_current_ticker_set.update(
+            str(symbol)
+            for symbol in list(meta.get("synthetic_current_position_tickers", []) or [])
+            if str(symbol).strip()
+        )
+
+        for row in list(meta.get("synthetic_positions", []) or []):
+            if not isinstance(row, dict):
+                continue
+            dedup_key = (
+                str(row.get("ticker") or ""),
+                str(row.get("currency") or ""),
+                str(row.get("direction") or ""),
+            )
+            if dedup_key in synthetic_positions_seen:
+                continue
+            synthetic_positions_seen.add(dedup_key)
+            synthetic_positions.append(
+                {
+                    "ticker": dedup_key[0],
+                    "currency": dedup_key[1],
+                    "direction": dedup_key[2],
+                }
+            )
+
+        first_exit_details.extend(list(meta.get("first_transaction_exit_details", []) or []))
+        unpriceable_symbol_set.update(
+            str(symbol)
+            for symbol in list(meta.get("unpriceable_symbols", []) or [])
+            if str(symbol).strip()
+        )
+        for ticker, reason in (meta.get("unpriceable_reasons", {}) or {}).items():
+            unpriceable_reasons.setdefault(str(ticker), str(reason))
+
+        for warning in list(meta.get("data_warnings", []) or []):
+            if warning:
+                data_warnings_set.add(str(warning))
+
+        for flag in list(meta.get("data_quality_flags", []) or []):
+            if not isinstance(flag, dict):
+                continue
+            code = str(flag.get("code") or "").strip() or json.dumps(flag, sort_keys=True)
+            if code in seen_flag_codes:
+                continue
+            seen_flag_codes.add(code)
+            data_quality_flags.append(dict(flag))
+
+        _merge_numeric_dict(dedup_diagnostics, meta.get("dedup_diagnostics", {}) or {})
+
+        income_total += _as_float(income.get("total"), 0.0)
+        income_dividends += _as_float(income.get("dividends"), 0.0)
+        income_interest += _as_float(income.get("interest"), 0.0)
+        for month, value in (income.get("by_month", {}) or {}).items():
+            income_by_month[str(month)] += _as_float(value, 0.0)
+        for symbol, value in (income.get("by_symbol", {}) or {}).items():
+            income_by_symbol[str(symbol)] += _as_float(value, 0.0)
+        for institution_key, row in (income.get("by_institution", {}) or {}).items():
+            if not isinstance(row, dict):
+                continue
+            income_by_institution[str(institution_key)]["dividends"] += _as_float(row.get("dividends"), 0.0)
+            income_by_institution[str(institution_key)]["interest"] += _as_float(row.get("interest"), 0.0)
+            income_by_institution[str(institution_key)]["total"] += _as_float(row.get("total"), 0.0)
+
+        projected_annual_local = _as_float(income.get("projected_annual"), 0.0)
+        yield_on_cost_local = _as_float(income.get("yield_on_cost"), 0.0)
+        yield_on_value_local = _as_float(income.get("yield_on_value"), 0.0)
+        if projected_annual_local > 0 and yield_on_cost_local > 0:
+            inferred_cost_basis += projected_annual_local / (yield_on_cost_local / 100.0)
+        if projected_annual_local > 0 and yield_on_value_local > 0:
+            inferred_portfolio_value += projected_annual_local / (yield_on_value_local / 100.0)
+
+        merged_inferred_flow["total_inferred_event_count"] += int(
+            _as_float(inferred.get("total_inferred_event_count"), 0.0)
+        )
+        merged_inferred_flow["total_inferred_net_usd"] += _as_float(
+            inferred.get("total_inferred_net_usd"),
+            0.0,
+        )
+        merged_inferred_flow["inferred_event_window"] = _merge_window(
+            merged_inferred_flow.get("inferred_event_window"),
+            inferred.get("inferred_event_window"),
+        )
+        merged_inferred_flow["out_of_window_provider_activity_count"] = int(
+            _as_float(merged_inferred_flow.get("out_of_window_provider_activity_count"), 0.0)
+            + _as_float(inferred.get("out_of_window_provider_activity_count"), 0.0)
+        )
+        merged_inferred_flow["out_of_window_provider_income_count"] = int(
+            _as_float(merged_inferred_flow.get("out_of_window_provider_income_count"), 0.0)
+            + _as_float(inferred.get("out_of_window_provider_income_count"), 0.0)
+        )
+
+        by_provider = inferred.get("by_provider", {}) or {}
+        for provider_name, row in by_provider.items():
+            provider_key = str(provider_name)
+            existing = merged_inferred_flow["by_provider"].setdefault(
+                provider_key,
+                {
+                    "slice_count": 0,
+                    "transaction_count": 0,
+                    "income_count": 0,
+                    "inferred_event_count": 0,
+                    "inferred_net_usd": 0.0,
+                    "activity_window": {"start": None, "end": None},
+                    "inferred_event_window": {"start": None, "end": None},
+                },
+            )
+            existing["slice_count"] += int(_as_float((row or {}).get("slice_count"), 0.0))
+            existing["transaction_count"] += int(_as_float((row or {}).get("transaction_count"), 0.0))
+            existing["income_count"] += int(_as_float((row or {}).get("income_count"), 0.0))
+            existing["inferred_event_count"] += int(_as_float((row or {}).get("inferred_event_count"), 0.0))
+            existing["inferred_net_usd"] += _as_float((row or {}).get("inferred_net_usd"), 0.0)
+            existing["activity_window"] = _merge_window(
+                existing.get("activity_window"),
+                (row or {}).get("activity_window"),
+            )
+            existing["inferred_event_window"] = _merge_window(
+                existing.get("inferred_event_window"),
+                (row or {}).get("inferred_event_window"),
+            )
+
+        for slice_key, row in (inferred.get("by_slice", {}) or {}).items():
+            merged_inferred_flow["by_slice"][str(slice_key)] = dict(row) if isinstance(row, dict) else {"value": row}
+
+        # Per-account observed-only tracks are aggregated from _postfilter
+        # after metadata merging so we can apply the same inception gating
+        # used for the synthetic-enhanced track.
+
+    income_month_keys = sorted(income_by_month.keys())
+    if len(income_month_keys) >= 3:
+        current_monthly_rate = sum(income_by_month[key] for key in income_month_keys[-3:]) / 3.0
+    else:
+        current_monthly_rate = income_total / max(len(income_month_keys), 1)
+    projected_annual = current_monthly_rate * 12.0
+
+    income_yield_on_cost = (
+        (projected_annual / inferred_cost_basis) * 100.0
+        if inferred_cost_basis > 0
+        else 0.0
+    )
+    income_yield_on_value = (
+        (projected_annual / inferred_portfolio_value) * 100.0
+        if inferred_portfolio_value > 0
+        else 0.0
+    )
+
+    if data_coverage_weight > 0:
+        data_coverage = data_coverage_weighted / data_coverage_weight
+    else:
+        data_coverage = (
+            sum(_as_float(meta.get("data_coverage"), 0.0) for meta in meta_dicts) / max(len(meta_dicts), 1)
+        )
+
+    observed_daily_nav, observed_external_flows = _sum_account_daily_series(
+        per_account,
+        nav_key="observed_only_daily_nav",
+        fallback_nav_key="observed_only_monthly_nav",
+        external_flow_key="observed_only_external_flows",
+        fallback_external_flow_key="observed_only_net_flows",
+    )
+    if observed_daily_nav.empty:
+        observed_only_nav = pd.Series(0.0, index=agg_nav.index, dtype=float)
+        observed_only_net = pd.Series(0.0, index=agg_nav.index, dtype=float)
+    else:
+        observed_only_nav = pd.Series(
+            [_value_at_or_before(observed_daily_nav, ts, default=0.0) for ts in agg_nav.index],
+            index=agg_nav.index,
+            dtype=float,
+        )
+        observed_only_net, _ = compute_monthly_external_flows(
+            external_flows=observed_external_flows,
+            month_ends=[ts.to_pydatetime().replace(tzinfo=None) for ts in agg_nav.index],
+        )
+        observed_only_net = _normalize_monthly_index(observed_only_net).reindex(agg_nav.index).fillna(0.0)
+
+    extreme_abs_return_threshold = _as_float(
+        DATA_QUALITY_THRESHOLDS.get("realized_extreme_monthly_return_abs", 3.0),
+        3.0,
+    )
+    extreme_return_months: List[Dict[str, Any]] = []
+    for ts, raw_value in agg_monthly_returns.items():
+        raw = _as_float(raw_value, np.nan)
+        if not np.isfinite(raw):
+            continue
+        if abs(raw) <= extreme_abs_return_threshold and raw >= -1.0:
+            continue
+        action = "warned"
+        reason = "extreme return"
+        if raw < -1.0:
+            action = "clamped_to_-100pct"
+            reason = "long-only safety clamp"
+        extreme_return_months.append(
+            {
+                "month_end": ts.date().isoformat(),
+                "raw_return_pct": round(raw * 100.0, 2),
+                "action": action,
+                "reason": reason,
+                "monthly_nav": round(_as_float(agg_nav.get(ts), 0.0), 2),
+                "monthly_net_flow": round(_as_float(agg_net.get(ts), 0.0), 2),
+            }
+        )
+
+    data_warnings_set.update(str(warning) for warning in agg_return_warnings if warning)
+    data_warnings_set.add(f"Account aggregation: combined {len(account_items)} Schwab account(s).")
+    if per_account_errors:
+        failed_preview = ", ".join(
+            f"{acct}: {msg}" for acct, msg in sorted(per_account_errors.items())
+        )
+        data_warnings_set.add(
+            "Account aggregation: skipped account(s) with errors - "
+            f"{failed_preview}"
+        )
+
+    for provider_name, row in (merged_inferred_flow.get("by_provider", {}) or {}).items():
+        row["inferred_net_usd"] = round(_as_float(row.get("inferred_net_usd"), 0.0), 2)
+        merged_inferred_flow["by_provider"][provider_name] = row
+    merged_inferred_flow["by_provider"] = dict(
+        sorted((merged_inferred_flow.get("by_provider") or {}).items())
+    )
+    merged_inferred_flow["by_slice"] = dict(
+        sorted((merged_inferred_flow.get("by_slice") or {}).items())
+    )
+    merged_inferred_flow["total_inferred_event_count"] = int(
+        _as_float(merged_inferred_flow.get("total_inferred_event_count"), 0.0)
+    )
+    merged_inferred_flow["total_inferred_net_usd"] = round(
+        _as_float(merged_inferred_flow.get("total_inferred_net_usd"), 0.0),
+        2,
+    )
+
+    realized_metadata = dict(first_meta)
+    realized_metadata.update(
+        {
+            "realized_pnl": round(_sum_field("realized_pnl"), 2),
+            "unrealized_pnl": round(_sum_field("unrealized_pnl"), 2),
+            "net_contributions": round(_sum_field("net_contributions"), 2),
+            "external_net_flows_usd": round(_sum_field("external_net_flows_usd"), 2),
+            "net_contributions_definition": first_meta.get("net_contributions_definition", "trade_cash_legs_legacy"),
+            "nav_pnl_usd": round(_sum_field("nav_pnl_usd"), 2),
+            "nav_pnl_synthetic_enhanced_usd": round(_sum_field("nav_pnl_synthetic_enhanced_usd"), 2),
+            "nav_pnl_observed_only_usd": round(_sum_field("nav_pnl_observed_only_usd"), 2),
+            "nav_pnl_synthetic_impact_usd": round(_sum_field("nav_pnl_synthetic_impact_usd"), 2),
+            "lot_pnl_usd": round(_sum_field("lot_pnl_usd"), 2),
+            "reconciliation_gap_usd": round(_sum_field("reconciliation_gap_usd"), 2),
+            "pnl_basis": first_meta.get("pnl_basis", {}),
+            "nav_metrics_estimated": any(bool(meta.get("nav_metrics_estimated")) for meta in meta_dicts),
+            "high_confidence_realized": all(bool(meta.get("high_confidence_realized")) for meta in meta_dicts),
+            "income": {
+                "total": round(income_total, 2),
+                "dividends": round(income_dividends, 2),
+                "interest": round(income_interest, 2),
+                "by_month": dict(sorted((k, round(v, 2)) for k, v in income_by_month.items())),
+                "by_symbol": dict(sorted((k, round(v, 2)) for k, v in income_by_symbol.items())),
+                "by_institution": {
+                    key: {
+                        "dividends": round(_as_float(row.get("dividends"), 0.0), 2),
+                        "interest": round(_as_float(row.get("interest"), 0.0), 2),
+                        "total": round(_as_float(row.get("total"), 0.0), 2),
+                    }
+                    for key, row in sorted(income_by_institution.items())
+                },
+                "current_monthly_rate": round(current_monthly_rate, 2),
+                "projected_annual": round(projected_annual, 2),
+                "yield_on_cost": round(income_yield_on_cost, 4),
+                "yield_on_value": round(income_yield_on_value, 4),
+            },
+            "data_coverage": round(data_coverage, 2),
+            "inception_date": inception_date.date().isoformat(),
+            "synthetic_positions": synthetic_positions,
+            "synthetic_entry_count": _sum_int_field("synthetic_entry_count"),
+            "synthetic_current_position_count": _sum_int_field("synthetic_current_position_count"),
+            "synthetic_current_position_tickers": sorted(synthetic_current_ticker_set),
+            "synthetic_current_market_value": round(_sum_field("synthetic_current_market_value"), 2),
+            "synthetic_incomplete_trade_count": _sum_int_field("synthetic_incomplete_trade_count"),
+            "first_transaction_exit_count": _sum_int_field("first_transaction_exit_count"),
+            "first_transaction_exit_details": first_exit_details,
+            "extreme_return_months": extreme_return_months,
+            "data_quality_flags": data_quality_flags,
+            "unpriceable_symbol_count": len(unpriceable_symbol_set),
+            "unpriceable_symbols": sorted(unpriceable_symbol_set),
+            "unpriceable_reason_counts": dict(sorted(unpriceable_reason_counts.items())),
+            "unpriceable_reasons": dict(sorted(unpriceable_reasons.items())),
+            "ibkr_pricing_coverage": first_meta.get("ibkr_pricing_coverage", {}),
+            "source_breakdown": dict(sorted(source_breakdown_counter.items())),
+            "reliable": all(bool(meta.get("reliable")) for meta in meta_dicts),
+            "reliability_reasons": reliability_reasons,
+            "holdings_scope": first_meta.get("holdings_scope", first_result.realized_metadata.holdings_scope),
+            "source_holding_symbols": sorted(source_holding_symbols_set),
+            "source_holding_count": len(source_holding_symbols_set),
+            "source_transaction_count": _sum_int_field("source_transaction_count"),
+            "cross_source_holding_leakage_symbols": sorted(cross_source_leakage_symbols_set),
+            "reliability_reason_codes": reliability_reason_codes,
+            "fetch_errors": fetch_errors,
+            "flow_source_breakdown": dict(sorted(flow_source_breakdown_counter.items())),
+            "inferred_flow_diagnostics": merged_inferred_flow,
+            "provider_flow_coverage": dict(sorted(provider_flow_coverage.items())),
+            "flow_fallback_reasons": flow_fallback_reasons,
+            "dedup_diagnostics": dedup_diagnostics,
+            "data_warnings": sorted(data_warnings_set),
+            "futures_cash_policy": first_meta.get("futures_cash_policy", "fee_only"),
+            "futures_txn_count_replayed": _sum_int_field("futures_txn_count_replayed"),
+            "futures_notional_suppressed_usd": round(_sum_field("futures_notional_suppressed_usd"), 2),
+            "futures_fee_cash_impact_usd": round(_sum_field("futures_fee_cash_impact_usd"), 2),
+            "futures_unknown_action_count": _sum_int_field("futures_unknown_action_count"),
+            "futures_missing_fx_count": _sum_int_field("futures_missing_fx_count"),
+            "income_flow_overlap_dropped_count": _sum_int_field("income_flow_overlap_dropped_count"),
+            "income_flow_overlap_dropped_net_usd": round(_sum_field("income_flow_overlap_dropped_net_usd"), 2),
+            "income_flow_overlap_dropped_by_provider": dict(sorted(income_overlap_by_provider.items())),
+            "income_flow_overlap_candidate_count": _sum_int_field("income_flow_overlap_candidate_count"),
+            "income_flow_overlap_alias_mismatch_count": _sum_int_field("income_flow_overlap_alias_mismatch_count"),
+            "income_flow_overlap_alias_mismatch_samples": list(
+                first_meta.get("income_flow_overlap_alias_mismatch_samples", []) or []
+            ),
+        }
+    )
+
+    realized_metadata["_postfilter"] = {
+        "portfolio_monthly_returns": {
+            ts.date().isoformat(): float(value)
+            for ts, value in aligned["portfolio"].to_dict().items()
+        },
+        "benchmark_monthly_returns": {
+            ts.date().isoformat(): float(value)
+            for ts, value in aligned["benchmark"].to_dict().items()
+        },
+        "selected_portfolio_monthly_returns": {
+            ts.date().isoformat(): float(value)
+            for ts, value in aligned["portfolio"].to_dict().items()
+        },
+        "selected_benchmark_monthly_returns": {
+            ts.date().isoformat(): float(value)
+            for ts, value in aligned["benchmark"].to_dict().items()
+        },
+        "monthly_nav": _series_to_dict(agg_nav),
+        "daily_nav": {
+            ts.date().isoformat(): float(_as_float(value, 0.0))
+            for ts, value in agg_daily_nav.items()
+        },
+        "observed_only_monthly_nav": _series_to_dict(observed_only_nav),
+        "observed_only_daily_nav": {
+            ts.date().isoformat(): float(_as_float(value, 0.0))
+            for ts, value in observed_daily_nav.items()
+        },
+        "net_flows": _series_to_dict(agg_net),
+        "external_flows": _flows_to_dict(agg_external_flows),
+        "observed_only_net_flows": _series_to_dict(observed_only_net),
+        "observed_only_external_flows": _flows_to_dict(observed_external_flows),
+        "time_weighted_flows": _series_to_dict(agg_tw),
+        "risk_free_rate": float(risk_free_rate),
+        "benchmark_ticker": benchmark_ticker,
+    }
+
+    realized_metadata["account_aggregation"] = {
+        "mode": "per_account_modified_dietz",
+        "account_count": len(account_items),
+        "accounts": {
+            account_id: {
+                "total_return_pct": result.returns.get("total_return"),
+                "inception_date": str(result.realized_metadata.inception_date),
+                "nav_pnl_usd": result.realized_metadata.nav_pnl_usd,
+                "external_net_flows_usd": result.realized_metadata.external_net_flows_usd,
+            }
+            for account_id, result in account_items
+        },
+        "failed_accounts": dict(sorted(per_account_errors.items())),
+    }
+
+    if include_series:
+        realized_metadata["monthly_nav"] = {
+            ts.date().isoformat(): round(float(value), 2)
+            for ts, value in agg_nav.items()
+        }
+        reported_monthly_returns = pd.Series(
+            performance_metrics.get("monthly_returns", {}),
+            dtype=float,
+        )
+        if not reported_monthly_returns.empty:
+            reported_monthly_returns.index = pd.to_datetime(
+                reported_monthly_returns.index,
+                errors="coerce",
+            )
+            reported_monthly_returns = reported_monthly_returns[
+                ~reported_monthly_returns.index.isna()
+            ].sort_index()
+        cumulative = (1.0 + reported_monthly_returns).cumprod()
+        realized_metadata["growth_of_dollar"] = {
+            ts.date().isoformat(): round(float(value), 4)
+            for ts, value in cumulative.items()
+        }
+
+    performance_metrics["realized_metadata"] = realized_metadata
+    performance_metrics["realized_pnl"] = realized_metadata["realized_pnl"]
+    performance_metrics["unrealized_pnl"] = realized_metadata["unrealized_pnl"]
+    performance_metrics["income_total"] = realized_metadata["income"]["total"]
+    performance_metrics["income_yield_on_cost"] = realized_metadata["income"]["yield_on_cost"]
+    performance_metrics["income_yield_on_value"] = realized_metadata["income"]["yield_on_value"]
+    performance_metrics["data_coverage"] = realized_metadata["data_coverage"]
+    performance_metrics["inception_date"] = realized_metadata["inception_date"]
+    performance_metrics["nav_pnl_usd"] = realized_metadata["nav_pnl_usd"]
+    performance_metrics["nav_pnl_observed_only_usd"] = realized_metadata["nav_pnl_observed_only_usd"]
+    performance_metrics["nav_pnl_synthetic_impact_usd"] = realized_metadata["nav_pnl_synthetic_impact_usd"]
+    performance_metrics["lot_pnl_usd"] = realized_metadata["lot_pnl_usd"]
+    performance_metrics["reconciliation_gap_usd"] = realized_metadata["reconciliation_gap_usd"]
+    performance_metrics["nav_metrics_estimated"] = realized_metadata["nav_metrics_estimated"]
+    performance_metrics["high_confidence_realized"] = realized_metadata["high_confidence_realized"]
+    performance_metrics["reliable"] = realized_metadata["reliable"]
+    performance_metrics["reliability_reason_codes"] = realized_metadata["reliability_reason_codes"]
+    performance_metrics["pnl_basis"] = realized_metadata["pnl_basis"]
+    performance_metrics["external_net_flows_usd"] = realized_metadata["external_net_flows_usd"]
+    performance_metrics["net_contributions_definition"] = realized_metadata["net_contributions_definition"]
+
+    from core.result_objects import RealizedPerformanceResult
+
+    return RealizedPerformanceResult.from_analysis_dict(performance_metrics)
+
+
+def _analyze_realized_performance_account_aggregated(
+    positions: "PositionResult",
+    user_email: str,
+    benchmark_ticker: str = "SPY",
+    source: str = "all",
+    institution: Optional[str] = None,
+    include_series: bool = False,
+    backfill_path: Optional[str] = None,
+    price_registry: ProviderRegistry | None = None,
+) -> Union["RealizedPerformanceResult", Dict[str, Any]]:
+    import logging
+    from core.result_objects import RealizedPerformanceResult
+    perf_logger = logging.getLogger("performance")
+
+    account_ids: List[str] = []
+    fmp_ticker_map: Dict[str, str] = {}
+
+    warnings: List[str] = []
+    if source != "all":
+        scoped_holdings = _build_source_scoped_holdings(
+            positions,
+            source,
+            warnings,
+            institution=institution,
+            account=None,
+        )
+        fmp_ticker_map = dict(scoped_holdings.fmp_ticker_map)
+    else:
+        _, fmp_ticker_map, _ = _build_current_positions(
+            positions,
+            institution=institution,
+            account=None,
+        )
+
+    try:
+        prefetch_fifo = _prefetch_fifo_transactions(
+            user_email=user_email,
+            source=source,
+            institution=institution,
+        )
+        account_ids = _discover_schwab_account_ids(
+            positions,
+            prefetch_fifo,
+            institution,
+        )
+    except Exception as exc:
+        perf_logger.warning(
+            "Account aggregation prefetch failed; falling back to single-scope path: %s",
+            exc,
+        )
+        return _analyze_realized_performance_single_scope(
+            positions=positions,
+            user_email=user_email,
+            benchmark_ticker=benchmark_ticker,
+            source=source,
+            institution=institution,
+            account=None,
+            include_series=include_series,
+            backfill_path=backfill_path,
+            price_registry=price_registry,
+        )
+
+    if len(account_ids) <= 1:
+        single_account = account_ids[0] if account_ids else None
+        return _analyze_realized_performance_single_scope(
+            positions=positions,
+            user_email=user_email,
+            benchmark_ticker=benchmark_ticker,
+            source=source,
+            institution=institution,
+            account=single_account,
+            include_series=include_series,
+            backfill_path=backfill_path,
+            price_registry=price_registry,
+        )
+
+    per_account: Dict[str, RealizedPerformanceResult] = {}
+    per_account_errors: Dict[str, str] = {}
+    for account_id in account_ids:
+        try:
+            account_result = _analyze_realized_performance_single_scope(
+                positions=positions,
+                user_email=user_email,
+                benchmark_ticker=benchmark_ticker,
+                source=source,
+                institution=institution,
+                account=account_id,
+                include_series=False,
+                backfill_path=backfill_path,
+                price_registry=price_registry,
+                use_per_symbol_inception=True,
+            )
+            if isinstance(account_result, dict):
+                if account_result.get("status") == "error":
+                    per_account_errors[account_id] = str(
+                        account_result.get("message") or "unknown error"
+                    )
+                    continue
+                account_result = RealizedPerformanceResult.from_analysis_dict(account_result)
+
+            pf = getattr(getattr(account_result, "realized_metadata", None), "_postfilter", None) or {}
+            missing_keys = [
+                key
+                for key in ("monthly_nav", "net_flows", "time_weighted_flows")
+                if not pf.get(key)
+            ]
+            if missing_keys:
+                per_account_errors[account_id] = f"missing _postfilter keys: {missing_keys}"
+                continue
+            per_account[account_id] = account_result
+        except Exception as exc:
+            per_account_errors[account_id] = str(exc)
+
+    if not per_account:
+        perf_logger.warning(
+            "Account aggregation: all %d accounts failed, falling back to single-scope",
+            len(account_ids),
+        )
+        fallback = _analyze_realized_performance_single_scope(
+            positions=positions,
+            user_email=user_email,
+            benchmark_ticker=benchmark_ticker,
+            source=source,
+            institution=institution,
+            account=None,
+            include_series=include_series,
+            backfill_path=backfill_path,
+            price_registry=price_registry,
+        )
+        if isinstance(fallback, RealizedPerformanceResult):
+            fallback_warnings = list(fallback.realized_metadata.data_warnings or [])
+            fallback_warnings.append(
+                "Account aggregation fallback: all discovered Schwab accounts failed account-scoped analysis."
+            )
+            fallback.realized_metadata.data_warnings = sorted(set(fallback_warnings))
+        return fallback
+
+    return _build_aggregated_result(
+        per_account=per_account,
+        per_account_errors=per_account_errors,
+        benchmark_ticker=benchmark_ticker,
+        include_series=include_series,
+        price_registry=price_registry,
+        fmp_ticker_map=fmp_ticker_map,
+    )
+
+
+def analyze_realized_performance(
+    positions: "PositionResult",
+    user_email: str,
+    benchmark_ticker: str = "SPY",
+    source: str = "all",
+    institution: Optional[str] = None,
+    account: Optional[str] = None,
+    include_series: bool = False,
+    backfill_path: Optional[str] = None,
+    price_registry: ProviderRegistry | None = None,
+) -> Union["RealizedPerformanceResult", Dict[str, Any]]:
+    source = (source or "all").lower().strip()
+    institution = (institution or "").strip() or None
+    account = (account or "").strip() or None
+    is_schwab = (
+        (institution is not None and match_institution(institution, "schwab"))
+        or source == "schwab"
+    )
+
+    if source not in {"all", "snaptrade", "plaid", "ibkr_flex", "schwab"}:
+        return _analyze_realized_performance_single_scope(
+            positions=positions,
+            user_email=user_email,
+            benchmark_ticker=benchmark_ticker,
+            source=source,
+            institution=institution,
+            account=account,
+            include_series=include_series,
+            backfill_path=backfill_path,
+            price_registry=price_registry,
+            use_per_symbol_inception=is_schwab,
+        )
+
+    should_aggregate = (
+        not account
+        and (
+            (institution is not None and match_institution(institution, "schwab"))
+            or source == "schwab"
+        )
+    )
+
+    if should_aggregate:
+        return _analyze_realized_performance_account_aggregated(
+            positions=positions,
+            user_email=user_email,
+            benchmark_ticker=benchmark_ticker,
+            source=source,
+            institution=institution,
+            include_series=include_series,
+            backfill_path=backfill_path,
+            price_registry=price_registry,
+        )
+
+    return _analyze_realized_performance_single_scope(
+        positions=positions,
+        user_email=user_email,
+        benchmark_ticker=benchmark_ticker,
+        source=source,
+        institution=institution,
+        account=account,
+        include_series=include_series,
+        backfill_path=backfill_path,
+        price_registry=price_registry,
+        use_per_symbol_inception=is_schwab,
+    )
+
+
 __all__ = [
     "REALIZED_PROVIDER_ALIAS_MAP",
     "build_position_timeline",
@@ -4708,5 +6085,6 @@ __all__ = [
     "compute_monthly_nav",
     "compute_monthly_external_flows",
     "compute_monthly_returns",
+    "compute_twr_monthly_returns",
     "analyze_realized_performance",
 ]

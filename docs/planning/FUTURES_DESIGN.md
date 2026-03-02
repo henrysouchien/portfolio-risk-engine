@@ -15,7 +15,7 @@ Following existing package boundaries (`ibkr/`, `brokerage/`, main system):
 Things only IBKR knows how to do. Already partially built.
 
 - **Contract qualification** — `resolve_futures_contract()` in `ibkr/contracts.py` (done)
-- **Exchange routing metadata** — `ibkr/exchange_mappings.yaml` with exchange + currency per root symbol (done, 27 contracts)
+- **Exchange routing metadata** — `ibkr/exchange_mappings.yaml` with exchange + currency per root symbol (done, 26 contracts)
 - **FMP commodity symbol mapping** — `ibkr_futures_to_fmp` section in YAML (done)
 - **Continuous contract data** — `IBKRMarketDataClient` with futures-aware duration handling (done)
 - **Daily + monthly bars** — `fetch_monthly_close_futures()`, `fetch_daily_close_futures()` (done)
@@ -106,48 +106,71 @@ The `brokerage/futures/` module owns the canonical mapping. IBKR-specific symbol
 
 ## Phased Implementation
 
-### Phase 1: Data Foundation (brokerage domain model + IBKR metadata)
-- Add multiplier + tick_size to `ibkr/exchange_mappings.yaml`
-- Create `brokerage/futures/` with `FuturesContractSpec` and notional math
-- Wire contract specs through `contract_identity` in existing `InstrumentMeta`
+### Phase 1: Data Foundation ✅
+- Added multiplier + tick_size to `ibkr/exchange_mappings.yaml` (26 contracts)
+- Created `brokerage/futures/` with `FuturesContractSpec`, notional/P&L math, asset class taxonomy
+- `contracts.yaml` as canonical catalog (lru_cached via `load_contract_specs()`)
 - Tests for contract specs, notional calculation, symbol resolution
 
-### Phase 2: Pricing Dispatch
-- Modify pricing chain (`latest_price()`, `get_returns_dataframe()`) to route futures tickers
-- Consult `instrument_types` to dispatch to IBKR/FMP commodity endpoints
-- Auto-detect currency from contract spec (eliminate manual `currency_map` for known futures)
-- Handle the Z ticker collision (Zillow equity vs FTSE futures) via instrument_types guard
+### Phase 2: Pricing Dispatch ✅
+- `latest_price()` and `get_returns_dataframe()` route futures via `instrument_types` → `FuturesPricingChain`
+- FMP source (11/26 symbols) → IBKR fallback when TWS connected
+- Currency auto-detected from contract spec (no manual `currency_map` for known futures)
+- Z ticker collision guard (Zillow vs FTSE) via instrument_types check
 
-### Phase 3: Portfolio Integration
-- Futures positions in holdings view with notional + margin columns
-- Total portfolio value = equities at market + futures at margin value
-- Notional exposure shown as overlay
-- MCP `get_positions()` extended with futures exposure section
+### Phase 3: Portfolio Integration ✅
+- `enrich_futures_positions()` shared helper adds notional/multiplier/asset_class/tick_size/tick_value
+- Called from all 3 `PositionResult.from_dataframe()` sites + `refresh_portfolio_prices()`
+- `get_exposure_snapshot()` returns `futures_exposure` section (contract_count, total_notional, by_asset_class)
+- Position flags: `futures_notional` (info >0.5x) and `futures_high_notional` (warning >2x)
 
-### Phase 4: Risk Integration
-- Futures contribute to portfolio risk via asset-class correlation
-- Equity index futures decomposed into market beta
-- Fixed income / commodity futures as separate risk factors
-- FX attribution for non-USD futures (already built, needs wiring)
-- Wire `fx_attribution` into `RiskAnalysisResult` (currently only in `build_portfolio_view()` output)
+### Phase 4: Risk Integration ✅
+- Notional-weighted risk decomposition (futures weighted by `contracts × multiplier × price`)
+- Asset-class proxy factors: equity_index→SPY, metals→SPY+GLD, energy→SPY+USO
+- Fixed income futures mapped to "bond" class for interest_rate factor eligibility
+- Commodity factor as new factor key in both beta and factor-vol paths
+- Segment view: `get_risk_analysis(segment="equities"|"futures"|"all")`
+- FX attribution wired from `build_portfolio_view()` into `RiskAnalysisResult`
+- `notional_leverage` threaded through full pipeline (standardize→config→analysis→result)
+- Risk flags: `notional_leverage` (info >1.3x), `high_notional_leverage` (warning >2.0x)
+- Plan: `docs/planning/FUTURES_P4_RISK_INTEGRATION_PLAN.md`
 
-### Phase 5: Performance + Trading
-- Futures performance attribution on notional returns
-- Trading analysis extended with futures P&L (multiplier-aware)
-- Roll tracking and expiry awareness (if holding physical contracts vs continuous)
+### Phase 5: Performance + Trading ✅
+- `instrument_type`, `multiplier`, `contract_quantity` on OpenLot/ClosedTrade/IncompleteTrade/TradeResult
+- `txn_meta` threading through all 12 FIFOMatcher call sites
+- `futures_breakdown` in agent snapshot (futures vs equity P&L, win rate)
+- `futures_trading_losses` + `futures_pnl_dominant` trading flags
+- `segment` parameter on `get_trading_analysis()` (all/equities/futures)
+- Top-level `multiplier` convenience field on IBKR Flex normalizer output
+- No P&L math changes (IBKR pre-multiplies quantity, FIFO already correct)
+- Hypothetical performance already works via pricing chain (Phase 2)
+- Plans: `docs/planning/FUTURES_P5_PERFORMANCE_TRADING_PLAN.md`, `docs/planning/TRADING_SEGMENT_FILTER_PLAN.md`
 
-### Phase 6: Polish
-- Daily bars → risk pipeline (currently monthly only)
+### Phase 6: Monthly Contracts, Term Structure & Roll Execution ✅
+Detailed plan: `docs/planning/FUTURES_MONTHLY_CURVE_ROLL_PLAN.md`
+- Monthly contract resolution (`contract_month` param on `resolve_futures_contract()`, `fetch_futures_months()`)
+- `get_futures_curve()` MCP tool — term structure across all active months, contango/backwardation detection, calendar spreads, annualized basis, close-price fallback for weekend/holiday data
+- `preview_futures_roll()` / `execute_futures_roll()` MCP tools — atomic BAG combo orders (sell front + buy back)
+- `IBKR_TRADE_CLIENT_ID` — dedicated client ID for the trading adapter to avoid collisions with ibkr-mcp
+- Commits: `8ff76db9` (implementation), `63a948a0` (client_id fix)
+
+### Phase 7: Contract Verification ✅
+- Live-tested ESTX50 and DAX against TWS: contract resolution, qualification, monthly close data, pricing chain
+- ESTX50: conId=621358639, EUREX/EUR, mult=10, FMP `^STOXX50E` works as primary source
+- DAX: conId=621358482, EUREX/EUR, mult=25, FMP `^GDAXI` returns 402 → IBKR fallback
+- IBV removed from catalog — no CME Ibovespa futures product found on IBKR (27→26 contracts)
+- Verification runbook: `docs/reference/FUTURES_CONTRACT_VERIFICATION.md`
+
+### Phase 8: Polish (Backlog)
+- Daily bars → risk pipeline (requires frequency-aware refactor of 8+ annualization sites)
 - Config-driven `instrument_types` from DB (currently YAML auto-detect only)
-- IBKR contract verification for remaining symbols (IBV, ESTX50, DAX)
-- Standalone futures trading view (if needed beyond integrated)
 
 ## Existing Infrastructure Summary
 
 | Component | Status | Location |
 |-----------|--------|----------|
-| 27 contract definitions (exchange + currency) | Done | `ibkr/exchange_mappings.yaml` |
-| FMP commodity symbol mapping (27 contracts) | Done | `ibkr/exchange_mappings.yaml` |
+| 26 contract definitions (exchange + currency) | Done | `ibkr/exchange_mappings.yaml` |
+| FMP commodity symbol mapping (26 contracts) | Done | `ibkr/exchange_mappings.yaml` |
 | Contract resolution (ContFuture) | Done | `ibkr/contracts.py` |
 | Continuous contract data fetching | Done | `ibkr/market_data.py` |
 | Futures-aware duration handling | Done | `ibkr/market_data.py` |
@@ -156,14 +179,28 @@ The `brokerage/futures/` module owns the canonical mapping. IBKR-specific symbol
 | FX attribution decomposition | Done | `portfolio_risk.py` |
 | `InstrumentType` enum (includes "futures") | Done | `trading_analysis/instrument_meta.py` |
 | `contract_identity` dict on InstrumentMeta | Done | `trading_analysis/instrument_meta.py` |
-| Contract multipliers | **Missing** | — |
-| Tick sizes | **Missing** | — |
-| `FuturesContractSpec` domain model | **Missing** | — |
-| Notional calculation | **Missing** | — |
-| Pricing dispatch for futures | **Missing** | — |
-| Currency auto-detection from contract spec | **Missing** | — |
-| Portfolio value with margin vs notional | **Missing** | — |
-| Macro factor risk decomposition | **Missing** | — |
+| Contract multipliers + tick sizes | Done (Phase 1) | `brokerage/futures/contracts.yaml` |
+| `FuturesContractSpec` domain model | Done (Phase 1) | `brokerage/futures/contract_spec.py` |
+| Notional calculation | Done (Phase 1) | `brokerage/futures/math.py` |
+| Pricing dispatch for futures | Done (Phase 2) | `brokerage/futures/pricing.py` |
+| Currency auto-detection from contract spec | Done (Phase 2) | `portfolio_risk_engine/portfolio_config.py` |
+| Portfolio value with margin vs notional | Done (Phase 3) | `services/position_enrichment.py` |
+| Futures exposure snapshot | Done (Phase 3) | `core/result_objects/positions.py` |
+| Notional-weighted risk decomposition | Done (Phase 4) | `portfolio_risk_engine/portfolio_config.py` |
+| Asset-class proxy factors | Done (Phase 4) | `mcp_tools/risk.py` |
+| Commodity factor | Done (Phase 4) | `portfolio_risk_engine/portfolio_risk.py` |
+| Segment view (equities/futures/all) | Done (Phase 4) | `mcp_tools/risk.py` |
+| FX attribution in RiskAnalysisResult | Done (Phase 4) | `core/result_objects/risk.py` |
+| Notional leverage flags | Done (Phase 4) | `portfolio_risk_engine/risk_flags.py` |
+| Futures metadata on FIFO trade objects | Done (Phase 5) | `trading_analysis/fifo_matcher.py` |
+| Futures metadata on TradeResult | Done (Phase 5) | `trading_analysis/models.py` |
+| Futures breakdown in agent snapshot | Done (Phase 5) | `trading_analysis/models.py` |
+| Futures trading flags | Done (Phase 5) | `core/trading_flags.py` |
+| Trading segment view (equities/futures/all) | Done (Phase 5) | `mcp_tools/trading_analysis.py` |
+| Monthly contract resolution | Done (Phase 6) | `ibkr/contracts.py`, `ibkr/metadata.py` |
+| Futures months discovery | Done (Phase 6) | `ibkr/metadata.py`, `ibkr/client.py`, `ibkr/compat.py` |
+| Futures curve / term structure | Done (Phase 6) | `ibkr/market_data.py`, `mcp_tools/futures_curve.py`, `core/futures_curve_flags.py` |
+| Futures roll preview + execution | Done (Phase 6) | `brokerage/ibkr/adapter.py`, `services/trade_execution_service.py`, `mcp_tools/futures_roll.py` |
 
 ## Package Boundary Rules
 

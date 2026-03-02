@@ -1,38 +1,50 @@
 # Pricing Provider Refactor Plan
 
 **Date**: 2026-02-27
-**Status**: Draft
+**Updated**: 2026-02-27 (post-Futures P2 landing)
+**Status**: Complete
 **Prerequisite**: `PRICING_PROVIDER_ARCHITECTURE_REVIEW.md` (Codex-verified)
-**Goal**: Unify the two pricing abstractions so adding a new provider = implement one interface + register once.
+**Goal**: Unify the two equity/general pricing abstractions so adding a new provider = implement one interface + register once. Futures pricing stays in its own dedicated chain by design.
 
 ## Current State
 
-Two pricing abstractions exist:
+Three pricing paths exist:
 
 | System | Interface | Used By | Providers |
 |--------|-----------|---------|-----------|
-| Legacy global | `PriceProvider` (5 methods) | `latest_price()`, `get_returns_dataframe()`, hypothetical analysis | FMP only |
+| Legacy global | `PriceProvider` (5 methods) | `latest_price()` (equity path), `get_returns_dataframe()` (equity path), hypothetical analysis | FMP only |
 | Modern chain | `PriceSeriesProvider` (2 methods) + `ProviderRegistry` | Realized performance | FMP + IBKR |
+| Futures chain | `FuturesPriceSource` + `FuturesPricingChain` | `latest_price()` (futures path), `get_returns_dataframe()` (futures path) | FMP commodity + IBKR historical |
 
 They are **partially coupled**: the modern chain's FMP leg injects `data_loader.fetch_monthly_close`, which delegates to the legacy global `get_price_provider()`. Treasury rates and benchmark pricing in realized perf also route through the legacy global.
 
 FX is hardcoded to FMP: `set_fx_provider()` exists but is never called.
 
+**Futures chain scope**: The `FuturesPricingChain` (`brokerage/futures/pricing.py`) is intentionally separate — different instrument types often require different data providers and resolution logic. This refactor does NOT attempt to absorb futures into `ProviderRegistry`. The goal is to unify the **equity/general** legacy global with the modern chain.
+
 ## Target State
 
-One pricing **interface** for new providers. `ProviderRegistry` is the canonical authority. Legacy global delegates to it. Realized performance keeps a parallel factory for test isolation (guarded by a parity test) — this is an accepted tradeoff until test infrastructure is migrated to fixture-based isolation.
+One pricing **interface** for new equity/general providers. `ProviderRegistry` is the canonical authority for equity/bond/option pricing. Legacy global delegates to it. Realized performance keeps a parallel factory for test isolation (guarded by a parity test) — this is an accepted tradeoff until test infrastructure is migrated to fixture-based isolation.
+
+Futures keep their own `FuturesPricingChain` — different instrument types may use entirely different data vendors and resolution logic.
 
 ```
-Any caller (hypothetical, realized, MCP tools)
+Equity/bond/option callers (hypothetical, realized, MCP tools)
   ↓
 data_loader.fetch_monthly_close(ticker, ...)
   ↓
 ProviderRegistry.get_price_chain(instrument_type)
   → try each provider in priority order
   → first success wins
+
+Futures callers (latest_price, get_returns_dataframe when instrument_type=="futures")
+  ↓
+FuturesPricingChain (brokerage/futures/pricing.py)
+  → FMP commodity endpoint → IBKR historical fallback
+  → Separate from ProviderRegistry by design
 ```
 
-Adding a new provider:
+Adding a new equity provider:
 ```python
 class BloombergProvider:
     provider_name = "bloomberg"
@@ -40,7 +52,18 @@ class BloombergProvider:
     def fetch_monthly_close(self, symbol, start, end, **kw): ...
 
 registry.register_price_provider(BloombergProvider(), priority=5)
-# Done. All analysis paths use it.
+# Done. All equity analysis paths use it.
+```
+
+Adding a new futures provider:
+```python
+class BloombergFuturesSource:
+    name = "bloomberg_futures"
+    def fetch_latest_price(self, symbol, alt_symbol=None): ...
+    def fetch_monthly_close(self, symbol, start, end, alt_symbol=None): ...
+
+chain.add_source(BloombergFuturesSource())
+# Futures pricing chain is separate — add sources there.
 ```
 
 ---
@@ -79,14 +102,21 @@ Realized performance needs `get_monthly_fx_series()` (CP-1). Add to protocol.
 class FXProvider(Protocol):
     def adjust_returns_for_fx(self, returns: pd.Series, currency: str, **kw) -> Union[pd.Series, dict]: ...
     def get_fx_rate(self, currency: str) -> float: ...
+    def get_spot_fx_rate(self, currency: str) -> float: ...
     def get_monthly_fx_series(self, currency: str, start_date=None, end_date=None) -> pd.Series: ...
 ```
+
+Note: `get_spot_fx_rate` is used by `trading_analysis/analyzer.py` and `mcp_tools/tax_harvest.py` for real-time spot rates. `get_fx_rate` returns month-end rates. Both are needed.
 
 **File**: `portfolio_risk_engine/_fmp_provider.py` — add implementation:
 
 ```python
 class FMPFXProvider:
     ...
+    def get_spot_fx_rate(self, currency):
+        from fmp.fx import get_spot_fx_rate as _fn
+        return float(_fn(currency))
+
     def get_monthly_fx_series(self, currency, start_date=None, end_date=None):
         from fmp.fx import get_monthly_fx_series as _fn
         return _fn(currency, start_date, end_date)
@@ -97,9 +127,9 @@ class FMPFXProvider:
 | File | Current | After |
 |------|---------|-------|
 | `core/realized_performance_analysis.py` | `from fmp.fx import get_monthly_fx_series` | `from portfolio_risk_engine.providers import get_fx_provider` → `get_fx_provider().get_monthly_fx_series(...)` |
-| `portfolio_risk_engine/portfolio_risk.py` ~L588 | `from fmp.fx import adjust_returns_for_fx` (fallback) | `get_fx_provider().adjust_returns_for_fx(...)` (always — no fallback needed after 1a) |
-| `trading_analysis/analyzer.py` ~L58 | `from fmp.fx import ...` | Route through `get_fx_provider()` |
-| `mcp_tools/tax_harvest.py` ~L29 | `from fmp.fx import ...` | Route through `get_fx_provider()` |
+| `portfolio_risk_engine/portfolio_risk.py` ~L652 | `from fmp.fx import adjust_returns_for_fx` (fallback when `get_fx_provider()` returns None) | `get_fx_provider().adjust_returns_for_fx(...)` (always — no fallback needed after 1a) |
+| `trading_analysis/analyzer.py` ~L60 | `from fmp.fx import get_spot_fx_rate` | Route through `get_fx_provider()` |
+| `mcp_tools/tax_harvest.py` ~L29 | `from fmp.fx import get_monthly_fx_series, get_spot_fx_rate` | Route through `get_fx_provider()` |
 
 ### 1d. Abstract currency inference (CP-3)
 
@@ -126,9 +156,11 @@ Wire into `latest_price()` via `get_currency_resolver()` (same lazy-default patt
 
 ---
 
-## Phase 2 — Unify Pricing Abstractions
+## Phase 2 — Unify Equity/General Pricing Abstractions
 
-**Goal**: Make `ProviderRegistry` the single pricing authority. Legacy `PriceProvider` becomes a facade that delegates to it.
+**Goal**: Make `ProviderRegistry` the single pricing authority for equity/bond/option instruments. Legacy `PriceProvider` becomes a facade that delegates to it. Futures pricing stays in `FuturesPricingChain` — this phase does NOT touch `brokerage/futures/pricing.py` or the futures paths in `latest_price()` / `get_returns_dataframe()`.
+
+**Scope boundary**: `_RegistryBackedPriceProvider.fetch_monthly_close()` is called by `data_loader.fetch_monthly_close()`, which is only reached for non-futures tickers. When `instrument_type == "futures"`, callers (`latest_price`, `get_returns_dataframe`) route directly to `FuturesPricingChain` and never hit the legacy global.
 
 ### 2a. Extend PriceSeriesProvider with additional methods
 
@@ -455,16 +487,16 @@ Note: The realized-perf factory currently does NOT register treasury/dividend pr
 
 **Goal**: Route remaining direct FMP calls through provider abstractions.
 
-### 3a. Position service (CP-4)
+### 3a. Position service FX (CP-4)
 
-**File**: `services/position_service.py` (~lines 674, 765)
-Route FMP calls for position enrichment through a provider method or accept as FMP-specific feature.
-**Decision**: If enrichment is FMP-specific (company profile data), keep as-is with a comment. If it's generic market data, route through provider.
+**File**: `services/position_service.py` (~lines 695, 786)
+Direct `from fmp.fx import get_spot_fx_rate` — should route through `get_fx_provider().get_spot_fx_rate()` after Phase 1.
+Other FMP calls in position_service (company profile data) are FMP-specific enrichment — keep as-is with a comment.
 
 ### 3b. Cache adapters (CP-5)
 
-**File**: `services/cache_adapters.py` (~lines 165, 171)
-Same assessment as 3a. Cache warming for FMP-specific endpoints stays FMP-coupled. Generic price caching routes through provider.
+**File**: `services/cache_adapters.py` (~line 171)
+`from fmp.fx import _get_spot_fx_cached` — internal cache helper. Keep as-is (cache layer, not pricing path) or route through `get_fx_provider()` for consistency.
 
 ---
 
@@ -497,13 +529,13 @@ Phase 1 and Phase 3 can run in parallel. Phase 2 is the core work. Phase 4 is cl
 ### Phase 1 (FX)
 | File | Change |
 |------|--------|
-| `portfolio_risk_engine/providers.py` | Lazy FX default, `CurrencyResolver` protocol, `get_monthly_fx_series()` on `FXProvider` |
-| `portfolio_risk_engine/_fmp_provider.py` | `FMPFXProvider.get_monthly_fx_series()`, `FMPCurrencyResolver` |
-| `core/realized_performance_analysis.py` | Replace `from fmp.fx import` with `get_fx_provider()` calls |
-| `portfolio_risk_engine/portfolio_risk.py` | Remove FX fallback import, use `get_fx_provider()` directly |
+| `portfolio_risk_engine/providers.py` | Lazy FX default, `CurrencyResolver` protocol, `get_spot_fx_rate()` + `get_monthly_fx_series()` on `FXProvider` |
+| `portfolio_risk_engine/_fmp_provider.py` | `FMPFXProvider.get_spot_fx_rate()`, `FMPFXProvider.get_monthly_fx_series()`, `FMPCurrencyResolver` |
+| `core/realized_performance_analysis.py` | Replace `from fmp.fx import get_monthly_fx_series` with `get_fx_provider().get_monthly_fx_series(...)` |
+| `portfolio_risk_engine/portfolio_risk.py` ~L652 | Remove FX fallback `from fmp.fx import adjust_returns_for_fx`, use `get_fx_provider()` directly (always available after 1a) |
 | `portfolio_risk_engine/portfolio_config.py` | Use `get_currency_resolver()` instead of `fetch_fmp_quote_with_currency()` |
-| `trading_analysis/analyzer.py` | Replace `from fmp.fx import` with `get_fx_provider()` calls |
-| `mcp_tools/tax_harvest.py` | Replace `from fmp.fx import` with `get_fx_provider()` calls |
+| `trading_analysis/analyzer.py` ~L60 | Replace `from fmp.fx import get_spot_fx_rate` with `get_fx_provider().get_spot_fx_rate(...)` |
+| `mcp_tools/tax_harvest.py` ~L29 | Replace `from fmp.fx import get_monthly_fx_series, get_spot_fx_rate` with `get_fx_provider()` calls |
 
 ### Phase 2 (Unify)
 | File | Change |

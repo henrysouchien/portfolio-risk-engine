@@ -1,0 +1,562 @@
+﻿Statement,Header,Field Name,Field Value
+Statement,Data,BrokerName,Interactive Brokers LLC
+Statement,Data,BrokerAddress,"Two Pickwick Plaza, Greenwich, CT 06830"
+Statement,Data,Title,Realized Summary
+Statement,Data,Period,"December 31, 2024 - December 31, 2025"
+Statement,Data,WhenGenerated,"2026-02-25, 10:10:58 EST"
+Account Information,Header,Field Name,Field Value
+Account Information,Data,Name,Henry Chien
+Account Information,Data,Account,U2471778
+Account Information,Data,Account Type,Individual
+Account Information,Data,Customer Type,Individual
+Account Information,Data,Account Capabilities,Margin
+Account Information,Data,Base Currency,USD
+Net Asset Value,Header,Asset Class,Prior Total,Current Long,Current Short,Current Total,Change
+Net Asset Value,Data,Cash ,-2386.26360983,4054.86813,-9909.107072742,-5854.238942742,-3467.975332912
+Net Asset Value,Data,Stock,20123.959,27791.01,0,27791.01,7667.051
+Net Asset Value,Data,Options,6518.85,15.05,0,15.05,-6503.8
+Net Asset Value,Data,Interest Accruals,-67.871624,0,-25.58,-25.58,42.291624
+Net Asset Value,Data,Total,24188.67376617,31860.92813,-9934.687072742,21926.241057258,-2262.432708912
+Net Asset Value,Header,Time Weighted Rate of Return
+Net Asset Value,Data,-9.353273068%
+Change in NAV,Header,Field Name,Field Value
+Change in NAV,Data,Starting Value,24188.67376617
+Change in NAV,Data,Details not available,
+Change in NAV,Data,Ending Value,21926.241057258
+Realized & Unrealized Performance Summary,Header,Asset Category,Symbol,Cost Adj.,Realized S/T Profit,Realized S/T Loss,Realized L/T Profit,Realized L/T Loss,Realized Total,Unrealized S/T Profit,Unrealized S/T Loss,Unrealized L/T Profit,Unrealized L/T Loss,Unrealized Total,Total,Code
+Realized & Unrealized Performance Summary,Data,Stocks,AT.,0,0,-354.7625,0,0,-354.7625,0,0,0,0,0,-354.7625,
+Realized & Unrealized Performance Summary,Data,Stocks,CBL,0,0,-669.5919647,0,0,-669.5919647,0,0,0,0,0,-669.5919647,
+Realized & Unrealized Performance Summary,Data,Stocks,CUBI,0,0,-225.143817,0,0,-225.143817,0,0,0,0,0,-225.143817,
+Realized & Unrealized Performance Summary,Data,Stocks,DSU,0,0,-104.35222204,0,0,-104.35222204,0,0,0,0,0,-104.35222204,
+Realized & Unrealized Performance Summary,Data,Stocks,EL,0,27.911273,0,0,0,27.911273,0,0,0,0,0,27.911273,
+Realized & Unrealized Performance Summary,Data,Stocks,EQT,0,0,0,0,0,0,142.9986,0,0,0,142.9986,142.9986,
+Realized & Unrealized Performance Summary,Data,Stocks,FIG,0,0,0,0,0,0,335.9978,0,0,0,335.9978,335.9978,
+Realized & Unrealized Performance Summary,Data,Stocks,GLBE,0,4.22991231,-826.56900311,0,0,-822.3390908,0,0,0,0,0,-822.3390908,
+Realized & Unrealized Performance Summary,Data,Stocks,HAS,0,16.774228,0,0,0,16.774228,0,0,0,0,0,16.774228,
+Realized & Unrealized Performance Summary,Data,Stocks,HBI,0,28.947801,0,0,0,28.947801,0,0,0,0,0,28.947801,
+Realized & Unrealized Performance Summary,Data,Stocks,HPE,0,8.950157,0,0,0,8.950157,0,0,0,0,0,8.950157,
+Realized & Unrealized Performance Summary,Data,Stocks,HPQ,0,36.399758,0,0,0,36.399758,0,0,0,0,0,36.399758,
+Realized & Unrealized Performance Summary,Data,Stocks,IGIC,0,0,0,0,0,0,132.9952,0,0,0,132.9952,132.9952,
+Realized & Unrealized Performance Summary,Data,Stocks,KINS,0,0,0.0000005,0,0,0.0000005,324.425075,0,0,0,324.425075,324.4250755,
+Realized & Unrealized Performance Summary,Data,Stocks,MAT,0,36.062032,0,0,0,36.062032,0,0,0,0,0,36.062032,
+Realized & Unrealized Performance Summary,Data,Stocks,MSCI,0,18.92062293,-349.47770029,0,0,-330.55707736,0,0,0,0,0,-330.55707736,
+Realized & Unrealized Performance Summary,Data,Stocks,NMM,0,0,-724.74340232,0,0,-724.74340232,0,0,0,0,0,-724.74340232,
+Realized & Unrealized Performance Summary,Data,Stocks,NVDA,0,0,0,0,0,0,306.799825,0,1471.73428,0,1778.534105,1778.534105,
+Realized & Unrealized Performance Summary,Data,Stocks,RNMBY,0,0,0,0,0,0,0,-149.500001,0,0,-149.500001,-149.500001,
+Realized & Unrealized Performance Summary,Data,Stocks,SE,0,0,-355.43492541,0,0,-355.43492541,0,0,0,0,0,-355.43492541,
+Realized & Unrealized Performance Summary,Data,Stocks,SFM,0,0,0,0,0,0,0,-856.96049,0,0,-856.96049,-856.96049,
+Realized & Unrealized Performance Summary,Data,Stocks,SLV,0,0,0,0,0,0,3263.29275,0,0,0,3263.29275,3263.29275,
+Realized & Unrealized Performance Summary,Data,Stocks,TKO,0,0,0,0,0,0,429.799448,0,0,0,429.799448,429.799448,
+Realized & Unrealized Performance Summary,Data,Stocks,TW,0,0,-186.0487731,0,0,-186.0487731,0,0,0,0,0,-186.0487731,
+Realized & Unrealized Performance Summary,Data,Stocks,V,0,0,0,0,0,0,108.589895,0,0,0,108.589895,108.589895,
+Realized & Unrealized Performance Summary,Data,Stocks,VBNK,0,0,-545.10187074,0,0,-545.10187074,0,0,0,0,0,-545.10187074,
+Realized & Unrealized Performance Summary,Data,Stocks,WHR,0,7.394539,0,0,0,7.394539,0,0,0,0,0,7.394539,
+Realized & Unrealized Performance Summary,Data,Stocks,YETI,0,13.742973,0,0,0,13.742973,0,0,0,0,0,13.742973,
+Realized & Unrealized Performance Summary,Data,Total,,0,199.33329624,-4341.22617821,0,0,-4141.89288197,5044.898593,-1006.460491,1471.73428,0,5510.172382,1368.27950003,
+Realized & Unrealized Performance Summary,Data,Equity and Index Options,NMM 16JAN26 70 C,0,0,0,0,0,0,0,0,0,-198.46395,-198.46395,-198.46395,
+Realized & Unrealized Performance Summary,Data,Equity and Index Options,NMM 16JAN26 85 C,0,0,0,0,0,0,0,0,0,-81.57395,-81.57395,-81.57395,
+Realized & Unrealized Performance Summary,Data,Equity and Index Options,NXT 16MAY25 30 C,0,0,-975.330094,0,0,-975.330094,0,0,0,0,0,-975.330094,
+Realized & Unrealized Performance Summary,Data,Equity and Index Options,NXT 15AUG25 30 C,0,86.8640122,-60.1318734,0,0,26.7321388,0,0,0,0,0,26.7321388,
+Realized & Unrealized Performance Summary,Data,Equity and Index Options,PCTY 21FEB25 180 C,0,287.0482392,0,0,0,287.0482392,0,0,0,0,0,287.0482392,
+Realized & Unrealized Performance Summary,Data,Equity and Index Options,PDD 15AUG25 110 C,0,0,-712.683952,0,0,-712.683952,0,0,0,0,0,-712.683952,
+Realized & Unrealized Performance Summary,Data,Equity and Index Options,PDD 15AUG25 185 C,0,251.120586,0,0,0,251.120586,0,0,0,0,0,251.120586,
+Realized & Unrealized Performance Summary,Data,Equity and Index Options,PDD 16JAN26 60 P,0,1055.331024,0,0,0,1055.331024,0,0,0,0,0,1055.331024,
+Realized & Unrealized Performance Summary,Data,Equity and Index Options,PDD 16JAN26 110 C,0,0,-3784.3050642,0,0,-3784.3050642,0,0,0,0,0,-3784.3050642,
+Realized & Unrealized Performance Summary,Data,Equity and Index Options,PDD 16JAN26 110 P,0,0,-348.531773,0,0,-348.531773,0,0,0,0,0,-348.531773,
+Realized & Unrealized Performance Summary,Data,Equity and Index Options,PLTR 17APR25 80 P,0,306.638376,0,0,0,306.638376,0,0,0,0,0,306.638376,
+Realized & Unrealized Performance Summary,Data,Equity and Index Options,PLTR 17APR25 90 P,0,557.627808,0,0,0,557.627808,0,0,0,0,0,557.627808,
+Realized & Unrealized Performance Summary,Data,Equity and Index Options,SLV 20JUN25 30 C,0,987.74211,0,0,0,987.74211,0,0,0,0,0,987.74211,
+Realized & Unrealized Performance Summary,Data,Equity and Index Options,SLV 20JUN25 35 C,0,447.419088,0,0,0,447.419088,0,0,0,0,0,447.419088,
+Realized & Unrealized Performance Summary,Data,Total,,0,3979.7912434,-5880.9827566,0,0,-1901.1915132,0,0,0,-280.0379,-280.0379,-2181.2294132,
+Realized & Unrealized Performance Summary,Data,Futures,MESH5,0,0,-1896.24,0,0,-1896.24,0,0,0,0,0,-1896.24,
+Realized & Unrealized Performance Summary,Data,Futures,MGCG5,0,977.46,0,0,0,977.46,0,0,0,0,0,977.46,
+Realized & Unrealized Performance Summary,Data,Futures,MGCJ5,0,1988.36,0,0,0,1988.36,0,0,0,0,0,1988.36,
+Realized & Unrealized Performance Summary,Data,Futures,MGCM5,0,719.26,-1101.74,0,0,-382.48,0,0,0,0,0,-382.48,
+Realized & Unrealized Performance Summary,Data,Futures,MHIG5,0,1174.61552,0,0,0,1174.61552,0,0,0,0,0,1174.61552,
+Realized & Unrealized Performance Summary,Data,Futures,MHIJ5,0,0,-3947.68336,0,0,-3947.68336,0,0,0,0,0,-3947.68336,
+Realized & Unrealized Performance Summary,Data,Futures,ZFM5,0,36.0225,0,0,0,36.0225,0,0,0,0,0,36.0225,
+Realized & Unrealized Performance Summary,Data,Total,,0,4895.71802,-6945.66336,0,0,-2049.94534,0,0,0,0,0,-2049.94534,
+Realized & Unrealized Performance Summary,Data,Forex,GBP,0,34.732437,-8.342385,0,0,26.390052,4.877505,0,0,0,4.877505,31.267557,
+Realized & Unrealized Performance Summary,Data,Forex,HKD,0,4.457316,-4.040838,0,0,0.416478,0.265855,-0.006245,0,0,0.25961,0.676088,
+Realized & Unrealized Performance Summary,Data,Total,,0,39.189753,-12.383223,0,0,26.80653,5.143373,-0.006247,0,0,5.137126,31.943656,
+Realized & Unrealized Performance Summary,Data,Total (All Assets),,0,9114.03231264,-17180.25551781,0,0,-8066.22320517,5050.041966,-1006.466738,1471.73428,-280.0379,5235.271608,-2830.95159717,
+Notes,This statement uses wash sales P/L for realized and unrealized P/L calculations.
+Open Positions,Header,DataDiscriminator,Asset Category,Currency,Symbol,Quantity,Mult,Cost Price,Cost Basis,Close Price,Value,Unrealized P/L,Code
+Open Positions,Data,Summary,Stocks,USD,EQT,40,1,50.025035,2001.0014,53.6,2144,142.9986,
+Open Positions,Data,Summary,Stocks,USD,FIG,100,1,34.010022,3401.0022,37.37,3737,335.9978,
+Open Positions,Data,Summary,Stocks,USD,IGIC,100,1,23.760048,2376.0048,25.09,2509,132.9952,
+Open Positions,Data,Summary,Stocks,USD,KINS,150,1,14.667166167,2200.074925,16.83,2524.5,324.425075,
+Open Positions,Data,Summary,Stocks,USD,NVDA,25,1,115.3586358,2883.965895,186.5,4662.5,1778.534105,
+Open Positions,Data,Summary,Stocks,USD,RNMBY,3,1,415.333333667,1246.000001,365.5,1096.5,-149.500001,
+Open Positions,Data,Summary,Stocks,USD,SFM,14,1,140.881463571,1972.34049,79.67,1115.38,-856.96049,
+Open Positions,Data,Summary,Stocks,USD,SLV,100,1,31.7870725,3178.70725,64.42,6442,3263.29275,
+Open Positions,Data,Summary,Stocks,USD,TKO,12,1,173.183379333,2078.200552,209,2508,429.799448,
+Open Positions,Data,Summary,Stocks,USD,V,3,1,314.513368333,943.540105,350.71,1052.13,108.589895,
+Open Positions,Total,,Stocks,USD,,,,,22280.837618,,27791.01,5510.172382,
+Open Positions,Header,DataDiscriminator,Asset Category,Currency,Symbol,Quantity,Mult,Cost Price,Cost Basis,Close Price,Value,Unrealized P/L,Code
+Open Positions,Data,Summary,Equity and Index Options,USD,NMM 16JAN26 70 C,1,100,2.1004395,210.04395,0.1158,11.58,-198.46395,
+Open Positions,Data,Summary,Equity and Index Options,USD,NMM 16JAN26 85 C,1,100,0.8504395,85.04395,0.0347,3.47,-81.57395,
+Open Positions,Total,,Equity and Index Options,USD,,,,,295.0879,,15.05,-280.0379,
+Forex Balances,Header,Asset Category,Currency,Description,Quantity,Cost Price,Cost Basis in USD,Close Price,Value in USD,Unrealized P/L in USD,Code
+Forex Balances,Data,Forex,USD,GBP,57.45,1.2625,-72.530625,1.3474,77.40813,4.877505,
+Forex Balances,Data,Forex,USD,HKD,-673.352813,0.128875548,86.778713,0.12849,-86.519103,0.25961,
+Forex Balances,Data,Forex,USD,USD,-5845.127890739,0,5845.127890739,1,-5845.127890739,0,
+Forex Balances,Data,Total,,,,,5859.376067739,,-5854.238941739,5.137126,
+Trades,Header,DataDiscriminator,Asset Category,Currency,Symbol,Date/Time,Quantity,T. Price,Proceeds,Comm/Fee,Basis,Realized P/L,Code
+Trades,Data,Order,Stocks,GBP,AT.,"2025-01-07, 07:51:26",100,5.55,-555,-3,558,0,O
+Trades,Data,Order,Stocks,GBP,AT.,"2025-02-24, 08:57:30",-300,5.33,1599,-3,-1877,-281,C;IM;P
+Trades,SubTotal,,Stocks,GBP,AT.,,-200,,1044,-6,-1319,-281,
+Trades,Total,,Stocks,GBP,,,,,1044,-6,-1319,-281, 
+Trades,Total,,Stocks,USD,,,,,1326.2085,-7.5309,-1673.4401,-354.7625, 
+Trades,Data,Order,Stocks,USD,CBL,"2025-04-08, 13:38:49",-100,22.865,2286.5,-1.0847647,-2955.0072,-669.591965,C
+Trades,SubTotal,,Stocks,USD,CBL,,-100,,2286.5,-1.0847647,-2955.0072,-669.591965,
+Trades,Data,Order,Stocks,USD,CUBI,"2025-01-03, 09:49:43",50,47,-2350,-1.00175,2351.00175,0,O
+Trades,Data,Order,Stocks,USD,CUBI,"2025-04-09, 09:54:15",-100,42.65,4265,-1.139767,-4483.4318665,-219.571633,C;O;P
+Trades,Data,Order,Stocks,USD,CUBI,"2025-04-09, 09:54:22",50,42.74,-2137,-1.0023,2132.430117,-5.572183,C
+Trades,SubTotal,,Stocks,USD,CUBI,,0,,-222,-3.143817,0.0000005,-225.143816,
+Trades,Data,Order,Stocks,USD,DSU,"2024-12-31, 09:57:13",-337,10.79,3636.23,-1.866293194,-3738.715929,-104.352222,C
+Trades,SubTotal,,Stocks,USD,DSU,,-337,,3636.23,-1.866293194,-3738.715929,-104.352222,
+Trades,Data,Order,Stocks,USD,EL,"2025-03-31, 10:59:42",-3,65.3825,196.1475,-1.0060889,-195.1414111,0,IA;O
+Trades,Data,Order,Stocks,USD,EL,"2025-04-09, 14:07:11",3,55.41,-166.23,-1.000138,195.141411,27.911273,C
+Trades,SubTotal,,Stocks,USD,EL,,0,,29.9175,-2.0062269,-0.0000001,27.911273,
+Trades,Data,Order,Stocks,USD,EQT,"2025-02-21, 14:38:05",40,50,-2000,-1.0014,2001.0014,0,O
+Trades,SubTotal,,Stocks,USD,EQT,,40,,-2000,-1.0014,2001.0014,0,
+Trades,Data,Order,Stocks,USD,FIG,"2025-11-20, 12:36:40",100,34,-3400,-1.0022,3401.0022,0,O
+Trades,SubTotal,,Stocks,USD,FIG,,100,,-3400,-1.0022,3401.0022,0,
+Trades,Data,Order,Stocks,USD,GLBE,"2025-03-10, 11:39:04",-100,37.1859,3718.59,-1.124576802,-2790.872352,-821.74836,C;O;P
+Trades,Data,Order,Stocks,USD,GLBE,"2025-03-10, 11:41:45",47,37.19,-1747.93,-1.002162,1748.34143,-0.590732,C
+Trades,SubTotal,,Stocks,USD,GLBE,,-53,,1970.66,-2.126738802,-1042.530922,-822.339092,
+Trades,Data,Order,Stocks,USD,HAS,"2025-03-31, 10:58:34",-3,60.72,182.16,-1.005667048,-181.154332952,0,O
+Trades,Data,Order,Stocks,USD,HAS,"2025-04-09, 14:07:25",3,54.46,-163.38,-1.000105,181.154333,16.774228,C
+Trades,SubTotal,,Stocks,USD,HAS,,0,,18.78,-2.005772048,0.000000048,16.774228,
+Trades,Data,Order,Stocks,USD,HBI,"2025-03-31, 11:00:06",-30,5.742,172.26,-1.011148828,-171.248851172,0,O
+Trades,Data,Order,Stocks,USD,HBI,"2025-04-09, 14:06:32",30,4.71,-141.3,-1.00105,171.248851,28.947801,C
+Trades,SubTotal,,Stocks,USD,HBI,,0,,30.96,-2.012198828,-0.000000172,28.947801,
+Trades,Data,Order,Stocks,USD,HPE,"2025-03-31, 10:56:59",-10,15.335,153.35,-1.00638313,-152.34361687,0,O
+Trades,Data,Order,Stocks,USD,HPE,"2025-04-09, 14:06:42",10,14.2393,-142.393,-1.00046,152.343617,8.950157,C;IA
+Trades,SubTotal,,Stocks,USD,HPE,,0,,10.957,-2.00684313,0.00000013,8.950157,
+Trades,Data,Order,Stocks,USD,HPQ,"2025-03-31, 10:56:27",-10,27.561,275.61,-1.009781958,-274.600218042,0,O
+Trades,Data,Order,Stocks,USD,HPQ,"2025-04-09, 14:06:52",10,23.72,-237.2,-1.00046,274.600218,36.399758,C
+Trades,SubTotal,,Stocks,USD,HPQ,,0,,38.41,-2.010241958,-0.000000042,36.399758,
+Trades,Data,Order,Stocks,USD,IGIC,"2024-12-31, 09:50:10",100,23.75,-2375,-1.0048,2376.0048,0,O;P
+Trades,SubTotal,,Stocks,USD,IGIC,,100,,-2375,-1.0048,2376.0048,0,
+Trades,Data,Order,Stocks,USD,KINS,"2024-12-31, 11:25:08",100,14.79,-1479,-1.0072,1480.0072,0,O
+Trades,Data,Order,Stocks,USD,KINS,"2024-12-31, 11:40:57",-100,14.775,1477.5,-1.0624745,-1480.0072,-3.569675,C
+Trades,Data,Order,Stocks,USD,KINS,"2025-01-08, 14:22:11",100,14.63,-1463,-1.0035,1464.0035,3.569675,O
+Trades,Data,Order,Stocks,USD,KINS,"2025-01-08, 14:23:17",50,14.63,-731.5,-1.00175,732.50175,0,O
+Trades,SubTotal,,Stocks,USD,KINS,,150,,-2196,-4.0749245,2196.50525,0,
+Trades,Data,Order,Stocks,USD,MAT,"2025-03-31, 10:58:07",-10,19.382,193.82,-1.007508196,-192.812491804,0,O
+Trades,Data,Order,Stocks,USD,MAT,"2025-04-09, 14:06:17",10,15.575,-155.75,-1.00046,192.812492,36.062032,C
+Trades,SubTotal,,Stocks,USD,MAT,,0,,38.07,-2.007968196,0.000000196,36.062032,
+Trades,Data,Order,Stocks,USD,MSCI,"2025-04-08, 13:39:07",-5,509.535,2547.675,-1.071885365,-2877.160192,-330.557077,C
+Trades,SubTotal,,Stocks,USD,MSCI,,-5,,2547.675,-1.071885365,-2877.160192,-330.557077,
+Trades,Data,Order,Stocks,USD,NMM,"2024-12-31, 09:57:38",20,43.455,-869.1,-1.00144,870.10144,0,O
+Trades,Data,Order,Stocks,USD,NMM,"2025-04-08, 13:38:37",-40,30.11,1204.4,-1.04196232,-1928.10144,-724.743402,C
+Trades,SubTotal,,Stocks,USD,NMM,,-20,,335.3,-2.04340232,-1058,-724.743402,
+Trades,Data,Order,Stocks,USD,NVDA,"2025-01-27, 09:30:02",5,124.94,-624.7,-1.000175,625.700175,0,O
+Trades,SubTotal,,Stocks,USD,NVDA,,5,,-624.7,-1.000175,625.700175,0,
+Trades,Data,Order,Stocks,USD,RNMBY,"2025-06-06, 08:22:17",3,415,-1245,-1.00000138,1246.00000138,0,O
+Trades,SubTotal,,Stocks,USD,RNMBY,,3,,-1245,-1.00000138,1246.00000138,0,
+Trades,Data,Order,Stocks,USD,SE,"2025-02-11, 13:15:24",16,127.2965,-2036.744,-1.000736,2037.744736,0,IA;O
+Trades,Data,Order,Stocks,USD,SE,"2025-04-09, 09:52:14",-16,105.21,1683.36,-1.050189408,-2037.744736,-355.434925,C
+Trades,SubTotal,,Stocks,USD,SE,,0,,-353.384,-2.050925408,-0,-355.434925,
+Trades,Data,Order,Stocks,USD,SFM,"2025-03-12, 09:33:42",14,140.81,-1971.34,-1.00049,1972.34049,0,O
+Trades,SubTotal,,Stocks,USD,SFM,,14,,-1971.34,-1.00049,1972.34049,0,
+Trades,Data,Order,Stocks,USD,SLV,"2025-06-20, 16:20:00",100,30,-3000,0,3000,0,Ex;O
+Trades,SubTotal,,Stocks,USD,SLV,,100,,-3000,0,3000,0,
+Trades,Data,Order,Stocks,USD,TKO,"2025-02-10, 13:03:00",12,173.1,-2077.2,-1.000552,2078.200552,0,O
+Trades,SubTotal,,Stocks,USD,TKO,,12,,-2077.2,-1.000552,2078.200552,0,
+Trades,Data,Order,Stocks,USD,TW,"2025-02-11, 13:14:51",-20,122.90125,2458.025,-1.072573095,-2643.0012,-186.048773,C;P
+Trades,SubTotal,,Stocks,USD,TW,,-20,,2458.025,-1.072573095,-2643.0012,-186.048773,
+Trades,Data,Order,Stocks,USD,V,"2025-01-03, 09:30:01",3,314.18,-942.54,-1.000105,943.540105,0,O
+Trades,SubTotal,,Stocks,USD,V,,3,,-942.54,-1.000105,943.540105,0,
+Trades,Data,Order,Stocks,USD,VBNK,"2025-02-10, 12:04:06",145,13.93,-2019.85,-1.005075,2020.855075,0,O
+Trades,Data,Order,Stocks,USD,VBNK,"2025-03-10, 11:42:27",-145,10.185,1476.825,-1.071795735,-2020.855075,-545.101871,C
+Trades,SubTotal,,Stocks,USD,VBNK,,0,,-543.025,-2.076870735,0,-545.101871,
+Trades,Data,Order,Stocks,USD,WHR,"2025-03-31, 10:57:31",-2,88.93,177.86,-1.005368508,-176.854631492,0,O
+Trades,Data,Order,Stocks,USD,WHR,"2025-04-09, 14:07:40",2,84.23,-168.46,-1.000092,176.854631,7.394539,C
+Trades,SubTotal,,Stocks,USD,WHR,,0,,9.4,-2.005460508,-0.000000492,7.394539,
+Trades,Data,Order,Stocks,USD,YETI,"2025-03-31, 10:58:57",-6,32.85,197.1,-1.00675138,-196.09324862,0,O
+Trades,Data,Order,Stocks,USD,YETI,"2025-04-09, 14:07:03",6,30.225,-181.35,-1.000276,196.093249,13.742973,C
+Trades,SubTotal,,Stocks,USD,YETI,,0,,15.75,-2.00702738,0.00000038,13.742973,
+Trades,Total,,Stocks,USD,,,,,-7523.5545,-44.683657447,5525.879530828,-3787.130382, 
+Trades,Header,DataDiscriminator,Asset Category,Currency,Symbol,Date/Time,Quantity,T. Price,Proceeds,Comm/Fee,Basis,Realized P/L,Code
+Trades,Data,Order,Equity and Index Options,USD,NXT 16MAY25 30 C,"2025-02-03, 10:01:36",1,18.95,-1895,-0.25525,919.925156,-975.330094,C
+Trades,SubTotal,,Equity and Index Options,USD,NXT 16MAY25 30 C,,1,,-1895,-0.25525,919.925156,-975.330094,
+Trades,Data,Order,Equity and Index Options,USD,NXT 15AUG25 30 C,"2025-04-04, 11:51:33",-1,11.51,1151,-1.0920378,-1063.04395,86.864012,C;L
+Trades,Data,Order,Equity and Index Options,USD,NXT 15AUG25 30 C,"2025-04-09, 09:51:42",-1,10.03,1003,-1.0879234,-1062.04395,-60.131873,C
+Trades,SubTotal,,Equity and Index Options,USD,NXT 15AUG25 30 C,,-2,,2154,-2.1799612,-2125.0879,26.732139,
+Trades,Data,Order,Equity and Index Options,USD,PCTY 21FEB25 180 C,"2025-02-21, 10:16:10",-2,25.68,5136,-1.5588608,-4847.3929,287.04824,C;P
+Trades,SubTotal,,Equity and Index Options,USD,PCTY 21FEB25 180 C,,-2,,5136,-1.5588608,-4847.3929,287.04824,
+Trades,Data,Order,Equity and Index Options,USD,PDD 15AUG25 110 C,"2025-02-14, 12:39:42",-1,27.36,2736,-1.1341008,-2734.8658992,0,O
+Trades,Data,Order,Equity and Index Options,USD,PDD 15AUG25 110 C,"2025-02-14, 12:43:09",-1,27.45,2745,-1.134351,-2743.865649,0,O
+Trades,Data,Order,Equity and Index Options,USD,PDD 15AUG25 110 C,"2025-02-21, 15:00:45",2,30.95,-6190,-1.4155,5117.539697,-712.683952,C;P
+Trades,SubTotal,,Equity and Index Options,USD,PDD 15AUG25 110 C,,0,,-709,-3.6839518,-361.1918512,-712.683952,
+Trades,Data,Order,Equity and Index Options,USD,PDD 15AUG25 185 C,"2025-02-21, 15:55:05",-1,5.8,580,-0.824164,-579.175836,0,O
+Trades,Data,Order,Equity and Index Options,USD,PDD 15AUG25 185 C,"2025-02-24, 15:15:46",1,3.27,-327,-1.05525,579.175836,251.120586,C
+Trades,SubTotal,,Equity and Index Options,USD,PDD 15AUG25 185 C,,0,,253,-1.879414,0,251.120586,
+Trades,Data,Order,Equity and Index Options,USD,PDD 16JAN26 110 C,"2025-02-14, 12:41:27",1,34.1,-3410,-0.80525,3410.80525,0,O
+Trades,Data,Order,Equity and Index Options,USD,PDD 16JAN26 110 C,"2025-02-14, 12:42:17",1,34.1,-3410,-0.80525,3410.80525,0,O
+Trades,Data,Order,Equity and Index Options,USD,PDD 16JAN26 110 C,"2025-04-07, 10:33:27",-1,17.29,1729,-0.8481062,-3410.80525,-1682.653356,C
+Trades,Data,Order,Equity and Index Options,USD,PDD 16JAN26 110 C,"2025-04-08, 13:37:51",-1,13.1,1310,-0.846458,-3410.80525,-2101.651708,C
+Trades,SubTotal,,Equity and Index Options,USD,PDD 16JAN26 110 C,,0,,-3781,-3.3050642,0,-3784.305064,
+Trades,Data,Order,Equity and Index Options,USD,PDD 16JAN26 60 P,"2025-02-26, 11:27:17",4,1.65,-660,-2.781,662.781,0,O
+Trades,Data,Order,Equity and Index Options,USD,PDD 16JAN26 60 P,"2025-04-08, 13:40:34",-4,4.3,1720,-1.887976,-662.781,1055.331024,C
+Trades,SubTotal,,Equity and Index Options,USD,PDD 16JAN26 60 P,,0,,1060,-4.668976,0,1055.331024,
+Trades,Data,Order,Equity and Index Options,USD,PDD 16JAN26 110 P,"2025-02-26, 09:45:43",-2,14.6,2920,-1.477256,-2918.522744,0,O
+Trades,Data,Order,Equity and Index Options,USD,PDD 16JAN26 110 P,"2025-02-26, 11:40:15",2,14.75,-2950,-0.9105,2918.522744,-32.387756,C
+Trades,Data,Order,Equity and Index Options,USD,PDD 16JAN26 110 P,"2025-02-26, 11:48:12",-1,14.65,1465,-1.088767,-1463.911233,16.193878,O
+Trades,Data,Order,Equity and Index Options,USD,PDD 16JAN26 110 P,"2025-02-28, 13:02:13",1,17.79,-1779,-1.05525,1447.717355,-332.337895,C
+Trades,SubTotal,,Equity and Index Options,USD,PDD 16JAN26 110 P,,0,,-344,-4.531773,-16.193878,-348.531773,
+Trades,Data,Order,Equity and Index Options,USD,PLTR 17APR25 80 P,"2025-02-24, 10:06:40",-2,4.9,980,-0.943324,-979.056676,0,O
+Trades,Data,Order,Equity and Index Options,USD,PLTR 17APR25 80 P,"2025-03-21, 10:04:51",2,3.355,-671,-1.4183,979.056676,306.638376,C;P
+Trades,SubTotal,,Equity and Index Options,USD,PLTR 17APR25 80 P,,0,,309,-2.361624,0,306.638376,
+Trades,Data,Order,Equity and Index Options,USD,PLTR 17APR25 90 P,"2025-02-21, 14:33:49",2,4.9,-980,-1.4105,981.4105,0,O;P
+Trades,Data,Order,Equity and Index Options,USD,PLTR 17APR25 90 P,"2025-03-21, 10:04:12",-2,7.7,1540,-0.961692,-981.4105,557.627808,C
+Trades,SubTotal,,Equity and Index Options,USD,PLTR 17APR25 90 P,,0,,560,-2.372192,0,557.627808,
+Trades,Data,Order,Equity and Index Options,USD,SLV 20JUN25 30 C,"2025-04-23, 15:11:26",1,1.9,-190,-1.05725,191.05725,0,O
+Trades,Data,Order,Equity and Index Options,USD,SLV 20JUN25 30 C,"2025-04-24, 09:46:37",1,1.65,-165,-1.05725,166.05725,0,O
+Trades,Data,Order,Equity and Index Options,USD,SLV 20JUN25 30 C,"2025-04-24, 10:31:07",5,1.74,-870,-3.23625,873.23625,0,O;P
+Trades,Data,Order,Equity and Index Options,USD,SLV 20JUN25 30 C,"2025-04-24, 14:48:47",5,1.78,-890,-3.53625,893.53625,0,O;P
+Trades,Data,Order,Equity and Index Options,USD,SLV 20JUN25 30 C,"2025-06-20, 12:37:15",-11,2.67,2937,-4.07814,-1945.17975,987.74211,C
+Trades,Data,Order,Equity and Index Options,USD,SLV 20JUN25 30 C,"2025-06-20, 16:20:00",-1,0,0,0,-178.70725,0,C;Ex
+Trades,SubTotal,,Equity and Index Options,USD,SLV 20JUN25 30 C,,0,,822,-12.96514,0,987.74211,
+Trades,Data,Order,Equity and Index Options,USD,SLV 20JUN25 35 C,"2025-04-23, 15:11:54",-1,0.45,45,-1.061291,-43.938709,0,O
+Trades,Data,Order,Equity and Index Options,USD,SLV 20JUN25 35 C,"2025-04-24, 09:46:37",-1,0.37,37,-1.0610686,-35.9389314,0,O
+Trades,Data,Order,Equity and Index Options,USD,SLV 20JUN25 35 C,"2025-04-24, 10:31:07",-5,0.39,195,-3.255621,-191.744379,0,O;P
+Trades,Data,Order,Equity and Index Options,USD,SLV 20JUN25 35 C,"2025-04-24, 14:48:47",-5,0.38,190,-3.555482,-186.444518,0,O;P
+Trades,Data,Order,Equity and Index Options,USD,SLV 20JUN25 35 C,"2025-06-20, 12:37:15",11,0.01,-11,0.35255,420.777634,410.130184,C
+Trades,Data,Order,Equity and Index Options,USD,SLV 20JUN25 35 C,"2025-06-20, 16:20:00",1,0,0,0,37.288904,37.288904,C;Ep
+Trades,SubTotal,,Equity and Index Options,USD,SLV 20JUN25 35 C,,0,,456,-8.5809126,0.0000006,447.419088,
+Trades,Total,,Equity and Index Options,USD,,,,,4021,-48.3431196,-6429.9413726,-1901.191512, 
+Trades,Header,DataDiscriminator,Asset Category,Currency,Symbol,Date/Time,Quantity,T. Price,Notional Value,Comm/Fee,Basis,Realized P/L,Code
+Trades,Data,Order,Futures,HKD,MHIG5,"2025-02-24, 20:14:00",1,22770,-227700,-17,227717,0,O
+Trades,Data,Order,Futures,HKD,MHIG5,"2025-02-27, 07:00:00",-1,23687,236870,-17,-227717,9136,C;Ep
+Trades,SubTotal,,Futures,HKD,MHIG5,,0,,9170,-34,0,9136,
+Trades,Data,Order,Futures,HKD,MHIJ5,"2025-03-12, 21:19:16",1,23695,-236950,-17,236967,0,O
+Trades,Data,Order,Futures,HKD,MHIJ5,"2025-04-06, 21:45:44",-1,20632,206320,-17,-236967,-30664,C;L
+Trades,SubTotal,,Futures,HKD,MHIJ5,,0,,-30630,-34,0,-30664,
+Trades,Total,,Futures,HKD,,,,,-21460,-68,0,-21528, 
+Trades,Total,,Futures,USD,,,,,-2761.3023,-8.74837,-3.01717,-2773.06784, 
+Trades,Data,Order,Futures,USD,MESH5,"2025-03-10, 11:35:58",-1,5678,28390,-0.62,-30285.62,-1896.24,C
+Trades,SubTotal,,Futures,USD,MESH5,,-1,,28390,-0.62,-30285.62,-1896.24,
+Trades,Data,Order,Futures,USD,MGCG5,"2025-01-29, 09:43:15",-1,2774,27740,-0.77,-26761.77,977.46,C;L
+Trades,SubTotal,,Futures,USD,MGCG5,,-1,,27740,-0.77,-26761.77,977.46,
+Trades,Data,Order,Futures,USD,MGCJ5,"2025-01-31, 08:48:26",1,2847.5,-28475,-0.77,28475.77,0,O
+Trades,Data,Order,Futures,USD,MGCJ5,"2025-03-27, 09:45:58",-1,3046.5,30465,-0.87,-28475.77,1988.36,C;L
+Trades,SubTotal,,Futures,USD,MGCJ5,,0,,1990,-1.64,0,1988.36,
+Trades,Data,Order,Futures,USD,MGCM5,"2025-04-01, 16:50:17",1,3151.2,-31512,-0.87,31512.87,0,O
+Trades,Data,Order,Futures,USD,MGCM5,"2025-04-04, 11:51:31",-1,3041.2,30412,-0.87,-31512.87,-1101.74,C;L
+Trades,Data,Order,Futures,USD,MGCM5,"2025-04-14, 15:39:07",1,3225.9,-32259,-0.87,32259.87,0,O
+Trades,Data,Order,Futures,USD,MGCM5,"2025-05-28, 09:42:35",-1,3298,32980,-0.87,-32259.87,719.26,C;L
+Trades,SubTotal,,Futures,USD,MGCM5,,0,,-379,-3.48,0,-382.48,
+Trades,Data,Order,Futures,USD,ZFM5,"2025-03-21, 10:06:59",1,108.1640625,-108164.0625,-1.52,108165.5825,0,O
+Trades,Data,Order,Futures,USD,ZFM5,"2025-04-09, 09:50:40",-1,108.203125,108203.125,-1.52,-108165.5825,36.0225,C
+Trades,SubTotal,,Futures,USD,ZFM5,,0,,39.0625,-3.04,0,36.0225,
+Trades,Total,,Futures,USD,,,,,57780.0625,-9.55,-57047.39,723.1225, 
+Trades,Header,DataDiscriminator,Asset Category,Currency,Symbol,Date/Time,Quantity,T. Price,Proceeds,Comm in USD,,,Code
+Trades,Data,Order,Forex,HKD,GBP.HKD,"2025-04-04, 07:09:59",-13.16,10.1197,133.175252,0,,,L
+Trades,SubTotal,,Forex,HKD,GBP.HKD,,-13.16,,133.175252,0,,,
+Trades,Data,Order,Forex,HKD,USD.HKD,"2025-02-28, 23:48:56",0.0065,7.77855,-0.050560575,0,,,
+Trades,Data,Order,Forex,HKD,USD.HKD,"2025-03-07, 23:55:38",-0.8649,7.77035,6.720575715,0,,,
+Trades,Data,Order,Forex,HKD,USD.HKD,"2025-04-06, 21:18:42","-2,674.58",7.77275,20788.841695,-0.053479559,,,L
+Trades,SubTotal,,Forex,HKD,USD.HKD,,-2675.4384,,20795.51171014,-0.053479559,,,
+Trades,Total,,Forex,HKD,,,,,20928.68696214,-0.053479559,,, 
+Trades,Total,,Forex,USD,,,,,2694.344383906,-0.053479559,,, 
+Forex P/L Details,Header,Asset Category,Currency,Description,Date/Time,FX Currency,Quantity,Proceeds in USD,Basis in USD,Realized P/L in USD,Code
+Forex P/L Details,Data,Forex,USD,Net cash activity,2025-01-06,GBP,-5.05,6.3226,-6.3226,0,O
+Forex P/L Details,Data,Forex,USD,Stock 100 AT.,"2025-01-07, 07:51:26",GBP,-558,696.2724,-696.2724,0,O
+Forex P/L Details,Data,Forex,USD,Net cash activity,2025-02-05,GBP,-7.23,9.041115,-9.041115,0,O
+Forex P/L Details,Data,Forex,USD,Stock -135 AT.,"2025-02-24, 08:57:30",GBP,716.55,930.440175,-904.644375,25.7958,C
+Forex P/L Details,Data,Forex,USD,Stock -165 AT.,"2025-02-24, 08:57:31",GBP,879.45,1110.212772,-1110.305625,-0.092853,C;O
+Forex P/L Details,Data,Forex,USD,Future 1 MHIG5,"2025-02-24, 20:14:00",HKD,2363,303.97632,-303.97632,0,O
+Forex P/L Details,Data,Forex,USD,MHIG5 margin,"2025-02-26, 07:00:00",HKD,7390,950.5757,-950.5757,0,O
+Forex P/L Details,Data,Forex,USD,Net cash activity,"2025-02-26, 17:15:00",HKD,-0.05,0.006431,-0.006432,-0.000001,C
+Forex P/L Details,Data,Forex,USD,Net cash activity,"2025-02-26, 17:15:00",HKD,0.05,0.006431,-0.006431,0,O
+Forex P/L Details,Data,Forex,USD,Future -1 MHIG5,"2025-02-27, 07:00:00",HKD,-17,2.18569,-2.18688,-0.00119,C
+Forex P/L Details,Data,Forex,USD,MHIG5 margin,"2025-02-27, 07:00:00",HKD,-600,77.142,-77.184,-0.042,C
+Forex P/L Details,Data,Forex,USD,Forex 0.0065 USD.HKD,"2025-02-28, 20:26:00",HKD,-0.050561,0.0065,-0.006503,-0.000003,C;O
+Forex P/L Details,Data,Forex,USD,Net cash activity,2025-03-05,GBP,-6.32,8.150272,-7.979,0.171272,C
+Forex P/L Details,Data,Forex,USD,Net cash activity,2025-03-05,HKD,-6.72,0.864797,-0.864797,0,O
+Forex P/L Details,Data,Forex,USD,Forex -0.8649 USD.HKD,"2025-03-07, 20:26:00",HKD,6.720576,0.864871,-0.8649,-0.000029,C;O
+Forex P/L Details,Data,Forex,USD,Future 1 MHIJ5,"2025-03-12, 21:19:16",HKD,-1457,187.45762,-187.42848,0.02914,C
+Forex P/L Details,Data,Forex,USD,MHIJ5 margin,"2025-03-14, 07:00:00",HKD,5710,734.6486,-734.6486,0,O
+Forex P/L Details,Data,Forex,USD,MHIJ5 margin,"2025-03-17, 07:00:00",HKD,1310,168.6101,-168.6101,0,O
+Forex P/L Details,Data,Forex,USD,MHIJ5 margin,"2025-03-18, 07:00:00",HKD,6130,788.9923,-788.9923,0,O
+Forex P/L Details,Data,Forex,USD,MHIJ5 margin,"2025-03-19, 07:00:00",HKD,-690,88.7961,-88.757589,0.038511,C
+Forex P/L Details,Data,Forex,USD,MHIJ5 margin,"2025-03-20, 07:00:00",HKD,-5220,671.553,-671.4486,0.1044,C
+Forex P/L Details,Data,Forex,USD,MHIJ5 margin,"2025-03-21, 07:00:00",HKD,-6070,780.8448,-780.913131,-0.068331,C
+Forex P/L Details,Data,Forex,USD,MHIJ5 margin,"2025-03-24, 07:00:00",HKD,3680,473.3584,-473.3584,0,O
+Forex P/L Details,Data,Forex,USD,MHIJ5 margin,"2025-03-25, 07:00:00",HKD,-6310,811.5922,-812.089652,-0.497452,C
+Forex P/L Details,Data,Forex,USD,MHIJ5 margin,"2025-03-26, 07:00:00",HKD,1010,129.886,-129.886,0,O
+Forex P/L Details,Data,Forex,USD,MHIJ5 margin,"2025-03-27, 07:00:00",HKD,1570,201.9177,-201.9177,0,O
+Forex P/L Details,Data,Forex,USD,MHIJ5 margin,"2025-03-28, 07:00:00",HKD,-2330,299.5681,-299.8943,-0.3262,C
+Forex P/L Details,Data,Forex,USD,MHIJ5 margin,"2025-03-31, 07:00:00",HKD,-2680,344.4604,-344.745116,-0.284716,C
+Forex P/L Details,Data,Forex,USD,MHIJ5 margin,"2025-04-01, 07:00:00",HKD,910,116.9532,-116.9532,0,O
+Forex P/L Details,Data,Forex,USD,MHIJ5 margin,"2025-04-02, 07:00:00",HKD,-440,56.5356,-56.5972,-0.0616,C
+Forex P/L Details,Data,Forex,USD,Net cash activity,2025-04-03,HKD,-31.15,4.004644,-4.004644,0,C;O
+Forex P/L Details,Data,Forex,USD,MHIJ5 margin,"2025-04-03, 07:00:00",HKD,-4110,528.3816,-528.523884,-0.142284,C
+Forex P/L Details,Data,Forex,USD,Forex -13.16 GBP.HKD,"2025-04-04, 07:09:59",GBP,-13.16,17.130333,-16.6145,0.515833,C
+Forex P/L Details,Data,Forex,USD,Forex -13.16 GBP.HKD,"2025-04-04, 07:09:59",HKD,133.175252,17.128153,-17.130333,-0.00218,C;O
+Forex P/L Details,Data,Forex,USD,Forex -2674.58 USD.HKD,"2025-04-06, 21:18:42",HKD,20788.841695,2674.63348,-2674.63348,0,O
+Forex P/L Details,Data,Forex,USD,Future -1 MHIJ5,"2025-04-06, 21:45:44",HKD,8503,1094.67622,-1094.67622,0,O
+Forex P/L Details,Data,Forex,USD,MHIJ5 margin,"2025-04-07, 07:00:00",HKD,-30180,3885.3732,-3885.340431,0.032769,C;O
+Forex P/L Details,Data,Forex,USD,Net cash activity,"2025-04-09, 17:15:00",HKD,16562.2,2132.217628,-2134.03947,-1.821842,C
+Forex P/L Details,Data,Forex,USD,Net cash activity,"2025-04-09, 17:15:00",HKD,-16562.2,2134.03947,-2130.842962,3.196508,C
+Forex P/L Details,Data,Forex,USD,Net cash activity,"2025-04-10, 17:15:00",HKD,4965.85,639.303529,-640.048407,-0.744878,C;O
+Forex P/L Details,Data,Forex,USD,Net cash activity,"2025-04-10, 17:15:00",HKD,-4965.85,640.048407,-639.040551,1.007856,C;O
+Forex P/L Details,Data,Forex,USD,Net cash activity,2025-05-05,HKD,-19.32,2.49286,-2.49286,0,O
+Forex P/L Details,Data,Forex,USD,Net cash activity,2025-06-04,HKD,-2.01,0.256154,-0.256154,0,O
+Forex P/L Details,Data,Forex,USD,Net cash activity,2025-07-03,HKD,-1.5,0.191085,-0.191085,0,O
+Forex P/L Details,Data,Forex,USD,Net cash activity,2025-08-05,HKD,-1.59,0.20255,-0.20255,0,O
+Forex P/L Details,Data,Forex,USD,Net cash activity,2025-09-04,HKD,-2.26,0.289709,-0.289709,0,O
+Forex P/L Details,Data,Forex,USD,Net cash activity,2025-10-03,HKD,-3.19,0.409979,-0.409979,0,O
+Forex P/L Details,Data,Forex,USD,Net cash activity,2025-11-05,HKD,-3.48,0.447598,-0.447598,0,O
+Forex P/L Details,Data,Forex,USD,Net cash activity,2025-12-03,HKD,-2.82,0.362285,-0.362285,0,O
+Forex P/L Details,Data,Total,,,,,,23722.831078,-23696.024548,26.80653,
+Transfers,Header,Asset Category,Currency,Symbol,Date,Type,Direction,Xfer Company,Xfer Account,Qty,Xfer Price,Market Value,Realized P/L,Cash Amount,Code
+Transfers,Data,Stocks,USD,DSU,2024-12-27,ACATS,Out,--,42X71X13,"1,300",--,"14,131.00",0.00,0.00,Ca
+Transfers,Data,Stocks,USD,DSU,2024-12-27,ACATS,Out,--,42X71X13,"-1,300",--,"-14,131.00",0.00,0.00,
+Transfers,Data,Total,,,,,,,,,,0,0,0,
+Fees,Header,Subtitle,Currency,Date,Description,Amount
+Fees,Data,Other Fees,USD,2025-02-04,H******11:Global Snapshot PNP for Jan 2025,-0.03
+Fees,Data,Other Fees,USD,2025-02-04,H******11:Global Snapshot PNP for Jan 2025,0.03
+Fees,Data,Other Fees,USD,2025-04-02,H******11:Global Snapshot PNP for Mar 2025,-0.03
+Fees,Data,Other Fees,USD,2025-04-02,H******11:Global Snapshot PNP for Mar 2025,0.03
+Fees,Data,Other Fees,USD,2025-04-23,h******11:US Equity and Options Add-On Streaming Bundle Non-Professional for Apr 2025,-4.5
+Fees,Data,Other Fees,USD,2025-04-23,h******11:US Securities Snapshot and Futures Value Bundle Non-Professional for Apr 2025,-10
+Fees,Data,Other Fees,USD,2025-05-02,h******11:US Equity and Options Add-On Streaming Bundle Non-Professional for May 2025,-4.5
+Fees,Data,Other Fees,USD,2025-05-02,h******11:US Securities Snapshot and Futures Value Bundle Non-Professional for Apr 2025,10
+Fees,Data,Other Fees,USD,2025-05-02,h******11:US Securities Snapshot and Futures Value Bundle Non-Professional for May 2025,-10
+Fees,Data,Other Fees,USD,2025-06-03,h******11:US Equity and Options Add-On Streaming Bundle Non-Professional for Jun 2025,-4.5
+Fees,Data,Other Fees,USD,2025-06-03,h******11:US Securities Snapshot and Futures Value Bundle Non-Professional for Jun 2025,-10
+Fees,Data,Other Fees,USD,2025-07-02,h******11:US Equity and Options Add-On Streaming Bundle Non-Professional for Jul 2025,-4.5
+Fees,Data,Other Fees,USD,2025-07-02,h******11:US Securities Snapshot and Futures Value Bundle Non-Professional for Jul 2025,-10
+Fees,Data,Other Fees,USD,2025-08-04,h******11:US Equity and Options Add-On Streaming Bundle Non-Professional for Aug 2025,-4.5
+Fees,Data,Other Fees,USD,2025-08-04,h******11:US Securities Snapshot and Futures Value Bundle Non-Professional for Aug 2025,-10
+Fees,Data,Other Fees,USD,2025-09-03,h******11:US Securities Snapshot and Futures Value Bundle Non-Professional for Sep 2025,-10
+Fees,Data,Other Fees,USD,2025-09-04,h******11:US Equity and Options Add-On Streaming Bundle Non-Professional for Sep 2025,-4.5
+Fees,Data,Other Fees,USD,2025-10-03,h******11:US Equity and Options Add-On Streaming Bundle Non-Professional for Oct 2025,-4.5
+Fees,Data,Other Fees,USD,2025-10-03,h******11:US Securities Snapshot and Futures Value Bundle Non-Professional for Oct 2025,-10
+Fees,Data,Other Fees,USD,2025-11-04,h******11:US Equity and Options Add-On Streaming Bundle Non-Professional for Nov 2025,-4.5
+Fees,Data,Other Fees,USD,2025-11-04,h******11:US Securities Snapshot and Futures Value Bundle Non-Professional for Nov 2025,-10
+Fees,Data,Other Fees,USD,2025-12-02,h******11:US Equity and Options Add-On Streaming Bundle Non-Professional for Dec 2025,-4.5
+Fees,Data,Other Fees,USD,2025-12-02,h******11:US Securities Snapshot and Futures Value Bundle Non-Professional for Dec 2025,-10
+Fees,Data,Total,,,,-120.5
+Fees,Notes,"Market data is provided by Global Financial Information Services (GmbH). Your local broker collects amounts owed for fees and tax for such data on behalf of Global Financial Information Services (GmbH). Note, you are responsible for any applicable taxes relating to the provision of these services."
+Dividends,Header,Currency,Date,Description,Amount
+Dividends,Data,USD,2025-02-13,NMM(MHY622674098) Cash Dividend USD 0.05 per Share (Ordinary Dividend),2
+Dividends,Data,USD,2025-02-28,MSCI(US55354G1004) Cash Dividend USD 1.80 per Share (Ordinary Dividend),9
+Dividends,Data,USD,2025-03-03,V(US92826C8394) Cash Dividend USD 0.59 per Share (Ordinary Dividend),1.77
+Dividends,Data,USD,2025-03-31,CBL(524096642) Cash Dividend USD 0.40 per Share (Ordinary Dividend),28.4
+Dividends,Data,USD,2025-03-31,CBL(524096642) Payment in Lieu of Dividend (Ordinary Dividend),11.6
+Dividends,Data,USD,2025-03-31,CBL(US1248308785) Payment in Lieu of Dividend (Bonus Dividend),23.2
+Dividends,Data,USD,2025-03-31,CBL(US1248308785) Cash Dividend USD 0.80 per Share (Bonus Dividend),56.8
+Dividends,Data,USD,2025-03-31,TKO(US87256C1018) Cash Dividend USD 0.38 per Share (Ordinary Dividend),0.38
+Dividends,Data,USD,2025-03-31,TKO(US87256C1018) Payment in Lieu of Dividend (Ordinary Dividend),4.18
+Dividends,Data,USD,2025-04-02,NVDA(US67066G1040) Cash Dividend USD 0.01 per Share (Ordinary Dividend),0.25
+Dividends,Data,USD,2025-04-22,IGIC(BMG4809J1062) Payment in Lieu of Dividend (Ordinary Dividend),0.38
+Dividends,Data,USD,2025-04-22,IGIC(BMG4809J1062) Cash Dividend USD 0.025 per Share (Ordinary Dividend),2.13
+Dividends,Data,USD,2025-04-22,IGIC(BMG4809J1062) Cash Dividend USD 0.85 per Share (Bonus Dividend),72.25
+Dividends,Data,USD,2025-04-22,IGIC(BMG4809J1062) Payment in Lieu of Dividend (Bonus Dividend),12.75
+Dividends,Data,USD,2025-06-02,EQT(US26884L1098) Cash Dividend USD 0.1575 per Share (Ordinary Dividend),6.3
+Dividends,Data,USD,2025-06-02,V(US92826C8394) Cash Dividend USD 0.59 per Share (Ordinary Dividend),1.77
+Dividends,Data,USD,2025-06-18,IGIC(BMG4809J1062) Cash Dividend USD 0.05 per Share (Ordinary Dividend),5
+Dividends,Data,USD,2025-06-30,TKO(US87256C1018) Payment in Lieu of Dividend (Ordinary Dividend),0.76
+Dividends,Data,USD,2025-06-30,TKO(US87256C1018) Cash Dividend USD 0.38 per Share (Ordinary Dividend),3.8
+Dividends,Data,USD,2025-07-03,NVDA(US67066G1040) Cash Dividend USD 0.01 per Share (Ordinary Dividend),0.25
+Dividends,Data,USD,2025-08-26,KINS(US4967191051) Cash Dividend USD 0.05 per Share (Ordinary Dividend),7.5
+Dividends,Data,USD,2025-09-02,EQT(US26884L1098) Cash Dividend USD 0.1575 per Share (Ordinary Dividend),6.3
+Dividends,Data,USD,2025-09-02,V(US92826C8394) Cash Dividend USD 0.59 per Share (Ordinary Dividend),1.77
+Dividends,Data,USD,2025-09-16,IGIC(BMG4809J1062) Cash Dividend USD 0.05 per Share (Ordinary Dividend),5
+Dividends,Data,USD,2025-09-30,TKO(US87256C1018) Cash Dividend USD 0.76 per Share (Ordinary Dividend),9.12
+Dividends,Data,USD,2025-10-02,NVDA(US67066G1040) Cash Dividend USD 0.01 per Share (Ordinary Dividend),0.25
+Dividends,Data,USD,2025-11-26,KINS(US4967191051) Cash Dividend USD 0.05 per Share (Ordinary Dividend),7.5
+Dividends,Data,USD,2025-12-01,EQT(US26884L1098) Cash Dividend USD 0.165 per Share (Ordinary Dividend),6.6
+Dividends,Data,USD,2025-12-01,V(US92826C8394) Cash Dividend USD 0.67 per Share (Ordinary Dividend),2.01
+Dividends,Data,USD,2025-12-26,NVDA(US67066G1040) Cash Dividend USD 0.01 per Share (Ordinary Dividend),0.25
+Dividends,Data,USD,2025-12-30,TKO(US87256C1018) Cash Dividend USD 0.78 per Share (Ordinary Dividend),9.36
+Dividends,Data,USD,2025-12-31,IGIC(BMG4809J1062) Cash Dividend USD 0.05 per Share (Ordinary Dividend),5
+Dividends,Data,Total,,,303.63
+Interest,Header,Currency,Date,Description,Amount
+Interest,Data,GBP,2025-01-06,GBP Debit Interest for Dec-2024,-5.05
+Interest,Data,GBP,2025-02-05,GBP Debit Interest for Jan-2025,-7.23
+Interest,Data,GBP,2025-03-05,GBP Debit Interest for Feb-2025,-6.32
+Interest,Data,Total,,,-18.6
+Interest,Data,Total in USD,,,-23.513987
+Interest,Data,HKD,2025-03-05,HKD Debit Interest for Feb-2025,-6.72
+Interest,Data,HKD,2025-04-03,HKD Debit Interest for Mar-2025,-31.15
+Interest,Data,HKD,2025-05-05,HKD Debit Interest for Apr-2025,-19.32
+Interest,Data,HKD,2025-06-04,HKD Debit Interest for May-2025,-2.01
+Interest,Data,HKD,2025-07-03,HKD Debit Interest for Jun-2025,-1.5
+Interest,Data,HKD,2025-08-05,HKD Debit Interest for Jul-2025,-1.59
+Interest,Data,HKD,2025-09-04,HKD Debit Interest for Aug-2025,-2.26
+Interest,Data,HKD,2025-10-03,HKD Debit Interest for Sep-2025,-3.19
+Interest,Data,HKD,2025-11-05,HKD Debit Interest for Oct-2025,-3.48
+Interest,Data,HKD,2025-12-03,HKD Debit Interest for Nov-2025,-2.82
+Interest,Data,Total,,,-74.04
+Interest,Data,Total in USD,,,-9.5216611
+Interest,Data,USD,2025-01-06,USD Debit Interest for Dec-2024,-65.56
+Interest,Data,USD,2025-01-06,USD IBKR Managed Securities (SYEP) Interest for Dec-2024,0.09
+Interest,Data,USD,2025-02-05,USD Debit Interest for Jan-2025,-35.86
+Interest,Data,USD,2025-03-05,USD Debit Interest for Feb-2025,-56.18
+Interest,Data,USD,2025-04-03,USD Debit Interest for Mar-2025,-86.07
+Interest,Data,USD,2025-05-05,USD Debit Interest for Apr-2025,-25.29
+Interest,Data,USD,2025-06-04,USD Debit Interest for May-2025,-16.11
+Interest,Data,USD,2025-07-03,USD Debit Interest for Jun-2025,-9.55
+Interest,Data,USD,2025-08-05,USD Debit Interest for Jul-2025,-11.78
+Interest,Data,USD,2025-09-04,USD Debit Interest for Aug-2025,-12.06
+Interest,Data,USD,2025-10-03,USD Debit Interest for Sep-2025,-11.44
+Interest,Data,USD,2025-11-05,USD Debit Interest for Oct-2025,-11.72
+Interest,Data,USD,2025-12-03,USD Debit Interest for Nov-2025,-15.98
+Interest,Data,Total,,,-357.51
+Interest,Data,Total Interest in USD,,,-390.5456481
+Interest Accruals,Header,Currency,Field Name,Field Value
+Interest Accruals,Data,Base Currency Summary,Starting Accrual Balance,-67.871624
+Interest Accruals,Data,Base Currency Summary,Interest Accrued,-347.9426386
+Interest Accruals,Data,Base Currency Summary,Accrual Reversal,390.5456481
+Interest Accruals,Data,Base Currency Summary,FX Translation,-0.3113855
+Interest Accruals,Data,Base Currency Summary,Ending Accrual Balance,-25.58
+Interest Accruals,Data,GBP,Starting Accrual Balance,-4.24
+Interest Accruals,Data,GBP,Interest Accrued,-14.36
+Interest Accruals,Data,GBP,Accrual Reversal,18.6
+Interest Accruals,Data,GBP,Ending Accrual Balance,0
+Interest Accruals,Data,GBP,Ending Accrual Balance in USD,0
+Interest Accruals,Data,HKD,Starting Accrual Balance,0
+Interest Accruals,Data,HKD,Interest Accrued,-74.04
+Interest Accruals,Data,HKD,Accrual Reversal,74.04
+Interest Accruals,Data,HKD,Ending Accrual Balance,0
+Interest Accruals,Data,HKD,Ending Accrual Balance in USD,0
+Interest Accruals,Data,USD,Starting Accrual Balance,-62.55
+Interest Accruals,Data,USD,Interest Accrued,-320.54
+Interest Accruals,Data,USD,Accrual Reversal,357.51
+Interest Accruals,Data,USD,Ending Accrual Balance,-25.58
+Change in Dividend Accruals,Header,Asset Category,Currency,Symbol,Date,Ex Date,Pay Date,Quantity,Tax,Fee,Gross Rate,Gross Amount,Net Amount,Code
+Change in Dividend Accruals,Data,Starting Dividend Accruals in USD,,,,,,,,,,,0,
+Change in Dividend Accruals,Data,Stocks,USD,CBL,2025-03-12,2025-03-13,2025-03-31,100,0,0,0.8,80,80,Po
+Change in Dividend Accruals,Data,Stocks,USD,CBL,2025-03-12,2025-03-13,2025-03-31,100,0,0,0.4,40,40,Po
+Change in Dividend Accruals,Data,Stocks,USD,CBL,2025-03-31,2025-03-13,2025-03-31,100,0,0,0.4,-40,-40,Re
+Change in Dividend Accruals,Data,Stocks,USD,CBL,2025-03-31,2025-03-13,2025-03-31,100,0,0,0.8,-80,-80,Re
+Change in Dividend Accruals,Data,Stocks,USD,EQT,2025-05-06,2025-05-07,2025-06-02,40,0,0,0.1575,6.3,6.3,Po
+Change in Dividend Accruals,Data,Stocks,USD,EQT,2025-06-02,2025-05-07,2025-06-02,40,0,0,0.1575,-6.3,-6.3,Re
+Change in Dividend Accruals,Data,Stocks,USD,EQT,2025-08-05,2025-08-06,2025-09-02,40,0,0,0.1575,6.3,6.3,Po
+Change in Dividend Accruals,Data,Stocks,USD,EQT,2025-09-02,2025-08-06,2025-09-02,40,0,0,0.1575,-6.3,-6.3,Re
+Change in Dividend Accruals,Data,Stocks,USD,EQT,2025-11-04,2025-11-05,2025-12-01,40,0,0,0.165,6.6,6.6,Po
+Change in Dividend Accruals,Data,Stocks,USD,EQT,2025-12-01,2025-11-05,2025-12-01,40,0,0,0.165,-6.6,-6.6,Re
+Change in Dividend Accruals,Data,Stocks,USD,IGIC,2025-04-03,2025-04-04,2025-04-22,100,0,0,0.025,2.5,2.5,Po
+Change in Dividend Accruals,Data,Stocks,USD,IGIC,2025-04-03,2025-04-04,2025-04-22,100,0,0,0.85,85,85,Po
+Change in Dividend Accruals,Data,Stocks,USD,IGIC,2025-04-22,2025-04-04,2025-04-22,100,0,0,0.85,-85,-85,Re
+Change in Dividend Accruals,Data,Stocks,USD,IGIC,2025-04-22,2025-04-04,2025-04-22,100,0,0,0.025,-2.51,-2.51,Re
+Change in Dividend Accruals,Data,Stocks,USD,IGIC,2025-05-30,2025-06-02,2025-06-18,100,0,0,0.05,5,5,Po
+Change in Dividend Accruals,Data,Stocks,USD,IGIC,2025-06-18,2025-06-02,2025-06-18,100,0,0,0.05,-5,-5,Re
+Change in Dividend Accruals,Data,Stocks,USD,IGIC,2025-08-28,2025-08-29,2025-09-16,100,0,0,0.05,5,5,Po
+Change in Dividend Accruals,Data,Stocks,USD,IGIC,2025-09-16,2025-08-29,2025-09-16,100,0,0,0.05,-5,-5,Re
+Change in Dividend Accruals,Data,Stocks,USD,IGIC,2025-12-16,2025-12-17,2025-12-31,100,0,0,0.05,5,5,Po
+Change in Dividend Accruals,Data,Stocks,USD,IGIC,2025-12-31,2025-12-17,2025-12-31,100,0,0,0.05,-5,-5,Re
+Change in Dividend Accruals,Data,Stocks,USD,KINS,2025-08-08,2025-08-11,2025-08-26,150,0,0,0.05,7.5,7.5,Po
+Change in Dividend Accruals,Data,Stocks,USD,KINS,2025-08-26,2025-08-11,2025-08-26,150,0,0,0.05,-7.5,-7.5,Re
+Change in Dividend Accruals,Data,Stocks,USD,KINS,2025-11-07,2025-11-10,2025-11-26,150,0,0,0.05,7.5,7.5,Po
+Change in Dividend Accruals,Data,Stocks,USD,KINS,2025-11-26,2025-11-10,2025-11-26,150,0,0,0.05,-7.5,-7.5,Re
+Change in Dividend Accruals,Data,Stocks,USD,MSCI,2025-02-13,2025-02-14,2025-02-28,5,0,0,1.8,9,9,Po
+Change in Dividend Accruals,Data,Stocks,USD,MSCI,2025-02-28,2025-02-14,2025-02-28,5,0,0,1.8,-9,-9,Re
+Change in Dividend Accruals,Data,Stocks,USD,NMM,2025-02-07,2025-02-10,2025-02-13,40,0,0,0.05,2,2,Po
+Change in Dividend Accruals,Data,Stocks,USD,NMM,2025-02-13,2025-02-10,2025-02-13,40,0,0,0.05,-2,-2,Re
+Change in Dividend Accruals,Data,Stocks,USD,NVDA,2025-03-11,2025-03-12,2025-04-02,25,0,0,0.01,0.25,0.25,Po
+Change in Dividend Accruals,Data,Stocks,USD,NVDA,2025-04-02,2025-03-12,2025-04-02,25,0,0,0.01,-0.25,-0.25,Re
+Change in Dividend Accruals,Data,Stocks,USD,NVDA,2025-06-10,2025-06-11,2025-07-03,25,0,0,0.01,0.25,0.25,Po
+Change in Dividend Accruals,Data,Stocks,USD,NVDA,2025-07-03,2025-06-11,2025-07-03,25,0,0,0.01,-0.25,-0.25,Re
+Change in Dividend Accruals,Data,Stocks,USD,NVDA,2025-09-10,2025-09-11,2025-10-02,25,0,0,0.01,0.25,0.25,Po
+Change in Dividend Accruals,Data,Stocks,USD,NVDA,2025-10-02,2025-09-11,2025-10-02,25,0,0,0.01,-0.25,-0.25,Re
+Change in Dividend Accruals,Data,Stocks,USD,NVDA,2025-12-03,2025-12-04,2025-12-26,25,0,0,0.01,0.25,0.25,Po
+Change in Dividend Accruals,Data,Stocks,USD,NVDA,2025-12-26,2025-12-04,2025-12-26,25,0,0,0.01,-0.25,-0.25,Re
+Change in Dividend Accruals,Data,Stocks,USD,TKO,2025-03-13,2025-03-14,2025-03-31,12,0,0,0.38,4.56,4.56,Po
+Change in Dividend Accruals,Data,Stocks,USD,TKO,2025-03-31,2025-03-14,2025-03-31,12,0,0,0.38,-4.56,-4.56,Re
+Change in Dividend Accruals,Data,Stocks,USD,TKO,2025-06-12,2025-06-13,2025-06-30,12,0,0,0.38,4.56,4.56,Po
+Change in Dividend Accruals,Data,Stocks,USD,TKO,2025-06-30,2025-06-13,2025-06-30,12,0,0,0.38,-4.56,-4.56,Re
+Change in Dividend Accruals,Data,Stocks,USD,TKO,2025-09-12,2025-09-15,2025-09-30,12,0,0,0.76,9.12,9.12,Po
+Change in Dividend Accruals,Data,Stocks,USD,TKO,2025-09-30,2025-09-15,2025-09-30,12,0,0,0.76,-9.12,-9.12,Re
+Change in Dividend Accruals,Data,Stocks,USD,TKO,2025-12-12,2025-12-15,2025-12-30,12,0,0,0.78,9.36,9.36,Po
+Change in Dividend Accruals,Data,Stocks,USD,TKO,2025-12-30,2025-12-15,2025-12-30,12,0,0,0.78,-9.36,-9.36,Re
+Change in Dividend Accruals,Data,Stocks,USD,V,2025-02-10,2025-02-11,2025-03-03,3,0,0,0.59,1.77,1.77,Po
+Change in Dividend Accruals,Data,Stocks,USD,V,2025-03-03,2025-02-11,2025-03-03,3,0,0,0.59,-1.77,-1.77,Re
+Change in Dividend Accruals,Data,Stocks,USD,V,2025-05-12,2025-05-13,2025-06-02,3,0,0,0.59,1.77,1.77,Po
+Change in Dividend Accruals,Data,Stocks,USD,V,2025-06-02,2025-05-13,2025-06-02,3,0,0,0.59,-1.77,-1.77,Re
+Change in Dividend Accruals,Data,Stocks,USD,V,2025-08-11,2025-08-12,2025-09-02,3,0,0,0.59,1.77,1.77,Po
+Change in Dividend Accruals,Data,Stocks,USD,V,2025-09-02,2025-08-12,2025-09-02,3,0,0,0.59,-1.77,-1.77,Re
+Change in Dividend Accruals,Data,Stocks,USD,V,2025-11-11,2025-11-12,2025-12-01,3,0,0,0.67,2.01,2.01,Po
+Change in Dividend Accruals,Data,Stocks,USD,V,2025-12-01,2025-11-12,2025-12-01,3,0,0,0.67,-2.01,-2.01,Re
+Change in Dividend Accruals,Data,Total,,,,,,,0,0,,-0.01,-0.01,
+Change in Dividend Accruals,Data,Ending Dividend Accruals in USD,,,,,,,,,,,0,
+Codes,Header,Code,Meaning,Code (Cont.),Meaning (Cont.)
+Codes,Data,A,Assignment
+Codes,Data,ADR,ADR Fee Accrual
+Codes,Data,AEx,Automatic exercise for dividend-related recommendation.
+Codes,Data,AFx,AutoFX conversion resulting from trading
+Codes,Data,Adj,Adjustment
+Codes,Data,Al,Allocation
+Codes,Data,Aw,Away Trade
+Codes,Data,B,Automatic Buy-in
+Codes,Data,Bo,Direct Borrow
+Codes,Data,C,Closing Trade
+Codes,Data,CD,Cash Delivery
+Codes,Data,CP,Complex Position
+Codes,Data,Ca,Cancelled
+Codes,Data,Co,Corrected Trade
+Codes,Data,Cx,Part or all of this transaction was a Crossing executed as dual agent by IB for two IB customers
+Codes,Data,DT,Discounted Trade
+Codes,Data,De,Delivery or Conversion Action
+Codes,Data,ETF,ETF Creation/Redemption
+Codes,Data,Ep,Resulted from an Expired Position
+Codes,Data,Ex,Exercise
+Codes,Data,FP,The fractional portion of this trade was executed against IB or an affiliate.
+Codes,Data,FPA,The fractional portion of this trade was executed against IB or an affiliate. IB acted as agent for the whole share portion of this trade.
+Codes,Data,G,Trade in Guaranteed Account Segment
+Codes,Data,GEA,Exercise or Assignment resulting from offsetting positions
+Codes,Data,HC,Highest Cost tax basis election
+Codes,Data,HFI,Investment Transferred to Hedge Fund
+Codes,Data,HFR,Redemption from Hedge Fund
+Codes,Data,I,Internal Transfer
+Codes,Data,IA,The transaction was executed against IB or an affiliate
+Codes,Data,IM,A portion of the order was executed against IB or an affiliate; IB acted as agent on a portion.
+Codes,Data,INV,Investment Transfer from Investor
+Codes,Data,IPO,This transaction was executed as part of an IPO in which IB was a member of the selling group and is classified as a Principal trade.
+Codes,Data,L,Ordered by IB (Margin Violation)
+Codes,Data,LD,Adjusted by Loss Disallowed from Wash Sale
+Codes,Data,LF,Liquidation of fractional position by IB
+Codes,Data,LI,"Last In, First Out (LIFO) tax basis election"
+Codes,Data,LT,Long Term P/L
+Codes,Data,Lo,Direct Loan
+Codes,Data,M,Entered manually by IB
+Codes,Data,MEx,Manual exercise for dividend-related recommendation.
+Codes,Data,ML,Maximize Losses tax basis election
+Codes,Data,MLG,Maximize Long Term Gain tax basis election
+Codes,Data,MLL,Maximize Long Term Loss tax basis election
+Codes,Data,MSG,Maximize Short Term Gain tax basis election
+Codes,Data,MSL,Maximize Short Term Loss tax basis election
+Codes,Data,O,Opening Trade
+Codes,Data,Off,Yes and No contracts offset to $1.00 cash settlement
+Codes,Data,P,Partial Execution
+Codes,Data,PE,Perpetual Investment
+Codes,Data,PI,Price Improvement
+Codes,Data,PTA,Post Trade Allocation
+Codes,Data,Po,Interest or Dividend Accrual Posting
+Codes,Data,Pr,Part or all of this transaction was executed by the Exchange as a Crossing by IB against an IB affiliate and is therefore classified as a Principal and not an agency trade
+Codes,Data,R,Dividend Reinvestment
+Codes,Data,RED,Redemption to Investor
+Codes,Data,RI,Recurring Investment
+Codes,Data,RP,"IB acted as agent for the fractional share portion of this trade, which was executed by an IB affiliate as riskless principal."
+Codes,Data,RPA,IB acted as agent for both the fractional share portion and the whole share portion of this trade; the fractional share portion was executed by an IB Affiliate as riskless principal.
+Codes,Data,Rb,Rebill
+Codes,Data,Re,Interest or Dividend Accrual Reversal
+Codes,Data,Ri,Reimbursement
+Codes,Data,S0,Contract settled to zero value
+Codes,Data,S1,Contract settled to $1.00
+Codes,Data,SF,Trade is subject to IBKR Lite Surcharge Fee if volume of such trades exceeds 10% of the total monthly Lite trade volume
+Codes,Data,SI,This order was solicited by Interactive Brokers
+Codes,Data,SL,Specific Lot tax basis election
+Codes,Data,SO,This order was marked as solicited by your Introducing Broker
+Codes,Data,SS,Customer designated this trade for shortened settlement and so is subject to execution at prices above the prevailing market
+Codes,Data,ST,Short Term P/L
+Codes,Data,T,Transfer
+Codes,Data,Un,Unvested shares from stock grant
+Codes,Data,XCH,Mutual Fund Exchange Transaction

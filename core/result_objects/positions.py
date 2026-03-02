@@ -694,6 +694,100 @@ class PositionResult:
             else 1.0
         )
 
+        futures_positions = [
+            p for p in positions
+            if p.get("notional") is not None
+        ]
+
+        futures_exposure = None
+        if futures_positions:
+            total_notional = sum(
+                self._safe_float(p.get("notional", 0)) or 0 for p in futures_positions
+            )
+            total_margin = sum(
+                abs(self._safe_float(p.get("value", 0)) or 0) for p in futures_positions
+            )
+
+            by_asset_class: Dict[str, float] = {}
+            for p in futures_positions:
+                ac = p.get("asset_class", "unknown")
+                by_asset_class[ac] = by_asset_class.get(ac, 0.0) + (self._safe_float(p.get("notional", 0)) or 0)
+
+            futures_exposure = {
+                "contract_count": len(futures_positions),
+                "total_notional": round(total_notional, 2),
+                "total_margin": round(total_margin, 2),
+                "notional_to_margin": round(total_notional / total_margin, 1) if total_margin > 0 else None,
+                "by_asset_class": {
+                    ac: round(val, 2) for ac, val in sorted(by_asset_class.items(), key=lambda x: -x[1])
+                },
+            }
+
+        option_positions = [p for p in positions if bool(p.get("is_option"))]
+        options_exposure = None
+        portfolio_greeks = None
+        if option_positions:
+            calls = 0
+            puts = 0
+            nearest_expiry_dt = None
+            nearest_expiry_days = None
+            by_underlying: Dict[str, int] = {}
+            today = datetime.now(UTC).date()
+
+            for position in option_positions:
+                option_type = str(position.get("option_type") or "").strip().lower()
+                if option_type == "call":
+                    calls += 1
+                elif option_type == "put":
+                    puts += 1
+
+                underlying = str(position.get("underlying") or "").strip().upper()
+                if underlying:
+                    by_underlying[underlying] = by_underlying.get(underlying, 0) + 1
+
+                dte_raw = self._safe_float(position.get("days_to_expiry"))
+                dte = int(dte_raw) if dte_raw is not None else None
+
+                expiry_dt = None
+                expiry_raw = str(position.get("expiry") or "").strip()
+                if expiry_raw:
+                    for fmt in ("%Y-%m-%d", "%Y%m%d"):
+                        try:
+                            expiry_dt = datetime.strptime(expiry_raw, fmt).date()
+                            break
+                        except ValueError:
+                            continue
+
+                if dte is None and expiry_dt is not None:
+                    dte = (expiry_dt - today).days
+
+                if dte is not None and (nearest_expiry_days is None or dte < nearest_expiry_days):
+                    nearest_expiry_days = dte
+
+                if expiry_dt is not None and (
+                    nearest_expiry_dt is None or expiry_dt < nearest_expiry_dt
+                ):
+                    nearest_expiry_dt = expiry_dt
+
+            options_exposure = {
+                "option_count": len(option_positions),
+                "calls": calls,
+                "puts": puts,
+                "nearest_expiry": nearest_expiry_dt.isoformat() if nearest_expiry_dt else None,
+                "nearest_expiry_days": nearest_expiry_days,
+                "by_underlying": {
+                    ticker: count
+                    for ticker, count in sorted(by_underlying.items(), key=lambda item: (-item[1], item[0]))
+                },
+            }
+
+            try:
+                from options.portfolio_greeks import compute_portfolio_greeks
+
+                portfolio_greeks = compute_portfolio_greeks(option_positions).to_dict()
+            except Exception:
+                portfolio_greeks = None
+
         return {
             "total_value": round(self.total_value, 2),
             "position_count": self.position_count,
@@ -713,6 +807,9 @@ class PositionResult:
                 currency: round(value, 2)
                 for currency, value in sorted(currency_totals.items(), key=lambda item: -item[1])
             },
+            "futures_exposure": futures_exposure,
+            "options_exposure": options_exposure,
+            "portfolio_greeks": portfolio_greeks,
         }
 
     def to_monitor_cli(self, by_account: bool = False) -> str:
@@ -990,4 +1087,3 @@ class PositionResult:
             f"{self.by_type.get('etf', 0)} ETFs, "
             f"{self.by_type.get('cash', 0)} cash positions)"
         )
-

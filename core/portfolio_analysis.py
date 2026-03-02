@@ -113,6 +113,7 @@ def analyze_portfolio(
         "net_exposure",
         "gross_exposure",
         "leverage",
+        "notional_leverage",
     )
     if all(k in config for k in standardized_keys) and config.get("weights") is not None:
         standardized_data = {k: config.get(k) for k in standardized_keys}
@@ -122,6 +123,7 @@ def analyze_portfolio(
             price_fetcher,
             currency_map=currency_map,
             fmp_ticker_map=fmp_ticker_map,
+            instrument_types=instrument_types,
         )
     weights = standardized_data["weights"]
     
@@ -136,6 +138,7 @@ def analyze_portfolio(
         fmp_ticker_map=fmp_ticker_map,
         currency_map=currency_map,
         instrument_types=instrument_types,
+        security_types=security_types,
     )
     
     # ─── 2.1. Add Exposure Metrics to Summary ─────────────────
@@ -144,7 +147,8 @@ def analyze_portfolio(
         "gross_exposure": standardized_data["gross_exposure"],
         "leverage": standardized_data["leverage"],
         "total_value": standardized_data["total_value"],
-        "dollar_exposure": standardized_data["dollar_exposure"]
+        "dollar_exposure": standardized_data["dollar_exposure"],
+        "notional_leverage": standardized_data.get("notional_leverage", 1.0),
     })
     
     # ─── 3. Calculate Beta Limits ────────────────────────────
@@ -194,6 +198,7 @@ def analyze_portfolio(
             "cash_positions": list(get_cash_positions()),
             "asset_classes": asset_classes,
             "security_types": security_types,
+            "target_allocation": config.get("target_allocation"),
             "fmp_ticker_map": fmp_ticker_map,
         }
     )
