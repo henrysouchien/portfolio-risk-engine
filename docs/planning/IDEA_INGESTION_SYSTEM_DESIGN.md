@@ -2,234 +2,270 @@
 
 ## Context
 
-We have a Notion workspace with a well-structured relational model (Tickers ↔ Ideas ↔ Portfolio ↔ Journal ↔ Files ↔ Rules) and a growing set of MCP tools for market data, portfolio analysis, and enrichment. Today, ideas enter the system through one path: manual capture in Apple Notes / Roam → `investment-sync` skill → Notion Ideas DB.
+Analyst-claude (in AI-excel-addin) already maintains per-ticker markdown files (`api/memory/workspace/tickers/*.md`) with structured attributes (thesis, key_risk, valuation, catalyst, earnings snapshots). These are backed by SQLite with bidirectional sync — agent writes via `memory_store`, auto-exports to markdown; you edit markdown, file watcher imports back to DB. This is the proven working layer.
 
-We want to build a **source-agnostic ingestion layer** so that ideas from any origin — manual reading, newsletters, programmatic screens, insider trade signals, corporate events, earnings transcripts, etc. — flow into the same system through a common schema and pipeline. The set of sources will keep evolving, so the architecture must make adding a new source trivial.
+Today, ideas enter informally — you mention a ticker in conversation, or run `investment-sync` from Apple Notes/Roam to Notion. There's no systematic pipeline for feeding ideas from multiple sources (screens, newsletters, signals, earnings, your own reading) into the system.
 
-The system serves two consumers: **you** (reviewing ideas manually) and **analyst-claude** (running deeper research workflows autonomously).
+This design builds an **idea ingestion layer** that takes ideas from any source, normalizes them, and writes them into the ticker memory workspace. Analyst-claude picks them up from there and runs its research workflow. You read/edit the markdown files directly.
 
-## Design Principles
-
-1. **Schema first** — Define what an idea looks like, independent of source
-2. **Source-agnostic pipeline** — Every source is a connector that outputs the common schema
-3. **Notion as canonical store** — Ideas DB is the single source of truth (already has relational links to Tickers, Portfolio, Journal, Files)
-4. **Tiered enrichment** — Minimal auto-enrichment on ingestion (profile + sector), full enrichment as a separate workflow step
-5. **Dedup over duplicate** — Same ticker/thesis from multiple sources gets merged, not duplicated
-6. **Low friction for manual ideas** — Your own reading → Apple Notes → system should stay as simple as it is today
-
-## 1. Idea Schema
-
-### Core Fields (every idea must have)
-
-| Field | Type | Source | Description |
-|-------|------|--------|-------------|
-| **Thesis** | title | All | `TICKER - Brief thesis` (existing format) |
-| **Ticker** | relation | All | Link to Tickers DB |
-| **Process Stage** | multi_select | System | `Idea Selection` on ingestion (existing) |
-| **Strategy** | multi_select | Connector | `Value`, `Special Situation`, `Macro`, `Compounder` (existing) |
-| **Source** | select | Connector | **NEW** — Where the idea came from |
-| **Source Date** | date | Connector | **NEW** — When the idea was captured/generated |
-| **Direction** | select | Connector | **NEW** — `Long`, `Short`, `Hedge`, `Pair` |
-
-### Extended Fields (populated by enrichment or connector)
-
-| Field | Type | Source | Description |
-|-------|------|--------|-------------|
-| **Conviction** | multi_select | Manual | 1-5 scale (existing, set during review) |
-| **Expected Return** | number | Manual/Enrichment | % (existing) |
-| **Catalyst** | rich_text | Connector | **NEW** — What triggers the thesis (earnings, event, macro shift) |
-| **Timeframe** | select | Connector | **NEW** — `Near-term (<3mo)`, `Medium (3-12mo)`, `Long-term (>12mo)` |
-| **Last Review** | date | System | Existing |
-| **Publish Ready** | checkbox | Manual | Existing |
-
-### Existing Relations (unchanged)
-
-- **Parent Idea** — self-relation for sub-ideas/themes
-- **Portfolio** — links to active positions
-- **Files** — links to research docs
-- **Journal** — links to decision log entries
-- **Rules** — links to investment rules
-
-### Notion DB Changes Required
-
-**Ideas DB — add 4 new properties:**
-- `Source` (select): Options built as connectors are added. Initial set: `Manual`, `Newsletter`, `Screen`, `Signal`, `Earnings`, `Corporate Event`
-- `Source Date` (date)
-- `Direction` (select): `Long`, `Short`, `Hedge`, `Pair`
-- `Catalyst` (rich_text)
-- `Timeframe` (select): `Near-term`, `Medium`, `Long-term`
-
-**Tickers DB — no changes needed.** Already has Status (Watchlist → Invested → Exited), Sector, Factor/Type, and all the relational links.
-
-## 2. Connector Interface
-
-Every source connector must produce an **IdeaPayload** — a normalized dict that the pipeline can process:
+## Architecture
 
 ```
-IdeaPayload:
-  ticker: str              # Symbol (e.g., "AAPL"). None for macro themes.
-  company_name: str        # Full name (for Ticker creation if needed)
-  thesis: str              # Brief thesis description
-  strategy: str            # Value | Special Situation | Macro | Compounder
-  direction: str           # Long | Short | Hedge | Pair
-  source: str              # Source identifier (e.g., "newsletter:morning_brew", "screen:fallen_quality")
-  source_date: date        # When captured/generated
-  catalyst: str | None     # What triggers the thesis
-  timeframe: str | None    # Near-term | Medium | Long-term
-  conviction: int | None   # 1-5 (usually None on ingestion, set during review)
-  body_markdown: str       # Structured content for the Notion page body
-  tags: list[str]          # Optional tags for categorization
+Sources                    Ingestion Pipeline              Ticker Memory Workspace
+─────────                  ──────────────────              ───────────────────────
+Your notes (Apple/Roam) ─┐                                tickers/
+Newsletter emails       ─┤                                  SNOW.md
+FMP screens             ─┼─→ Connector → IdeaPayload ─→    IT.md
+Portfolio signals       ─┤        ↓                         NEWNAME.md  ← new idea
+Insider trade alerts    ─┤   Dedup check                    ...
+Earnings transcripts    ─┤        ↓
+Corporate events        ─┘   Write to workspace           memory/
+                              (file-based)                  MEMORY.md
+                                  ↓                         daily/
+                             File watcher                   skills/
+                              imports to DB
+                                  ↓
+                             Analyst-claude
+                             picks up & researches
 ```
 
-Each connector is responsible for:
-1. Reading its source (email, screen results, signal output, etc.)
-2. Extracting one or more `IdeaPayload` objects
-3. Inferring `strategy` using the existing keyword heuristic (or explicit mapping)
+### Why This Architecture
 
-The connector does NOT handle dedup, Notion writes, or enrichment — that's the pipeline's job.
+- **Ticker memory is the canonical store.** It already exists, analyst-claude already writes to it, you already read it. No new system to build.
+- **File-based ingestion.** Connectors write properly formatted markdown files into `tickers/`. The existing file watcher picks them up and imports to SQLite. No API needed, no cross-repo imports.
+- **Notion becomes optional downstream.** `investment-sync` can still push to Notion for the relational views (Portfolio links, Journal entries), but it's not the primary interface.
+- **Each source is just a connector.** Produces an `IdeaPayload`, writes a markdown file. Adding a new source doesn't touch the pipeline.
 
-## 3. Pipeline Flow
+## Idea Schema
 
-```
-Source → Connector → [IdeaPayload] → Pipeline
-                                        │
-                                        ├─ 1. Dedup Check
-                                        │     Search Tickers DB + Ideas DB
-                                        │     Same ticker + similar thesis? → MERGE
-                                        │     Same ticker + different thesis? → NEW IDEA
-                                        │     New ticker? → CREATE TICKER + NEW IDEA
-                                        │
-                                        ├─ 2. Store
-                                        │     Create or update Notion Ideas entry
-                                        │     Link to Ticker, set Process Stage, Source, etc.
-                                        │
-                                        ├─ 3. Minimal Enrichment (auto)
-                                        │     fmp_profile → sector, market cap, basic metrics
-                                        │     Populate Tickers DB Sector field if empty
-                                        │
-                                        └─ 4. Queue for Review
-                                              Idea lands at "Idea Selection" stage
-                                              Available for you or analyst-claude to pick up
+Every idea gets written as attributes in a ticker markdown file, following the existing format:
+
+```markdown
+<!-- memory-sync: TICKER -->
+<!-- edit freely - changes sync on server restart -->
+<!-- format: ## entity header, then - **attribute**: value bullets -->
+<!-- multi-line: indent continuation lines with 2 spaces -->
+
+## TICKER
+
+- **thesis**: Brief investment thesis description
+- **source**: Where this idea came from and when (e.g., "screen:estimate_revisions, 2026-03-01")
+- **direction**: Long | Short | Hedge | Pair
+- **strategy**: Value | Special Situation | Macro | Compounder
+- **catalyst**: What triggers the thesis
+- **timeframe**: Near-term (<3mo) | Medium (3-12mo) | Long-term (>12mo)
+- **process_stage**: Idea Selection | Initial Review | Diligence | Decision | Monitoring
+- **conviction**: 1-5 (set during review, not on ingestion)
 ```
 
-### Dedup Rules (extending existing investment-sync logic)
+These are just attributes in the existing `memory_store` system. No schema migration needed — `memory_store(entity="TICKER", attribute="thesis", value="...")` already works.
 
-The existing `investment-sync` dedup is good — search Tickers by symbol, search Ideas by `"TICKER thesis"`. Extend with:
+### Attributes Set on Ingestion vs Later
 
-1. **Same ticker, same source** → Always merge (append new insights)
-2. **Same ticker, different source** → Merge if thesis is similar (e.g., both say "value play on cheap P/E"). Create new idea if thesis is fundamentally different (e.g., one is long value, another is short momentum).
-3. **Similarity check** — For automated sources, a simple keyword overlap or LLM-based similarity check on thesis text. For manual sources, always create (you'll merge yourself if needed).
-4. **Macro themes without tickers** — Match on theme name (existing pattern: `"Macro Theme - [Theme Name]"`)
+| Attribute | On Ingestion | During Review | During Research |
+|-----------|-------------|---------------|-----------------|
+| thesis | Yes | Update | Update |
+| source | Yes | — | — |
+| direction | Yes (if known) | Yes | — |
+| strategy | Yes (inferred) | Override | — |
+| catalyst | If known | Yes | Yes |
+| timeframe | If known | Yes | — |
+| process_stage | "Idea Selection" | Advance | Advance |
+| conviction | — | Yes | — |
+| key_risk | — | — | Yes |
+| valuation | — | — | Yes |
+| earnings_snapshot | — | — | Yes |
+| peer_context | — | — | Yes |
 
-### Merge Behavior
+## Connector Interface
 
-When merging into an existing idea:
-- Append a new section to page body: `## [Source] Update ([Date])`
-- Update `Source Date` to latest
-- Do NOT overwrite Strategy, Conviction, or Process Stage (those are your manual overrides)
-- Add source to a sources log in the page body (audit trail)
+Every source connector produces one or more `IdeaPayload` dicts:
 
-## 4. Source Connectors (Initial Set)
+```python
+IdeaPayload = {
+    "ticker": str,              # Symbol (e.g., "AAPL"). None for macro themes.
+    "company_name": str,        # Full name
+    "thesis": str,              # Brief thesis description
+    "strategy": str,            # Value | Special Situation | Macro | Compounder
+    "direction": str,           # Long | Short | Hedge | Pair
+    "source": str,              # e.g., "screen:estimate_revisions", "newsletter:morning_brew"
+    "source_date": str,         # ISO date
+    "catalyst": str | None,     # What triggers the thesis
+    "timeframe": str | None,    # Near-term | Medium | Long-term
+    "body_markdown": str,       # Additional context for the ticker file
+}
+```
 
-### Already Built
-- **Manual (Apple Notes / Roam)** → `investment-sync` skill — already produces the right shape, just needs to output `Source: "Manual"` and `Source Date`
+Strategy inference uses the existing keyword heuristic from `investment-sync`:
+- "cheap/undervalued/margin of safety" → Value
+- "moat/growth/compounder" → Compounder
+- "catalyst/event/spinoff/merger" → Special Situation
+- "commodity/sector/rates/macro" → Macro
 
-### To Build (as skills)
+## Pipeline: Connector → Workspace
 
-Each is a Claude skill that can be invoked manually or by analyst-claude:
+The pipeline takes `IdeaPayload` objects and writes them to the ticker memory workspace.
 
-- **Newsletter** — Read emails via Gmail MCP, extract ideas with LLM, output IdeaPayloads
-- **Screen** — Run FMP screens (estimate revisions, valuation, technicals), output top candidates as IdeaPayloads
-- **Signal** — Query portfolio MCP tools (exit signals, insider trades, institutional ownership changes), output actionable signals as IdeaPayloads
-- **Earnings** — After earnings, pull transcript via `get_earnings_transcript`, extract key takeaways and thesis updates
-- **Corporate Event** — Monitor `get_events_calendar` for M&A, spinoffs, special dividends, output event-driven IdeaPayloads
+### Step 1: Dedup Check
 
-### Adding a New Source
+Check if `tickers/{TICKER}.md` already exists in the workspace:
 
-To add a new source connector:
-1. Write a skill (or Python module) that reads the source
-2. Output one or more `IdeaPayload` dicts
-3. Call the shared pipeline function to dedup + store + enrich
-4. Done — no changes to schema, pipeline, or Notion structure
+- **File exists** → This is an existing idea. Append new source info without overwriting existing attributes.
+- **File doesn't exist** → New idea. Create the file with all ingestion attributes.
 
-## 5. Enrichment Tiers
+For macro themes without a ticker, use a slugified theme name (e.g., `tickers/MACRO_CHINA_RECOVERY.md`).
 
-### Tier 0: On Ingestion (automatic, every idea)
-- `fmp_profile` → sector, market cap, company name
-- Populate Tickers DB `Sector` and `Company Name` if empty
-- ~1 API call per idea, fast
+### Step 2: Write
 
-### Tier 1: Initial Review (when idea moves to "Initial Review" stage)
+**New ticker file:**
+```markdown
+<!-- memory-sync: TICKER -->
+<!-- edit freely - changes sync on server restart -->
+<!-- format: ## entity header, then - **attribute**: value bullets -->
+<!-- multi-line: indent continuation lines with 2 spaces -->
+
+## TICKER
+
+- **thesis**: [from payload]
+- **source**: [source identifier, date]
+- **direction**: [from payload]
+- **strategy**: [from payload]
+- **process_stage**: Idea Selection
+- **catalyst**: [from payload, if present]
+- **timeframe**: [from payload, if present]
+```
+
+**Existing ticker file — append:**
+Add a source log entry and any new attributes that don't already exist. Don't overwrite thesis, conviction, or process_stage (those are your manual overrides).
+
+### Step 3: Minimal Enrichment
+
+After writing the file, optionally run `fmp_profile` to populate:
+- `company_name` (if not provided by connector)
+- `sector` (useful for filtering)
+- `market_cap` (useful for sizing context)
+
+This is a single API call, fast, non-blocking.
+
+### Step 4: File Watcher Picks Up
+
+The existing `MemoryWatcher` in AI-excel-addin detects the new/modified file, calls `import_markdown()`, and the idea is in SQLite — queryable by analyst-claude via `memory_recall`.
+
+## Source Connectors
+
+Each connector is a Claude skill or Python function. They all output `IdeaPayload` dicts and call the shared pipeline writer.
+
+### Built
+
+| Connector | Source | Function | Status |
+|-----------|--------|----------|--------|
+| **Screen: Estimate Revisions** | FMP | `from_estimate_revisions()` | COMPLETE (Phase 2) |
+| **Screen: Quality** | FMP | `from_quality_screen()` | COMPLETE (Phase 2) |
+| **Manual (Apple Notes / Roam)** | `investment-sync` | Update to write to ticker workspace | Existing, needs update |
+
+### To Build
+
+| Connector | Source | Trigger | Tool |
+|-----------|--------|---------|------|
+| **Screen: Fallen Quality** | FMP | Scheduled or manual | `screen_stocks` + filters |
+| **Screen: Technical Breakout** | FMP | Manual | `get_technical_analysis` |
+| **Newsletter** | Gmail | Manual review | Gmail MCP tools |
+| **Insider Trades** | FMP | Scheduled or manual | `get_insider_trades` |
+| **Corporate Events** | FMP | Scheduled or manual | `get_events_calendar` |
+| **Earnings** | FMP | Post-earnings | `get_earnings_transcript` |
+| **Portfolio Signals** | Portfolio MCP | On signal | `check_exit_signals` |
+
+Adding a new connector: write a function that reads the source, produces `IdeaPayload` dicts, calls the pipeline writer. That's it.
+
+## Enrichment Tiers
+
+Enrichment happens when analyst-claude picks up an idea for research. It writes enrichment results as new attributes in the ticker file using `memory_store`.
+
+### Tier 1: Initial Review (quick validation)
+- `fmp_profile` → sector, market cap, basic metrics
 - `get_technical_analysis` → trend/momentum signals
 - `analyze_stock` → volatility, beta, factor exposures
-- `get_news` → recent headlines (last 7 days)
-- `get_estimate_revisions` → analyst momentum
-- Appended to idea page body as structured sections
+- `get_news` → recent headlines
 
-### Tier 2: Diligence (when idea moves to "Diligence" stage)
+### Tier 2: Diligence (full research)
 - `compare_peers` → valuation vs peer group
 - `get_institutional_ownership` → smart money positioning
 - `get_insider_trades` → insider activity
 - `get_events_calendar` → upcoming catalysts
 - `get_earnings_transcript` → latest management commentary
-- `get_sector_overview` → sector context
 
-### Tier 3: Decision (portfolio context, when idea moves to "Decision" stage)
+### Tier 3: Decision (portfolio context)
 - `get_positions` → current portfolio overlap
-- `get_risk_analysis` → how adding this position affects portfolio risk
-- `run_whatif` → simulate adding position at various sizes
+- `get_risk_analysis` → impact on portfolio risk
+- `run_whatif` → simulate adding at various sizes
 - `get_factor_analysis` → factor correlation with existing holdings
 
-Enrichment can be triggered:
-- **Manually** — You invoke the enrichment skill for a specific idea
-- **By analyst-claude** — As part of its research workflow when it picks up an idea
-- **On stage change** — When you move an idea from one Process Stage to the next (future automation)
+These map directly to the existing research playbook (8 steps documented in `investment-research-process.md`).
 
-## 6. Analyst-Claude Integration
+## Analyst-Claude Integration
 
-The ingestion system feeds analyst-claude's research queue:
+Analyst-claude's workflow with the ingestion system:
 
-1. **Idea pickup** — Query Ideas DB for entries at "Idea Selection" with no review date, sorted by Source Date
-2. **Triage** — Run Tier 1 enrichment, assess if idea warrants deeper analysis
-3. **Research** — For promising ideas, run Tier 2 enrichment, build structured thesis
-4. **Recommendation** — For ideas moving to Decision, run Tier 3 enrichment, produce sizing/risk analysis
-5. **Journal** — Log each research step as a Journal entry linked to the idea
+1. **Idea queue** — `memory_recall("process_stage Idea Selection")` finds all ideas awaiting triage
+2. **Triage** — Run Tier 1 enrichment, update process_stage to "Initial Review" or reject
+3. **Research** — For promising ideas, run Tier 2, build out ticker file (following the 8-step playbook)
+4. **Recommendation** — Run Tier 3, write conviction and valuation_target
+5. **Daily note** — Log what was researched in `memory/daily/YYYY-MM-DD.md`
 
-This is the same workflow described in the TODO's "Autonomous Analyst-Claude" section — the ingestion system provides the front door.
+This is the autonomous analyst workflow from the TODO — the ingestion system provides the front door.
 
-## 7. Implementation Phases
+## Implementation Phases
 
-### Phase 1: Schema + Pipeline Core
-- Add 5 new properties to Ideas DB (Source, Source Date, Direction, Catalyst, Timeframe)
-- Build shared pipeline logic (dedup, store, merge) as a reusable skill or module
-- Update `investment-sync` to use the pipeline and populate new fields
-- Verify round-trip: Apple Notes → investment-sync → Notion with new fields
+### Phase 1: Pipeline Core — COMPLETE
+- `IdeaPayload` dataclass + `ingest_idea()` + `ingest_batch()` in `api/memory/ingest.py`
+- Dedup logic: create (new ticker) vs merge (existing — append source log, fill missing catalyst/timeframe, protect thesis/conviction/status/process_stage/strategy/direction)
+- Source log audit trail: `source_log_{YYYY_MM_DD}_{slug}_{seq}` with sequence suffix for collision avoidance
+- Strict ticker validation via `TICKER_RE` from `markdown_sync.py`, sync header guard before parsing
+- 36 tests. Plan: `AI-excel-addin/docs/design/idea-ingestion-phase1-plan.md`. Commit `632a551`.
 
-### Phase 2: First Automated Connector
-- Pick one automated source (suggest: estimate revision screen — high signal, uses existing `screen_estimate_revisions` tool)
-- Build as a skill that outputs IdeaPayloads → pipeline
-- Add Tier 0 enrichment (fmp_profile on ingestion)
-- Test end-to-end: screen → ideas in Notion with sector/market cap
+### Phase 2: First Automated Connectors — COMPLETE
+- Two connectors in `api/memory/connectors/`: `from_estimate_revisions()` and `from_quality_screen()`
+- Pure functions: take pre-fetched screen data → return `IdeaPayload` lists. Caller passes to `ingest_batch()`.
+- Estimate revisions: direction/eps_delta filtering, None-safe formatting, flat/unknown direction skipping
+- Quality screen: dynamic signal count, `is True` signal check (NaN-safe), conditional pandas import, string-only error detection
+- Both: per-row `(KeyError, ValueError, TypeError)` catch for graceful skip on bad data
+- 28 tests. Plan: `AI-excel-addin/docs/design/idea-ingestion-phase2-connectors.md` (5 Codex review rounds). Commit `de30308`.
 
-### Phase 3: Enrichment Workflow
-- Build enrichment skill that runs Tier 1/2/3 based on Process Stage
-- Test on existing ideas in the DB
-- Document the enrichment output format in idea page bodies
+### Phase 3: Update investment-sync
+- Update `investment-sync` skill to write to ticker workspace (file-based) instead of or in addition to Notion
+- Maintains the Apple Notes / Roam → system flow
 
-### Phase 4: Additional Connectors
-- Newsletter connector (Gmail MCP → extract → pipeline)
-- Signal connector (insider trades, exit signals → pipeline)
-- Earnings connector (transcript → thesis updates → pipeline)
-- Each follows the same pattern: read source → IdeaPayload → pipeline
+### Phase 4: Enrichment Workflow
+- Build enrichment as a skill analyst-claude can invoke
+- Tier-based: runs appropriate tools based on process_stage
+- Writes results as ticker attributes
 
-### Phase 5: Analyst-Claude Queue
-- Build the idea pickup + triage workflow
-- Connect enrichment tiers to Process Stage transitions
-- Journal logging for research steps
+### Phase 5: Additional Connectors
+- Newsletter, insider trades, corporate events, earnings — each follows the same pattern
+- Each is independently useful, no dependencies between connectors
+
+## Key Files
+
+- `AI-excel-addin/api/memory/workspace/tickers/` — ticker markdown files (canonical store)
+- `AI-excel-addin/api/memory/ingest.py` — `IdeaPayload` dataclass + `ingest_idea()` + `ingest_batch()` (Phase 1)
+- `AI-excel-addin/api/memory/connectors/` — source connectors package (Phase 2)
+  - `estimate_revisions.py` — `from_estimate_revisions()` (estimate revision screen → payloads)
+  - `quality_screen.py` — `from_quality_screen()` (quality screener → payloads)
+- `AI-excel-addin/api/memory/store.py` — MemoryStore (SQLite backing)
+- `AI-excel-addin/api/memory/markdown_sync.py` — bidirectional sync
+- `AI-excel-addin/api/memory/watcher.py` — file watcher for live import
+- `AI-excel-addin/api/memory/workspace/AGENT.md` — analyst-claude operating instructions
+- `AI-excel-addin/docs/design/connector-development-guide.md` — recipe for adding new connectors
+- `investment_tools/docs/IDEA_SOURCE_DEVELOPMENT_GUIDE.md` — recipe for building new source tools
+- `AI-excel-addin/tests/test_ingest.py` — 36 pipeline core tests
+- `AI-excel-addin/tests/test_connectors.py` — 28 connector tests
+- `risk_module/mcp_tools/` — enrichment tools (analyze_stock, etc.)
+- `risk_module/fmp_mcp_server.py` — FMP tools (screens, profiles, estimates)
 
 ## Verification
 
-- **Schema**: Notion DB properties visible and filterable in Ideas views
-- **Pipeline**: Same idea from two sources merges correctly (no duplicates)
-- **Enrichment**: Idea page body contains structured enrichment sections
-- **Round-trip**: Manual idea in Apple Notes → Notion → enriched → visible in Ideas DB with all fields populated
+- New ticker file appears in `tickers/` with correct format and magic comment
+- File watcher imports it to SQLite (check `analyst_memory.db`)
+- `memory_recall` finds the new idea
+- Enrichment adds attributes without overwriting existing ones
+- Editing the markdown file manually syncs back to DB on restart

@@ -66,7 +66,8 @@ def generate_position_flags(
     """Generate actionable flags from position data."""
     flags: list[dict] = []
     all_positions = positions or []
-    portfolio_total = abs(_to_float(total_value))
+    net_portfolio_total = _to_float(total_value)
+    portfolio_total = abs(net_portfolio_total)
 
     non_cash = [
         position
@@ -93,6 +94,21 @@ def generate_position_flags(
     # Concentration uses absolute non-cash exposure.
     gross_non_cash = sum(abs(_to_float(position.get("value", 0))) for position in non_cash)
 
+    # Leverage: exclude positive cash, include negative cash (margin debt).
+    net_exposure = 0.0
+    gross_exposure = 0.0
+    for position in all_positions:
+        ticker = str(position.get("ticker", ""))
+        position_type = str(position.get("type", ""))
+        value = _to_float(position.get("value", 0))
+        is_cash = position_type == "cash" or ticker.startswith("CUR:")
+        if is_cash and value > 0:
+            continue
+        net_exposure += value
+        gross_exposure += abs(value)
+
+    leverage = gross_exposure / abs(net_exposure) if abs(net_exposure) > 1e-12 else 1.0
+
     if gross_non_cash > 0:
         for position in single_issuer:
             ticker = str(position.get("ticker", "UNKNOWN"))
@@ -107,6 +123,28 @@ def generate_position_flags(
                         "weight_pct": round(abs_weight, 1),
                     }
                 )
+
+        if leverage > 1.1 and net_portfolio_total > 0:
+            for position in single_issuer:
+                ticker = str(position.get("ticker", "UNKNOWN"))
+                abs_value = abs(_to_float(position.get("value", 0)))
+                equity_weight = abs_value / net_portfolio_total * 100.0
+                if equity_weight > 25.0:
+                    gross_weight = abs_value / gross_non_cash * 100.0
+                    flags.append(
+                        {
+                            "type": "leveraged_concentration",
+                            "severity": "warning",
+                            "message": (
+                                f"{ticker} is {equity_weight:.0f}% of net equity "
+                                f"({gross_weight:.0f}% of gross exposure)"
+                            ),
+                            "ticker": ticker,
+                            "equity_weight_pct": round(equity_weight, 1),
+                            "gross_weight_pct": round(gross_weight, 1),
+                            "leverage": round(leverage, 2),
+                        }
+                    )
 
         sorted_by_abs = sorted(
             single_issuer,
@@ -139,20 +177,6 @@ def generate_position_flags(
                     }
                 )
 
-    # Leverage: exclude positive cash, include negative cash (margin debt).
-    net_exposure = 0.0
-    gross_exposure = 0.0
-    for position in all_positions:
-        ticker = str(position.get("ticker", ""))
-        position_type = str(position.get("type", ""))
-        value = _to_float(position.get("value", 0))
-        is_cash = position_type == "cash" or ticker.startswith("CUR:")
-        if is_cash and value > 0:
-            continue
-        net_exposure += value
-        gross_exposure += abs(value)
-
-    leverage = gross_exposure / abs(net_exposure) if abs(net_exposure) > 1e-12 else 1.0
     if leverage > 2.0:
         flags.append(
             {

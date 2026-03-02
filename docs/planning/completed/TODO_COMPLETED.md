@@ -4,6 +4,14 @@ Items moved from `docs/planning/TODO.md` as they were completed. Most recent fir
 
 ---
 
+### 2026-03-02 — Batch Scenario/Optimization Comparison MCP Tool
+New `compare_scenarios()` MCP tool in `mcp_tools/compare.py`. Compares N what-if scenarios or optimization variants side-by-side on the same portfolio. Portfolio loaded once via `_load_portfolio_for_analysis()`, deep-copied per scenario to prevent `ScenarioService` mutation contamination. Two modes: `whatif` (ranks by vol_delta, conc_delta, total_violations, factor_var_delta) and `optimization` (ranks by trades_required, total_violations, hhi, largest_weight_pct). Configurable `rank_by` + `rank_order` with mode-specific allowlists. Deterministic tie-breaking by name. Failed scenarios sort to bottom. 5 comparison-level flags in `core/comparison_flags.py`: clear_winner, marginal_differences, partial_failures, best_has_violations, all_have_violations. Mode-specific risk limit loading (what-if: DB+file fallback; optimization: DB-only). Graceful expected-returns handling (missing fails only max_return scenarios). No changes to existing `run_whatif()` or `run_optimization()`. 32 tests (10 flag + 22 tool incl. behavioral parity). Plan: `docs/planning/BATCH_COMPARISON_PLAN.md` (3 Codex review rounds: R1 FAIL 7 issues, R2 FAIL 3 issues, R3 PASS). Commit: `56d773a8`.
+
+---
+
+### 2026-03-01 — Rebalance Trade Generator MCP Tool
+New `generate_rebalance_trades()` MCP tool converts target weights from any source (optimization, what-if, manual) into sequenced BUY/SELL trade legs with share quantities. Sells ordered before buys to free buying power. Two input modes: `target_weights` (absolute) and `weight_changes` (signed deltas). Optional `account_id` filtering (required for `preview=True`). `unmanaged` param controls held positions not in targets (hold/sell). Shared helpers extracted to `mcp_tools/trading_helpers.py` from `basket_trading.py`. Three-layer agent format: `RebalanceLeg`/`RebalanceTradeResult` → `generate_rebalance_flags(snapshot)` (9 flags) → `_build_agent_response()`. 26 tests (10 flag + 16 MCP). Plan: `docs/planning/REBALANCE_TRADE_GENERATOR_PLAN.md` (4 Codex review rounds). Commits: `d0e1e72a` (plan), `a61f6a3d` (plan fix), `e19f9e28` (implementation).
+
 ### 2026-03-01 — Workflow Design Phase 1: All 7 Workflows Defined
 Audited all 7 frontend views and defined complete 5-step workflows with tool mappings, inputs/outputs, and gap analysis. Design doc: `docs/planning/WORKFLOW_DESIGN.md` (2,457 lines). Workflows: Hedging, Scenario Analysis, Allocation Review, Risk Review, Performance Review, Stock Research, Strategy Design. Cross-cutting gaps identified: rebalance trade generator (all 7), batch comparison (3), action audit trail (3). Workflow-specific gaps catalogued (templates, backtesting, attribution, frontier, versioning). Commits: `5df192f2` through `92f99987`.
 

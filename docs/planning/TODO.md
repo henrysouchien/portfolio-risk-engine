@@ -18,8 +18,8 @@ Workflow design doc: `docs/planning/WORKFLOW_DESIGN.md` (2,457 lines).
 **Phase 2 — Backend workflow layer:** Not started. Approach: **Option A (orchestrator functions)** — lightweight Python functions that chain existing MCP tools, passing outputs between steps. Each workflow becomes a composable function that UI or agent can call. No heavy state machine needed for now; evolve toward persistence/resumability (Option B) only for workflows that need it (e.g., Strategy Design with multi-day iteration). See `WORKFLOW_DESIGN.md` → Implementation Approach for full option comparison.
 
 **Start with cross-cutting gaps** before workflow orchestration — these unblock execution in all 7 workflows:
-- **Rebalance trade generator** (highest leverage) — all 7 execution steps need weight → shares → trade list
-- **Batch scenario/optimization comparison** — Hedging, Scenarios, Strategy all need parallel run + rank
+- ~~**Rebalance trade generator** (highest leverage)~~ — COMPLETE. `generate_rebalance_trades()` MCP tool. Plan: `REBALANCE_TRADE_GENERATOR_PLAN.md`. Commit `e19f9e28`.
+- ~~**Batch scenario/optimization comparison**~~ — COMPLETE. `compare_scenarios()` MCP tool. Plan: `BATCH_COMPARISON_PLAN.md`. Commit `56d773a8`.
 - **Action audit trail** — Risk, Allocation, Performance lack history of which recommendations were taken
 
 **Phase 3 — UI second pass:** Not started. Upgrade each view from data display to interactive multi-step workflow. Depends on Phase 2.
@@ -46,43 +46,32 @@ Fixed `compute_portfolio_returns()` truncation. Added `compute_portfolio_returns
 ### ~~Trading Analysis: Date Range Parameters~~ — COMPLETE
 Added `start_date`/`end_date` to `get_trading_analysis()`. Commit `5919122e`. See `docs/planning/TRADING_DATE_RANGE_PLAN.md`.
 
+### ~~Target Allocations: DB Migration + MCP Set/Get Tools~~ — COMPLETE
+Write path for target allocations: DB migration (`003_target_allocations.sql`), `save_target_allocations()` in database_client + repository, `set_target_allocation()` + `get_target_allocation()` MCP tools, target_allocation DB load in MCP risk path. 12 tests. Drift now flows end-to-end in `get_risk_analysis()`. Commit `55967d7b`. Plan: `docs/planning/TARGET_ALLOCATIONS_PLAN.md`.
+
+### ~~Architecture: Fix Circular Imports in app.py~~ — COMPLETE
+Extracted rate limiter to `utils/rate_limiter.py` (breaking `app → routes → app` circular import). Deleted dead `routes/claude.py` (replaced by gateway channel). Commit `5c4d3995`. Plan: `docs/planning/CIRCULAR_IMPORT_FIX_PLAN.md`.
+
+### ~~Frontend: SDK Testing (Phase 1+2)~~ — COMPLETE
+75 Vitest tests across 8 files. Phase 1: pure function tests (54 tests, commit `5d490407`). Phase 2: hook tests (21 tests, commit `6c59f7e7`). Plan: `FRONTEND_SDK_TESTING_PLAN.md`.
+
+### ~~Frontend: Analyst Mode~~ — COMPLETE
+Chat-focused UI at `/analyst` — thin icon sidebar with 3 views (chat, holdings, connections). Reuses all existing auth, services, chat, and portfolio infrastructure. Commit `ea9f2fd3`. Plan: `ANALYST_MODE_PLAN.md`.
+
+### ~~Rebalance Trade Generator~~ — COMPLETE
+`generate_rebalance_trades()` MCP tool in `mcp_tools/rebalance.py`. Accepts `target_weights` or `weight_changes`, produces sequenced BUY/SELL legs. 26 tests. Commit `e19f9e28`. Plan: `REBALANCE_TRADE_GENERATOR_PLAN.md`.
+
+### ~~Concentration: Leverage-Aware Flag~~ — COMPLETE
+Added `leveraged_concentration` flag to `core/position_flags.py`. Fires when leverage > 1.1x and a single-issuer position exceeds 25% of net equity. Shows both equity and gross weight perspectives. Existing gross-based concentration unchanged. 8 new tests (40 total). Commit `8741d6ac`. Plan: `LEVERAGED_CONCENTRATION_FLAG_PLAN.md`.
+
 ## Backlog
 
-### Target Allocations: DB Setup + Population
-`target_allocations` table schema defined in `database/schema.sql` but not yet migrated. Drift detection infrastructure is fully built (`allocation_drift.py`, threaded through risk pipeline + frontend) — just needs actual target data.
-- [ ] Run DB migration to create `target_allocations` table
-- [ ] Define default target allocations for the main portfolio (e.g., Equity 60%, Fixed Income 25%, Real Estate 10%, Commodities 5%)
-- [ ] Add MCP tool or API endpoint to set/update target allocations per portfolio
-- [ ] Optional: historical allocation trend tracking (periodic snapshots for time-series view)
+### ~~IBKR Direct Trading via IB Gateway~~ — COMPLETE
+Two bugs fixed: (1) connection leak from non-singleton `IBKRConnectionManager` — added module-level singleton, (2) account routing gap — added `TRADE_ROUTING` + `TRADE_ACCOUNT_MAP` in `routing_config.py` (follows `TRANSACTION_ROUTING`/`POSITION_ROUTING` pattern). Position validation resolves mapped account aliases. Verified live: both SnapTrade UUID and native IBKR account ID route correctly. Commits `ab8bff60`, `8a20f4b8`. Plan: `docs/planning/IBKR_DIRECT_TRADING_PLAN.md`.
+- **Remaining:** End-to-end execute test (preview works, haven't confirmed actual order placement yet)
 
-### IBKR Direct Trading via IB Gateway
-SnapTrade IBKR connection is **Flex (read-only)** — `preview_trade` returns `"Brokerage INTERACTIVE-BROKERS-FLEX does not support trading"`. To trade IBKR positions, need to route through the direct IBKR adapter (`brokerage/ibkr/adapter.py`) which connects to IB Gateway.
-
-**Investigation findings (2026-03-01):**
-- Account `cb7a1987-bce1-42bb-afd5-6fc2b54bbf12` resolves correctly via SnapTrade
-- Symbol resolution works for existing portfolio tickers (NVDA), fails for non-portfolio tickers (AAPL) on Flex
-- BUY passes validation but fails on buying power (margin account, expected)
-- SELL hits the wall: SnapTrade Flex doesn't support order placement
-- Schwab trading works fine (3 accounts: `25524252`, `87656165`, `51388013`)
-
-**What exists:**
-- `brokerage/ibkr/adapter.py` — IBKR trading adapter with `preview_order()` / `place_order()` via IB Gateway
-- `ibkr/client.py` — IBKRClient facade (read-only data, client ID 20)
-- Trading adapter uses client ID 22 (separate from ibkr-mcp on 20 and market data on 21)
-- `IBKR_AUTHORIZED_ACCOUNTS` env var for account whitelist
-
-**TODO:**
-- [ ] Register `IBKRBrokerAdapter` in `TradeExecutionService` alongside SnapTrade/Schwab adapters
-- [ ] Configure `IBKR_AUTHORIZED_ACCOUNTS` with the real IBKR account number (U-series, not SnapTrade UUID)
-- [ ] Ensure IB Gateway is running when trading (auto-start or pre-flight check)
-- [ ] Account routing: detect when a position came from SnapTrade-IBKR-Flex and route trades to direct IBKR adapter instead
-- [ ] Test end-to-end: preview → confirm → execute for an IBKR equity order
-
-### Concentration: Denominator Choice for Position Flags
-`core/position_flags.py` uses `gross_non_cash` (sum of abs(value) of all non-cash positions) as the denominator for concentration thresholds. For levered portfolios this dilutes concentration — DSU at 35% of net equity shows as 28% of gross positions, potentially missing the threshold. Consider switching to `total_value` (net equity) as the denominator, which better captures leverage-amplified concentration risk. Alternatively, offer both views or use the more conservative denominator.
-
-### Frontend: SDK Testing
-Vitest installed and configured. One test file exists (`chassis/src/services/__tests__/DataCatalog.test.ts`). Remaining coverage needed: classifyError (HTTP status mapping, edge cases), useDataSource (resolver integration, loading/error states), conformance checks (descriptor fields match adapter output types), interaction primitives (useSharedState, useFlow). Also test migrated hooks (useRiskScore, useRiskAnalysis, usePerformance) to verify they produce the same output as before via the resolver path.
+### Frontend: SDK Testing — Remaining Coverage (backlog)
+Additional feature hooks (useRiskAnalysis, usePerformance, etc.), interaction primitives (useSharedState, useFlow), conformance checks (descriptor fields match adapter output types).
 
 ### Realized Performance: Investigate Bad Data Quality
 `get_performance(mode="realized", format="agent")` shows poor data quality across all providers. Coverage is low everywhere: Schwab 37.5%, Plaid 12.5%, SnapTrade 0%. Combined gives 58% with 14 synthetic positions.
@@ -94,13 +83,6 @@ Vitest installed and configured. One test file exists (`chassis/src/services/__t
 ### Architecture: Break Up Large Monolithic Files
 - `core/realized_performance_analysis.py` (115KB) — extract pricing chain logic
 - Note: `core/result_objects.py` already split into `core/result_objects/` package (10 submodules, commit `3758c186`)
-
-### Architecture: Fix Circular Imports in app.py
-`app.py` is a 4,602-line monolith with a massive top-level import block (lines 108-223) pulling from models, core/result_objects, inputs, run_risk, services/*, utils/*, and many other internal modules. This causes circular import issues as the dependency graph grows. Needs investigation into which imports are circular, then fix via:
-- Lazy imports (move imports inside functions that need them)
-- Route module extraction (break app.py into smaller route blueprints)
-- Breaking up the file itself (app.py shouldn't define routes + helpers + initialization all in one place)
-- `routes/claude.py` already extracted as a pattern to follow
 
 ### Architecture: Add Settings Validation
 Adopt `pydantic.BaseSettings` (or similar) for `settings.py` to catch misconfiguration at startup. Low priority — settings.py is now 454 lines after consolidation, env is stable, and misconfigurations are rare in practice. Adding pydantic as a dependency may not be worth the migration cost.
@@ -144,16 +126,16 @@ This is the longer-term vision — the chassis + gateway architecture is the fou
 Identified during hedging workflow definition (see `docs/planning/WORKFLOW_DESIGN.md`). These are building blocks needed for the full hedge-to-execution pipeline, but each is independently useful.
 
 - [ ] **Multi-leg options execution** — `preview_option_trade()` / `execute_option_trade()` for atomic multi-leg orders (spreads, collars, strangles). Currently must execute legs individually via `preview_trade()` which creates slippage risk between legs. IBKR supports combo/BAG orders for options (same pattern as futures roll).
-- [ ] **Batch scenario comparison** — Evaluate multiple hedge candidates in one call and rank by risk-reduction / cost efficiency. Current `run_whatif()` is single-scenario only. May need to refactor what-if to accept a list of scenarios, or build a separate `compare_scenarios()` orchestrator. Also evaluate whether `run_whatif()` needs to be more flexible generally (e.g., support mixed instrument types, options payoffs in the risk model).
-- [ ] **Rebalance-to-target trade generator** — Given current portfolio + target weights (from optimization, what-if, or manual), auto-generate the trade list with share quantities, estimated costs, and suggested execution sequence. Currently must manually calculate deltas from what-if output and create trades one by one.
+- [x] ~~**Batch scenario comparison**~~ — COMPLETE. `compare_scenarios(mode="whatif")` runs N hedging scenarios, ranks by vol_delta/conc_delta. Commit `56d773a8`.
+- [x] ~~**Rebalance-to-target trade generator**~~ — COMPLETE. `generate_rebalance_trades()` MCP tool. Commit `e19f9e28`.
 - [ ] **Live options pricing** — Real-time bid/ask/mid from IBKR via `fetch_snapshot()` for options contracts. Current `analyze_option_strategy()` uses Black-Scholes model pricing. Related to the IBKR live Greeks path below.
 - [ ] **Continuous hedge monitoring** — Alerts when portfolio drifts beyond hedge targets, hedge ratios become stale, or expiring options need rolling. Requires some form of periodic check or event-driven monitoring — may tie into the autonomous analyst / scheduled agent infrastructure.
 
 ### Workflow Gaps: Cross-Cutting Infrastructure
 Identified across all 7 workflow definitions (see `docs/planning/WORKFLOW_DESIGN.md`). These gaps appear in 3+ workflows and are the highest-leverage items to build.
 
-- [ ] **Rebalance trade generator** — Given current weights + target weights + portfolio value, auto-generate sequenced trade list (sells first to free capital, then buys) with share quantities, estimated costs, and odd-lot handling. Needed by: all 7 workflows at execution step. Currently must manually compute from what-if `position_changes`.
-- [ ] **Batch scenario/optimization comparison** — Run N scenarios or optimizations in parallel and return a ranked comparison table. Currently must call `run_whatif()` or `run_optimization()` per variant and assemble manually. Needed by: Hedging (Step 4), Scenarios (Step 3), Strategy Design (Step 3).
+- [x] ~~**Rebalance trade generator**~~ — COMPLETE. `generate_rebalance_trades()` MCP tool in `mcp_tools/rebalance.py`. Accepts `target_weights` or `weight_changes`, produces sequenced BUY/SELL legs. Shared helpers in `mcp_tools/trading_helpers.py`. 26 tests. Commit `e19f9e28`.
+- [x] ~~**Batch scenario/optimization comparison**~~ — COMPLETE. `compare_scenarios()` MCP tool in `mcp_tools/compare.py`. Runs N scenarios on same portfolio (deep-copied per run), ranks by configurable metric, 5 comparison-level flags. 32 tests. Commit `56d773a8`. Plan: `BATCH_COMPARISON_PLAN.md`.
 - [ ] **Action audit trail** — Persist which recommendations were generated, accepted, rejected, and executed. No tracking today — conversation context only. Needed by: Risk Review, Allocation Review, Performance Review.
 
 ### Workflow Gaps: Scenario & Strategy Infrastructure
@@ -193,31 +175,33 @@ Build a repeatable macro review workflow that pulls market/economic data, genera
 4. **Analyst-claude integration** — AI-assisted commentary, narrative generation, and highlight extraction for publishable output
 5. **Publishing** — format for distribution (Notion page, PDF report, email digest)
 
-### Investment Idea Sourcing Pipeline
-Automated pipeline to ingest investment newsletters via email, extract actionable ideas, and surface them for review. Dedicated email account partially set up already.
+### Investment Idea Ingestion System
+Source-agnostic pipeline to ingest ideas from any origin (manual reading, newsletters, screens, insider trades, corporate events, earnings, etc.) into the ticker memory workspace. Ideas flow through a common schema and pipeline — adding a new source is just writing a new connector.
 
-**Concept:**
-- Subscribe to investment newsletters (sell-side research, independent analysts, macro commentators) with a dedicated email
-- AI reads incoming emails, extracts investment ideas with structured metadata (ticker, direction, thesis summary, catalyst, timeframe, conviction level, source)
-- Customizable categorization (macro, sector, single-name, event-driven, etc.) and filtering (relevance, quality, overlap with existing portfolio)
-- Summarized feed of ideas with thesis + key data points, ready for quick review
-- Track idea lifecycle: sourced → reviewed → acted on / passed / expired
+**Design docs:**
+- System design: `docs/planning/IDEA_INGESTION_SYSTEM_DESIGN.md`
+- Phase 1 plan (Codex-reviewed, PASS): `AI-excel-addin/docs/design/idea-ingestion-phase1-plan.md`
+- Phase 2 plan (5 Codex reviews, PASS): `AI-excel-addin/docs/design/idea-ingestion-phase2-connectors.md`
+- Connector dev guide: `AI-excel-addin/docs/design/connector-development-guide.md`
+- Source tool dev guide: `investment_tools/docs/IDEA_SOURCE_DEVELOPMENT_GUIDE.md`
 
-**Infrastructure considerations:**
-- Gmail MCP tools already available for email access
-- Notion MCP for idea database storage (ties into existing Ideas database)
-- FMP tools for enriching ideas with current data (price, valuation, estimates, technicals)
-- Portfolio MCP for checking overlap/correlation with existing positions
+**Architecture:** Connectors → `IdeaPayload` → `ingest.py` → ticker markdown files → watcher → SQLite. File-based, no API needed. Ticker memory workspace is the canonical store.
 
 **Phases:**
-1. **Email setup** — finalize dedicated email, subscribe to target newsletters, organize with Gmail labels/filters
-2. **Extraction engine** — Claude-based email parsing: identify investment ideas vs noise, extract structured fields, handle varied newsletter formats
-3. **Idea database** — schema design for idea storage (Notion or DB), categorization taxonomy, dedup logic
-4. **Enrichment** — auto-attach current market data, estimate revisions, technicals, portfolio overlap to each idea
-5. **Review workflow** — daily/weekly digest format, priority scoring, customizable filters
-6. **Feedback loop** — track which sourced ideas performed well, tune extraction and scoring over time
+1. ~~**Pipeline core**~~ — COMPLETE. `IdeaPayload` dataclass + `ingest_idea()` + `ingest_batch()` in `api/memory/ingest.py`. Dedup (create vs append), source log audit trail, strict ticker validation. 36 tests. Commit `632a551`.
+2. ~~**First connectors**~~ — COMPLETE. Two connectors in `api/memory/connectors/`: `from_estimate_revisions()` (estimate revision screen → IdeaPayloads) and `from_quality_screen()` (quality screener → IdeaPayloads). Pure functions, None-safe, NaN-safe, conditional pandas. 28 tests. Commit `de30308`.
+3. **Enrichment workflow** — `fmp_profile` on new tickers (sector, market cap). Tiered enrichment on stage advancement.
+4. **Additional connectors** — Newsletter (Gmail MCP), insider trades, corporate events, earnings transcripts. Each independent.
+5. **Analyst-claude queue** — Idea pickup + triage workflow, enrichment tied to process stage transitions.
 
-**Future extension:** Once the sourcing pipeline is stable, analyst-claude can run deeper analysis workflows on promising ideas — pull comps, check estimate revisions and momentum, run technicals, assess factor exposure and correlation against existing portfolio, size a potential position via optimization, build a quick thesis doc. The sourcing pipeline becomes the front door to a full analyst workbench.
+**Process stages:** `idea` → `initial_review` → `diligence` → `decision` → `monitoring`
+- Two attributes on each ticker: `status` (what it is — `idea`) and `process_stage` (where it is in the workflow)
+- Both set to `idea` on ingestion, `process_stage` advances as research progresses
+
+**TODO — Process stage definitions:**
+- [ ] Define process stage transitions and criteria (what triggers advancement from `idea` → `initial_review`, etc.)
+- [ ] Update analyst-claude system prompt / AGENT.md with process stage definitions so it knows when to advance ideas
+- [ ] Define what enrichment tier runs at each stage (Tier 1 at initial_review, Tier 2 at diligence, Tier 3 at decision)
 
 ### Autonomous Analyst-Claude (Overnight Work)
 Infrastructure and workflow design for analyst-claude to work autonomously during off-hours (overnight), running longer-form research and analysis projects that are ready for review in the morning.
