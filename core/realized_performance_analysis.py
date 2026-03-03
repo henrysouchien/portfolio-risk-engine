@@ -4544,11 +4544,31 @@ def _analyze_realized_performance_single_scope(
                 time_weighted_flows=tw_flows,
             )
         else:
-            monthly_returns, return_warnings = compute_twr_monthly_returns(
-                daily_nav=daily_nav,
-                external_flows=external_flows,
-                month_ends=month_ends,
+            # Defer TWR inception for tiny-base accounts — skip the phase
+            # where NAV is below $500 to avoid compounding extreme % returns
+            # on tiny cash-back balances.
+            daily_nav, external_flows, defer_warning = _defer_inception(
+                daily_nav, external_flows, min_inception_nav=500.0,
             )
+            if defer_warning:
+                warnings.append(defer_warning)
+                # Deferral emptied the series — short-circuit with a specific
+                # diagnostic.  Falls through to the existing empty-monthly_returns
+                # error handler at line 4704, which returns {"status": "error"}.
+                # The multi-account aggregation loop (line 6321) drops errored
+                # accounts gracefully, so this account is simply excluded.
+                monthly_returns = pd.Series(dtype=float)
+                return_warnings = [defer_warning]
+            else:
+                # Either deferral trimmed the series (but it's non-empty),
+                # or daily_nav was already empty before deferral.  In both
+                # cases, pass through to compute_twr_monthly_returns which
+                # has its own empty-NAV diagnostics (lines 2081-2086).
+                monthly_returns, return_warnings = compute_twr_monthly_returns(
+                    daily_nav=daily_nav,
+                    external_flows=external_flows,
+                    month_ends=month_ends,
+                )
         warnings.extend(return_warnings)
 
         total_cost_basis_usd = 0.0
@@ -5464,6 +5484,31 @@ def _merge_numeric_dict(target: Dict[str, Any], incoming: Dict[str, Any]) -> Dic
             continue
         target.setdefault(key, value)
     return target
+
+
+def _defer_inception(
+    daily_nav: pd.Series,
+    external_flows: List[Tuple[datetime, float]],
+    min_inception_nav: float = 500.0,
+) -> Tuple[pd.Series, List[Tuple[datetime, float]], Optional[str]]:
+    """Defer TWR inception until daily NAV crosses min_inception_nav.
+
+    Returns (deferred_nav, deferred_flows, warning_or_None).
+    """
+    if min_inception_nav <= 0 or daily_nav.empty:
+        return daily_nav, external_flows, None
+    nav_sorted = daily_nav.sort_index()  # ensure chronological order for idxmax
+    mask = nav_sorted.abs() >= min_inception_nav
+    if not mask.any():
+        return pd.Series(dtype=float), [], f"NAV never reached {min_inception_nav:.0f}; TWR not computed."
+    first_viable = mask.idxmax()
+    deferred_nav = nav_sorted.loc[first_viable:]
+    deferred_flows = [
+        (when, amt)
+        for when, amt in external_flows
+        if pd.Timestamp(when).normalize() >= pd.Timestamp(first_viable).normalize()
+    ]
+    return deferred_nav, deferred_flows, None
 
 
 def _sum_account_daily_series(

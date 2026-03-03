@@ -190,14 +190,14 @@ Column mapping:
 
 ### 15. StmtFunds Topic Name Fix (`fe297eda`)
 
-- **Plan**: `docs/planning/GHOST_ACCOUNT_FIX_PLAN.md`
+- **Plan**: `docs/planning/completed/GHOST_ACCOUNT_FIX_PLAN.md`
 - **Implementation**: `ibkr/flex.py` lines 1103, 1114 — `"StmtFunds"` → `"StatementOfFundsLine"` (the actual XML element tag)
 - The Phase 2 polling fix exposed that the topic name was wrong. Container tag is `<StmtFunds>`, but data element tag (used by `_extract_rows()`) is `<StatementOfFundsLine>`. 564 raw rows → 105 normalized MTM events with -$42,945 total cash impact now flowing correctly.
 - **Effect**: Part of combined fix with #16 below.
 
 ### 16. Ghost Account Filtering (`264c2940`)
 
-- **Plan**: `docs/planning/GHOST_ACCOUNT_FIX_PLAN.md`
+- **Plan**: `docs/planning/completed/GHOST_ACCOUNT_FIX_PLAN.md`
 - **Implementation**: `core/realized_performance_analysis.py` — new `_looks_like_display_name()` helper + updated `_discover_account_ids()`
 - Root cause: SnapTrade positions report `account_name="Interactive Brokers (Henry Chien)"` while Flex transactions use `account_id="U2471778"`. Same account, different identifiers → 2-account aggregation. The ghost account matched 0 transactions → synthetic-only analysis → March +641%.
 - Fix: position-only accounts that look like display names (contain institution keyword, parentheses, or long names) are filtered when transaction-derived accounts exist. Real account IDs (IBKR U-numbers, Schwab masked) are never filtered.

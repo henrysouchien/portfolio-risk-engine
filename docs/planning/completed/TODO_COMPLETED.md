@@ -4,6 +4,59 @@ Items moved from `docs/planning/TODO.md` as they were completed. Most recent fir
 
 ---
 
+### 2026-03-02 — Frontend: Dashboard Cards Wiring (Wave 1)
+Fixed 6 dashboard metric cards showing fake hardcoded values. Three frontend fixes + backend `refresh_portfolio_prices()`. Commits: `d1e2b665`, `efb83229`, `b61658eb`, `17e1ee59`. Plans: `DASHBOARD_CARDS_WIRING_PLAN.md`, `PORTFOLIO_PRICING_FIX_PLAN.md`.
+
+### 2026-03-02 — Per-Account Realized Performance Aggregation
+Generalized Schwab-only per-account aggregation to any institution. Fixes Merrill/Plaid cross-source exclusion. Commit `af30d415`. Plan: `PER_ACCOUNT_AGGREGATION_PLAN.md`.
+
+### 2026-03-02 — IBKR Package: Connection Infrastructure (4 phases)
+Option snapshot fix, config centralization + structured logging, ephemeral connection mode, MCP diagnostics. Plans: `IBKR_CONNECTION_FIXES_PLAN.md`, `IBKR_CONFIG_LOGGING_PLAN.md`, `IBKR_EPHEMERAL_CONNECTION_PLAN.md`.
+
+### 2026-03-02 — IBKR Trading: Ephemeral Connection Migration
+`IBKRBrokerAdapter` migrated to ephemeral `_connected()` context manager. Commit `385c4787`. Plan: `IBKR_EPHEMERAL_TRADING_PLAN.md`.
+
+### 2026-03-02 — IBKR Direct Trading via IB Gateway
+Connection singleton fix + `TRADE_ROUTING`/`TRADE_ACCOUNT_MAP`. Commits `ab8bff60`, `8a20f4b8`. Plan: `IBKR_DIRECT_TRADING_PLAN.md`.
+
+### 2026-03-01 — Frontend: Package Formalization + Component Data Wiring (3 phases)
+Package formalization, data wiring audit (9/9 containers wired), backend data enrichment (7 items). Audit: `FRONTEND_DATA_WIRING_AUDIT.md`.
+
+### 2026-03-01 — Frontend: Block Component Refactoring (3 waves)
+5 block components across 9 views. Commits: `9506643d`, `93e5ed9e`, `750dea25`. Plan: `FRONTEND_BLOCK_REFACTOR_PLAN.md`.
+
+### 2026-03-01 — Frontend: TypeScript Cleanup
+16 TS errors→0, `no-explicit-any` 590→0, `as any` 180→5, lint warnings 704→114. Plan: `FRONTEND_TYPESCRIPT_CLEANUP_PLAN.md`.
+
+### 2026-03-01 — Performance: Short Portfolio Return History Fix
+Fixed `compute_portfolio_returns()` truncation. Added `compute_portfolio_returns_partial()`. Plan: `PORTFOLIO_RETURN_HISTORY_FIX_PLAN.md`.
+
+### 2026-03-01 — Trading Analysis: Date Range Parameters
+Added `start_date`/`end_date` to `get_trading_analysis()`. Commit `5919122e`. Plan: `TRADING_DATE_RANGE_PLAN.md`.
+
+### 2026-03-01 — Target Allocations: DB Migration + MCP Set/Get Tools
+Write path complete. 12 tests. Commit `55967d7b`. Plan: `TARGET_ALLOCATIONS_PLAN.md`.
+
+### 2026-03-01 — Architecture: Fix Circular Imports in app.py
+Extracted rate limiter to `utils/rate_limiter.py`. Commit `5c4d3995`. Plan: `CIRCULAR_IMPORT_FIX_PLAN.md`.
+
+### 2026-03-01 — Frontend: SDK Testing (Phase 1+2)
+75 Vitest tests across 8 files. Plan: `FRONTEND_SDK_TESTING_PLAN.md`.
+
+### 2026-03-01 — Frontend: Analyst Mode
+Chat-focused UI at `/analyst`. Commit `ea9f2fd3`. Plan: `ANALYST_MODE_PLAN.md`.
+
+### 2026-03-01 — Rebalance Trade Generator
+`generate_rebalance_trades()` MCP tool. 26 tests. Commit `e19f9e28`. Plan: `REBALANCE_TRADE_GENERATOR_PLAN.md`.
+
+### 2026-03-01 — Concentration: Leverage-Aware Flag
+`leveraged_concentration` flag. 8 new tests. Commit `8741d6ac`. Plan: `LEVERAGED_CONCENTRATION_FLAG_PLAN.md`.
+
+### 2026-03-01 — Workflow Skills (All 7 Complete)
+Allocation review, risk review, hedging, scenario analysis, strategy design, stock research, performance review. Plans: `WORKFLOW_SKILLS_PLAN.md`, `WORKFLOW_SKILLS_PHASE4_PLAN.md`, `WORKFLOW_SKILLS_STOCK_RESEARCH_PLAN.md`.
+
+---
+
 ### 2026-03-02 — Batch Scenario/Optimization Comparison MCP Tool
 New `compare_scenarios()` MCP tool in `mcp_tools/compare.py`. Compares N what-if scenarios or optimization variants side-by-side on the same portfolio. Portfolio loaded once via `_load_portfolio_for_analysis()`, deep-copied per scenario to prevent `ScenarioService` mutation contamination. Two modes: `whatif` (ranks by vol_delta, conc_delta, total_violations, factor_var_delta) and `optimization` (ranks by trades_required, total_violations, hhi, largest_weight_pct). Configurable `rank_by` + `rank_order` with mode-specific allowlists. Deterministic tie-breaking by name. Failed scenarios sort to bottom. 5 comparison-level flags in `core/comparison_flags.py`: clear_winner, marginal_differences, partial_failures, best_has_violations, all_have_violations. Mode-specific risk limit loading (what-if: DB+file fallback; optimization: DB-only). Graceful expected-returns handling (missing fails only max_return scenarios). No changes to existing `run_whatif()` or `run_optimization()`. 32 tests (10 flag + 22 tool incl. behavioral parity). Plan: `docs/planning/completed/BATCH_COMPARISON_PLAN.md` (3 Codex review rounds: R1 FAIL 7 issues, R2 FAIL 3 issues, R3 PASS). Commit: `56d773a8`.
 
