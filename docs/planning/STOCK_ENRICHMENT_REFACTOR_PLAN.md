@@ -1,6 +1,6 @@
 # Refactor: Move FMP Stock Enrichment from app.py → StockService
 
-**Status**: v2 — addresses all Codex v1 findings
+**Status**: COMPLETE — committed as `941c92e0`. Backend verified via curl (search + enrichment both working).
 
 ## Context
 

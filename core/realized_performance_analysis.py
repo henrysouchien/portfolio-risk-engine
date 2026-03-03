@@ -48,6 +48,7 @@ from providers.flows.extractor import extract_provider_flow_events
 from providers.ibkr_price import IBKRPriceProvider
 from providers.interfaces import PriceSeriesProvider
 from providers.normalizers.schwab import get_schwab_security_lookup
+from providers.routing_config import resolve_account_aliases
 from providers.routing import get_canonical_provider, resolve_provider_token
 from providers.registry import ProviderRegistry
 from settings import (
@@ -653,9 +654,10 @@ def _match_account(row: Dict[str, Any], account_filter: Optional[str]) -> bool:
     normalized_filter = str(account_filter or "").strip().lower()
     if not normalized_filter:
         return True
+    aliases = resolve_account_aliases(normalized_filter)
     account_id = str(row.get("account_id") or "").strip().lower()
     account_name = str(row.get("account_name") or "").strip().lower()
-    return normalized_filter in {account_id, account_name}
+    return bool((aliases & {account_id, account_name}) - {""})
 
 
 def _is_ibkr_identity_field(field_name: str, normalized_value: str) -> bool:
@@ -5343,6 +5345,7 @@ def _discover_account_ids(
     """
     from_positions: set[str] = set()
     from_transactions: set[str] = set()
+    linked_account_pairs: set[Tuple[str, str]] = set()
 
     for pos in list(getattr(getattr(positions, "data", None), "positions", []) or []):
         brokerage_name = str(pos.get("brokerage_name") or pos.get("institution") or "")
@@ -5351,10 +5354,11 @@ def _discover_account_ids(
         account_name = str(pos.get("account_name") or "").strip()
         if account_name:
             from_positions.add(account_name)
-            continue
         account_id = str(pos.get("account_id") or "").strip()
         if account_id:
             from_positions.add(account_id)
+            if account_name:
+                linked_account_pairs.add((account_name, account_id))
 
     for txn in fifo_transactions or []:
         txn_institution = str(txn.get("_institution") or txn.get("institution") or "")
@@ -5363,10 +5367,78 @@ def _discover_account_ids(
         account_name = str(txn.get("account_name") or "").strip()
         if account_name:
             from_transactions.add(account_name)
-            continue
         account_id = str(txn.get("account_id") or "").strip()
         if account_id:
             from_transactions.add(account_id)
+            if account_name:
+                linked_account_pairs.add((account_name, account_id))
+
+    all_accounts = from_positions | from_transactions
+    if all_accounts:
+        normalized_to_values: Dict[str, set[str]] = defaultdict(set)
+        for value in all_accounts:
+            normalized = str(value or "").strip().lower()
+            if normalized:
+                normalized_to_values[normalized].add(str(value).strip())
+
+        normalized_accounts = set(normalized_to_values)
+        linked_accounts: Dict[str, set[str]] = defaultdict(set)
+        for left_raw, right_raw in linked_account_pairs:
+            left = str(left_raw or "").strip().lower()
+            right = str(right_raw or "").strip().lower()
+            if not left or not right:
+                continue
+            linked_accounts[left].add(right)
+            linked_accounts[right].add(left)
+        canonical_by_normalized: Dict[str, str] = {}
+        visited_norms: set[str] = set()
+
+        for account_norm in sorted(normalized_accounts):
+            if account_norm in visited_norms:
+                continue
+
+            component: set[str] = set()
+            stack = [account_norm]
+            while stack:
+                current = stack.pop()
+                if current in component:
+                    continue
+                component.add(current)
+                visited_norms.add(current)
+                for alias in resolve_account_aliases(current):
+                    if alias in normalized_accounts and alias not in component:
+                        stack.append(alias)
+                for linked in linked_accounts.get(current, set()):
+                    if linked in normalized_accounts and linked not in component:
+                        stack.append(linked)
+
+            ibkr_norms = sorted(
+                member
+                for member in component
+                if _IBKR_ACCOUNT_ID_RE.match(member.replace(" ", ""))
+            )
+            canonical_norm = ibkr_norms[0] if ibkr_norms else sorted(component)[0]
+            for member in component:
+                canonical_by_normalized[member] = canonical_norm
+
+        def _canonical_value(raw_value: str) -> str:
+            normalized = str(raw_value or "").strip().lower()
+            if not normalized:
+                return ""
+            canonical_norm = canonical_by_normalized.get(normalized, normalized)
+            display_candidates = sorted(normalized_to_values.get(canonical_norm, {canonical_norm}))
+            if _IBKR_ACCOUNT_ID_RE.match(canonical_norm.replace(" ", "")):
+                ibkr_display = [
+                    candidate
+                    for candidate in display_candidates
+                    if _IBKR_ACCOUNT_ID_RE.match(candidate.strip().replace(" ", ""))
+                ]
+                if ibkr_display:
+                    return ibkr_display[0]
+            return display_candidates[0]
+
+        from_positions = {_canonical_value(value) for value in from_positions if str(value).strip()}
+        from_transactions = {_canonical_value(value) for value in from_transactions if str(value).strip()}
 
     seen = from_positions | from_transactions
 

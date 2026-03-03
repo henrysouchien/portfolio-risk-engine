@@ -1,7 +1,7 @@
 # Frontend Phase 2 — Working Doc
 
 **Parent doc:** `completed/FRONTEND_PACKAGE_DESIGN.md`
-**Status:** Wave 1 + formatting + Wave 2a/2b/2c complete; Scenario Analysis N/A metrics fixed (commit `8a5d111a`); Wave 2d/2e and remaining mock cleanup pending
+**Status:** Wave 1 + formatting + Wave 2a/2b/2c complete; Scenario Analysis N/A metrics fixed (`8a5d111a`); Wave 2d Stock Research FMP wiring complete (`4ae8115f`, refactored `941c92e0`); Wave 2e and remaining mock cleanup pending
 **Last verified:** 2026-03-03 — code/docs drift check
 
 ### Related Docs
@@ -85,7 +85,7 @@ The app has 8 views accessed via keyboard shortcuts or navigation:
 | Factor Analysis | ⌘3 | FactorRiskModelContainer + RiskMetricsContainer | **Real** (Wave 1) — minor gaps: Performance tab, R², t-stat |
 | Performance | ⌘4 | PerformanceViewContainer | **Partial** — see below |
 | Strategy Builder | ⌘5 | StrategyBuilderContainer | **Partial** — props wired (Wave 1), mock fallbacks when no optimization data |
-| Stock Research | ⌘6 | StockLookupContainer | **Partial** — see below |
+| Stock Research | ⌘6 | StockLookupContainer | **Real** (Wave 2d) — search, profile, quote, ratios, chart wired. Remaining mock: analyst consensus, technical indicators, risk factors tab |
 | AI Assistant | ⌘7 | ChatInterface | **Real** |
 | Scenario Analysis | ⌘8 | ScenarioAnalysisContainer | **Partial** — run flow is real + metrics fixed (commit `8a5d111a`), historical/stress/monte-carlo sections are placeholder-heavy |
 
@@ -232,16 +232,13 @@ Additionally: Risk Settings and Account Connections accessible via Settings — 
 - [x] Wire price, cost basis, P&L, weight, exposure
 - [ ] Wire remaining fields (volatility, alerts — see future wave)
 
-#### 12. Stock Research — real-time market data
+#### ~~12. Stock Research — real-time market data~~ ✓ DONE (Wave 2d)
 
-- **Location:** `StockLookupContainer.tsx`
-- **What users see:** Current price, market cap, trading volume for searched stocks
-- **Data source:** Core stock analysis payload from `/api/direct/stock` is wired and mapped
-  into header fields (price/market cap/volume). Remaining gap is search UX, which still
-  synthesizes search results from typed input when no dedicated search endpoint is used.
-- **Backend data available?** Yes for selected ticker analysis; search/autocomplete service
-  is the missing piece.
-- [ ] Replace synthetic search result generation with real ticker search/autocomplete
+- **Completed:** `4ae8115f` (wiring) + `a252407c` (field fixes) + `941c92e0` (refactor to service layer)
+- Search endpoint (`GET /api/direct/stock/search`) with real FMP search + batch quote
+- Stock enrichment (profile, quote, ratios_ttm, historical chart) via `StockService.enrich_stock_data()`
+- Frontend: `useStockSearch` hook, search dropdown in StockLookup, adapter pass-through
+- Plans: `STOCK_RESEARCH_FMP_WIRING_PLAN.md`, `STOCK_ENRICHMENT_REFACTOR_PLAN.md`
 
 #### 14. Hedging suggestions (Overview view, Advanced Risk Analysis)
 
@@ -374,10 +371,10 @@ Backend endpoint changes needed to provide data that frontend is ready to consum
 | 2a | Holdings enrichment | 11 | Medium | ✅ DONE — `/api/positions/holdings` + `usePositions()` + `PositionsAdapter` + sector via FMP. Plan: `completed/FRONTEND_HOLDINGS_ENRICHMENT_PLAN.md`. |
 | 2b | Hedging suggestions | 14 | Medium-High | ✅ DONE — `useHedgingRecommendations` hook + `HedgingAdapter` + container wiring (commit `1c66dae7`). Backend fixes: ETF→sector label resolution, correlation threshold -0.2→0.3, readable driver labels (commit `475a67e5`). Verified in Chrome 2026-02-28. Plan: `completed/FRONTEND_HEDGING_WIRING_PLAN.md`. |
 | 2c | Performance attribution | 7 (partial) | Medium | ✅ DONE — Sector + security attribution computed in `calculate_portfolio_performance_metrics()` from `df_ret` + `filtered_weights`. FMP profile sector lookup. Threaded through `PerformanceResult` → API → `PerformanceAdapter` → `PerformanceView`. Factor attribution deferred to P2b. Verified in Chrome 2026-02-28. Plan: `completed/PERFORMANCE_ATTRIBUTION_PLAN.md`. |
-| 2d | Stock Research prices | 12 | Medium | Wire FMP real-time quotes (price, market cap, volume) to `StockLookupContainer`. |
+| 2d | ~~Stock Research prices~~ | 12 | ~~Medium~~ | **DONE** (`4ae8115f` + `941c92e0`). Search + enrichment wired via StockService. |
 | 2e | FactorRiskModel Performance tab + R² | 6 (residual) | Medium | Wire Factor Alpha (from `historical_analysis`), Information Ratio (compute from alpha/tracking error), R² (compute from `variance_decomposition.factor_variance / 100`). Wire Key Risk Insights text from real factor betas instead of hardcoded text. Also expose R² in header badge. t-stat: requires regression p-values from backend — low priority. |
 
-**Status:** 2a COMPLETE, P1-MCP COMPLETE, 2b COMPLETE, 2c COMPLETE. 2d-2e remaining — both need backend work. 2d (stock prices) is likely simplest.
+**Status:** 2a COMPLETE, P1-MCP COMPLETE, 2b COMPLETE, 2c COMPLETE, 2d COMPLETE. 2e remaining — needs backend work (B-003).
 
 #### Remaining Holdings Fields (Future Wave)
 

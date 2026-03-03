@@ -14,12 +14,8 @@
 **Frontend ready?** Yes — `deriveMetricsFromComparison()` in `ScenarioAnalysis.tsx` just needs the data.
 **Effort**: Small
 
-### B-002: Stock Research — Real-Time Quote Endpoint
-**Source**: Wave 2d
-**Problem**: `StockLookupContainer` has TODOs for real-time price, market cap, volume. FMP has the data but it's not wired to this endpoint.
-**Fix**: Add FMP real-time quote data (price, market cap, volume, day change) to `/api/direct/stock` response or create a lightweight quote endpoint.
-**Frontend ready?** Yes — `StockLookupContainer` has placeholders.
-**Effort**: Small-Medium
+### ~~B-002: Stock Research — Real-Time Quote Endpoint~~ ✓ DONE
+**Completed**: Wave 2d implementation (`4ae8115f`) + refactor (`941c92e0`). Search endpoint + enrichment (profile, quote, ratios, chart) wired via `StockService.search_stocks()` / `enrich_stock_data()`. Plans: `STOCK_RESEARCH_FMP_WIRING_PLAN.md`, `STOCK_ENRICHMENT_REFACTOR_PLAN.md`.
 
 ### B-003: FactorRiskModel — Performance Tab Metrics
 **Source**: Wave 2e
@@ -145,7 +141,7 @@
 | ID | Item | Status | Effort |
 |----|------|--------|--------|
 | B-001 | What-If scenario metrics | Ready to build | Small |
-| B-002 | Stock Research quotes | Ready to build | Small-Medium |
+| B-002 | Stock Research quotes | **DONE** (`941c92e0`) | Small-Medium |
 | B-003 | FactorRiskModel perf tab | Ready to build | Medium |
 | B-004 | Holdings day change + sparkline | Ready to build | Medium |
 | B-005 | Holdings per-position volatility | Ready to build | Small-Medium |
