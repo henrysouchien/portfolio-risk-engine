@@ -863,6 +863,45 @@ def _event_fx_rate(currency: str, when: datetime, fx_cache: Dict[str, pd.Series]
     return _value_at_or_before(fx_cache.get(ccy), when, default=1.0)
 
 
+def _synthetic_events_to_flows(
+    synthetic_cash_events: List[Dict[str, Any]],
+    fx_cache: Dict[str, pd.Series],
+) -> List[Tuple[datetime, float]]:
+    """Convert synthetic cash events to external flow tuples for TWR.
+
+    Synthetic positions appear in NAV but their cash events are excluded
+    from the cash replay (to avoid inflating the Modified Dietz denominator).
+    For TWR, we need matching flows so the GIPS formula treats position
+    appearances as contributions rather than returns.
+
+    Sign convention (matches TWR flow semantics):
+    - BUY  -> positive inflow  (NAV increases by long position value)
+    - SHORT -> negative outflow (NAV decreases by short position liability)
+    """
+    flows: List[Tuple[datetime, float]] = []
+    for evt in synthetic_cash_events:
+        evt_date = _to_datetime(evt.get("date"))
+        if evt_date is None:
+            continue
+
+        price = _as_float(evt.get("price"), 0.0)
+        qty = _as_float(evt.get("quantity"), 0.0)
+        if price <= 0 or qty <= 0:
+            continue
+
+        currency = str(evt.get("currency") or "USD").upper()
+        fx = _event_fx_rate(currency, evt_date, fx_cache)
+        notional_usd = price * qty * fx
+
+        # BUY = positive inflow, SHORT = negative outflow.
+        evt_type = str(evt.get("type") or "BUY").upper()
+        signed_amount = notional_usd if evt_type != "SHORT" else -notional_usd
+        if abs(signed_amount) > 1e-6:
+            flows.append((evt_date, signed_amount))
+
+    return flows
+
+
 def get_monthly_fx_series(currency: str, start_date=None, end_date=None) -> pd.Series:
     """Compatibility wrapper routed through the configured FX provider."""
     return get_fx_provider().get_monthly_fx_series(currency, start_date, end_date)
@@ -4435,6 +4474,13 @@ def _analyze_realized_performance_single_scope(
             inferred_flow_diagnostics,
             cash_replay_diagnostics,
         ) = _compose_cash_and_external_flows(transactions_for_cash)
+        # Synthetic cash events as TWR flows - synthetic positions appear in
+        # NAV, so TWR needs matching flows to treat them as contributions
+        # rather than returns. BUY -> positive inflow, SHORT -> negative outflow.
+        # Modified Dietz path (net_flows/tw_flows) is unaffected - the exclusion
+        # from cash replay is correct for that formula.
+        synthetic_twr_flows = _synthetic_events_to_flows(synthetic_cash_events, fx_cache)
+        twr_external_flows = external_flows + synthetic_twr_flows
         alias_mismatch_count = int(_as_float(cash_replay_diagnostics.get("income_flow_overlap_alias_mismatch_count"), 0.0))
         if alias_mismatch_count > 0:
             mismatch_samples = list(cash_replay_diagnostics.get("income_flow_overlap_alias_mismatch_samples") or [])
@@ -4544,31 +4590,11 @@ def _analyze_realized_performance_single_scope(
                 time_weighted_flows=tw_flows,
             )
         else:
-            # Defer TWR inception for tiny-base accounts — skip the phase
-            # where NAV is below $500 to avoid compounding extreme % returns
-            # on tiny cash-back balances.
-            daily_nav, external_flows, defer_warning = _defer_inception(
-                daily_nav, external_flows, min_inception_nav=500.0,
+            monthly_returns, return_warnings = compute_twr_monthly_returns(
+                daily_nav=daily_nav,
+                external_flows=twr_external_flows,
+                month_ends=month_ends,
             )
-            if defer_warning:
-                warnings.append(defer_warning)
-                # Deferral emptied the series — short-circuit with a specific
-                # diagnostic.  Falls through to the existing empty-monthly_returns
-                # error handler at line 4704, which returns {"status": "error"}.
-                # The multi-account aggregation loop (line 6321) drops errored
-                # accounts gracefully, so this account is simply excluded.
-                monthly_returns = pd.Series(dtype=float)
-                return_warnings = [defer_warning]
-            else:
-                # Either deferral trimmed the series (but it's non-empty),
-                # or daily_nav was already empty before deferral.  In both
-                # cases, pass through to compute_twr_monthly_returns which
-                # has its own empty-NAV diagnostics (lines 2081-2086).
-                monthly_returns, return_warnings = compute_twr_monthly_returns(
-                    daily_nav=daily_nav,
-                    external_flows=external_flows,
-                    month_ends=month_ends,
-                )
         warnings.extend(return_warnings)
 
         total_cost_basis_usd = 0.0
@@ -5161,7 +5187,7 @@ def _analyze_realized_performance_single_scope(
                     ts.date().isoformat(): float(val)
                     for ts, val in net_flows.items()
                 },
-                "external_flows": _flows_to_dict(external_flows),
+                "external_flows": _flows_to_dict(twr_external_flows),
                 "observed_only_net_flows": {
                     ts.date().isoformat(): float(val)
                     for ts, val in observed_net_flows.items()
@@ -5484,31 +5510,6 @@ def _merge_numeric_dict(target: Dict[str, Any], incoming: Dict[str, Any]) -> Dic
             continue
         target.setdefault(key, value)
     return target
-
-
-def _defer_inception(
-    daily_nav: pd.Series,
-    external_flows: List[Tuple[datetime, float]],
-    min_inception_nav: float = 500.0,
-) -> Tuple[pd.Series, List[Tuple[datetime, float]], Optional[str]]:
-    """Defer TWR inception until daily NAV crosses min_inception_nav.
-
-    Returns (deferred_nav, deferred_flows, warning_or_None).
-    """
-    if min_inception_nav <= 0 or daily_nav.empty:
-        return daily_nav, external_flows, None
-    nav_sorted = daily_nav.sort_index()  # ensure chronological order for idxmax
-    mask = nav_sorted.abs() >= min_inception_nav
-    if not mask.any():
-        return pd.Series(dtype=float), [], f"NAV never reached {min_inception_nav:.0f}; TWR not computed."
-    first_viable = mask.idxmax()
-    deferred_nav = nav_sorted.loc[first_viable:]
-    deferred_flows = [
-        (when, amt)
-        for when, amt in external_flows
-        if pd.Timestamp(when).normalize() >= pd.Timestamp(first_viable).normalize()
-    ]
-    return deferred_nav, deferred_flows, None
 
 
 def _sum_account_daily_series(

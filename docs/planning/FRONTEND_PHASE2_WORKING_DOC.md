@@ -1,7 +1,7 @@
 # Frontend Phase 2 — Working Doc
 
 **Parent doc:** `completed/FRONTEND_PACKAGE_DESIGN.md`
-**Status:** Wave 1 + formatting + Wave 2a/2b/2c complete; Wave 2d/2e and remaining mock cleanup pending
+**Status:** Wave 1 + formatting + Wave 2a/2b/2c complete; Scenario Analysis N/A metrics fixed (commit `8a5d111a`); Wave 2d/2e and remaining mock cleanup pending
 **Last verified:** 2026-03-03 — code/docs drift check
 
 ### Related Docs
@@ -87,7 +87,7 @@ The app has 8 views accessed via keyboard shortcuts or navigation:
 | Strategy Builder | ⌘5 | StrategyBuilderContainer | **Partial** — props wired (Wave 1), mock fallbacks when no optimization data |
 | Stock Research | ⌘6 | StockLookupContainer | **Partial** — see below |
 | AI Assistant | ⌘7 | ChatInterface | **Real** |
-| Scenario Analysis | ⌘8 | ScenarioAnalysisContainer | **Partial** — run flow is real, historical/stress/monte-carlo sections are placeholder-heavy |
+| Scenario Analysis | ⌘8 | ScenarioAnalysisContainer | **Partial** — run flow is real + metrics fixed (commit `8a5d111a`), historical/stress/monte-carlo sections are placeholder-heavy |
 
 Additionally: Risk Settings and Account Connections accessible via Settings — both real.
 

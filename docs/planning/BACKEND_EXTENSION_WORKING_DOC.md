@@ -42,6 +42,13 @@
 **Frontend ready?** Yes.
 **Effort**: Small-Medium
 
+### B-006: DataFrame Serialization — Use `orient='records'`
+**Source**: Scenario Analysis N/A metrics investigation
+**Problem**: `_convert_to_json_serializable()` in `core/result_objects/_helpers.py` calls `df.to_dict()` without `orient` param, producing column-oriented dicts (`{"Column": {"0": value}}`) instead of row arrays (`[{"Column": value}]`). Docstrings and comments say "row format" / `List[Dict]` but the actual output is a DataFrame-style dict. Frontend had to add `dataFrameToRows()` workaround in ScenarioAnalysis.
+**Fix**: Change `df_copy.to_dict()` → `df_copy.to_dict(orient='records')` in `_convert_to_json_serializable()`. Audit all callers — this affects every result object that serializes DataFrames (whatif, optimization, risk, etc.). Frontend `dataFrameToRows()` becomes a defensive fallback.
+**Frontend ready?** Yes — `dataFrameToRows()` already handles both shapes.
+**Effort**: Small (code change trivial, but needs integration testing across all API responses)
+
 ---
 
 ## Needs Design Decision — Evaluate First
@@ -142,6 +149,7 @@
 | B-003 | FactorRiskModel perf tab | Ready to build | Medium |
 | B-004 | Holdings day change + sparkline | Ready to build | Medium |
 | B-005 | Holdings per-position volatility | Ready to build | Small-Medium |
+| B-006 | DataFrame serialization orient='records' | Ready to build | Small |
 | B-010 | Smart Alerts / Risk Flags | Needs design decision | Medium |
 | B-011 | Market Intelligence | Needs design decision | Medium-High |
 | B-012 | AI Recommendations | Needs design decision | High |

@@ -21,18 +21,18 @@ Sources: `baseline_extracted_data.json`, broker statements in `performance-actua
 | Schwab 165 | -8.30% | -8.29% | **0.01pp** | Yes |
 | Schwab 013 | -14.73% | -14.69% | **0.04pp** | Yes |
 | Schwab 252 | +28.37% | +10.65% | 17.7pp | No (tiny starting balance $21, large deposits) |
-| IBKR | -32.53% | -9.35% | **23.18pp** | No (regressed after Flex Phase 2 + ghost/StmtFunds fixes) |
+| IBKR | -24.80% | -9.35% | **15.45pp** | No (improved after synthetic TWR flow fix, still 15pp off) |
 
 ---
 
 ## Total Return Progression
 
-| Source | Baseline (pre-P1) | After #1 P1 | After #2-#5 (P2A+P2B) | After #6 P3 | After #7 P3.1 | After #8 P3.2 | After #9 Schwab A/E/F/G | After #10 Remove Extreme Filter | After #13 Fix J | After #14-16 Flex P2 + fixes | Broker Actual |
-|--------|-------------------|-------------|------------------------|-------------|---------------|---------------|-------------------------|--------------------------------|-----------------|-------------------------------|---------------|
-| **Combined** | -64.37% | +83.91% | +188.08% | -23.84% | +34.66% | +34.66% | +34.41% | +34.41% | +34.41% | **TBD** | -8 to -12% |
-| **IBKR Flex** | (in combined) | +126.32% | -68.88% | -100.00% | +10.45% | +10.45% | -71.78% | +15.27% | -11.37% | **-32.53%** | -9.35% |
-| **Schwab** | (in combined) | +142.79% | +51.36% | +49.76% | +49.76% | +33.13% | +23.13% | +23.13% | +23.13% | **+17.53%** | -8.29% |
-| **Plaid (Merrill)** | (in combined) | +1.32% | -7.96% | -7.96% | -7.96% | -7.96% | -12.93% | -12.93% | -12.93% | **+1.21%** | -12.49% |
+| Source | Baseline (pre-P1) | After #1 P1 | After #2-#5 (P2A+P2B) | After #6 P3 | After #7 P3.1 | After #8 P3.2 | After #9 Schwab A/E/F/G | After #10 Remove Extreme Filter | After #13 Fix J | After #14-16 Flex P2 + fixes | After #17 Synthetic TWR flows | Broker Actual |
+|--------|-------------------|-------------|------------------------|-------------|---------------|---------------|-------------------------|--------------------------------|-----------------|-------------------------------|-------------------------------|---------------|
+| **Combined** | -64.37% | +83.91% | +188.08% | -23.84% | +34.66% | +34.66% | +34.41% | +34.41% | +34.41% | TBD | **TBD** | -8 to -12% |
+| **IBKR Flex** | (in combined) | +126.32% | -68.88% | -100.00% | +10.45% | +10.45% | -71.78% | +15.27% | -11.37% | -32.53% | **-24.80%** | -9.35% |
+| **Schwab** | (in combined) | +142.79% | +51.36% | +49.76% | +49.76% | +33.13% | +23.13% | +23.13% | +23.13% | +17.53% | **+17.53%** | -8.29% |
+| **Plaid (Merrill)** | (in combined) | +1.32% | -7.96% | -7.96% | -7.96% | -7.96% | -12.93% | -12.93% | -12.93% | +1.21% | **+1.21%** | -12.49% |
 
 Column mapping:
 - **Baseline**: Before any fixes. Observed-only track (sensitivity gate fired).
@@ -204,28 +204,45 @@ Column mapping:
 - 12 new tests in `tests/core/test_discover_account_ids.py`.
 - **Effect**: Fixes #15 + #16 combined: IBKR **+111.42% → -32.53%** (broker: -9.35%). Ghost account eliminated, MTM flowing correctly. But still ~23pp off due to 19 synthetic positions creating TWR distortion.
 
-### Current State (after fixes 15+16)
+### 17. Synthetic TWR Flow Fix (`12966d69`)
+
+- **Plan**: `docs/planning/SYNTHETIC_TWR_FLOW_FIX_PLAN.md`
+- **Implementation**: `core/realized_performance_analysis.py` — new `_synthetic_events_to_flows()` helper + TWR wiring + `_postfilter` storage
+- Root cause: 19 synthetic positions (first-transaction-exits) appeared in NAV but their cash events were excluded from TWR external flows. The GIPS formula interpreted NAV jumps as returns (+490% March) instead of contributions.
+- Three changes:
+  1. **Helper**: `_synthetic_events_to_flows()` converts synthetic cash events to TWR flow tuples. BUY → positive inflow, SHORT → negative outflow.
+  2. **TWR wiring**: `twr_external_flows = external_flows + synthetic_twr_flows` passed to `compute_twr_monthly_returns()`.
+  3. **Aggregation**: `_postfilter["external_flows"]` stores `twr_external_flows` so aggregation path picks up synthetic flows.
+- Modified Dietz path unchanged — the cash replay exclusion was correct for that formula.
+- 11 new tests in `tests/core/test_synthetic_twr_flows.py`. 145 existing tests pass.
+- **Effect**: IBKR **-32.53% → -24.80%** (~8pp improvement toward -9.35% actual). Schwab/Plaid unchanged.
+
+### Current State (after fix 17)
 
 | Source | Return | Broker Actual | Gap |
 |--------|--------|---------------|-----|
-| **IBKR Flex** | **-32.53%** | -9.35% | 23.18pp |
+| **IBKR Flex** | **-24.80%** | -9.35% | 15.45pp |
 | Schwab | +17.53% | -8.29% | 25.82pp |
 | Plaid | +1.21% | -12.49% | 13.70pp |
 
-IBKR monthly breakdown shows the distortion source:
-- **March 2025: +490%** — 19 synthetic positions inflate NAV from inception, but their cash events are excluded from TWR flows
-- **April 2025: -64%** — synthetic positions unwind (SELLs), NAV drops
-- **May 2025: -75%** — more unwinding
+IBKR improved ~8pp. Remaining 15pp gap likely from:
+- 22 incomplete trades (no opening transaction history)
+- 2 unpriceable symbols (MGC, ZF — valued at $0)
+- Reconciliation gap 12.05%
+- NAV metrics still include estimated inputs
 
 ---
 
 ## Remaining Distortion Analysis
 
-### IBKR: -32.53% 2025 (actual: -9.35%) — ~23pp off
+### IBKR: -24.80% 2025 (actual: -9.35%) — ~15pp off
 
-After fixes 15+16 (StmtFunds + ghost account), IBKR regressed from -11.37% to -32.53%. The Flex Phase 2 polling fix (#14) exposed 19 first-transaction-exit synthetic positions. These appear in daily NAV but their cash events are excluded from TWR external flows. The GIPS formula `R = (V_D + |CF_out|) / (V_{D-1} + CF_in) - 1` interprets NAV jumps as returns instead of contributions.
-
-**Next fix**: `docs/planning/SYNTHETIC_TWR_FLOW_FIX_PLAN.md` — include synthetic cash events as TWR flows (BUY → positive inflow, SHORT → negative outflow). Expected to eliminate March +490% / April -64% / May -75% extreme months.
+After fix #17 (synthetic TWR flows), IBKR improved from -32.53% to -24.80%. The synthetic flow injection neutralized some of the NAV jump distortion, but ~15pp gap remains. Contributing factors:
+- **22 incomplete trades** — no opening transaction history, exceed the 0 max allowed
+- **2 unpriceable symbols** (MGC, ZF) — valued at $0 in NAV and unrealized P&L (IBKR Gateway not running for fallback)
+- **Reconciliation gap 12.05%** — exceeds 2% threshold
+- **NAV metrics estimated** — synthetic positions, low coverage, or unpriceable symbols
+- Synthetic flows may not fully neutralize all 17 synthetic positions (some may have imprecise pricing at inception)
 
 ### Schwab per-account: 2 of 3 solved
 
@@ -271,6 +288,6 @@ IBKR regressed to -47% because synthetic `price_hints` are unreliable for 21 pos
 
 ## Next Steps
 
-- **IBKR (priority)**: Implement synthetic TWR flow fix (`docs/planning/SYNTHETIC_TWR_FLOW_FIX_PLAN.md`). Expected to reduce IBKR from -32.53% toward -9.35% by neutralizing synthetic position NAV jumps in TWR.
+- **IBKR**: Investigate remaining 15pp gap. Likely requires: (1) IBKR Gateway running for MGC/ZF pricing fallback, (2) backfill for 22 incomplete trades, (3) reconciliation gap investigation.
 - **Schwab account 252**: TWR sensitivity on tiny starting balance. Being investigated in separate session.
 - **Plaid**: Investigate regression from -12.93% to +1.21% after Fix H/I. May be a TWR formula interaction with the observed-only track.

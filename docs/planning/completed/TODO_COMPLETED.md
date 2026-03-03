@@ -4,6 +4,9 @@ Items moved from `docs/planning/TODO.md` as they were completed. Most recent fir
 
 ---
 
+### 2026-03-02 — Live Options Pricing (3 Phases)
+Live IBKR bid/ask/mid surfaced in strategy + chain tools. Phase 1: `LegAnalysis` market price fields, `net_market_premium` property, agent snapshot + summary. Phase 2: `pricing_by_strike` in chain output, `atm_pricing` summary, `wide_atm_spread` flag. Phase 3: `underlying_price` optional in `preview_option_trade` with auto-fetch. 16 new tests (79 total). Commit `3ed26f80`. Plan: `LIVE_OPTIONS_PRICING_PLAN.md`.
+
 ### 2026-03-02 — Frontend: Dashboard Cards Wiring (Wave 1)
 Fixed 6 dashboard metric cards showing fake hardcoded values. Three frontend fixes + backend `refresh_portfolio_prices()`. Commits: `d1e2b665`, `efb83229`, `b61658eb`, `17e1ee59`. Plans: `DASHBOARD_CARDS_WIRING_PLAN.md`, `PORTFOLIO_PRICING_FIX_PLAN.md`.
 

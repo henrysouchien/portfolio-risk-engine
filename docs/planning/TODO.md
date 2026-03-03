@@ -39,8 +39,7 @@ Full design: `docs/planning/FUTURES_DESIGN.md`. Phases 1-7 complete.
 - [ ] **Phase 8 — Polish**: Daily bars → risk pipeline (requires frequency-aware refactor of 8+ annualization sites), DB persistence for `instrument_types`.
 - [ ] **Phase 9 — Live futures pricing in trade preview**: Add `fetch_snapshot()` to `preview_futures_roll` for live bid/ask/mid on front and back contracts before `whatIfOrder`.
 
-### Options: Live Pricing + Continuous Monitoring
-- [ ] **Live options pricing** — Real-time bid/ask/mid from IBKR via `fetch_snapshot()` for options contracts. Current `analyze_option_strategy()` uses Black-Scholes model pricing.
+### Options: Continuous Hedge Monitoring
 - [ ] **Continuous hedge monitoring** — Alerts when portfolio drifts beyond hedge targets, hedge ratios become stale, or expiring options need rolling.
 
 ### Workflow Gaps: Scenario & Strategy Infrastructure
@@ -59,8 +58,6 @@ Skip-list deployed. 142 run-1 failures investigated — all benign. Verify skip-
 Adopt `pydantic.BaseSettings` for `settings.py` to catch misconfiguration at startup. Low priority — settings.py is 454 lines, env is stable.
 
 ### Tool Reliability & Known Limitations
-- [ ] **IBKR config hardcoded values** — `_request_bars` 2s retry delay, `fetch_snapshot` 0.5s poll interval should be named constants or env-configurable
-- [ ] **IBKR market data subscription detection** — distinguish "no data because not subscribed" from "no data because timeout"
 - **`analyze_option_chain`** — market hours required (Mon-Fri 9:30am-4pm ET)
 
 ### Macro Review Chart Book
