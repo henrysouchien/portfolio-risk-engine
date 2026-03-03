@@ -117,6 +117,41 @@ def generate_chain_analysis_flags(snapshot: dict) -> list[dict]:
             }
         )
 
+    atm_pricing = snapshot.get("atm_pricing")
+    if isinstance(atm_pricing, dict):
+        worst_side = None
+        worst_spread_pct = 0.0
+        for side_name in ("call", "put"):
+            side_payload = atm_pricing.get(side_name)
+            if not isinstance(side_payload, dict):
+                continue
+            bid = _as_float(side_payload.get("bid"))
+            ask = _as_float(side_payload.get("ask"))
+            if bid is None or ask is None or ask <= bid:
+                continue
+
+            mid = _as_float(side_payload.get("mid"))
+            reference = mid if mid is not None and mid > 0 else (ask + bid) / 2.0
+            if reference <= 0:
+                continue
+
+            spread_pct = (ask - bid) / reference * 100.0
+            if spread_pct > worst_spread_pct:
+                worst_spread_pct = spread_pct
+                worst_side = side_name
+
+        if worst_side is not None and worst_spread_pct > 20.0:
+            flags.append(
+                {
+                    "flag": "wide_atm_spread",
+                    "severity": "warning",
+                    "message": (
+                        f"ATM {worst_side} bid-ask spread is wide "
+                        f"({worst_spread_pct:.1f}% of mid)"
+                    ),
+                }
+            )
+
     expiry_dt = _parse_expiry(snapshot.get("expiry"))
     if expiry_dt is not None:
         days_to_expiry = _trading_days_until(expiry_dt)
