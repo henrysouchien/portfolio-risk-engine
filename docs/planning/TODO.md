@@ -11,25 +11,37 @@ MCP server is registered. Need to test the full relay pipeline end-to-end: Claud
 ## Next Up (Actionable)
 
 ### Institution-Based Realized Performance Routing
-Make `get_performance` MCP tool route purely by institution (e.g., `institution="merrill"`) with the backend automatically resolving which provider pipeline to use (Merrill → Plaid, Schwab → Schwab API, IBKR → IBKR Flex). The `source` parameter becomes an internal implementation detail rather than a user-facing concept. Requires adding institution→provider mappings to `TRANSACTION_ROUTING` in `providers/routing_config.py` (currently only has `interactive_brokers → ibkr_flex` and `charles_schwab → schwab`; Merrill is missing). Depends on: per-account aggregation generalization (plan: `PER_ACCOUNT_AGGREGATION_PLAN.md`).
+Make `get_performance` MCP tool route purely by institution (e.g., `institution="merrill"`) with the backend automatically resolving which provider pipeline to use (Merrill → Plaid, Schwab → Schwab API, IBKR → IBKR Flex). The `source` parameter becomes an internal implementation detail rather than a user-facing concept. Requires adding institution→provider mappings to `TRANSACTION_ROUTING` in `providers/routing_config.py` (currently only has `interactive_brokers → ibkr_flex` and `charles_schwab → schwab`; Merrill is missing). Dependency satisfied: per-account aggregation generalized (commit `af30d415`, plan: `completed/PER_ACCOUNT_AGGREGATION_PLAN.md`).
 
 ### Frontend Views → Defined Workflows
 Workflow design doc: `docs/planning/WORKFLOW_DESIGN.md` (2,457 lines).
 
 **Phase 1 — Define workflows:** COMPLETE. All 7 workflows fully defined with 5-step sequences, tool mappings, inputs/outputs, and gap analysis: Hedging, Scenario Analysis, Allocation Review, Risk Review, Performance Review, Stock Research, Strategy Design.
 
-**Phase 2 — Backend workflow layer:** Not started. Approach: **Option A (orchestrator functions)** — lightweight Python functions that chain existing MCP tools, passing outputs between steps. Each workflow becomes a composable function that UI or agent can call. No heavy state machine needed for now; evolve toward persistence/resumability (Option B) only for workflows that need it (e.g., Strategy Design with multi-day iteration). See `WORKFLOW_DESIGN.md` → Implementation Approach for full option comparison.
+**Phase 2 — Backend workflow layer:** COMPLETE (cross-cutting gaps). All 3 cross-cutting tools built:
+- ~~**Rebalance trade generator**~~ — `generate_rebalance_trades()`. Commit `e19f9e28`.
+- ~~**Batch scenario/optimization comparison**~~ — `compare_scenarios()`. Commit `56d773a8`.
+- ~~**Action audit trail**~~ — `record_workflow_action()`, `update_action_status()`, `get_action_history()`. Plan: `docs/planning/completed/ACTION_AUDIT_TRAIL_PLAN.md`.
 
-**Start with cross-cutting gaps** before workflow orchestration — these unblock execution in all 7 workflows:
-- ~~**Rebalance trade generator** (highest leverage)~~ — COMPLETE. `generate_rebalance_trades()` MCP tool. Plan: `docs/planning/completed/REBALANCE_TRADE_GENERATOR_PLAN.md`. Commit `e19f9e28`.
-- ~~**Batch scenario/optimization comparison**~~ — COMPLETE. `compare_scenarios()` MCP tool. Plan: `docs/planning/completed/BATCH_COMPARISON_PLAN.md`. Commit `56d773a8`.
-- ~~**Action audit trail**~~ — COMPLETE. `record_workflow_action()`, `update_action_status()`, `get_action_history()` MCP tools. Plan: `docs/planning/completed/ACTION_AUDIT_TRAIL_PLAN.md`.
+**Phase 3 — Agent skill integration:** COMPLETE. All 7 workflows implemented as agent skills in AI-excel-addin:
+- ~~Allocation Review~~ — COMPLETE. Plan: `docs/planning/WORKFLOW_SKILLS_PLAN.md`.
+- ~~Risk Review~~ — COMPLETE. Plan: `docs/planning/WORKFLOW_SKILLS_PLAN.md`.
+- ~~Hedging~~ — COMPLETE. 7-step ETF/options/futures workflow. Plan: `docs/planning/WORKFLOW_SKILLS_PHASE4_PLAN.md`. Commit `335560b` (AI-excel-addin).
+- ~~Scenario Analysis~~ — COMPLETE. 5-step what-if with custom/template/stress modes. Plan: `docs/planning/WORKFLOW_SKILLS_PHASE4_PLAN.md`. Commit `335560b` (AI-excel-addin).
+- ~~Strategy Design~~ — COMPLETE. 5-step optimize/compare/save/execute. Plan: `docs/planning/WORKFLOW_SKILLS_PHASE4_PLAN.md`. Commit `335560b` (AI-excel-addin).
+- ~~Stock Research~~ — COMPLETE. Enhanced position-initiation with portfolio fit, sizing, audit trail. Plan: `docs/planning/WORKFLOW_SKILLS_STOCK_RESEARCH_PLAN.md`. Commits `5fad20d8` (risk_module), `6f1118b` (AI-excel-addin).
+- ~~Performance Review~~ — Exists as `performance-review.md` skill (pre-dates workflow design).
+- Skill catalog limit bumped 2000→2500 chars (10 skills). Commit `4013a02` (AI-excel-addin).
 
-**Phase 3 — UI second pass:** Not started. Upgrade each view from data display to interactive multi-step workflow. Depends on Phase 2.
-
-**Phase 4 — Agent integration:** Not started. Workflows callable from Claude Chat/MCP. Depends on Phase 2.
+**Phase 4 — UI second pass:** Not started. Upgrade each view from data display to interactive multi-step workflow.
 
 ## Recently Completed
+
+### ~~Frontend: Dashboard Cards Wiring (Wave 1)~~ — COMPLETE (2026-03-02)
+Fixed 6 dashboard metric cards showing fake hardcoded values ($2.8M portfolio, $18K P&L, 1.34 Sharpe, etc.). Three frontend fixes: pass performance data to PortfolioSummaryAdapter, fix field extraction paths, replace `||` fallbacks with `??`. Backend fix: `transform_portfolio_for_display()` now calls `refresh_portfolio_prices()` for real market values instead of hardcoding 0. Commits: `d1e2b665`, `efb83229`, `b61658eb`, `17e1ee59`. Plans: `docs/planning/DASHBOARD_CARDS_WIRING_PLAN.md`, `docs/planning/PORTFOLIO_PRICING_FIX_PLAN.md`. Audit: `docs/planning/FRONTEND_MOCK_DATA_AUDIT.md`.
+
+### ~~Per-Account Realized Performance Aggregation~~ — COMPLETE (2026-03-02)
+Generalized Schwab-only per-account aggregation to work for any institution. Fixes Merrill/Plaid cross-source exclusion (DSU/MSCI/STWD hidden because also held at Schwab). `source→institution` auto-resolution, conflict validation, `_discover_account_ids()` parameterized. Merrill now shows all 4 symbols (-9.04% vs -10.46% before fix). Commit `af30d415`. Plan: `docs/planning/PER_ACCOUNT_AGGREGATION_PLAN.md`.
 
 ### ~~IBKR Package: Connection Infrastructure~~ — COMPLETE (2026-03-02)
 Four-phase infrastructure overhaul of the `ibkr/` package:
@@ -77,9 +89,11 @@ Added `leveraged_concentration` flag to `core/position_flags.py`. Fires when lev
 
 ## Backlog
 
+### ~~IBKR Trading: Ephemeral Connection Migration~~ — COMPLETE
+Migrated `IBKRBrokerAdapter` from persistent `_ensure_connected()` to ephemeral `_connected()` context manager. Each trade operation connects, executes, disconnects — releasing client ID between calls. Fixes client ID conflicts when multiple portfolio-mcp processes run. `_connected()` splits error translation (connection phase only) from business logic (passthrough). `owns_account()` relies on `IBKR_AUTHORIZED_ACCOUNTS` env var in ephemeral mode. 5 new tests. Live verified: `list_accounts()` 0.4s, `preview_order()` NVDA $181.90 in 2.7s, 0 connections held after. Commit `385c4787`. Plan: `docs/planning/IBKR_EPHEMERAL_TRADING_PLAN.md` (3 Codex review rounds).
+
 ### ~~IBKR Direct Trading via IB Gateway~~ — COMPLETE
-Two bugs fixed: (1) connection leak from non-singleton `IBKRConnectionManager` — added module-level singleton, (2) account routing gap — added `TRADE_ROUTING` + `TRADE_ACCOUNT_MAP` in `routing_config.py` (follows `TRANSACTION_ROUTING`/`POSITION_ROUTING` pattern). Position validation resolves mapped account aliases. Verified live: both SnapTrade UUID and native IBKR account ID route correctly. Commits `ab8bff60`, `8a20f4b8`. Plan: `docs/planning/completed/IBKR_DIRECT_TRADING_PLAN.md`.
-- **Remaining:** End-to-end execute test (preview works, haven't confirmed actual order placement yet)
+Two bugs fixed: (1) connection leak from non-singleton `IBKRConnectionManager` — added module-level singleton, (2) account routing gap — added `TRADE_ROUTING` + `TRADE_ACCOUNT_MAP` in `routing_config.py` (follows `TRANSACTION_ROUTING`/`POSITION_ROUTING` pattern). Position validation resolves mapped account aliases. Verified live: both SnapTrade UUID and native IBKR account ID route correctly. Preview confirmed working end-to-end (NVDA $181.90, commission $1.00). Commits `ab8bff60`, `8a20f4b8`. Plan: `docs/planning/completed/IBKR_DIRECT_TRADING_PLAN.md`.
 
 ### Frontend: SDK Testing — Remaining Coverage (backlog)
 Additional feature hooks (useRiskAnalysis, usePerformance, etc.), interaction primitives (useSharedState, useFlow), conformance checks (descriptor fields match adapter output types).
@@ -148,7 +162,7 @@ Identified across all 7 workflow definitions (see `docs/planning/WORKFLOW_DESIGN
 
 - [x] ~~**Rebalance trade generator**~~ — COMPLETE. `generate_rebalance_trades()` MCP tool in `mcp_tools/rebalance.py`. Accepts `target_weights` or `weight_changes`, produces sequenced BUY/SELL legs. Shared helpers in `mcp_tools/trading_helpers.py`. 26 tests. Commit `e19f9e28`.
 - [x] ~~**Batch scenario/optimization comparison**~~ — COMPLETE. `compare_scenarios()` MCP tool in `mcp_tools/compare.py`. Runs N scenarios on same portfolio (deep-copied per run), ranks by configurable metric, 5 comparison-level flags. 32 tests. Commit `56d773a8`. Plan: `docs/planning/completed/BATCH_COMPARISON_PLAN.md`.
-- [ ] **Action audit trail** — Persist which recommendations were generated, accepted, rejected, and executed. No tracking today — conversation context only. Needed by: Risk Review, Allocation Review, Performance Review.
+- [x] ~~**Action audit trail**~~ — COMPLETE. `record_workflow_action()`, `update_action_status()`, `get_action_history()`. Plan: `docs/planning/completed/ACTION_AUDIT_TRAIL_PLAN.md`.
 
 ### Workflow Gaps: Scenario & Strategy Infrastructure
 Identified during Scenario Analysis and Strategy Design workflow definitions.
@@ -166,7 +180,7 @@ Core options module complete. IBKR integration done. Chain analysis MCP tool don
 - [x] Expose `chain_analysis.py` via MCP tool (OI/volume by strike, put/call ratio, max pain) — COMPLETE
 - [x] Option position enrichment — `enrich_option_positions()` with contract metadata (strike, expiry, underlying, DTE), 3 position flags (near_expiry, expired, concentration). Commit `6e62c5d6`.
 - [x] Portfolio Greeks aggregation — `compute_portfolio_greeks()` with dollar-scaled delta/gamma/theta/vega, wired into `get_exposure_snapshot()`, 4 Greeks flags (theta_drain, significant_net_delta, high_vega, computation_failures). Commit `6e62c5d6`.
-- [ ] IBKR live Greeks path — use `fetch_snapshot()` for real-time Greeks instead of computed (Black-Scholes) path. Per-position fallback when TWS unavailable.
+- [x] ~~IBKR live Greeks path~~ — COMPLETE. `compute_portfolio_greeks()` now tries IBKR `fetch_snapshot()` with `modelGreeks` first (batch call for all option positions), falls back to Black-Scholes per position. `source` field reports `"ibkr"`, `"mixed"`, or `"computed"`. 10 tests. Commit `61548e66`. Plan: `docs/planning/LIVE_IBKR_GREEKS_PLAN.md`.
 
 ### Macro Review Chart Book
 Build a repeatable macro review workflow that pulls market/economic data, generates charts and visuals, and produces a structured "chart book" for reviewing the current macro landscape. Should be runnable on a regular cadence (weekly/monthly).
@@ -252,6 +266,29 @@ Need to figure out the mechanism for triggering and keeping an autonomous agent 
 - A lightweight scheduler script that monitors agent state and re-prompts if idle or stalled
 - Checkpointing so an agent can resume where it left off if the session dies
 - This is a prerequisite for both the overnight analyst and the idea sourcing pipeline (which also benefits from scheduled runs)
+
+### AI Analyst — Package and Release
+- [ ] Agent-first review of all MCP packages (tool outputs, descriptions, response formats — are they structured for agent reasoning?)
+- [ ] Wire `portfolio-mcp` into the analyst as an MCP connection
+- [ ] Dogfood: use analyst daily, refine agent runner + memory + tools
+- [ ] Clean up `AI-excel-addin` repo for open source release
+- [ ] Package as distributable agent (openclaw-style: clone, configure, run)
+- [x] Accessible entry point (web chat) — analyst mode at `/analyst` (commit `ea9f2fd3`)
+- [ ] `portfolio-mcp` as standalone pip package
+- [ ] README + setup guide
+- Reference: `RELEASE_PLAN.md`, `docs/PRODUCT_ARCHITECTURE.md`, `docs/DEPLOY.md`
+
+### Portfolio Risk Engine — Pre-v1.0
+- [ ] Methodology docs (factor model, optimization approach)
+- [ ] Math validation against known benchmarks
+- [ ] Unit tests for core calculations
+- [ ] Evaluate core optimization functions (min_variance, max_return — correctness, constraints, solver options)
+
+### Tool Reliability & Known Limitations
+- [ ] **IBKR config hardcoded values** — `_request_bars` 2s retry delay, `fetch_snapshot` 0.5s poll interval should be named constants or env-configurable in `ibkr/config.py`
+- [ ] **IBKR market data subscription detection** — distinguish "no data because not subscribed" from "no data because timeout". IBKR returns specific error codes for missing subscriptions.
+- **`analyze_option_chain` — market hours required**: Returns no data when market is closed. Schedule option chain pulls for Mon–Fri 9:30am–4pm ET. (First encountered: 2026-02-27)
+- **`get_earnings_transcript` + Telegram tool confirmation**: Investigated 2026-03-02 — transcript tool code is solid (proper error handling, empty checks, status fields). Issue is gateway/Telegram tool result visibility, not the tool itself. **Moved to `AI-excel-addin/docs/TODO.md`** for investigation in that repo.
 
 ### Analyst Feedback & Performance Review Loop
 Two complementary feedback loops for continuous improvement of both the AI analyst and investment decision-making.

@@ -21,18 +21,18 @@ Sources: `baseline_extracted_data.json`, broker statements in `performance-actua
 | Schwab 165 | -8.30% | -8.29% | **0.01pp** | Yes |
 | Schwab 013 | -14.73% | -14.69% | **0.04pp** | Yes |
 | Schwab 252 | +28.37% | +10.65% | 17.7pp | No (tiny starting balance $21, large deposits) |
-| IBKR | -11.37% | -9.35% | **2.02pp** | Yes |
+| IBKR | -32.53% | -9.35% | **23.18pp** | No (regressed after Flex Phase 2 + ghost/StmtFunds fixes) |
 
 ---
 
 ## Total Return Progression
 
-| Source | Baseline (pre-P1) | After #1 P1 | After #2-#5 (P2A+P2B) | After #6 P3 | After #7 P3.1 | After #8 P3.2 | After #9 Schwab A/E/F/G | After #10 Remove Extreme Filter | Broker Actual |
-|--------|-------------------|-------------|------------------------|-------------|---------------|---------------|-------------------------|--------------------------------|---------------|
-| **Combined** | -64.37% | +83.91% | +188.08% | -23.84% | +34.66% | +34.66% | +34.41% | **+34.41%** | -8 to -12% |
-| **IBKR Flex** | (in combined) | +126.32% | -68.88% | -100.00% | +10.45% | +10.45% | -71.78% | **+15.27%** | -9.35% |
-| **Schwab** | (in combined) | +142.79% | +51.36% | +49.76% | +49.76% | +33.13% | +23.13% | **+23.13%** | -8.29% |
-| **Plaid (Merrill)** | (in combined) | +1.32% | -7.96% | -7.96% | -7.96% | -7.96% | -12.93% | **-12.93%** | -12.49% |
+| Source | Baseline (pre-P1) | After #1 P1 | After #2-#5 (P2A+P2B) | After #6 P3 | After #7 P3.1 | After #8 P3.2 | After #9 Schwab A/E/F/G | After #10 Remove Extreme Filter | After #13 Fix J | After #14-16 Flex P2 + fixes | Broker Actual |
+|--------|-------------------|-------------|------------------------|-------------|---------------|---------------|-------------------------|--------------------------------|-----------------|-------------------------------|---------------|
+| **Combined** | -64.37% | +83.91% | +188.08% | -23.84% | +34.66% | +34.66% | +34.41% | +34.41% | +34.41% | **TBD** | -8 to -12% |
+| **IBKR Flex** | (in combined) | +126.32% | -68.88% | -100.00% | +10.45% | +10.45% | -71.78% | +15.27% | -11.37% | **-32.53%** | -9.35% |
+| **Schwab** | (in combined) | +142.79% | +51.36% | +49.76% | +49.76% | +33.13% | +23.13% | +23.13% | +23.13% | **+17.53%** | -8.29% |
+| **Plaid (Merrill)** | (in combined) | +1.32% | -7.96% | -7.96% | -7.96% | -7.96% | -12.93% | -12.93% | -12.93% | **+1.21%** | -12.49% |
 
 Column mapping:
 - **Baseline**: Before any fixes. Observed-only track (sensitivity gate fired).
@@ -43,6 +43,8 @@ Column mapping:
 - **After #8 P3.2**: Schwab cross-source attribution fix (native-over-aggregator tiebreaker).
 - **After #9 Schwab A/E/F/G**: Per-account aggregation, cash-back/timestamp/inception deferral, per-symbol synthetic inception, system transfer BUY + contribution. IBKR regressed to -71.78% (extreme month filter side-effect).
 - **After #10 Remove Extreme Filter**: Removed `extreme_month_filter_active` gate that NaN-ified months >300% when synthetic tickers present. Restored IBKR March 2025 +308% to chain-linking.
+- **After #13 Fix J** (`3ce88f1c`): Futures daily MTM settlement. IBKR -11.37% (was +15.27%).
+- **After #14-16 Flex P2 + fixes** (`f4dac23f`, `fe297eda`, `264c2940`): Flex Phase 2 polling exposed StmtFunds + ghost account bugs. Fixed both, but 19 synthetic positions now create TWR distortion. IBKR -32.53%.
 
 ### Key observations
 
@@ -181,29 +183,57 @@ Column mapping:
   3. **Consume**: `FUTURES_MTM` event type in `derive_cash_and_external_flows()` — TYPE_ORDER priority 5 (after BUY/COVER), `is_futures=False` to bypass trade branch, mixed-authority partitioning
 - **Effect**: IBKR +15.71% → **-11.37%** (broker: -9.35%). Gap: **25pp → 2pp**. March +308% spike eliminated. Schwab/Plaid unchanged.
 
+### 14. IBKR Flex Phase 2 Polling Fix (`f4dac23f`)
+
+- **Implementation**: `ibkr/flex.py` — fixed Phase 2 polling to correctly fetch StmtFunds + additional topics
+- **Effect**: IBKR **-11.37% → +111.42%** (massive regression). Root cause: two bugs exposed by the additional data — StmtFunds topic name wrong + ghost account in per-account aggregation.
+
+### 15. StmtFunds Topic Name Fix (`fe297eda`)
+
+- **Plan**: `docs/planning/GHOST_ACCOUNT_FIX_PLAN.md`
+- **Implementation**: `ibkr/flex.py` lines 1103, 1114 — `"StmtFunds"` → `"StatementOfFundsLine"` (the actual XML element tag)
+- The Phase 2 polling fix exposed that the topic name was wrong. Container tag is `<StmtFunds>`, but data element tag (used by `_extract_rows()`) is `<StatementOfFundsLine>`. 564 raw rows → 105 normalized MTM events with -$42,945 total cash impact now flowing correctly.
+- **Effect**: Part of combined fix with #16 below.
+
+### 16. Ghost Account Filtering (`264c2940`)
+
+- **Plan**: `docs/planning/GHOST_ACCOUNT_FIX_PLAN.md`
+- **Implementation**: `core/realized_performance_analysis.py` — new `_looks_like_display_name()` helper + updated `_discover_account_ids()`
+- Root cause: SnapTrade positions report `account_name="Interactive Brokers (Henry Chien)"` while Flex transactions use `account_id="U2471778"`. Same account, different identifiers → 2-account aggregation. The ghost account matched 0 transactions → synthetic-only analysis → March +641%.
+- Fix: position-only accounts that look like display names (contain institution keyword, parentheses, or long names) are filtered when transaction-derived accounts exist. Real account IDs (IBKR U-numbers, Schwab masked) are never filtered.
+- 12 new tests in `tests/core/test_discover_account_ids.py`.
+- **Effect**: Fixes #15 + #16 combined: IBKR **+111.42% → -32.53%** (broker: -9.35%). Ghost account eliminated, MTM flowing correctly. But still ~23pp off due to 19 synthetic positions creating TWR distortion.
+
+### Current State (after fixes 15+16)
+
+| Source | Return | Broker Actual | Gap |
+|--------|--------|---------------|-----|
+| **IBKR Flex** | **-32.53%** | -9.35% | 23.18pp |
+| Schwab | +17.53% | -8.29% | 25.82pp |
+| Plaid | +1.21% | -12.49% | 13.70pp |
+
+IBKR monthly breakdown shows the distortion source:
+- **March 2025: +490%** — 19 synthetic positions inflate NAV from inception, but their cash events are excluded from TWR flows
+- **April 2025: -64%** — synthetic positions unwind (SELLs), NAV drops
+- **May 2025: -75%** — more unwinding
+
 ---
 
 ## Remaining Distortion Analysis
+
+### IBKR: -32.53% 2025 (actual: -9.35%) — ~23pp off
+
+After fixes 15+16 (StmtFunds + ghost account), IBKR regressed from -11.37% to -32.53%. The Flex Phase 2 polling fix (#14) exposed 19 first-transaction-exit synthetic positions. These appear in daily NAV but their cash events are excluded from TWR external flows. The GIPS formula `R = (V_D + |CF_out|) / (V_{D-1} + CF_in) - 1` interprets NAV jumps as returns instead of contributions.
+
+**Next fix**: `docs/planning/SYNTHETIC_TWR_FLOW_FIX_PLAN.md` — include synthetic cash events as TWR flows (BUY → positive inflow, SHORT → negative outflow). Expected to eliminate March +490% / April -64% / May -75% extreme months.
 
 ### Schwab per-account: 2 of 3 solved
 
 Accounts 165 (-8.30% vs -8.29%) and 013 (-14.73% vs -14.69%) are essentially exact. Account 252 (+28.37% vs broker +10.65%) remains distorted — tiny starting balance ($21) with $46K of deposits creates TWR sensitivity to timing. Schwab work continues in a separate session.
 
-### IBKR: -11.37% 2025 (actual: -9.35%) — ~2pp off
-
-After Fix J (futures daily MTM settlement), IBKR is within 2pp of broker actual. The remaining gap likely comes from:
-- 6 synthetic current positions ($15.7K market value) with estimated inception values
-- Incomplete trade `price_hint` (sell_price used as proxy for inception value)
-- 45% data coverage means some months have limited position data
-- System inception is Feb 28 (first transaction) vs broker Dec 31, 2024 — period mismatch
-
 ### Plaid: +1.21% (actual: -12.49%) — ~14pp off
 
 Regressed from -12.93% after Fix H/I landed (daily TWR + GIPS BOD changes). Previously closest to actual when observed-only track was selected. `SYNTHETIC_PNL_SENSITIVITY` gate still fires, but the TWR formula changes shifted the observed-only returns. One synthetic position (IT, $3.6K) and one unpriceable bond.
-
-### Combined: +36.89% (actual: -8 to -12%)
-
-Pulled up by Schwab aggregate +17.53% and a 403,086% extreme month in Apr 2024 (combined inception). IBKR and Plaid are in mid-range.
 
 ---
 
@@ -228,12 +258,19 @@ Pulled up by Schwab aggregate +17.53% and a 403,086% extreme month in Apr 2024 (
 - **Implementation**: Codex-implemented, passed code review + 155 unit tests
 - **Result**: Reverted. IBKR barely moved (-0.07pp), Plaid regressed 14pp, Schwab improved 5.6pp as side-effect of price priority flip. The flow injection seeds the Modified Dietz denominator but doesn't fix the V_start=0 → large NAV jump problem (the injected flows are too small relative to the NAV swing). The price priority flip (`price_hint` before FMP in `_create_synthetic_cash_events`) had unintended side-effects on all sources.
 
+### Per-Symbol Inception for All Sources (attempted 2026-03-02, reverted `d9a9f886`)
+
+- **Plan**: `docs/planning/PER_SYMBOL_INCEPTION_PLAN.md`
+- **Implementation**: Changed `use_per_symbol_inception` from Schwab-only to all sources (default True).
+- **Result**: Reverted. IBKR went from -32.53% to **+3,934%** (+30,261% best month). With per-symbol inception, synthetics appear one-by-one throughout March, each creating individual daily NAV spikes in TWR. The fix was worse than the disease — individual spikes are harder to neutralize than a single inception-day batch.
+- **Lesson**: The real fix is to include synthetic cash events as TWR flows (neutralize the NAV jump), not to move the synthetics to different dates.
+
 ### P5: V_start Seeding (attempted earlier, reverted)
 
 IBKR regressed to -47% because synthetic `price_hints` are unreliable for 21 positions.
 
 ## Next Steps
 
+- **IBKR (priority)**: Implement synthetic TWR flow fix (`docs/planning/SYNTHETIC_TWR_FLOW_FIX_PLAN.md`). Expected to reduce IBKR from -32.53% toward -9.35% by neutralizing synthetic position NAV jumps in TWR.
 - **Schwab account 252**: TWR sensitivity on tiny starting balance. Being investigated in separate session.
-- **IBKR**: Now within 2pp of broker actual (-11.37% vs -9.35%). Remaining gap likely from synthetic position inception values and period mismatch. Low priority.
 - **Plaid**: Investigate regression from -12.93% to +1.21% after Fix H/I. May be a TWR formula interaction with the observed-only track.

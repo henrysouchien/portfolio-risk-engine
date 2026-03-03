@@ -1,19 +1,29 @@
 # Frontend Phase 2 — Working Doc
 
-**Parent doc:** `FRONTEND_PACKAGE_DESIGN.md`
-**Status:** Wave 1 complete + formatting complete + Wave 2a (Holdings) complete, Wave 2b-2e next
-**Last verified:** 2026-02-27 — Holdings enrichment verified in Chrome
+**Parent doc:** `completed/FRONTEND_PACKAGE_DESIGN.md`
+**Status:** Wave 1 + formatting + Wave 2a/2b/2c complete; Wave 2d/2e and remaining mock cleanup pending
+**Last verified:** 2026-03-03 — code/docs drift check
 
 ### Related Docs
 | Doc | Purpose |
 |-----|---------|
 | `COMPOSABLE_APP_FRAMEWORK_PLAN.md` | Phase 3 — the SDK/framework this work feeds into |
-| `FRONTEND_WAVE1_IMPLEMENTATION_PLAN.md` | Wave 1 detailed implementation plan (Codex-reviewed) |
+| `completed/FRONTEND_WAVE1_IMPLEMENTATION_PLAN.md` | Wave 1 detailed implementation plan (Codex-reviewed) |
 | `FRONTEND_COMPONENT_VISUAL_MAP.md` | Visual guide: what you see on screen → code component |
-| `FRONTEND_DATA_WIRING_AUDIT.md` | Container/adapter audit (ported into this doc) |
-| `FRONTEND_FORMATTING_MODULE_PLAN.md` | Shared formatting module plan (Codex-reviewed, complete) |
-| `FRONTEND_HOLDINGS_ENRICHMENT_PLAN.md` | Holdings enrichment via PositionService + sector (COMPLETE) |
+| `completed/FRONTEND_DATA_WIRING_AUDIT.md` | Container/adapter audit (ported into this doc) |
+| `completed/FRONTEND_FORMATTING_MODULE_PLAN.md` | Shared formatting module plan (Codex-reviewed, complete) |
+| `completed/FRONTEND_HOLDINGS_ENRICHMENT_PLAN.md` | Holdings enrichment via PositionService + sector (COMPLETE) |
 | `MCP_POSITIONS_ENRICHMENT_PLAN.md` | MCP agent format: sector + P&L + 4 new flags (planning) |
+
+---
+
+## Drift Corrections (2026-03-03)
+
+This file is still the main tracking doc, but several references in earlier sections were stale.
+
+- Scenario Analysis is **partially** real, not fully real. Real what-if execution is wired, but historical/stress/monte-carlo UI remains mostly placeholder.
+- `PerformanceChart.tsx` is still present in `ui/src/components/portfolio/`, but it is legacy and not rendered by `ModernDashboardApp`.
+- Completed docs have moved under `docs/planning/completed/`; links in this file are updated where referenced.
 
 ---
 
@@ -77,7 +87,7 @@ The app has 8 views accessed via keyboard shortcuts or navigation:
 | Strategy Builder | ⌘5 | StrategyBuilderContainer | **Partial** — props wired (Wave 1), mock fallbacks when no optimization data |
 | Stock Research | ⌘6 | StockLookupContainer | **Partial** — see below |
 | AI Assistant | ⌘7 | ChatInterface | **Real** |
-| Scenario Analysis | ⌘8 | ScenarioAnalysisContainer | **Real** |
+| Scenario Analysis | ⌘8 | ScenarioAnalysisContainer | **Partial** — run flow is real, historical/stress/monte-carlo sections are placeholder-heavy |
 
 Additionally: Risk Settings and Account Connections accessible via Settings — both real.
 
@@ -186,12 +196,12 @@ Additionally: Risk Settings and Account Connections accessible via Settings — 
 - [ ] Decide: keep AI commentary (generate from real data) or remove?
 - [ ] Remove all hardcoded mock arrays
 
-#### 8. PerformanceChart.tsx (standalone component) — DONE (Wave 1)
+#### 8. PerformanceChart.tsx (standalone component) — LEGACY UNUSED
 
-- **Location:** DELETED — `ui/src/components/portfolio/PerformanceChart.tsx`
-- **Status:** ✅ Replaced with `PerformanceViewContainer` in score view. File deleted.
-- [x] Confirmed duplicate of PerformanceViewContainer
-- [x] Removed, score view now uses PerformanceViewContainer
+- **Location:** `ui/src/components/portfolio/PerformanceChart.tsx`
+- **Status:** Not mounted in `ModernDashboardApp`; overview and performance views use `PerformanceViewContainer`.
+- [x] Replaced in active dashboard routing
+- [ ] Optional cleanup: remove file when no external import/dependency needs it
 
 #### 9. AssetAllocation.tsx (standalone component) — NOT A DUPLICATE
 
@@ -215,7 +225,7 @@ Additionally: Risk Settings and Account Connections accessible via Settings — 
 - **Status:** ✅ Core fields wired via `PositionsAdapter` from `PositionService.to_monitor_view()` + `PortfolioService.enrich_positions_with_sectors()`
 - **What's real now:** ticker, value, weight, currency, type, account, brokerage, sector (via FMP), P&L (unrealized_pnl_usd, pnl_percent), cost basis, current price, quantity, gross/net exposure
 - **Implementation:** New `/api/positions/holdings` endpoint, `usePositions()` hook (direct TanStack Query), `PositionsAdapter` with null→undefined normalization. Weight formatting fix applied.
-- **Cross-ref:** `FRONTEND_HOLDINGS_ENRICHMENT_PLAN.md` (COMPLETE), `FRONTEND_DATA_WIRING_AUDIT.md` Gap 1
+- **Cross-ref:** `completed/FRONTEND_HOLDINGS_ENRICHMENT_PLAN.md` (COMPLETE), `completed/FRONTEND_DATA_WIRING_AUDIT.md` Gap 1
 - **Remaining fields** (see "Remaining Holdings Fields" section below): volatility, riskScore, aiScore, alerts, trend, dayChange
 - [x] New `/api/positions/holdings` endpoint with P&L + sector
 - [x] Wire sector via `PortfolioService.enrich_positions_with_sectors()`
@@ -226,12 +236,12 @@ Additionally: Risk Settings and Account Connections accessible via Settings — 
 
 - **Location:** `StockLookupContainer.tsx`
 - **What users see:** Current price, market cap, trading volume for searched stocks
-- **Data source:** Analysis data is real (from `/api/direct/stock`), but current
-  price/market cap/volume have TODOs for "real market data API"
-- **Backend data available?** FMP endpoints have real-time quotes, market cap, volume.
-  Not wired to this component yet.
-- [ ] Wire real-time price data from FMP
-- [ ] Wire market cap and volume
+- **Data source:** Core stock analysis payload from `/api/direct/stock` is wired and mapped
+  into header fields (price/market cap/volume). Remaining gap is search UX, which still
+  synthesizes search results from typed input when no dedicated search endpoint is used.
+- **Backend data available?** Yes for selected ticker analysis; search/autocomplete service
+  is the missing piece.
+- [ ] Replace synthetic search result generation with real ticker search/autocomplete
 
 #### 14. Hedging suggestions (Overview view, Advanced Risk Analysis)
 
@@ -241,8 +251,9 @@ Additionally: Risk Settings and Account Connections accessible via Settings — 
   - "VIX Call Options" ($8.2K cost, $200K protection, Medium Efficiency)
   - "Gold Position 5%" ($142K cost, Inflation hedge)
   Each with "Implement Strategy" button, detailed steps, and market impact analysis
-- **Data source:** Hardcoded fallback array. Code has conditional for adapter data
-  (line 338) but adapter fields have TODOs (lines 332-335), so always falls back.
+- **Data source:** Mixed. Container now provides hedging recommendations via
+  `useHedgingRecommendations` + `HedgingAdapter`, but detailed impact metrics in
+  dialog content still rely on fallback placeholders.
 - **Backend data available?** Risk analysis response has some hedge-related data.
   Adapter would need `beforeVaR`, `afterVaR`, `riskReduction`, `portfolioBeta` fields.
 - [ ] Populate RiskAnalysisAdapter with hedging data from backend
@@ -254,7 +265,7 @@ Additionally: Risk Settings and Account Connections accessible via Settings — 
 - **Location:** `ui/src/components/portfolio/StrategyBuilder.tsx`
 - **Status:** ✅ Props wired — `optimizationData`, `onOptimize`, `onBacktest`, `loading` all consumed
 - **What's real now:** `currentStrategy.metrics`, `optimizedStrategy`, `templates` from container. Graceful fallback to `prebuiltStrategies` when no optimization data.
-- **Known gaps:** Backtesting still uses mock timer (no backend backtesting). `prebuiltStrategies` kept as fallback (not a bug — templates may not always be available).
+- **Known gaps:** Backtesting is now callback-driven via container/what-if flow, but still not a true historical engine. `prebuiltStrategies` kept as fallback (not a bug — templates may not always be available).
 - [x] Wire optimizationData prop to replace hardcoded results
 - [x] Wire onOptimize/onBacktest callbacks
 - [x] Wire loading prop
@@ -271,9 +282,9 @@ Additionally: Risk Settings and Account Connections accessible via Settings — 
 
 ---
 
-### Cross-Reference: FRONTEND_DATA_WIRING_AUDIT.md
+### Cross-Reference: completed/FRONTEND_DATA_WIRING_AUDIT.md
 
-A separate audit (`FRONTEND_DATA_WIRING_AUDIT.md`) analyzed wiring from the
+A separate audit (`completed/FRONTEND_DATA_WIRING_AUDIT.md`) analyzed wiring from the
 container/adapter layer. Key findings reconciled:
 
 | Their Gap | Our Item | Notes |
@@ -307,11 +318,11 @@ Components that appear unused or are explicitly marked as such:
 
 | Category | Count | Status |
 |----------|-------|--------|
-| Fully wired views (real data end-to-end) | 4 of 8 views | Factor Analysis, Scenario, Chat, Settings |
-| Partially wired views (mix of real + mock) | 4 of 8 views | Overview, Holdings, Performance, Strategy Builder |
-| Fully mock views | 0 of 8 views | — (Factor Analysis moved to fully wired after Wave 1) |
+| Fully wired views (real data end-to-end) | 2 of 8 views | Chat, Settings |
+| Partially wired views (mix of real + mock) | 6 of 8 views | Overview, Holdings, Factor Analysis, Performance, Strategy Builder, Scenario Analysis |
+| Fully mock views | 0 of 8 views | No view is purely demo-only, but several remain mixed |
 | Total mock data items | 16 total, **5 resolved** (Wave 1 + 2a) | Items 6, 8, 10, 11, 15 done. 11 remaining. |
-| Dead components cleaned | 1 | PerformanceChart.tsx deleted |
+| Dead components cleaned | 0 | `PerformanceChart.tsx` still exists but is legacy/unused in active dashboard routes |
 | Backend endpoints unused by frontend | 9 | `/api/direct/*`, `/api/factors/*`, `/api/positions/*` |
 
 ### Cross-Cutting: Shared Number Formatting — COMPLETE
@@ -333,7 +344,7 @@ Components that appear unused or are explicitly marked as such:
 
 **Migrated files (14):** RiskMetricsContainer, PerformanceView, StrategyBuilder, HoldingsView, PortfolioOverview, FactorRiskModel, RiskAnalysisAdapter, PerformanceAdapter, RiskSettingsAdapter, useAnalysisReport, registry. All local formatters deleted, all `.toFixed()` replaced.
 
-**Status:** COMPLETE — Codex implemented (2 rounds: v1 + 3 follow-up fixes), verified in Chrome 2026-02-27. See `FRONTEND_FORMATTING_MODULE_PLAN.md`.
+**Status:** COMPLETE — Codex implemented (2 rounds: v1 + 3 follow-up fixes), verified in Chrome 2026-02-27. See `completed/FRONTEND_FORMATTING_MODULE_PLAN.md`.
 
 ---
 
@@ -352,7 +363,7 @@ All data already flows through hooks/adapters. Just need presentation components
 
 **Implementation:** Codex implemented all 4 tasks. Two post-fixes applied: percentage rounding in RiskMetricsContainer, `weighted_factor_var` DataFrame summation in FactorRiskModelContainer.
 
-**Status:** COMPLETE — verified in Chrome 2026-02-27. See `FRONTEND_WAVE1_IMPLEMENTATION_PLAN.md` for detailed verification results.
+**Status:** COMPLETE — verified in Chrome 2026-02-27. See `completed/FRONTEND_WAVE1_IMPLEMENTATION_PLAN.md` for detailed verification results.
 
 #### Wave 2: Frontend + Backend Enrichment
 
@@ -360,9 +371,9 @@ Backend endpoint changes needed to provide data that frontend is ready to consum
 
 | # | Task | Items | Effort | Description |
 |---|------|-------|--------|-------------|
-| 2a | Holdings enrichment | 11 | Medium | ✅ DONE — `/api/positions/holdings` + `usePositions()` + `PositionsAdapter` + sector via FMP. Plan: `FRONTEND_HOLDINGS_ENRICHMENT_PLAN.md`. |
-| 2b | Hedging suggestions | 14 | Medium-High | ✅ DONE — `useHedgingRecommendations` hook + `HedgingAdapter` + container wiring (commit `1c66dae7`). Backend fixes: ETF→sector label resolution, correlation threshold -0.2→0.3, readable driver labels (commit `475a67e5`). Verified in Chrome 2026-02-28. Plan: `FRONTEND_HEDGING_WIRING_PLAN.md`. |
-| 2c | Performance attribution | 7 (partial) | Medium | ✅ DONE — Sector + security attribution computed in `calculate_portfolio_performance_metrics()` from `df_ret` + `filtered_weights`. FMP profile sector lookup. Threaded through `PerformanceResult` → API → `PerformanceAdapter` → `PerformanceView`. Factor attribution deferred to P2b. Verified in Chrome 2026-02-28. Plan: `PERFORMANCE_ATTRIBUTION_PLAN.md`. |
+| 2a | Holdings enrichment | 11 | Medium | ✅ DONE — `/api/positions/holdings` + `usePositions()` + `PositionsAdapter` + sector via FMP. Plan: `completed/FRONTEND_HOLDINGS_ENRICHMENT_PLAN.md`. |
+| 2b | Hedging suggestions | 14 | Medium-High | ✅ DONE — `useHedgingRecommendations` hook + `HedgingAdapter` + container wiring (commit `1c66dae7`). Backend fixes: ETF→sector label resolution, correlation threshold -0.2→0.3, readable driver labels (commit `475a67e5`). Verified in Chrome 2026-02-28. Plan: `completed/FRONTEND_HEDGING_WIRING_PLAN.md`. |
+| 2c | Performance attribution | 7 (partial) | Medium | ✅ DONE — Sector + security attribution computed in `calculate_portfolio_performance_metrics()` from `df_ret` + `filtered_weights`. FMP profile sector lookup. Threaded through `PerformanceResult` → API → `PerformanceAdapter` → `PerformanceView`. Factor attribution deferred to P2b. Verified in Chrome 2026-02-28. Plan: `completed/PERFORMANCE_ATTRIBUTION_PLAN.md`. |
 | 2d | Stock Research prices | 12 | Medium | Wire FMP real-time quotes (price, market cap, volume) to `StockLookupContainer`. |
 | 2e | FactorRiskModel Performance tab + R² | 6 (residual) | Medium | Wire Factor Alpha (from `historical_analysis`), Information Ratio (compute from alpha/tracking error), R² (compute from `variance_decomposition.factor_variance / 100`). Wire Key Risk Insights text from real factor betas instead of hardcoded text. Also expose R² in header badge. t-stat: requires regression p-values from backend — low priority. |
 
@@ -395,7 +406,7 @@ Need architectural decisions before implementation. Each item has a "server-side
 | 3d | AI Recommendations | 3 | Server-side generation (analyst agent) vs client-side from optimization data? |
 | 3e | AI Insights (metric cards) | 4 | Server-side interpretive text vs client-side computed from real values? |
 | 3f | Performance AI content | 7 (partial) | Wire target prices/ratings to FMP analyst data? Or strip mock AI layer? |
-| 3g | Strategy Builder backtesting | 15 (residual) | Backtesting uses mock timer — build real backend backtesting or remove? Props wiring done in Wave 1. |
+| 3g | Strategy Builder backtesting | 15 (residual) | Backtesting now routes through callbacks/what-if flow, but still lacks a dedicated historical backtest engine. Build engine or simplify UX. |
 | 3h | Unused backend endpoints | — | Keep `/api/direct/*`, `/api/factors/*`, `/api/positions/*` for CLI/API use or deprecate? |
 | 3i | Market status indicator | 16 | Optional: wire to real market calendar or keep naive time-based? |
 

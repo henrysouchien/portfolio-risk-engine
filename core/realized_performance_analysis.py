@@ -26,7 +26,7 @@ import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -1555,6 +1555,7 @@ def derive_cash_and_external_flows(
     force_disable_inference: bool = False,
     warnings: Optional[List[str]] = None,
     replay_diagnostics: Optional[Dict[str, Any]] = None,
+    suppress_symbols: Optional[Set[str]] = None,
 ) -> Tuple[List[Tuple[datetime, float]], List[Tuple[datetime, float]]]:
     """Replay trades+income stream to derive cash and net external capital flows.
 
@@ -1571,12 +1572,20 @@ def derive_cash_and_external_flows(
         replay_diagnostics.setdefault("futures_missing_fx_count", 0)
         replay_diagnostics.setdefault("futures_mtm_event_count", 0)
         replay_diagnostics.setdefault("futures_mtm_cash_impact_usd", 0.0)
+        replay_diagnostics.setdefault("unpriceable_suppressed_count", 0)
+        replay_diagnostics.setdefault("unpriceable_suppressed_usd", 0.0)
+        replay_diagnostics.setdefault("unpriceable_suppressed_symbols", [])
         replay_diagnostics.setdefault("income_flow_overlap_dropped_count", 0)
         replay_diagnostics.setdefault("income_flow_overlap_dropped_net_usd", 0.0)
         replay_diagnostics.setdefault("income_flow_overlap_dropped_by_provider", {})
         replay_diagnostics.setdefault("income_flow_overlap_candidate_count", 0)
         replay_diagnostics.setdefault("income_flow_overlap_alias_mismatch_count", 0)
         replay_diagnostics.setdefault("income_flow_overlap_alias_mismatch_samples", [])
+    _suppress_symbols = {
+        str(symbol).strip().upper()
+        for symbol in (suppress_symbols or set())
+        if str(symbol).strip()
+    }
 
     def _fx_with_futures_default(currency: str, when: datetime) -> Tuple[float, bool]:
         ccy = str(currency or "USD").upper()
@@ -1727,10 +1736,14 @@ def derive_cash_and_external_flows(
     futures_unknown_action_count = 0
     futures_missing_fx_count = 0
     futures_mtm_cash_impact_usd = 0.0
+    unpriceable_suppressed_count = 0
+    unpriceable_suppressed_usd = 0.0
+    unpriceable_suppressed_symbols: set[str] = set()
 
     for event in events:
         event_type = event["event_type"]
         is_futures = bool(event.get("is_futures", False))
+        normalized_symbol = str(event.get("symbol") or "").strip().upper()
         if is_futures:
             fx, missing_fx = _fx_with_futures_default(event.get("currency", "USD"), event["date"])
             if missing_fx:
@@ -1754,6 +1767,13 @@ def derive_cash_and_external_flows(
                     fee_cash_impact = -(event["fee"] * fx)
                     cash += fee_cash_impact
                     futures_fee_cash_impact_usd += fee_cash_impact
+        elif normalized_symbol in _suppress_symbols and event_type in {"BUY", "SELL", "SHORT", "COVER"}:
+            unpriceable_suppressed_count += 1
+            unpriceable_suppressed_usd += abs(event["price"] * event["quantity"] * fx)
+            if normalized_symbol:
+                unpriceable_suppressed_symbols.add(normalized_symbol)
+            fee_cash_impact = -(event["fee"] * fx)
+            cash += fee_cash_impact
         else:
             if event_type == "BUY":
                 cash -= (event["price"] * event["quantity"] + event["fee"]) * fx
@@ -1822,6 +1842,16 @@ def derive_cash_and_external_flows(
         warnings.append(
             f"Cash replay: {futures_missing_fx_count} futures transaction(s) used FX=1.0 fallback due to missing/invalid FX."
         )
+    if warnings is not None and unpriceable_suppressed_count > 0:
+        suppressed_symbols_sorted = sorted(unpriceable_suppressed_symbols)
+        preview = ", ".join(suppressed_symbols_sorted[:5])
+        if len(suppressed_symbols_sorted) > 5:
+            preview = f"{preview}, ..."
+        warnings.append(
+            f"Cash replay: suppressed ${unpriceable_suppressed_usd:,.2f} notional from "
+            f"{unpriceable_suppressed_count} unpriceable-symbol transaction(s) ({preview}). "
+            "Notional was excluded; fees were retained."
+        )
     if warnings is not None and int(_as_float(overlap_diagnostics.get("dropped_count"), 0.0)) > 0:
         warnings.append(
             "Cash replay: dropped "
@@ -1854,6 +1884,20 @@ def derive_cash_and_external_flows(
             replay_diagnostics.get("futures_mtm_cash_impact_usd"),
             0.0,
         ) + futures_mtm_cash_impact_usd
+        replay_diagnostics["unpriceable_suppressed_count"] = int(
+            _as_float(replay_diagnostics.get("unpriceable_suppressed_count"), 0.0)
+        ) + unpriceable_suppressed_count
+        replay_diagnostics["unpriceable_suppressed_usd"] = _as_float(
+            replay_diagnostics.get("unpriceable_suppressed_usd"),
+            0.0,
+        ) + unpriceable_suppressed_usd
+        replay_suppressed_symbols = {
+            str(symbol).strip().upper()
+            for symbol in list(replay_diagnostics.get("unpriceable_suppressed_symbols", []) or [])
+            if str(symbol).strip()
+        }
+        replay_suppressed_symbols.update(unpriceable_suppressed_symbols)
+        replay_diagnostics["unpriceable_suppressed_symbols"] = sorted(replay_suppressed_symbols)
         replay_diagnostics["income_flow_overlap_dropped_count"] = int(
             _as_float(replay_diagnostics.get("income_flow_overlap_dropped_count"), 0.0)
         ) + int(_as_float(overlap_diagnostics.get("dropped_count"), 0.0))
@@ -3800,6 +3844,9 @@ def _analyze_realized_performance_single_scope(
                 "futures_missing_fx_count": 0,
                 "futures_mtm_event_count": 0,
                 "futures_mtm_cash_impact_usd": 0.0,
+                "unpriceable_suppressed_count": 0,
+                "unpriceable_suppressed_usd": 0.0,
+                "unpriceable_suppressed_symbols": [],
                 "income_flow_overlap_dropped_count": 0,
                 "income_flow_overlap_dropped_net_usd": 0.0,
                 "income_flow_overlap_dropped_by_provider": {},
@@ -3825,6 +3872,20 @@ def _analyze_realized_performance_single_scope(
                     "futures_mtm_cash_impact_usd": round(
                         _as_float(replay_diag.get("futures_mtm_cash_impact_usd"), 0.0),
                         2,
+                    ),
+                    "unpriceable_suppressed_count": int(
+                        _as_float(replay_diag.get("unpriceable_suppressed_count"), 0.0)
+                    ),
+                    "unpriceable_suppressed_usd": round(
+                        _as_float(replay_diag.get("unpriceable_suppressed_usd"), 0.0),
+                        2,
+                    ),
+                    "unpriceable_suppressed_symbols": sorted(
+                        {
+                            str(symbol).strip().upper()
+                            for symbol in list(replay_diag.get("unpriceable_suppressed_symbols", []) or [])
+                            if str(symbol).strip()
+                        }
                     ),
                     "income_flow_overlap_dropped_count": int(
                         _as_float(replay_diag.get("income_flow_overlap_dropped_count"), 0.0)
@@ -3855,6 +3916,7 @@ def _analyze_realized_performance_single_scope(
                     futures_mtm_events=futures_mtm_events,
                     warnings=warnings,
                     replay_diagnostics=replay_diag,
+                    suppress_symbols=unpriceable_symbols,
                 )
                 inferred_dates = [when for when, _ in external_flows_local]
                 inferred_net_usd = float(sum(_as_float(amount, 0.0) for _, amount in external_flows_local))
@@ -3923,6 +3985,7 @@ def _analyze_realized_performance_single_scope(
                         force_disable_inference=True,
                         warnings=warnings,
                         replay_diagnostics=replay_diag,
+                        suppress_symbols=unpriceable_symbols,
                     )
                     return cash_no_inference, external_no_inference, {
                         "provider_authoritative_applied": 0,
@@ -3947,6 +4010,7 @@ def _analyze_realized_performance_single_scope(
                     futures_mtm_events=futures_mtm_events,
                     warnings=warnings,
                     replay_diagnostics=replay_diag,
+                    suppress_symbols=unpriceable_symbols,
                 )
                 inferred_dates = [when for when, _ in fallback_external]
                 inferred_net_usd = float(sum(_as_float(amount, 0.0) for _, amount in fallback_external))
@@ -3976,6 +4040,7 @@ def _analyze_realized_performance_single_scope(
                     futures_mtm_events=futures_mtm_events,
                     warnings=warnings,
                     replay_diagnostics=replay_diag,
+                    suppress_symbols=unpriceable_symbols,
                 )
                 inferred_count = 0
                 inferred_flow_diagnostics = {
@@ -4108,6 +4173,7 @@ def _analyze_realized_performance_single_scope(
                         futures_mtm_events=futures_mtm_events,
                         warnings=warnings,
                         replay_diagnostics=replay_diag,
+                        suppress_symbols=unpriceable_symbols,
                     )
                     inferred_count = 0
                     inferred_flow_diagnostics = {
@@ -4217,6 +4283,7 @@ def _analyze_realized_performance_single_scope(
                         futures_mtm_events=authoritative_branch_mtm,
                         warnings=warnings,
                         replay_diagnostics=replay_diag,
+                        suppress_symbols=unpriceable_symbols,
                     )
                     out_of_window_cash, out_of_window_external = derive_cash_and_external_flows(
                         fifo_transactions=out_of_window_branch_transactions,
@@ -4226,6 +4293,7 @@ def _analyze_realized_performance_single_scope(
                         force_disable_inference=True,
                         warnings=warnings,
                         replay_diagnostics=replay_diag,
+                        suppress_symbols=unpriceable_symbols,
                     )
 
                     fallback_deltas: List[Tuple[datetime, float]] = []
@@ -4244,6 +4312,7 @@ def _analyze_realized_performance_single_scope(
                             futures_mtm_events=partition_mtm,
                             warnings=warnings,
                             replay_diagnostics=replay_diag,
+                            suppress_symbols=unpriceable_symbols,
                         )
                         fallback_deltas.extend(_snapshots_to_deltas(partition_cash))
                         fallback_external.extend(partition_external)
@@ -4433,6 +4502,7 @@ def _analyze_realized_performance_single_scope(
             fx_cache=fx_cache,
             futures_mtm_events=futures_mtm_events,
             warnings=warnings,
+            suppress_symbols=unpriceable_symbols,
         )
         if legacy_monthly_return_path:
             observed_monthly_nav = compute_monthly_nav(
@@ -4982,6 +5052,20 @@ def _analyze_realized_performance_single_scope(
                 _as_float(cash_replay_diagnostics.get("futures_notional_suppressed_usd"), 0.0),
                 2,
             ),
+            "unpriceable_suppressed_count": int(
+                _as_float(cash_replay_diagnostics.get("unpriceable_suppressed_count"), 0.0)
+            ),
+            "unpriceable_suppressed_usd": round(
+                _as_float(cash_replay_diagnostics.get("unpriceable_suppressed_usd"), 0.0),
+                2,
+            ),
+            "unpriceable_suppressed_symbols": sorted(
+                {
+                    str(symbol).strip().upper()
+                    for symbol in list(cash_replay_diagnostics.get("unpriceable_suppressed_symbols", []) or [])
+                    if str(symbol).strip()
+                }
+            ),
             "futures_fee_cash_impact_usd": round(
                 _as_float(cash_replay_diagnostics.get("futures_fee_cash_impact_usd"), 0.0),
                 2,
@@ -5174,13 +5258,45 @@ def _prefetch_fifo_transactions(
     return fifo_transactions
 
 
+def _looks_like_display_name(candidate: str, institution: str) -> bool:
+    """Return True if candidate looks like a provider display name, not a real account ID.
+
+    Display names like "Interactive Brokers (Henry Chien)" are generated by
+    aggregators (SnapTrade) and can't be matched against transaction account_id
+    fields from native data sources (e.g. IBKR Flex "U2471778").
+
+    Real account IDs (IBKR U-numbers, Schwab masked numbers) are never treated
+    as display names, so dormant accounts with real IDs are preserved.
+    """
+    normalized = candidate.strip().lower()
+    if not normalized:
+        return False
+    # If it matches an IBKR account ID pattern (U1234567), it's a real ID
+    if _IBKR_ACCOUNT_ID_RE.match(normalized.replace(" ", "")):
+        return False
+    # If it contains the institution keyword, it's a display name
+    if match_institution(normalized, institution):
+        return True
+    # If it contains common display-name patterns (parentheses, long names)
+    if "(" in candidate or len(candidate) > 30:
+        return True
+    return False
+
+
 def _discover_account_ids(
     positions: "PositionResult",
     fifo_transactions: List[Dict[str, Any]],
     institution: str,
 ) -> List[str]:
-    """Discover account IDs from positions and normalized transactions."""
-    seen: set[str] = set()
+    """Discover account IDs from positions and normalized transactions.
+
+    Position-derived display names (e.g. "Interactive Brokers (Henry Chien)")
+    that match zero transactions are removed when transaction-derived accounts
+    exist.  Only display names are filtered - real account IDs (IBKR U-numbers,
+    Schwab masked numbers) are always preserved even if dormant.
+    """
+    from_positions: set[str] = set()
+    from_transactions: set[str] = set()
 
     for pos in list(getattr(getattr(positions, "data", None), "positions", []) or []):
         brokerage_name = str(pos.get("brokerage_name") or pos.get("institution") or "")
@@ -5188,11 +5304,11 @@ def _discover_account_ids(
             continue
         account_name = str(pos.get("account_name") or "").strip()
         if account_name:
-            seen.add(account_name)
+            from_positions.add(account_name)
             continue
         account_id = str(pos.get("account_id") or "").strip()
         if account_id:
-            seen.add(account_id)
+            from_positions.add(account_id)
 
     for txn in fifo_transactions or []:
         txn_institution = str(txn.get("_institution") or txn.get("institution") or "")
@@ -5200,11 +5316,32 @@ def _discover_account_ids(
             continue
         account_name = str(txn.get("account_name") or "").strip()
         if account_name:
-            seen.add(account_name)
+            from_transactions.add(account_name)
             continue
         account_id = str(txn.get("account_id") or "").strip()
         if account_id:
-            seen.add(account_id)
+            from_transactions.add(account_id)
+
+    seen = from_positions | from_transactions
+
+    # Remove position-only DISPLAY NAMES with zero matching transactions.
+    # Real account IDs (U2471778, etc.) are never removed - only names that
+    # look like provider-generated display names are candidates.
+    position_only = from_positions - from_transactions
+    if position_only and from_transactions:
+        institution_txns = [
+            txn
+            for txn in (fifo_transactions or [])
+            if match_institution(
+                str(txn.get("_institution") or txn.get("institution") or ""),
+                institution,
+            )
+        ]
+        for candidate in list(position_only):
+            if not _looks_like_display_name(candidate, institution):
+                continue  # Real account ID - keep even if dormant
+            if not any(_match_account(txn, candidate) for txn in institution_txns):
+                seen.discard(candidate)
 
     return sorted(seen)
 
@@ -5582,6 +5719,7 @@ def _build_aggregated_result(
     synthetic_positions: List[Dict[str, str]] = []
     first_exit_details: List[Any] = []
     unpriceable_symbol_set: set[str] = set()
+    unpriceable_suppressed_symbol_set: set[str] = set()
     unpriceable_reasons: Dict[str, str] = {}
 
     data_warnings_set: set[str] = set()
@@ -5690,6 +5828,11 @@ def _build_aggregated_result(
         unpriceable_symbol_set.update(
             str(symbol)
             for symbol in list(meta.get("unpriceable_symbols", []) or [])
+            if str(symbol).strip()
+        )
+        unpriceable_suppressed_symbol_set.update(
+            str(symbol).strip().upper()
+            for symbol in list(meta.get("unpriceable_suppressed_symbols", []) or [])
             if str(symbol).strip()
         )
         for ticker, reason in (meta.get("unpriceable_reasons", {}) or {}).items():
@@ -5962,6 +6105,9 @@ def _build_aggregated_result(
             "futures_cash_policy": first_meta.get("futures_cash_policy", "fee_only"),
             "futures_txn_count_replayed": _sum_int_field("futures_txn_count_replayed"),
             "futures_notional_suppressed_usd": round(_sum_field("futures_notional_suppressed_usd"), 2),
+            "unpriceable_suppressed_count": _sum_int_field("unpriceable_suppressed_count"),
+            "unpriceable_suppressed_usd": round(_sum_field("unpriceable_suppressed_usd"), 2),
+            "unpriceable_suppressed_symbols": sorted(unpriceable_suppressed_symbol_set),
             "futures_fee_cash_impact_usd": round(_sum_field("futures_fee_cash_impact_usd"), 2),
             "futures_unknown_action_count": _sum_int_field("futures_unknown_action_count"),
             "futures_missing_fx_count": _sum_int_field("futures_missing_fx_count"),

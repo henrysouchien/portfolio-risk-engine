@@ -33,7 +33,7 @@ The workflow definition becomes the shared contract between all three layers.
 
 **Frontend**: Container → Adapter → Hook → API pattern. Proper loading/error/empty states. Adapters transform backend responses into view-specific shapes. Cache coordination via events.
 
-**Gap**: No workflow orchestration layer. Multi-step analyses (risk → what-if → optimize → execute) must be chained manually by the user or by Claude calling tools in sequence. No state machine, no step tracking, no process persistence.
+**Workflow layer**: Agent-driven via skills (Option C). 6 of 7 workflows implemented as markdown skill files that guide Claude to chain MCP tools in sequence. No backend orchestrator needed. Remaining gap: UI doesn't drive workflows interactively (Phase 4).
 
 ---
 
@@ -173,13 +173,13 @@ Workflow:
 
 | Workflow | Steps | Status |
 |----------|-------|--------|
-| Hedging | Identify exposures → Find hedges → Size → Preview impact → Execute | **Defined** |
-| Scenario Analysis | Define scenario → Run what-if → Compare outcomes → Refine → Execute | **Defined** |
-| Allocation Review | Snapshot allocation → Analyze drift → Generate rebalance plan → Preview impact → Execute | **Defined** |
-| Risk Review | Assess risk state → Diagnose drivers → Recommend mitigations → Preview impact → Execute | **Defined** |
-| Performance Review | Measure returns → Attribute → Diagnose issues → Recommend improvements → Preview & execute | **Defined** |
-| Stock Research | Find & profile → Analyze (6 dimensions) → Evaluate portfolio fit → Size position → Execute | **Defined** |
-| Strategy Design | Set objectives & constraints → Optimize → Compare variants → Validate & save → Execute | **Defined** |
+| Hedging | Scope → Assess → Diagnose → Find candidates → Model → Compare → Execute | **Skill implemented** |
+| Scenario Analysis | Define scenario → Run analysis → Compare outcomes → Refine → Execute | **Skill implemented** |
+| Allocation Review | Confirm targets → Assess drift → Present findings → Rebalance plan → Preview → Execute | **Skill implemented** |
+| Risk Review | Confirm scope → Assess risk → Diagnose drivers → Recommend → Preview → Execute | **Skill implemented** |
+| Performance Review | Measure returns → Attribute → Diagnose issues → Recommend improvements → Preview & execute | **Skill implemented** |
+| Stock Research | Find & profile → Analyze (6 dimensions) → Evaluate portfolio fit → Size position → Execute | **Skill implemented** (via position-initiation enhancement) |
+| Strategy Design | Set objectives → Optimize → Compare variants → Validate & save → Execute | **Skill implemented** |
 
 ---
 
@@ -2436,22 +2436,32 @@ Step 5: Execute
 
 ## Implementation Approach
 
-### Phase 1: Define Workflows (this doc)
+### Phase 1: Define Workflows (this doc) — COMPLETE
 For each of the 7 workflows, define: steps, inputs/outputs, existing tools used, new capabilities needed. This is the contract that UI and agents will share.
 
-### Phase 2: Backend Workflow Layer
-Decide how workflows live on the backend:
-- **Option A: Orchestrator functions** — Python functions that chain existing tools (lightweight, composable)
-- **Option B: Workflow engine** — State machine with step tracking, persistence, resumability (heavier, more powerful)
-- **Option C: Agent-driven** — Claude chains tools via MCP; no new backend code needed, but less reusable for UI
+### Phase 2: Backend Cross-Cutting Gaps — COMPLETE
+Three cross-cutting tools that unblock execution in all workflows:
+- `generate_rebalance_trades()` — target weights → sequenced BUY/SELL legs. Commit `e19f9e28`.
+- `compare_scenarios()` — batch what-if/optimization comparison with ranking. Commit `56d773a8`.
+- `record_workflow_action()` / `update_action_status()` / `get_action_history()` — action audit trail.
 
-Likely: Start with Option A (orchestrator functions) for the most common workflows, evolve to B for complex ones.
+### Phase 3: Agent Skill Integration — 6 of 7 COMPLETE
+Chose **Option C (agent-driven)** from the original options. Workflows implemented as markdown choreography files ("skills") in AI-excel-addin that guide Claude to chain existing MCP tools in the correct sequence. No new backend orchestrator code needed.
 
-### Phase 3: UI Second Pass
+Skill files: `AI-excel-addin/api/memory/workspace/memory/skills/*.md`
+
+| Skill | Skill File | Plan |
+|-------|------------|------|
+| allocation-review | allocation-review.md | `WORKFLOW_SKILLS_PLAN.md` |
+| risk-review | risk-review.md | `WORKFLOW_SKILLS_PLAN.md` |
+| hedging | hedging.md | `WORKFLOW_SKILLS_PHASE4_PLAN.md` |
+| scenario-analysis | scenario-analysis.md | `WORKFLOW_SKILLS_PHASE4_PLAN.md` |
+| strategy-design | strategy-design.md | `WORKFLOW_SKILLS_PHASE4_PLAN.md` |
+| performance-review | performance-review.md (pre-existing) | |
+| stock-research | position-initiation.md (enhanced) | `WORKFLOW_SKILLS_STOCK_RESEARCH_PLAN.md` |
+
+### Phase 4: UI Second Pass — Not started
 For each view, update the frontend to step through the workflow (not just display data). This means:
 - Multi-step UI patterns (wizard, progressive disclosure)
 - Action buttons at each step (not just "view results")
 - Cross-view navigation (risk → hedging → execution)
-
-### Phase 4: Agent Integration
-Expose workflows as composable MCP tools that Claude can drive. The same workflow definition that powers the UI becomes a tool the agent can call with structured inputs and get structured outputs.

@@ -144,6 +144,9 @@ class RealizedMetadata:
     futures_cash_policy: str = "fee_only"
     futures_txn_count_replayed: int = 0
     futures_notional_suppressed_usd: float = 0.0
+    unpriceable_suppressed_count: int = 0
+    unpriceable_suppressed_usd: float = 0.0
+    unpriceable_suppressed_symbols: List[str] = field(default_factory=list)
     futures_fee_cash_impact_usd: float = 0.0
     futures_unknown_action_count: int = 0
     futures_missing_fx_count: int = 0
@@ -211,6 +214,9 @@ class RealizedMetadata:
             "futures_cash_policy": self.futures_cash_policy,
             "futures_txn_count_replayed": self.futures_txn_count_replayed,
             "futures_notional_suppressed_usd": self.futures_notional_suppressed_usd,
+            "unpriceable_suppressed_count": self.unpriceable_suppressed_count,
+            "unpriceable_suppressed_usd": self.unpriceable_suppressed_usd,
+            "unpriceable_suppressed_symbols": self.unpriceable_suppressed_symbols,
             "futures_fee_cash_impact_usd": self.futures_fee_cash_impact_usd,
             "futures_unknown_action_count": self.futures_unknown_action_count,
             "futures_missing_fx_count": self.futures_missing_fx_count,
@@ -290,6 +296,9 @@ class RealizedMetadata:
             futures_cash_policy=str(d.get("futures_cash_policy", "fee_only") or "fee_only"),
             futures_txn_count_replayed=int(d.get("futures_txn_count_replayed", 0) or 0),
             futures_notional_suppressed_usd=float(d.get("futures_notional_suppressed_usd", 0.0) or 0.0),
+            unpriceable_suppressed_count=int(d.get("unpriceable_suppressed_count", 0) or 0),
+            unpriceable_suppressed_usd=float(d.get("unpriceable_suppressed_usd", 0.0) or 0.0),
+            unpriceable_suppressed_symbols=list(d.get("unpriceable_suppressed_symbols", []) or []),
             futures_fee_cash_impact_usd=float(d.get("futures_fee_cash_impact_usd", 0.0) or 0.0),
             futures_unknown_action_count=int(d.get("futures_unknown_action_count", 0) or 0),
             futures_missing_fx_count=int(d.get("futures_missing_fx_count", 0) or 0),
@@ -498,6 +507,9 @@ class RealizedPerformanceResult:
                 "futures_cash_policy": meta.futures_cash_policy,
                 "futures_txn_count_replayed": meta.futures_txn_count_replayed,
                 "futures_notional_suppressed_usd": meta.futures_notional_suppressed_usd,
+                "unpriceable_suppressed_count": meta.unpriceable_suppressed_count,
+                "unpriceable_suppressed_usd": meta.unpriceable_suppressed_usd,
+                "unpriceable_suppressed_symbols": meta.unpriceable_suppressed_symbols,
                 "futures_fee_cash_impact_usd": meta.futures_fee_cash_impact_usd,
                 "futures_unknown_action_count": meta.futures_unknown_action_count,
                 "futures_missing_fx_count": meta.futures_missing_fx_count,

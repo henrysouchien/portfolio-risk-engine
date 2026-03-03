@@ -1,17 +1,19 @@
 # Composable App Framework (SDK)
 
-**Date**: 2026-02-25
-**Status**: Draft
+**Date**: 2026-03-03
+**Status**: Draft (foundations partially implemented)
 **Goal**: Turn chassis/connectors/UI into an SDK that AI agents can code against to build any UI — dashboards, workflows, novel visualizations — with zero boilerplate.
 **Implementation plan**: `FRONTEND_SDK_PLAN.md` (phases, sequencing, source list)
+
+> Drift note: this plan originally assumed no catalog/resolver primitives existed yet. The codebase now has a working `DataCatalog`, `useDataSource`, scheduler, and interaction primitives. Gaps below are updated to reflect that.
 
 ### Prerequisites (Phase 2 — must complete before this)
 | Doc | Purpose |
 |-----|---------|
 | `FRONTEND_PHASE2_WORKING_DOC.md` | Phase 2 master doc — wire all components to real data + evaluate what to keep/kill |
-| `FRONTEND_WAVE1_IMPLEMENTATION_PLAN.md` | Wave 1 of Phase 2 — pure frontend wiring (Codex-reviewed, in progress) |
+| `completed/FRONTEND_WAVE1_IMPLEMENTATION_PLAN.md` | Wave 1 of Phase 2 — pure frontend wiring |
 | `FRONTEND_COMPONENT_VISUAL_MAP.md` | Visual guide mapping on-screen UI elements to code components |
-| `FRONTEND_DATA_WIRING_AUDIT.md` | Container/adapter-level audit (ported into Phase 2 working doc) |
+| `completed/FRONTEND_DATA_WIRING_AUDIT.md` | Container/adapter-level audit (ported into Phase 2 working doc) |
 
 ## Core Idea
 
@@ -35,9 +37,9 @@ Framework Runtime (chassis provides auth, caching, error handling)
 
 | Layer | What's There | Gap |
 |-------|-------------|-----|
-| **Chassis** | ServiceContainer, auth, caching, API, stores | No data catalog, no universal data hook |
-| **Connectors** | 9 adapters, 18 hooks, 4 managers | Manual wiring, each hook is 50+ lines of bespoke code |
-| **UI** | 50+ Radix primitives, 12 portfolio components, 8 charts | Domain-specific, not reusable building blocks |
+| **Chassis** | ServiceContainer, auth/caching, stores, `catalog/` with registered descriptors | Need stronger doc generation + descriptor governance from catalog |
+| **Connectors** | Resolver (`useDataSource`, scheduler), 11 adapters, feature hooks, interaction primitives (`useSharedState`, `useEvent`, `useEmit`, `useFlow`) | Mixed migration state: some flows still use bespoke container/view mapping and fallback logic |
+| **UI** | 49 Radix-based UI primitives + domain views/containers | Generic SDK primitives/layout packages (`@risk/ui/primitives`, `@risk/ui/layout`) still to be formalized |
 | **Backend** | 25 MCP tools, consistent `snapshot + flags` agent format | Frontend doesn't consume agent format directly |
 
 ## SDK Surface Area
@@ -312,7 +314,7 @@ That's a complete, working dashboard — real data, cross-component interaction,
 
 ## Implementation Phases
 
-### Phase 0: Data Catalog + Descriptors
+### Phase 0: Data Catalog + Descriptors (mostly implemented)
 - Define `DataSourceDescriptor`, `ParamDescriptor`, `FieldDescriptor`, `FlagDescriptor` types
 - Create `DataCatalog` class (register, list, describe, search)
 - Write descriptors for all 14 agent-format backend tools + 4 non-agent tools
@@ -321,7 +323,7 @@ That's a complete, working dashboard — real data, cross-component interaction,
 **Where:** `packages/chassis/src/catalog/`
 **Size:** ~400 lines (types + catalog class + 18 descriptors)
 
-### Phase 1: Data Resolver (useDataSource)
+### Phase 1: Data Resolver (useDataSource) (implemented, migration ongoing)
 - Implement `useDataSource` hook: catalog lookup → adapter → cache → normalized response
 - Implement resolver registry: maps source IDs to existing adapter functions
 - Migrate existing hooks to thin wrappers (backward compatible)
@@ -330,7 +332,7 @@ That's a complete, working dashboard — real data, cross-component interaction,
 **Where:** `packages/connectors/src/resolver/`
 **Size:** ~300 lines (resolver + hook + registry), plus updating 18 existing hooks
 
-### Phase 2: Interaction Primitives
+### Phase 2: Interaction Primitives (implemented, adoption ongoing)
 - `useSharedState` — Zustand-backed scoped shared state
 - `useEvent` / `useEmit` — typed wrapper around existing EventBus
 - `useFlow` — multi-step flow state machine
@@ -338,7 +340,7 @@ That's a complete, working dashboard — real data, cross-component interaction,
 **Where:** `packages/connectors/src/primitives/`
 **Size:** ~200 lines
 
-### Phase 3: Component Primitives + Layout
+### Phase 3: Component Primitives + Layout (not started)
 - `MetricGrid` — renders key-value metric cards from any data source
 - `DataTable` — renders sortable/filterable table from any array field
 - `ChartPanel` — renders chart (line, bar, radar, pie) from any series field

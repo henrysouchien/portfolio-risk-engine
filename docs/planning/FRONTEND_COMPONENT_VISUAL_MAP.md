@@ -1,14 +1,38 @@
 # Frontend Component Visual Map
 
-**Date**: 2026-02-26
+**Date**: 2026-03-03 (updated)
 **Purpose**: Maps what you see on screen to the actual code components, so we can discuss changes using the same language. Includes every tab, click-through, expandable section, and dialog.
+
+> Drift note: this doc started as a 2026-02-26 snapshot. Some deeper sections below are historical. Use the "Current Snapshot (2026-03-03)" section first when reconciling code vs docs.
 
 ### Related Docs
 | Doc | Purpose |
 |-----|---------|
 | `FRONTEND_PHASE2_WORKING_DOC.md` | Phase 2 master doc — full mock data inventory (16 items) |
-| `FRONTEND_WAVE1_IMPLEMENTATION_PLAN.md` | Wave 1 implementation details for the components marked here |
+| `completed/FRONTEND_WAVE1_IMPLEMENTATION_PLAN.md` | Wave 1 implementation details for the components marked here |
 | `COMPOSABLE_APP_FRAMEWORK_PLAN.md` | Phase 3 — the bigger picture this feeds into |
+
+---
+
+## Current Snapshot (2026-03-03)
+
+| View | Actual container wiring | Current status |
+|------|-------------------------|----------------|
+| Overview (`score`) | `PortfolioOverviewContainer` + `AssetAllocationContainer` + `RiskAnalysisModernContainer` + `PerformanceViewContainer` + `RiskMetricsContainer` | Mixed real + fallback |
+| Holdings (`holdings`) | `HoldingsViewModernContainer` -> `usePositions()` -> `/api/positions/holdings` | Mixed real + fallback |
+| Factor Analysis (`factors`) | `FactorRiskModelContainer` + `RiskMetricsContainer` | Exposure/attribution real, performance tab still fallback |
+| Performance (`performance`) | `PerformanceViewContainer` | Period/risk metrics real, several AI/contributor sections fallback |
+| Strategy Builder (`strategies`) | `StrategyBuilderContainer` | Optimization hooks wired, template/backtest UI still mixed |
+| Stock Research (`research`) | `StockLookupContainer` | Analysis real, search + risk-factors tab still mixed |
+| Scenario Analysis (`scenarios`) | `ScenarioAnalysisContainer` | What-if execution wired; historical/stress/monte-carlo mostly placeholder |
+| AI Assistant (`chat`) | `ChatInterface` | Real |
+| Settings (`settings`) | `RiskSettingsContainer` + `AccountConnectionsContainer` | Real |
+
+Known shell-level placeholders:
+
+- Header notification center is initialized from hardcoded sample notifications.
+- Market status indicator is time-based client logic (no market calendar integration).
+- Command palette still has a small static command list.
 
 ---
 
@@ -62,7 +86,7 @@ Before any view renders, you see these persistent elements:
 ## Overview Page (`⌘1` / "Overview" tab)
 
 **View key**: `score`
-**Layout**: `PortfolioOverviewContainer` + `AssetAllocationContainer` + `PerformanceChart` + `RiskAnalysisModernContainer` + `RiskMetrics` arranged in a 2-column grid.
+**Layout**: `PortfolioOverviewContainer` + `AssetAllocationContainer` + `PerformanceViewContainer` + `RiskAnalysisModernContainer` + `RiskMetricsContainer` arranged in a 2-column grid.
 
 This is the main dashboard. Scrolling top to bottom:
 
@@ -193,9 +217,8 @@ Each card has: Type badge, Priority badge, Description, Confidence % bar, Timefr
 - **Click-through**: `[Performance]` tab shows the same 6 categories with individual holdings badges beneath each (AAPL, MSFT, GOOGL under US Equity, etc.) — also **MOCK**.
 
 **Right — Portfolio Performance**:
-- **Component**: `PerformanceChart` (NO container — used directly)
-- **Data**: **MOCK** — All data is hardcoded. The +12.8% / +8.4% / +4.4% numbers, the bar chart, the timeframe data — all fake sine-wave generated data. No props, no API connection.
-- **Wave 1 Task 1a**: Replace this with `PerformanceViewContainer` which is already wired to real data.
+- **Component**: `PerformanceViewContainer` -> `PerformanceView`
+- **Data**: **MIXED** — real period/risk data is wired; several AI insight/contributor sections in `PerformanceView.tsx` still use fallback/static data.
 
 ### Row 5: Two-Column Layout — Advanced Risk Analysis + Risk Assessment
 ```
@@ -270,9 +293,8 @@ Each has an **"Implement Strategy" button** that opens a **Dialog** with:
 All dialog content is **MOCK**.
 
 **Right — Risk Assessment**:
-- **Component**: `RiskMetrics` (NO container — used directly)
-- **Data**: **MOCK** — All 4 metrics are hardcoded: VaR -$42,891, Beta 1.23, Volatility 18.4%, Max Drawdown -8.7%. These never change regardless of your portfolio.
-- **Wave 1 Task 1c**: Create `RiskMetricsContainer` to wire these to real data from `useRiskAnalysis()`.
+- **Component**: `RiskMetricsContainer` -> `RiskMetrics`
+- **Data**: **REAL (with fallback)** — VaR/Beta/Volatility/Max Drawdown are sourced from `useRiskAnalysis()` when available.
 
 ---
 
@@ -741,16 +763,16 @@ All **MOCK** simulation.
 |------|-----------|------|------|---------------|
 | Overview | PortfolioOverview | totalValue, dayChange, riskScore, sharpe | Alpha, ESG, market events, alerts, AI recs, insights labels |
 | Overview | AssetAllocation | (adapter data available) | 6 asset class rows, holdings badges, all values |
-| Overview | PerformanceChart | (none) | Everything — sine-wave generated |
+| Overview | PerformanceViewContainer / PerformanceView | period returns, volatility, sharpe, beta (when adapter data exists) | AI insight cards, top contributors/detractors, monthly returns table |
 | Overview | RiskAnalysis | overallRiskScore, riskCategory | Risk factor cards, stress tests, hedging strategies |
-| Overview | RiskMetrics | (none) | All 4 metrics hardcoded |
-| Holdings | HoldingsView | ticker, name, value, shares, weight, beta, factorBetas, riskContribution | sector, avgCost, price, returns, volatility, riskScore, aiScore |
-| Factor Analysis | FactorRiskModel | (none) | All 8 factors, R², all 3 tabs |
-| Factor Analysis | RiskMetrics | (none) | Same 4 hardcoded metrics |
-| Performance | PerformanceView | periodReturn, alpha, sharpe, timeSeries, benchmark | Portfolio Value card, attribution, monthly returns, advanced metrics |
-| Strategy Builder | StrategyBuilder | (container has real data, component ignores) | Templates, optimization, backtesting |
+| Overview | RiskMetricsContainer / RiskMetrics | VaR, beta, volatility, max drawdown | Some derived text/labels |
+| Holdings | HoldingsView | ticker, name, value, shares, weight, sector, avgCost, currentPrice, totalReturn | riskScore/aiScore/alerts/trend fields still fallback |
+| Factor Analysis | FactorRiskModelContainer / FactorRiskModel | factor exposures + risk attribution | Performance tab metrics and header badges still fallback |
+| Factor Analysis | RiskMetricsContainer / RiskMetrics | Same as overview risk metrics | Some derived text/labels |
+| Performance | PerformanceView | periodReturn, alpha, sharpe, timeSeries, benchmark, some attribution | Portfolio value card, AI insights, contributor/detractor narratives, monthly returns, advanced metrics |
+| Strategy Builder | StrategyBuilder | optimizationData props consumed from container | template defaults and backtest UX still mixed |
 | Stock Research | StockLookup | price, beta, vol, sharpe, VaR, technicals, fundamentals | Risk Factors tab, search results, Financial Health Score |
-| Scenarios | ScenarioAnalysis | Results after real run | Portfolio builder positions, all 5 tab contents |
+| Scenarios | ScenarioAnalysis | portfolio-builder execution + run results integration | historical/stress/monte-carlo tabs and some helpers still placeholder |
 | AI Assistant | ChatInterface | Connected to real backend | (none) |
 | Settings | RiskSettings + AccountConnections | Real read/write | (none) |
 
@@ -764,4 +786,4 @@ All **MOCK** simulation.
 | "Risk Assessment" card (VaR, Beta, Vol, Drawdown) | Overview page, right column row 5 | `RiskMetrics` | MOCK | Wired to real data via `RiskMetricsContainer` |
 | "Risk Assessment" card (same) | Factor Analysis page, right column | `RiskMetrics` | MOCK | Same — replaced by `RiskMetricsContainer` |
 | "Factor Risk Model" card (Market Beta, Size, Value...) | Factor Analysis page, left column | `FactorRiskModel` | MOCK | Wired to real data via `FactorRiskModelContainer` |
-| Strategy templates + optimization results | Strategy Builder page | `StrategyBuilder` | IGNORES real props | Props unwired, uses real optimization data |
+| Strategy templates + optimization results | Strategy Builder page | `StrategyBuilder` | Uses real container props with fallbacks | Remaining work is mostly UX/backtest-depth, not base wiring |
