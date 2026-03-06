@@ -35,11 +35,7 @@ import statsmodels.api as sm
 from datetime import datetime
 from typing import Optional, Union, List, Dict, Any
 from portfolio_risk_engine.data_loader import fetch_monthly_close, fetch_monthly_total_return_price
-from dotenv import load_dotenv
 import os
-
-# Load .env file before accessing environment variables
-load_dotenv()
 
 # Import logging decorators for factor analysis
 from portfolio_risk_engine._logging import (

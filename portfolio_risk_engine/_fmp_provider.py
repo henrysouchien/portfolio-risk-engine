@@ -89,3 +89,28 @@ class FMPFXProvider:
         from fmp.fx import get_fx_rate as _fn  # type: ignore
 
         return float(_fn(currency))
+
+    def get_spot_fx_rate(self, currency: str) -> float:
+        from fmp.fx import get_spot_fx_rate as _fn  # type: ignore
+
+        return float(_fn(currency))
+
+    def get_monthly_fx_series(self, currency: str, start_date=None, end_date=None) -> pd.Series:
+        from fmp.fx import get_monthly_fx_series as _fn  # type: ignore
+
+        return _fn(currency, start_date, end_date)
+
+    def get_daily_fx_series(self, currency: str, start_date=None, end_date=None) -> pd.Series:
+        from fmp.fx import get_daily_fx_series as _fn  # type: ignore
+
+        return _fn(currency, start_date, end_date)
+
+
+class FMPCurrencyResolver:
+    """Default currency inference backed by FMP profile metadata."""
+
+    def infer_currency(self, ticker: str) -> Optional[str]:
+        from portfolio_risk_engine._ticker import fetch_fmp_quote_with_currency
+
+        _, currency = fetch_fmp_quote_with_currency(ticker)
+        return currency

@@ -83,6 +83,12 @@ def _load_cash_proxy_map() -> Tuple[Dict[str, str], Dict[str, str]]:
     return ({"USD": "SGOV"}, {"CUR:USD": "USD"})
 
 
+def get_cash_proxy_tickers() -> set:
+    """Return the set of proxy ETF tickers (e.g., {'SGOV', 'IBGE.L', 'ERNS.L'})."""
+    proxy_by_currency, _ = _load_cash_proxy_map()
+    return {v.upper() for v in proxy_by_currency.values()}
+
+
 @dataclass
 class StockData:
     """
@@ -471,6 +477,7 @@ class PositionsData:
 
         proxy_by_currency, alias_to_currency = _load_cash_proxy_map()
         fmp_ticker_map: Dict[str, str] = {}
+        security_identifiers: Dict[str, Dict[str, str]] = {}
         holdings_dict: Dict[str, Dict[str, Any]] = {}
         for position in self.positions:
             ticker = position["ticker"]
@@ -479,6 +486,17 @@ class PositionsData:
             currency = position["currency"]
             position_type = position["type"]
             fmp_ticker = position.get("fmp_ticker")
+            ids: Dict[str, str] = {}
+            if position.get("cusip"):
+                ids["cusip"] = str(position["cusip"])
+            if position.get("isin"):
+                ids["isin"] = str(position["isin"])
+            if position.get("figi"):
+                ids["figi"] = str(position["figi"])
+            if ids:
+                existing_ids = security_identifiers.get(ticker, {})
+                existing_ids.update(ids)
+                security_identifiers[ticker] = existing_ids
 
             # Extract cost_basis, handling NaN/None
             raw_cost_basis = position.get("cost_basis")
@@ -491,7 +509,20 @@ class PositionsData:
                 except (TypeError, ValueError):
                     pass
 
-            is_cash = position_type == "cash" or ticker.startswith("CUR:")
+            if position_type == "bond":
+                if ids:
+                    logger.info("Bond %s: identifiers=%s", ticker, sorted(ids.keys()))
+                else:
+                    logger.warning(
+                        "Bond %s: no standard identifiers (CUSIP/ISIN/FIGI) available",
+                        ticker,
+                    )
+
+            is_cash = (
+                position_type == "cash"
+                or ticker.startswith("CUR:")
+                or position.get("is_cash_equivalent") is True
+            )
 
             if is_cash:
                 cash_ccy = alias_to_currency.get(ticker)
@@ -605,6 +636,55 @@ class PositionsData:
         except Exception:
             logger.warning("Failed to auto-detect futures instrument types", exc_info=True)
 
+        contract_identities: Dict[str, Dict[str, Any]] = {}
+        try:
+            from trading_analysis.symbol_utils import (
+                parse_option_contract_identity_from_symbol,
+                enrich_option_contract_identity,
+            )
+
+            for position in self.positions:
+                ticker = str(position.get("ticker") or "").strip().upper()
+                if not ticker or ticker in instrument_types:
+                    continue
+
+                if position.get("is_option") and not position.get("option_parse_failed"):
+                    instrument_types[ticker] = "option"
+                    identity = {
+                        "underlying": position.get("underlying"),
+                        "strike": position.get("strike"),
+                        "expiry": str(position.get("expiry") or "").replace("-", ""),
+                        "right": "C" if position.get("option_type") == "call" else "P",
+                    }
+                    identity = enrich_option_contract_identity(identity, "option")
+                    contract_identities[ticker] = identity
+                    continue
+
+                parsed = parse_option_contract_identity_from_symbol(ticker)
+                if parsed:
+                    instrument_types[ticker] = "option"
+                    identity = enrich_option_contract_identity(parsed, "option")
+                    contract_identities[ticker] = identity
+        except Exception:
+            logger.warning("Failed to auto-detect option instrument types", exc_info=True)
+
+        # Populate missing futures FMP symbols from canonical contract specs.
+        if instrument_types:
+            try:
+                from brokerage.futures import get_contract_spec
+
+                for ticker, instrument_type in instrument_types.items():
+                    if instrument_type != "futures" or ticker in fmp_ticker_map:
+                        continue
+                    spec = get_contract_spec(ticker)
+                    if spec and spec.fmp_symbol:
+                        fmp_ticker_map[ticker] = spec.fmp_symbol
+            except Exception:
+                logger.warning(
+                    "Failed to populate futures fmp_ticker_map from contract specs",
+                    exc_info=True,
+                )
+
         portfolio_data = PortfolioData.from_holdings(
             holdings=holdings_dict,
             start_date=start_date or PORTFOLIO_DEFAULTS["start_date"],
@@ -613,6 +693,8 @@ class PositionsData:
             fmp_ticker_map=fmp_ticker_map or None,
             currency_map=currency_map or None,
             instrument_types=instrument_types or None,
+            security_identifiers=security_identifiers or None,
+            contract_identities=contract_identities or None,
         )
 
         # NOTE: This PortfolioData is for direct-to-risk analysis (CLI --to-risk).
@@ -693,9 +775,12 @@ class PortfolioData:
     end_date: str
     expected_returns: Dict[str, float]
     stock_factor_proxies: Dict[str, str]
+    target_allocation: Optional[Dict[str, float]] = None
     fmp_ticker_map: Optional[Dict[str, str]] = None
     currency_map: Optional[Dict[str, str]] = None
     instrument_types: Optional[Dict[str, str]] = None
+    security_identifiers: Optional[Dict[str, Dict[str, str]]] = None
+    contract_identities: Optional[Dict[str, Dict[str, Any]]] = None
     
     # Portfolio analysis results (populated after standardization)
     weights: Optional[Dict[str, float]] = None
@@ -871,9 +956,12 @@ class PortfolioData:
             "end_date": self.end_date,
             "expected_returns": self.expected_returns,
             "stock_factor_proxies": self.stock_factor_proxies,
+            "target_allocation": self.target_allocation,
             "fmp_ticker_map": self.fmp_ticker_map,
             "currency_map": self.currency_map,
             "instrument_types": self.instrument_types,
+            "security_identifiers": self.security_identifiers,
+            "contract_identities": self.contract_identities,
         }
         
         # Convert to JSON string and hash
@@ -907,9 +995,11 @@ class PortfolioData:
             end_date=config['end_date'],
             expected_returns=config.get('expected_returns', {}),
             stock_factor_proxies=config.get('stock_factor_proxies', {}),
+            target_allocation=config.get('target_allocation'),
             fmp_ticker_map=config.get("fmp_ticker_map"),
             currency_map=config.get("currency_map"),
             instrument_types=config.get("instrument_types"),
+            security_identifiers=config.get("security_identifiers"),
         )
     
     @classmethod
@@ -919,9 +1009,12 @@ class PortfolioData:
                      user_id: Optional[int] = None,
                      expected_returns: Optional[Dict[str, float]] = None,
                      stock_factor_proxies: Optional[Dict[str, str]] = None,
+                     target_allocation: Optional[Dict[str, float]] = None,
                      fmp_ticker_map: Optional[Dict[str, str]] = None,
                      currency_map: Optional[Dict[str, str]] = None,
-                     instrument_types: Optional[Dict[str, str]] = None) -> 'PortfolioData':
+                     instrument_types: Optional[Dict[str, str]] = None,
+                     security_identifiers: Optional[Dict[str, Dict[str, str]]] = None,
+                     contract_identities: Optional[Dict[str, Dict[str, Any]]] = None) -> 'PortfolioData':
         """
         Create PortfolioData from holdings dictionary with flexible input formats.
         
@@ -933,6 +1026,7 @@ class PortfolioData:
             user_id (Optional[int]): User ID for multi-user isolation (None for CLI/tests)
             expected_returns (Optional[Dict[str, float]]): Expected return forecasts for optimization
             stock_factor_proxies (Optional[Dict[str, str]]): Factor proxy mappings for analysis
+            target_allocation (Optional[Dict[str, float]]): Target allocation by asset class in percentage points
             
         Returns:
             PortfolioData: Complete portfolio configuration with standardized input
@@ -944,11 +1038,14 @@ class PortfolioData:
             end_date=end_date,
             expected_returns=expected_returns or {},
             stock_factor_proxies=stock_factor_proxies or {},
+            target_allocation=target_allocation,
             portfolio_name=portfolio_name,
             user_id=user_id,
             fmp_ticker_map=fmp_ticker_map,
             currency_map=currency_map,
             instrument_types=instrument_types,
+            security_identifiers=security_identifiers,
+            contract_identities=contract_identities,
         )
     
     def to_yaml(self, output_path: str) -> None:
@@ -963,14 +1060,18 @@ class PortfolioData:
             "start_date": self.start_date,
             "end_date": self.end_date,
             "expected_returns": self.expected_returns,
-            "stock_factor_proxies": self.stock_factor_proxies
+            "stock_factor_proxies": self.stock_factor_proxies,
         }
+        if self.target_allocation:
+            config["target_allocation"] = self.target_allocation
         if self.fmp_ticker_map:
             config["fmp_ticker_map"] = self.fmp_ticker_map
         if self.currency_map:
             config["currency_map"] = self.currency_map
         if self.instrument_types:
             config["instrument_types"] = self.instrument_types
+        if self.security_identifiers:
+            config["security_identifiers"] = self.security_identifiers
         
         with open(output_path, 'w') as f:
             yaml.dump(config, f, default_flow_style=False, sort_keys=False)
@@ -1438,6 +1539,7 @@ class PortfolioOffsetsData:
     """
 
     weights: Dict[str, float]
+    portfolio_value: Optional[float] = None
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     correlation_threshold: float = -0.2
@@ -1451,6 +1553,12 @@ class PortfolioOffsetsData:
         if not isinstance(self.weights, dict) or not self.weights:
             raise ValueError("weights must be a non-empty {ticker: weight} mapping")
         self.weights = {str(k).upper(): float(v) for k, v in self.weights.items()}
+        if self.portfolio_value is not None:
+            try:
+                portfolio_value = float(self.portfolio_value)
+                self.portfolio_value = portfolio_value if portfolio_value > 0 else None
+            except (TypeError, ValueError):
+                self.portfolio_value = None
         if self.industry_granularity not in ("group", "industry"):
             self.industry_granularity = "group"
         self._cache_key = self._generate_cache_key()
@@ -1465,6 +1573,7 @@ class PortfolioOffsetsData:
     def _generate_cache_key(self) -> str:
         payload = {
             "weights": self.weights,
+            "portfolio_value": self.portfolio_value,
             "start_date": self.start_date,
             "end_date": self.end_date,
             "corr": round(float(self.correlation_threshold), 4),

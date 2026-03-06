@@ -37,29 +37,53 @@ def config_from_portfolio_data(portfolio_data: PortfolioData) -> Dict[str, Any]:
         "fmp_ticker_map": portfolio_data.fmp_ticker_map,
         "currency_map": portfolio_data.currency_map,
         "instrument_types": portfolio_data.instrument_types,
+        "contract_identities": portfolio_data.contract_identities,
         "expected_returns": portfolio_data.expected_returns,
+        "target_allocation": portfolio_data.target_allocation,
         "name": portfolio_data.portfolio_name or "Portfolio",
     }
 
     fmp_ticker_map = config.get("fmp_ticker_map")
     currency_map = config.get("currency_map")
+    instrument_types = config.get("instrument_types")
+    contract_identities = config.get("contract_identities")
+
+    def _contract_identity_for_ticker(ticker: str) -> Optional[Dict[str, Any]]:
+        if not contract_identities:
+            return None
+        raw_ticker = str(ticker or "").strip()
+        normalized_ticker = raw_ticker.upper()
+        return contract_identities.get(normalized_ticker) or contract_identities.get(raw_ticker)
+
     if fmp_ticker_map:
-        price_fetcher = lambda t: latest_price(
-            t,
-            fmp_ticker_map=fmp_ticker_map,
-            currency=currency_map.get(t) if currency_map else None,
-        )
+        def price_fetcher(t: str) -> float:
+            contract_identity = _contract_identity_for_ticker(t)
+            kwargs: Dict[str, Any] = {
+                "fmp_ticker_map": fmp_ticker_map,
+                "currency": currency_map.get(t) if currency_map else None,
+                "instrument_types": instrument_types,
+            }
+            if contract_identity:
+                kwargs["contract_identity"] = contract_identity
+            return latest_price(t, **kwargs)
     else:
-        price_fetcher = lambda t: latest_price(
-            t,
-            currency=currency_map.get(t) if currency_map else None,
-        )
+        def price_fetcher(t: str) -> float:
+            contract_identity = _contract_identity_for_ticker(t)
+            kwargs: Dict[str, Any] = {
+                "currency": currency_map.get(t) if currency_map else None,
+                "instrument_types": instrument_types,
+            }
+            if contract_identity:
+                kwargs["contract_identity"] = contract_identity
+            return latest_price(t, **kwargs)
 
     parsed = standardize_portfolio_input(
         config["portfolio_input"],
         price_fetcher,
         currency_map=currency_map,
         fmp_ticker_map=fmp_ticker_map,
+        instrument_types=instrument_types,
+        contract_identities=contract_identities,
     )
 
     config.update(
@@ -69,6 +93,7 @@ def config_from_portfolio_data(portfolio_data: PortfolioData) -> Dict[str, Any]:
         net_exposure=parsed["net_exposure"],
         gross_exposure=parsed["gross_exposure"],
         leverage=parsed["leverage"],
+        notional_leverage=parsed.get("notional_leverage", 1.0),
     )
     return config
 

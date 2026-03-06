@@ -19,7 +19,9 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Union, Iterator
 
 import numpy as np
+import pandas as pd
 import yaml
+from settings import OPTION_PRICING_PORTFOLIO_ENABLED
 
 from portfolio_risk_engine.data_loader import fetch_monthly_close
 from portfolio_risk_engine.portfolio_risk import normalize_weights
@@ -30,10 +32,9 @@ from portfolio_risk_engine._logging import (
     log_operation,
     log_service_health,
 )
-from portfolio_risk_engine.providers import get_fx_provider
+from portfolio_risk_engine.providers import get_currency_resolver, get_fx_provider
 from portfolio_risk_engine._ticker import (
     select_fmp_symbol,
-    fetch_fmp_quote_with_currency,
     normalize_fmp_price,
 )
 
@@ -136,6 +137,8 @@ def standardize_portfolio_input(
     *,
     currency_map: Optional[Dict[str, str]] = None,
     fmp_ticker_map: Optional[Dict[str, str]] = None,
+    instrument_types: Optional[Dict[str, str]] = None,
+    contract_identities: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> Dict[str, Union[Dict[str, float], float]]:
     """
     Normalize portfolio input into weights using shares, dollar value, or direct weight.
@@ -145,6 +148,7 @@ def standardize_portfolio_input(
         price_fetcher (callable): Function to fetch latest price for a given ticker
         currency_map (dict, optional): Mapping of ticker -> ISO currency code (non-USD only)
         fmp_ticker_map (dict, optional): Mapping of display ticker -> FMP ticker
+        instrument_types (dict, optional): Mapping of ticker -> instrument type.
 
     Returns:
         dict: {
@@ -153,7 +157,8 @@ def standardize_portfolio_input(
             "total_value": float,
             "net_exposure": float,
             "gross_exposure": float,
-            "leverage": float
+            "leverage": float,
+            "notional_leverage": float,
         }
     """
     # LOGGING: Add portfolio standardization start logging with input size and format
@@ -163,8 +168,14 @@ def standardize_portfolio_input(
     # LOGGING: Add portfolio processing logging with ticker count and validation
     # LOGGING: Add workflow state logging for portfolio processing completion here
     dollar_exposure = {}
+    margin_exposure = {}  # Track margin-based values for NAV and leverage ratio.
     dollars_entry_tickers = set()  # track tickers using raw "dollars" (not price_fetcher)
     cash_positions = _get_cash_positions_cached()
+    get_contract_spec = None
+    if instrument_types:
+        from brokerage.futures import get_contract_spec as _get_contract_spec
+
+        get_contract_spec = _get_contract_spec
 
     # LOGGING: Add portfolio processing logging with ticker count and validation
     for ticker, entry in raw_input.items():
@@ -182,10 +193,31 @@ def standardize_portfolio_input(
                 except Exception:
                     pass
             dollar_exposure[ticker] = raw_dollars
+            margin_exposure[ticker] = raw_dollars
             dollars_entry_tickers.add(ticker)
         elif "shares" in entry:
             price = price_fetcher(ticker)
-            dollar_exposure[ticker] = float(entry["shares"]) * price
+            base_value = float(entry["shares"]) * price
+            margin_exposure[ticker] = base_value
+
+            normalized_ticker = str(ticker or "").strip().upper()
+            instrument_type = str(
+                (instrument_types or {}).get(normalized_ticker)
+                or (instrument_types or {}).get(str(ticker or "").strip())
+                or ""
+            ).strip().lower()
+            if instrument_type == "futures" and get_contract_spec is not None:
+                spec = get_contract_spec(normalized_ticker)
+                if spec:
+                    dollar_exposure[ticker] = base_value * float(spec.multiplier)
+                else:
+                    dollar_exposure[ticker] = base_value
+            elif instrument_type == "option" and OPTION_PRICING_PORTFOLIO_ENABLED:
+                ci = (contract_identities or {}).get(normalized_ticker) or {}
+                mult = float(ci.get("multiplier", 100))
+                dollar_exposure[ticker] = base_value * mult
+            else:
+                dollar_exposure[ticker] = base_value
         else:
             raise ValueError(f"Invalid input for {ticker}: must provide 'shares', 'dollars', or 'weight'.")
 
@@ -223,11 +255,12 @@ def standardize_portfolio_input(
             "total_value": None,
             "net_exposure": net_exposure,
             "gross_exposure": gross_exposure,
-            "leverage": leverage
+            "leverage": leverage,
+            "notional_leverage": 1.0,
         }
 
-    total_value = sum(dollar_exposure.values())
-    weights = {t: v / total_value for t, v in dollar_exposure.items()}
+    total_notional = sum(dollar_exposure.values())
+    weights = {t: v / total_notional for t, v in dollar_exposure.items()}
 
     # Calculate exposure excluding only POSITIVE cash positions
     # Negative cash positions (margin debt) should be included
@@ -239,14 +272,17 @@ def standardize_portfolio_input(
     gross_exposure = sum(abs(w) for w in risky_weights.values())
 
     leverage = gross_exposure / net_exposure if net_exposure else np.inf
+    margin_total = sum(margin_exposure.values()) if margin_exposure else total_notional
+    notional_leverage = total_notional / margin_total if margin_total > 0 else 1.0
 
     return {
         "weights": weights,
         "dollar_exposure": dollar_exposure,
-        "total_value": total_value,
+        "total_value": margin_total,
         "net_exposure": net_exposure,
         "gross_exposure": gross_exposure,
-        "leverage": leverage
+        "leverage": leverage,
+        "notional_leverage": notional_leverage,
     }
 
 
@@ -257,6 +293,8 @@ def latest_price(
     fmp_ticker: str | None = None,
     fmp_ticker_map: dict[str, str] | None = None,
     currency: str | None = None,
+    instrument_types: dict[str, str] | None = None,
+    contract_identity: dict[str, Any] | None = None,
 ) -> float:
     """
     Fetches the latest available month-end closing price for a given ticker,
@@ -273,10 +311,27 @@ def latest_price(
         fmp_ticker (str, optional): FMP-compatible symbol override.
         fmp_ticker_map (dict, optional): Mapping of ticker -> fmp_ticker.
         currency (str, optional): Explicit currency code for FX conversion.
+        instrument_types (dict, optional): Mapping of ticker -> instrument type.
 
     Returns:
         float: Most recent non-NaN month-end closing price in USD.
     """
+    normalized_ticker = str(ticker or "").strip().upper()
+    instrument_type = str(
+        (instrument_types or {}).get(normalized_ticker)
+        or (instrument_types or {}).get(str(ticker or "").strip())
+        or ""
+    ).strip().lower()
+    if instrument_type == "futures":
+        return _latest_futures_price(
+            ticker,
+            currency=currency,
+            fmp_ticker=fmp_ticker,
+            fmp_ticker_map=fmp_ticker_map,
+        )
+    if instrument_type == "option" and OPTION_PRICING_PORTFOLIO_ENABLED:
+        return _latest_option_price(ticker, contract_identity=contract_identity)
+
     prices = fetch_monthly_close(
         ticker,
         fmp_ticker=fmp_ticker,
@@ -298,7 +353,8 @@ def latest_price(
         fmp_ticker=fmp_ticker,
         fmp_ticker_map=fmp_ticker_map,
     )
-    _, fmp_currency = fetch_fmp_quote_with_currency(fmp_symbol)
+    resolver = get_currency_resolver()
+    fmp_currency = resolver.infer_currency(fmp_symbol)
     normalized_price, base_currency = normalize_fmp_price(raw_price, fmp_currency)
 
     effective_currency = currency or base_currency
@@ -313,6 +369,87 @@ def latest_price(
             pass
 
     return normalized_price if normalized_price is not None else raw_price
+
+
+def _latest_option_price(
+    ticker: str,
+    *,
+    contract_identity: dict[str, Any] | None = None,
+) -> float:
+    """Fetch latest option price through ProviderRegistry chain."""
+    from providers.bootstrap import get_registry
+
+    registry = get_registry()
+    chain = registry.get_price_chain("option")
+
+    # Providers need concrete date windows — use trailing 24 months.
+    end_date = pd.Timestamp.now().strftime("%Y-%m-%d")
+    start_date = (pd.Timestamp.now() - pd.DateOffset(months=24)).strftime("%Y-%m-%d")
+
+    for provider in chain:
+        if (
+            provider.provider_name == "ibkr"
+            and not (isinstance(contract_identity, dict) and contract_identity)
+        ):
+            continue
+        try:
+            series = provider.fetch_monthly_close(
+                ticker,
+                start_date,
+                end_date,
+                instrument_type="option",
+                contract_identity=contract_identity,
+            )
+            if isinstance(series, pd.Series) and not series.dropna().empty:
+                return float(series.dropna().iloc[-1])
+        except Exception:
+            continue
+
+    # All providers failed — return 0.0 so standardize_portfolio_input()
+    # treats this as a zero-value position (excluded from weights).
+    # Raising would abort the entire analysis for one unpriceable option.
+    from portfolio_risk_engine._logging import portfolio_logger
+
+    portfolio_logger.warning(f"Cannot price option {ticker}: all providers failed, excluding from analysis")
+    return 0.0
+
+
+def _latest_futures_price(
+    ticker: str,
+    *,
+    currency: str | None = None,
+    fmp_ticker: str | None = None,
+    fmp_ticker_map: dict[str, str] | None = None,
+) -> float:
+    """Fetch latest futures price through the futures pricing chain."""
+    from brokerage.futures import get_contract_spec
+    from brokerage.futures.pricing import get_default_pricing_chain
+
+    normalized_ticker = str(ticker or "").strip().upper()
+    spec = get_contract_spec(normalized_ticker)
+
+    explicit_map_symbol = (fmp_ticker_map or {}).get(ticker)
+    if explicit_map_symbol is None and normalized_ticker != str(ticker or "").strip():
+        explicit_map_symbol = (fmp_ticker_map or {}).get(normalized_ticker)
+    has_explicit_override = bool(fmp_ticker) or bool(explicit_map_symbol)
+    if has_explicit_override:
+        resolved_fmp = str(fmp_ticker or explicit_map_symbol or "").strip() or None
+    else:
+        resolved_fmp = spec.fmp_symbol if spec else None
+
+    chain = get_default_pricing_chain()
+    raw_price = float(chain.fetch_latest_price(normalized_ticker, alt_symbol=resolved_fmp))
+
+    effective_currency = currency or (spec.currency if spec else None)
+    if effective_currency and effective_currency.upper() != "USD":
+        try:
+            fx = get_fx_provider()
+            if fx is not None:
+                raw_price = raw_price * float(fx.get_fx_rate(effective_currency))
+        except Exception:
+            pass
+
+    return raw_price
 
 
 @log_errors("high")
@@ -340,23 +477,27 @@ def load_portfolio_config(
 
     fmp_ticker_map = cfg.get("fmp_ticker_map")
     currency_map = cfg.get("currency_map")
+    instrument_types = cfg.get("instrument_types")
     if price_fetcher is None:
         if fmp_ticker_map:
             price_fetcher = lambda t: latest_price(
                 t,
                 fmp_ticker_map=fmp_ticker_map,
                 currency=currency_map.get(t) if currency_map else None,
+                instrument_types=instrument_types,
             )
         else:
             price_fetcher = lambda t: latest_price(
                 t,
                 currency=currency_map.get(t) if currency_map else None,
+                instrument_types=instrument_types,
             )
     parsed = standardize_portfolio_input(
         cfg["portfolio_input"],
         price_fetcher,
         currency_map=currency_map,
         fmp_ticker_map=fmp_ticker_map,
+        instrument_types=instrument_types,
     )
 
     cfg.update(
@@ -366,5 +507,6 @@ def load_portfolio_config(
         net_exposure=parsed["net_exposure"],
         gross_exposure=parsed["gross_exposure"],
         leverage=parsed["leverage"],
+        notional_leverage=parsed.get("notional_leverage", 1.0),
     )
     return cfg

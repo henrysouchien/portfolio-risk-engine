@@ -106,6 +106,26 @@ def generate_flags(result) -> List[Dict[str, Any]]:
             }
         )
 
+    notional_leverage = _sn(summary.get("notional_leverage"), 1.0)
+    if notional_leverage > 2.0:
+        flags.append(
+            {
+                "type": "high_notional_leverage",
+                "severity": "warning",
+                "message": f"Futures notional leverage at {notional_leverage:.1f}x NAV",
+                "notional_leverage": round(notional_leverage, 2),
+            }
+        )
+    elif notional_leverage > 1.3:
+        flags.append(
+            {
+                "type": "notional_leverage",
+                "severity": "info",
+                "message": f"Futures notional leverage at {notional_leverage:.1f}x NAV",
+                "notional_leverage": round(notional_leverage, 2),
+            }
+        )
+
     # --- info: contextual observations ---
     top5 = result.get_top_risk_contributors(5)
     top5_total = sum(_sn(p.get("risk_pct")) for p in top5)

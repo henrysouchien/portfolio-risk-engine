@@ -80,16 +80,19 @@ def optimize_min_variance(
 
     fmp_ticker_map = config.get("fmp_ticker_map")
     currency_map = config.get("currency_map")
+    instrument_types = config.get("instrument_types")
     if fmp_ticker_map:
         price_fetcher = lambda t: latest_price(
             t,
             fmp_ticker_map=fmp_ticker_map,
             currency=currency_map.get(t) if currency_map else None,
+            instrument_types=instrument_types,
         )
     else:
         price_fetcher = lambda t: latest_price(
             t,
             currency=currency_map.get(t) if currency_map else None,
+            instrument_types=instrument_types,
         )
 
     weights = standardize_portfolio_input(
@@ -106,9 +109,8 @@ def optimize_min_variance(
         risk_config  = risk_config,
         proxies      = config["stock_factor_proxies"],
         fmp_ticker_map = fmp_ticker_map,
+        instrument_types = instrument_types,
     )
-    # LOGGING: Add min variance calculation performance timing here
-    # TODO: Could add proxy table and summary like max return
     
     # --- Return OptimizationResult object ----------------------------------
     from portfolio_risk_engine.results import OptimizationResult
@@ -166,16 +168,19 @@ def optimize_max_return(
 
     fmp_ticker_map = config.get("fmp_ticker_map")
     currency_map = config.get("currency_map")
+    instrument_types = config.get("instrument_types")
     if fmp_ticker_map:
         price_fetcher = lambda t: latest_price(
             t,
             fmp_ticker_map=fmp_ticker_map,
             currency=currency_map.get(t) if currency_map else None,
+            instrument_types=instrument_types,
         )
     else:
         price_fetcher = lambda t: latest_price(
             t,
             currency=currency_map.get(t) if currency_map else None,
+            instrument_types=instrument_types,
         )
 
     weights = standardize_portfolio_input(
@@ -192,6 +197,7 @@ def optimize_max_return(
         risk_config = risk_config,
         proxies     = config["stock_factor_proxies"],
         fmp_ticker_map = fmp_ticker_map,
+        instrument_types = instrument_types,
     )
     
     # --- Return OptimizationResult object --------------------------------

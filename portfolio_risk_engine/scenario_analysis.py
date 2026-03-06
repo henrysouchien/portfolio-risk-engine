@@ -118,16 +118,19 @@ def analyze_scenario(
 
     fmp_ticker_map = config.get("fmp_ticker_map")
     currency_map = config.get("currency_map")
+    instrument_types = config.get("instrument_types")
     if fmp_ticker_map:
         price_fetcher = lambda t: latest_price(
             t,
             fmp_ticker_map=fmp_ticker_map,
             currency=currency_map.get(t) if currency_map else None,
+            instrument_types=instrument_types,
         )
     else:
         price_fetcher = lambda t: latest_price(
             t,
             currency=currency_map.get(t) if currency_map else None,
+            instrument_types=instrument_types,
         )
     weights = standardize_portfolio_input(
         config["portfolio_input"],
@@ -156,6 +159,7 @@ def analyze_scenario(
         config.get("stock_factor_proxies"),
         fmp_ticker_map=fmp_ticker_map,
         currency_map=currency_map,
+        instrument_types=instrument_types,
     )
     
     # Then run the scenario

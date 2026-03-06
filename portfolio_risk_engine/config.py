@@ -55,6 +55,7 @@ _DEFAULTS: dict[str, Any] = {
         "min_peer_overlap_observations": 1,
         "min_observations_for_returns_calculation": 2,
         "min_observations_for_regression": 3,
+        "min_observations_for_factor_attribution": 6,
         "min_valid_peers_for_median": 1,
         "max_peer_drop_rate": 0.8,
         "min_observations_for_expected_returns": 11,

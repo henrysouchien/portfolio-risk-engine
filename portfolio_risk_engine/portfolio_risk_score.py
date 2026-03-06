@@ -1771,16 +1771,19 @@ def run_risk_score_analysis(
         raw_weights = config["portfolio_input"]
         fmp_ticker_map = config.get("fmp_ticker_map")
         currency_map = config.get("currency_map")
+        instrument_types = config.get("instrument_types")
         if fmp_ticker_map:
             price_fetcher = lambda t: latest_price(
                 t,
                 fmp_ticker_map=fmp_ticker_map,
                 currency=currency_map.get(t) if currency_map else None,
+                instrument_types=instrument_types,
             )
         else:
             price_fetcher = lambda t: latest_price(
                 t,
                 currency=currency_map.get(t) if currency_map else None,
+                instrument_types=instrument_types,
             )
         standardized = standardize_portfolio_input(
             raw_weights,
@@ -1810,6 +1813,8 @@ def run_risk_score_analysis(
             stock_factor_proxies=config.get("stock_factor_proxies"),
             fmp_ticker_map=fmp_ticker_map,
             currency_map=currency_map,
+            instrument_types=instrument_types,
+            security_types=security_types,
         )
         
         # Calculate max betas
@@ -1916,6 +1921,11 @@ def run_risk_score_analysis(
         import traceback
         traceback.print_exc()
         return None
+
+
+def calculate_risk_score(*args, **kwargs):
+    """Backward-compatible alias for risk score entrypoint."""
+    return run_risk_score_analysis(*args, **kwargs)
 
 
 if __name__ == "__main__":

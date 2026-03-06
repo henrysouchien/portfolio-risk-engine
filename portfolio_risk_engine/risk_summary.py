@@ -75,6 +75,7 @@ def get_stock_risk_profile(
     if "stock" in stock_perf.index:
         vol_metrics["sharpe_ratio"] = float(stock_perf.loc["stock", "Sharpe"])
         vol_metrics["sortino_ratio"] = float(stock_perf.loc["stock", "Sortino"])
+        vol_metrics["max_drawdown"] = float(stock_perf.loc["stock", "Max Drawdown"])
 
     return {
         "vol_metrics":  vol_metrics,
@@ -185,9 +186,23 @@ def get_detailed_stock_factor_profile(
 
     # Regression vs market only
     df_reg = pd.DataFrame({"stock": stock_returns, "market": market_ret}).dropna()
+    vol_metrics = compute_volatility(df_reg["stock"])
+    try:
+        stock_perf = compute_stock_performance_metrics(
+            pd.DataFrame({"stock": df_reg["stock"]}),
+            risk_free_rate=0.04,
+            start_date=str(start_date),
+            end_date=str(end_date),
+        )
+        if "stock" in stock_perf.index:
+            vol_metrics["sharpe_ratio"] = float(stock_perf.loc["stock", "Sharpe"])
+            vol_metrics["sortino_ratio"] = float(stock_perf.loc["stock", "Sortino"])
+            vol_metrics["max_drawdown"] = float(stock_perf.loc["stock", "Max Drawdown"])
+    except Exception:
+        pass
 
     return {
-        "vol_metrics": compute_volatility(df_reg["stock"]),
+        "vol_metrics": vol_metrics,
         "regression_metrics": compute_regression_metrics(df_reg),
         "factor_summary": compute_factor_metrics(stock_returns, factor_dict)
     }

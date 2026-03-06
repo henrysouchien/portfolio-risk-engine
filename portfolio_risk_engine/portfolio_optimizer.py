@@ -106,6 +106,7 @@ def simulate_portfolio_change(
     end: str,
     proxies: Dict[str, Dict[str, Any]],
     fmp_ticker_map: Dict[str, str] | None = None,
+    instrument_types: Dict[str, str] | None = None,
 ):
     """
     Build a *new* summary after applying `edits` (delta-weights).
@@ -132,6 +133,7 @@ def simulate_portfolio_change(
         expected_returns=None,
         stock_factor_proxies=proxies,
         fmp_ticker_map=fmp_ticker_map,
+        instrument_types=instrument_types,
     )
 
     df_risk = _safe_eval_risk_limits(summary, risk_cfg)
@@ -159,6 +161,7 @@ def solve_min_variance_with_risk_limits(
     end: str,
     proxies: Dict[str, Dict[str, Any]],
     fmp_ticker_map: Dict[str, str] | None = None,
+    instrument_types: Dict[str, str] | None = None,
     allow_short: bool = False,
 ):
     """
@@ -234,6 +237,7 @@ def solve_min_variance_with_risk_limits(
         None,
         proxies,
         fmp_ticker_map=fmp_ticker_map,
+        instrument_types=instrument_types,
     )
 
     # Filter tickers to only those present in covariance matrix (some may lack data)
@@ -424,6 +428,7 @@ def run_what_if(
     end_date: str,
     factor_proxies: Dict[str, Dict],
     fmp_ticker_map: Dict[str, str] | None = None,
+    instrument_types: Dict[str, str] | None = None,
     *,           
     verbose: bool = True,
 ) -> Tuple[dict, pd.DataFrame, pd.DataFrame]:
@@ -460,6 +465,7 @@ def run_what_if(
         base_weights, delta, risk_cfg,
         start_date, end_date, factor_proxies,
         fmp_ticker_map=fmp_ticker_map,
+        instrument_types=instrument_types,
     )
 
     # 2) optionally pretty-print
@@ -508,6 +514,7 @@ def evaluate_weights(
     end_date: str,
     proxies: Dict[str, Dict[str, Any]],
     fmp_ticker_map: Dict[str, str] | None = None,
+    instrument_types: Dict[str, str] | None = None,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Runs the standard risk + beta limit checks on a given weight dict.
@@ -523,6 +530,7 @@ def evaluate_weights(
         expected_returns=None,
         stock_factor_proxies=proxies,
         fmp_ticker_map=fmp_ticker_map,
+        instrument_types=instrument_types,
     )
 
     df_risk = _safe_eval_risk_limits(summary, risk_cfg)
@@ -786,6 +794,7 @@ def run_what_if_scenario(
         delta, new_weights = (shift_dict or {}), None
 
     fmp_ticker_map = config.get("fmp_ticker_map")
+    instrument_types = config.get("instrument_types")
     max_single_factor_loss = risk_config.get("max_single_factor_loss") or -0.08
 
     # get proxy-level beta caps
@@ -806,12 +815,14 @@ def run_what_if_scenario(
             new_weights, config["start_date"], config["end_date"],
             expected_returns=None, stock_factor_proxies=proxies,
             fmp_ticker_map=fmp_ticker_map,
+            instrument_types=instrument_types,
         )
     else:
         summary_new, *_ = run_what_if(
             base_weights, delta, risk_config,
             config["start_date"], config["end_date"], proxies,
             fmp_ticker_map=fmp_ticker_map,
+            instrument_types=instrument_types,
             verbose=False
         )
 
@@ -820,6 +831,7 @@ def run_what_if_scenario(
         base_weights, config["start_date"], config["end_date"],
         expected_returns=None, stock_factor_proxies=proxies,
         fmp_ticker_map=fmp_ticker_map,
+        instrument_types=instrument_types,
     )
 
     # run risk tables
@@ -880,6 +892,7 @@ def run_min_var_optimiser(
     end_date:   str,
     proxies: Dict[str, Dict[str, Any]],
     fmp_ticker_map: Dict[str, str] | None = None,
+    instrument_types: Dict[str, str] | None = None,
     echo: bool = True,
 ) -> Dict[str, float]:
     """
@@ -924,6 +937,7 @@ def run_min_var_optimiser(
         end_date,
         proxies,
         fmp_ticker_map=fmp_ticker_map,
+        instrument_types=instrument_types,
     )
 
     # 2. ---------- optional console output ---------------------------------
@@ -952,6 +966,7 @@ def run_min_var(
     risk_config: Dict[str, Any],
     proxies: Dict[str, Any],
     fmp_ticker_map: Dict[str, str] | None = None,
+    instrument_types: Dict[str, str] | None = None,
 ) -> Tuple[Dict[str, float], pd.DataFrame, pd.DataFrame]:
     """
     Runs minimum-variance optimisation under risk constraints.
@@ -979,6 +994,7 @@ def run_min_var(
         end_date   = config["end_date"],
         proxies    = proxies,
         fmp_ticker_map=fmp_ticker_map,
+        instrument_types=instrument_types,
         echo       = False,
     )
 
@@ -987,6 +1003,7 @@ def run_min_var(
         config["start_date"], config["end_date"],
         proxies,
         fmp_ticker_map=fmp_ticker_map,
+        instrument_types=instrument_types,
     )
     # LOGGING: Add minimum variance optimization completion logging
     # LOGGING: Add workflow state logging for optimization workflow completion here
@@ -1063,6 +1080,7 @@ def solve_max_return_with_risk_limits(
     stock_factor_proxies: Dict[str, Dict[str, Union[str, List[str]]]],
     expected_returns: Dict[str, float],
     fmp_ticker_map: Dict[str, str] | None = None,
+    instrument_types: Dict[str, str] | None = None,
     allow_short: bool = False,
 ) -> Dict[str, float]:
     r"""Return the weight vector *w* that maximises expected portfolio return
@@ -1139,6 +1157,7 @@ def solve_max_return_with_risk_limits(
         expected_returns=None,
         stock_factor_proxies=stock_factor_proxies,
         fmp_ticker_map=fmp_ticker_map,
+        instrument_types=instrument_types,
     )
 
     # Filter tickers to only those present in covariance matrix (some may lack data)
@@ -1159,8 +1178,6 @@ def solve_max_return_with_risk_limits(
 
     Σ_m = view["covariance_matrix"].loc[tickers, tickers].values          # Σ (monthly)
     β_tbl = view["df_stock_betas"].fillna(0.0).loc[tickers]               # n × factors
-
-    #TODO: Address the issue of expected returns being empty or zeros (defaults to 0)
 
     μ = np.array([expected_returns.get(t, 0.0) for t in tickers])
     if np.allclose(μ, 0):
@@ -1276,6 +1293,7 @@ def run_max_return_portfolio(
     risk_config: Dict[str, Any],
     proxies: Dict[str, Any],
     fmp_ticker_map: Dict[str, str] | None = None,
+    instrument_types: Dict[str, str] | None = None,
 ) -> Tuple[Dict[str, float], Dict[str, Any], pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
     Runs max-return optimisation under risk constraints and returns full output.
@@ -1301,6 +1319,7 @@ def run_max_return_portfolio(
         stock_factor_proxies = proxies,
         expected_returns     = config["expected_returns"],
         fmp_ticker_map       = fmp_ticker_map,
+        instrument_types     = instrument_types,
     )
 
     # 2. Build full summary
@@ -1311,6 +1330,7 @@ def run_max_return_portfolio(
         expected_returns     = None,
         stock_factor_proxies = proxies,
         fmp_ticker_map       = fmp_ticker_map,
+        instrument_types     = instrument_types,
     )
 
     # 3. Run risk checks
