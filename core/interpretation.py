@@ -20,7 +20,7 @@ Contract notes:
 from typing import Optional, Dict, Any
 from datetime import datetime, UTC
 
-from gpt_helpers import interpret_portfolio_risk
+from utils.gpt_helpers import interpret_portfolio_risk
 from core.result_objects import InterpretationResult
 
 # Import logging decorators for AI interpretation
@@ -56,7 +56,7 @@ def analyze_and_interpret(portfolio_yaml: str) -> InterpretationResult:
     """
     
     # Import run_portfolio here to avoid circular imports
-    from run_risk import run_portfolio
+    from core.risk_orchestration import run_portfolio
     
     # Get full analysis with formatted report (matching API path behavior)
     portfolio_result = run_portfolio(portfolio_yaml, return_data=True)

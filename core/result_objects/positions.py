@@ -9,7 +9,7 @@ import json
 import numpy as np
 from dataclasses import dataclass, field
 from utils.serialization import make_json_safe
-from core.data_objects import PositionsData
+from portfolio_risk_engine.data_objects import PositionsData
 from ._helpers import _convert_to_json_serializable, _clean_nan_values
 
 @dataclass
@@ -44,11 +44,14 @@ class PositionResult:
     position_count: int = 0
     by_type: Dict[str, int] = field(default_factory=dict)
     by_source: Dict[str, int] = field(default_factory=dict)
+    provider_errors: Dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         """Compute summary statistics from wrapped data."""
         if self.data is None:
             raise ValueError("PositionResult requires data")
+        self.provider_errors = dict(self.provider_errors or {})
+        self._provider_errors = self.provider_errors
         positions = self.data.positions
         if positions is None:
             raise ValueError("PositionResult data.positions cannot be None")
@@ -435,6 +438,7 @@ class PositionResult:
                 "pnl_usd": pnl_usd,
                 "pnl_basis_currency": "USD" if using_usd_basis_fallback else "local",
                 "entry_price_warning": entry_price_warning,
+                "is_cash_equivalent": position.get("is_cash_equivalent"),
             }
 
             if by_account:

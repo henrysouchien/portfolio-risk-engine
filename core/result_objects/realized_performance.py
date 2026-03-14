@@ -124,6 +124,19 @@ class RealizedMetadata:
     unpriceable_reasons: Dict[str, str]
     ibkr_pricing_coverage: Dict[str, Any]
     source_breakdown: Dict[str, int]
+    segment: str = "all"
+    excluded_symbols: List[str] = field(default_factory=list)
+    cash_anchor_available: bool = False
+    cash_anchor_applied_to_nav: bool = False
+    cash_anchor_offset_usd: float = 0.0
+    incomplete_pnl: float = 0.0
+    cash_backsolve_observed_end_usd: float = 0.0
+    cash_backsolve_replay_final_usd: float = 0.0
+    cash_backsolve_start_usd: float = 0.0
+    cash_backsolve_matched_rows: int = 0
+    cash_anchor_source: str = "snaptrade_cur"
+    cash_anchor_statement_period_end: Optional[str] = None
+    observed_only_cash_anchor_offset_usd: float = 0.0
     reliable: bool = False
     reliability_reasons: List[str] = field(default_factory=list)
     holdings_scope: str = "consolidated"
@@ -139,9 +152,13 @@ class RealizedMetadata:
     flow_fallback_reasons: List[str] = field(default_factory=list)
     dedup_diagnostics: Dict[str, Any] = field(default_factory=dict)
     external_net_flows_usd: float = 0.0
+    money_weighted_return: Optional[float] = None
+    mwr_status: str = "not_computed"
     net_contributions_definition: str = "trade_cash_legs_legacy"
     data_warnings: List[str] = field(default_factory=list)
     futures_cash_policy: str = "fee_only"
+    futures_margin_anchor_applied: bool = False
+    futures_margin_anchor_usd: float = 0.0
     futures_txn_count_replayed: int = 0
     futures_notional_suppressed_usd: float = 0.0
     unpriceable_suppressed_count: int = 0
@@ -150,6 +167,8 @@ class RealizedMetadata:
     futures_fee_cash_impact_usd: float = 0.0
     futures_unknown_action_count: int = 0
     futures_missing_fx_count: int = 0
+    futures_mtm_event_count: int = 0
+    futures_mtm_cash_impact_usd: float = 0.0
     income_flow_overlap_dropped_count: int = 0
     income_flow_overlap_dropped_net_usd: float = 0.0
     income_flow_overlap_dropped_by_provider: Dict[str, int] = field(default_factory=dict)
@@ -160,6 +179,7 @@ class RealizedMetadata:
     growth_of_dollar: Optional[Dict[str, float]] = None
     _postfilter: Optional[Dict[str, Any]] = None
     account_aggregation: Optional[Dict[str, Any]] = None
+    inception_date_original: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         d = {
@@ -194,6 +214,19 @@ class RealizedMetadata:
             "unpriceable_reasons": self.unpriceable_reasons,
             "ibkr_pricing_coverage": self.ibkr_pricing_coverage,
             "source_breakdown": self.source_breakdown,
+            "segment": self.segment,
+            "excluded_symbols": self.excluded_symbols,
+            "cash_anchor_available": self.cash_anchor_available,
+            "cash_anchor_applied_to_nav": self.cash_anchor_applied_to_nav,
+            "cash_anchor_offset_usd": self.cash_anchor_offset_usd,
+            "incomplete_pnl": self.incomplete_pnl,
+            "cash_backsolve_observed_end_usd": self.cash_backsolve_observed_end_usd,
+            "cash_backsolve_replay_final_usd": self.cash_backsolve_replay_final_usd,
+            "cash_backsolve_start_usd": self.cash_backsolve_start_usd,
+            "cash_backsolve_matched_rows": self.cash_backsolve_matched_rows,
+            "cash_anchor_source": self.cash_anchor_source,
+            "cash_anchor_statement_period_end": self.cash_anchor_statement_period_end,
+            "observed_only_cash_anchor_offset_usd": self.observed_only_cash_anchor_offset_usd,
             "reliable": self.reliable,
             "reliability_reasons": self.reliability_reasons,
             "holdings_scope": self.holdings_scope,
@@ -209,9 +242,13 @@ class RealizedMetadata:
             "flow_fallback_reasons": self.flow_fallback_reasons,
             "dedup_diagnostics": self.dedup_diagnostics,
             "external_net_flows_usd": self.external_net_flows_usd,
+            "money_weighted_return": self.money_weighted_return,
+            "mwr_status": self.mwr_status,
             "net_contributions_definition": self.net_contributions_definition,
             "data_warnings": self.data_warnings,
             "futures_cash_policy": self.futures_cash_policy,
+            "futures_margin_anchor_applied": self.futures_margin_anchor_applied,
+            "futures_margin_anchor_usd": self.futures_margin_anchor_usd,
             "futures_txn_count_replayed": self.futures_txn_count_replayed,
             "futures_notional_suppressed_usd": self.futures_notional_suppressed_usd,
             "unpriceable_suppressed_count": self.unpriceable_suppressed_count,
@@ -220,6 +257,8 @@ class RealizedMetadata:
             "futures_fee_cash_impact_usd": self.futures_fee_cash_impact_usd,
             "futures_unknown_action_count": self.futures_unknown_action_count,
             "futures_missing_fx_count": self.futures_missing_fx_count,
+            "futures_mtm_event_count": self.futures_mtm_event_count,
+            "futures_mtm_cash_impact_usd": self.futures_mtm_cash_impact_usd,
             "income_flow_overlap_dropped_count": self.income_flow_overlap_dropped_count,
             "income_flow_overlap_dropped_net_usd": self.income_flow_overlap_dropped_net_usd,
             "income_flow_overlap_dropped_by_provider": self.income_flow_overlap_dropped_by_provider,
@@ -235,6 +274,8 @@ class RealizedMetadata:
             d["_postfilter"] = self._postfilter
         if self.account_aggregation is not None:
             d["account_aggregation"] = self.account_aggregation
+        if self.inception_date_original is not None:
+            d["inception_date_original"] = self.inception_date_original
         return d
 
     @classmethod
@@ -271,6 +312,19 @@ class RealizedMetadata:
             unpriceable_reasons=d.get("unpriceable_reasons", {}),
             ibkr_pricing_coverage=d.get("ibkr_pricing_coverage", {}),
             source_breakdown=d.get("source_breakdown", {}),
+            segment=str(d.get("segment", "all") or "all"),
+            excluded_symbols=list(d.get("excluded_symbols", []) or []),
+            cash_anchor_available=bool(d.get("cash_anchor_available", False)),
+            cash_anchor_applied_to_nav=bool(d.get("cash_anchor_applied_to_nav", False)),
+            cash_anchor_offset_usd=float(d.get("cash_anchor_offset_usd", 0.0) or 0.0),
+            incomplete_pnl=float(d.get("incomplete_pnl", 0.0) or 0.0),
+            cash_backsolve_observed_end_usd=float(d.get("cash_backsolve_observed_end_usd", 0.0) or 0.0),
+            cash_backsolve_replay_final_usd=float(d.get("cash_backsolve_replay_final_usd", 0.0) or 0.0),
+            cash_backsolve_start_usd=float(d.get("cash_backsolve_start_usd", 0.0) or 0.0),
+            cash_backsolve_matched_rows=int(d.get("cash_backsolve_matched_rows", 0) or 0),
+            cash_anchor_source=d.get("cash_anchor_source", "snaptrade_cur"),
+            cash_anchor_statement_period_end=d.get("cash_anchor_statement_period_end"),
+            observed_only_cash_anchor_offset_usd=float(d.get("observed_only_cash_anchor_offset_usd", 0.0) or 0.0),
             reliable=bool(d.get("reliable", d.get("high_confidence_realized", False))),
             reliability_reasons=list(d.get("reliability_reasons", [])),
             holdings_scope=str(d.get("holdings_scope", "consolidated") or "consolidated"),
@@ -291,9 +345,13 @@ class RealizedMetadata:
             flow_fallback_reasons=d.get("flow_fallback_reasons", []),
             dedup_diagnostics=d.get("dedup_diagnostics", {}),
             external_net_flows_usd=d.get("external_net_flows_usd", 0.0),
+            money_weighted_return=d.get("money_weighted_return"),
+            mwr_status=d.get("mwr_status", "not_computed"),
             net_contributions_definition=d.get("net_contributions_definition", "trade_cash_legs_legacy"),
             data_warnings=d.get("data_warnings", []),
             futures_cash_policy=str(d.get("futures_cash_policy", "fee_only") or "fee_only"),
+            futures_margin_anchor_applied=bool(d.get("futures_margin_anchor_applied", False)),
+            futures_margin_anchor_usd=float(d.get("futures_margin_anchor_usd", 0.0) or 0.0),
             futures_txn_count_replayed=int(d.get("futures_txn_count_replayed", 0) or 0),
             futures_notional_suppressed_usd=float(d.get("futures_notional_suppressed_usd", 0.0) or 0.0),
             unpriceable_suppressed_count=int(d.get("unpriceable_suppressed_count", 0) or 0),
@@ -302,6 +360,8 @@ class RealizedMetadata:
             futures_fee_cash_impact_usd=float(d.get("futures_fee_cash_impact_usd", 0.0) or 0.0),
             futures_unknown_action_count=int(d.get("futures_unknown_action_count", 0) or 0),
             futures_missing_fx_count=int(d.get("futures_missing_fx_count", 0) or 0),
+            futures_mtm_event_count=int(d.get("futures_mtm_event_count", 0) or 0),
+            futures_mtm_cash_impact_usd=float(d.get("futures_mtm_cash_impact_usd", 0.0) or 0.0),
             income_flow_overlap_dropped_count=int(d.get("income_flow_overlap_dropped_count", 0) or 0),
             income_flow_overlap_dropped_net_usd=float(d.get("income_flow_overlap_dropped_net_usd", 0.0) or 0.0),
             income_flow_overlap_dropped_by_provider={
@@ -319,6 +379,7 @@ class RealizedMetadata:
             growth_of_dollar=d.get("growth_of_dollar"),
             _postfilter=d.get("_postfilter"),
             account_aggregation=d.get("account_aggregation"),
+            inception_date_original=d.get("inception_date_original"),
         )
 
 @dataclass
@@ -408,6 +469,7 @@ class RealizedPerformanceResult:
             "high_confidence_realized": self.realized_metadata.high_confidence_realized,
             "pnl_basis": self.realized_metadata.pnl_basis.to_dict(),
             "external_net_flows_usd": self.realized_metadata.external_net_flows_usd,
+            "money_weighted_return": self.realized_metadata.money_weighted_return,
             "net_contributions_definition": self.realized_metadata.net_contributions_definition,
         }
         if self.warnings:
@@ -496,6 +558,7 @@ class RealizedPerformanceResult:
                 "reliable": meta.reliable,
                 "reliability_reasons": list(meta.reliability_reasons or []),
                 "reliability_reason_codes": list(meta.reliability_reason_codes or []),
+                "fetch_errors": dict(meta.fetch_errors or {}),
                 "synthetic_impact_usd": meta.nav_pnl_synthetic_impact_usd,
                 "holdings_scope": meta.holdings_scope,
                 "source_transaction_count": meta.source_transaction_count,
@@ -505,6 +568,8 @@ class RealizedPerformanceResult:
                 "synthetic_count": meta.synthetic_current_position_count or 0,
                 "warning_count": len(meta.data_warnings or []),
                 "futures_cash_policy": meta.futures_cash_policy,
+                "futures_margin_anchor_applied": meta.futures_margin_anchor_applied,
+                "futures_margin_anchor_usd": meta.futures_margin_anchor_usd,
                 "futures_txn_count_replayed": meta.futures_txn_count_replayed,
                 "futures_notional_suppressed_usd": meta.futures_notional_suppressed_usd,
                 "unpriceable_suppressed_count": meta.unpriceable_suppressed_count,
@@ -513,6 +578,8 @@ class RealizedPerformanceResult:
                 "futures_fee_cash_impact_usd": meta.futures_fee_cash_impact_usd,
                 "futures_unknown_action_count": meta.futures_unknown_action_count,
                 "futures_missing_fx_count": meta.futures_missing_fx_count,
+                "futures_mtm_event_count": meta.futures_mtm_event_count,
+                "futures_mtm_cash_impact_usd": meta.futures_mtm_cash_impact_usd,
                 "income_flow_overlap_dropped_count": meta.income_flow_overlap_dropped_count,
                 "income_flow_overlap_dropped_net_usd": meta.income_flow_overlap_dropped_net_usd,
                 "income_flow_overlap_dropped_by_provider": dict(meta.income_flow_overlap_dropped_by_provider or {}),
@@ -628,7 +695,10 @@ class RealizedPerformanceResult:
         """Full API response for realized performance output."""
         del benchmark_ticker
         response = self.to_dict()
+        postfilter = response.get("realized_metadata", {}).get("_postfilter") or {}
+        benchmark_monthly = postfilter.get("selected_benchmark_monthly_returns") or postfilter.get("benchmark_monthly_returns") or {}
         response.get("realized_metadata", {}).pop("_postfilter", None)
+        response["benchmark_monthly_returns"] = benchmark_monthly
         response["status"] = "success"
         response["mode"] = "realized"
         response["performance_category"] = self._categorize_performance()

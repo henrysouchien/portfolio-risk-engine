@@ -1,0 +1,107 @@
+{
+  "generated_at": "2026-02-25T11:00:13.850754",
+  "request": {
+    "mode": "realized",
+    "source": "ibkr_flex",
+    "format": "agent"
+  },
+  "ok": true,
+  "result": {
+    "status": "success",
+    "format": "agent",
+    "snapshot": {
+      "mode": "realized",
+      "period": {
+        "start_date": "2025-03-31",
+        "end_date": "2026-01-31",
+        "months": 11,
+        "years": 0.9,
+        "inception_date": "2025-02-25"
+      },
+      "returns": {
+        "total_return_pct": -100.0,
+        "annualized_return_pct": -100.0,
+        "best_month_pct": 77.39,
+        "worst_month_pct": -100.0,
+        "win_rate_pct": 36.4
+      },
+      "risk": {
+        "volatility_pct": 138.34,
+        "max_drawdown_pct": null,
+        "sharpe_ratio": -0.752,
+        "sortino_ratio": -0.792
+      },
+      "benchmark": {
+        "ticker": "SPY",
+        "alpha_annual_pct": null,
+        "beta": null,
+        "portfolio_return_pct": -100.0,
+        "benchmark_return_pct": 16.46,
+        "excess_return_pct": -118.08
+      },
+      "pnl": {
+        "nav_pnl_usd": 138089.57,
+        "realized_pnl": -1599.95,
+        "unrealized_pnl": 4939.49
+      },
+      "income": {
+        "total": -25.19,
+        "dividends": 301.63,
+        "interest": -326.82,
+        "yield_on_cost_pct": -0.1158,
+        "yield_on_value_pct": -0.1142
+      },
+      "data_quality": {
+        "coverage_pct": 20.83,
+        "high_confidence": false,
+        "nav_metrics_estimated": true,
+        "synthetic_count": 19,
+        "warning_count": 44
+      },
+      "verdict": "poor",
+      "insights": [
+        "\u2022 Poor risk-adjusted returns (Sharpe: -0.75)",
+        "\u2022 High volatility (138.3% vs 11.1% benchmark)",
+        "\u2022 Low consistency (36% positive months)"
+      ]
+    },
+    "flags": [
+      {
+        "type": "negative_total_return",
+        "severity": "warning",
+        "message": "Portfolio is down 100.0% total",
+        "total_return_pct": -100.0
+      },
+      {
+        "type": "low_data_coverage",
+        "severity": "warning",
+        "message": "Transaction data covers only 21% of portfolio",
+        "coverage_pct": 20.8
+      },
+      {
+        "type": "high_volatility",
+        "severity": "info",
+        "message": "Portfolio volatility is 138.3% (above average)",
+        "volatility_pct": 138.34
+      },
+      {
+        "type": "data_quality_issues",
+        "severity": "info",
+        "message": "44 data quality warnings detected",
+        "warning_count": 44
+      },
+      {
+        "type": "synthetic_positions",
+        "severity": "info",
+        "message": "19 position(s) inferred from current holdings (no opening trade found)",
+        "synthetic_count": 19
+      },
+      {
+        "type": "nav_metrics_estimated",
+        "severity": "info",
+        "message": "NAV-based metrics (return, drawdown) are estimated - not all cash flows observed"
+      }
+    ],
+    "file_path": null
+  }
+}

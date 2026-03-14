@@ -10,7 +10,7 @@ import numpy as np
 from dataclasses import dataclass, field
 from portfolio_risk_engine.allocation_drift import compute_allocation_drift
 from utils.serialization import make_json_safe
-from core.constants import get_asset_class_color, get_asset_class_display_name
+from portfolio_risk_engine.constants import get_asset_class_color, get_asset_class_display_name
 from ._helpers import (_convert_to_json_serializable, _clean_nan_values, _format_df_as_text, _abbreviate_labels, _DEFAULT_INDUSTRY_ABBR_MAP)
 
 @dataclass
@@ -563,7 +563,7 @@ class RiskAnalysisResult:
         # Import CLI utilities to match exact labeling format
         try:
             from utils.etf_mappings import get_etf_to_industry_map, format_ticker_with_label
-            from core.portfolio_config import get_cash_positions
+            from portfolio_risk_engine.portfolio_config import get_cash_positions
             
             cash_positions = get_cash_positions()
             industry_map = get_etf_to_industry_map()
@@ -936,7 +936,7 @@ class RiskAnalysisResult:
 
     def _get_asset_class_color(self, asset_class: str) -> str:
         """Map asset classes to consistent UI colors using centralized constants"""
-        from core.constants import get_asset_class_color
+        from portfolio_risk_engine.constants import get_asset_class_color
         return get_asset_class_color(asset_class)
     
     def _format_asset_allocation_table(self, allocation_data: List[Dict[str, Any]]) -> str:
@@ -1805,14 +1805,22 @@ class RiskScoreResult:
         component_scores = self.risk_score.get("component_scores", {})
         potential_losses = self.risk_score.get("potential_losses", {})
         max_loss_limit = potential_losses.get("max_loss_limit", 0) if isinstance(potential_losses, dict) else 0
+        limit_violations = self.limits_analysis.get("limit_violations", {})
+        details = self.risk_score.get("details", {})
+        raw_score = details.get("raw_score", overall_score) if isinstance(details, dict) else overall_score
+        compliance_penalty_points = (
+            details.get("compliance_penalty_points", 0) if isinstance(details, dict) else 0
+        )
         
         return {
             "overall_score": overall_score,
             "risk_category": self.get_risk_category_enum(),  # Clean enum for logic
             "component_scores": component_scores,
-            "total_violations": len(self.limits_analysis.get("risk_factors", [])),
+            "total_violations": sum(limit_violations.values()) if isinstance(limit_violations, dict) else 0,
             "recommendations_count": len(self.limits_analysis.get("recommendations", [])),
-            "max_loss_limit": max_loss_limit
+            "max_loss_limit": max_loss_limit,
+            "raw_score": raw_score,
+            "compliance_penalty_points": compliance_penalty_points,
         }
     
     def get_risk_factors(self) -> List[str]:
@@ -1843,14 +1851,22 @@ class RiskScoreResult:
     def get_risk_category_enum(self) -> str:
         """Get clean risk category enum for API logic."""
         category = self.risk_score.get("category", "Unknown")
+        category_text = str(category)
+        category_lower = category_text.lower()
         # Convert display categories to clean enums
-        if "Excellent" in category or "excellent" in category:
+        if "Excellent" in category_text or "excellent" in category_lower:
             return "excellent"
-        elif "Good" in category or "good" in category:
+        elif "Very Poor" in category_text or "very poor" in category_lower:
+            return "very_poor"
+        elif "Good" in category_text or "good" in category_lower:
             return "good"
-        elif "Moderate" in category or "moderate" in category:
+        elif "Fair" in category_text or "fair" in category_lower:
+            return "fair"
+        elif "Poor" in category_text or "poor" in category_lower:
+            return "poor"
+        elif "Moderate" in category_text or "moderate" in category_lower:
             return "moderate"
-        elif "High" in category or "high" in category:
+        elif "High" in category_text or "high" in category_lower:
             return "high"
         else:
             return "unknown"
@@ -1874,16 +1890,18 @@ class RiskScoreResult:
 
         score = self.risk_score.get("score", 0)
         category = self.get_risk_category_enum()
+        display_category = self.risk_score.get("category", "Unknown")
         component_scores = self.get_component_scores()
         is_compliant = self.is_compliant()
         violations_summary = self._get_violations_summary()
+        details = self.risk_score.get("details", {})
 
         violation_count = violations_summary.get("total_violations", 0)
         if is_compliant:
-            verdict = f"Portfolio risk is {category} (score {score}/100), fully compliant"
+            verdict = f"Portfolio risk is {display_category} (score {score}/100), fully compliant"
         else:
             suffix = "s" if violation_count != 1 else ""
-            verdict = f"Portfolio risk is {category} (score {score}/100), {violation_count} violation{suffix}"
+            verdict = f"Portfolio risk is {display_category} (score {score}/100), {violation_count} violation{suffix}"
 
         recommendations = self.get_recommendations()
         if not isinstance(recommendations, list):
@@ -1909,6 +1927,13 @@ class RiskScoreResult:
             "verdict": verdict,
             "component_scores": {k: _safe_float(v) for k, v in clean_component_scores.items()},
             "violation_count": violation_count,
+            "raw_score": _safe_float(details.get("raw_score", score) if isinstance(details, dict) else score),
+            "compliance_penalty_points": _safe_float(
+                details.get("compliance_penalty_points", 0) if isinstance(details, dict) else 0
+            ),
+            "compliance_ceiling_applied": (
+                details.get("compliance_ceiling_applied", False) if isinstance(details, dict) else False
+            ),
             "critical_violations": critical_violations[:3],
             "recommendations": recommendations[:5],
             "risk_factors": risk_factors[:5],
@@ -2168,7 +2193,7 @@ class RiskScoreResult:
     def _format_risk_score_display(self) -> str:
         """Format risk score display - EXACT copy of display_portfolio_risk_score()"""
         # Import generate_score_interpretation from portfolio_risk_score module
-        from portfolio_risk_score import generate_score_interpretation
+        from portfolio_risk_engine.portfolio_risk_score import generate_score_interpretation
         
         score = self.risk_score["score"]
         category = self.risk_score["category"]
@@ -2281,7 +2306,7 @@ class RiskScoreResult:
         # Score interpretation - action-focused
         lines.append(f"📋 Score Interpretation:")
         lines.append(f"{'─'*40}")
-        interpretation = generate_score_interpretation(score)
+        interpretation = self.risk_score.get("interpretation") or generate_score_interpretation(score)
         lines.append(f"   {interpretation['summary']}")
         for detail in interpretation['details']:
             lines.append(f"      • {detail}")
@@ -2311,16 +2336,19 @@ class RiskScoreResult:
         lines.append("")  # Add blank line after header
         
         # Display limit violations summary
-        violations = self.limits_analysis["limit_violations"]
-        total_violations = sum(violations.values())
+        violations = self.limits_analysis.get("limit_violations", {})
+        total_violations = sum(violations.values()) if violations else 0
         
         lines.append("📊 LIMIT VIOLATIONS SUMMARY:")
         lines.append(f"   Total violations: {total_violations}")
-        lines.append(f"   Factor betas: {violations['factor_betas']}")
-        lines.append(f"   Concentration: {violations['concentration']}")
-        lines.append(f"   Volatility: {violations['volatility']}")
-        lines.append(f"   Variance contributions: {violations['variance_contributions']}")
-        lines.append(f"   Leverage: {violations['leverage']}")
+        lines.append(f"   Factor betas: {violations.get('factor_betas', 0)}")
+        lines.append(f"   Concentration: {violations.get('concentration', 0)}")
+        lines.append(f"   Volatility: {violations.get('volatility', 0)}")
+        lines.append(f"   Variance contributions: {violations.get('variance_contributions', 0)}")
+        lines.append(f"   Leverage: {violations.get('leverage', 0)}")
+        industry_count = violations.get("industry", 0)
+        if industry_count > 0:
+            lines.append(f"   Industry: {industry_count}")
         lines.append("")  # Add blank line after violations summary
         
         # Display detailed risk factors
@@ -2357,7 +2385,7 @@ class RiskScoreResult:
     def _format_suggested_risk_limits(self) -> str:
         """Format suggested limits - EXACT copy of display_suggested_risk_limits()"""
         # Get max loss from analysis metadata or default
-        analysis_metadata = getattr(self, 'analysis_metadata', {})
+        analysis_metadata = getattr(self, 'analysis_metadata', None) or {}
         max_loss = analysis_metadata.get('max_loss', 0.25)  # Default 25%
         
         lines = []
@@ -2374,15 +2402,15 @@ class RiskScoreResult:
         lines.append("")  # Add blank line after header
         
         # Factor limits
-        factor_limits = self.suggested_limits["factor_limits"]
+        factor_limits = self.suggested_limits.get("factor_limits", {})
         if factor_limits:
             lines.append(f"🎯 Factor Beta Limits: (Beta = sensitivity to market moves)")
             lines.append(f"{'─'*40}")
             for factor, data in factor_limits.items():
-                status = "🔴 REDUCE" if data["needs_reduction"] else "🟢 OK"
+                status = "🔴 REDUCE" if data.get("needs_reduction", False) else "🟢 OK"
                 factor_name = factor.replace('_', ' ').title().replace('Beta', 'Exposure')
-                current_val = data['current']
-                suggested_val = data['suggested_max']
+                current_val = data.get('current', 0.0)
+                suggested_val = data.get('suggested_max', 0.0)
                 
                 # Add note for negative values (hedges)
                 note = ""
@@ -2394,29 +2422,47 @@ class RiskScoreResult:
         lines.append("")  # Add blank line after factor limits
         
         # Concentration limit
-        conc = self.suggested_limits["concentration_limit"]
-        conc_status = "🔴 REDUCE" if conc["needs_reduction"] else "🟢 OK"
-        lines.append(f"🎯 Position Size Limit:")
-        lines.append(f"{'─'*40}")
-        lines.append(f"{conc_status} Max Position Size     Current: {conc['current_max_position']:>6.1%}  →  Max: {conc['suggested_max_position']:>6.1%}")
+        conc = self.suggested_limits.get("concentration_limit")
+        if conc:
+            conc_status = "🔴 REDUCE" if conc.get("needs_reduction", False) else "🟢 OK"
+            lines.append(f"🎯 Position Size Limit:")
+            lines.append(f"{'─'*40}")
+            lines.append(
+                f"{conc_status} Max Position Size     Current: {conc.get('current_max_position', 0.0):>6.1%}  →  "
+                f"Max: {conc.get('suggested_max_position', 0.0):>6.1%}"
+            )
+        else:
+            conc = {"needs_reduction": False}
         
         lines.append("")  # Add blank line after concentration limit
         
         # Volatility limit
-        vol = self.suggested_limits["volatility_limit"]
-        vol_status = "🔴 REDUCE" if vol["needs_reduction"] else "🟢 OK"
-        lines.append(f"🎯 Volatility Limit:")
-        lines.append(f"{'─'*40}")
-        lines.append(f"{vol_status} Portfolio Volatility  Current: {vol['current_volatility']:>6.1%}  →  Max: {vol['suggested_max_volatility']:>6.1%}")
+        vol = self.suggested_limits.get("volatility_limit")
+        if vol:
+            vol_status = "🔴 REDUCE" if vol.get("needs_reduction", False) else "🟢 OK"
+            lines.append(f"🎯 Volatility Limit:")
+            lines.append(f"{'─'*40}")
+            lines.append(
+                f"{vol_status} Portfolio Volatility  Current: {vol.get('current_volatility', 0.0):>6.1%}  →  "
+                f"Max: {vol.get('suggested_max_volatility', 0.0):>6.1%}"
+            )
+        else:
+            vol = {"needs_reduction": False}
         
         lines.append("")  # Add blank line after volatility limit
         
         # Sector limit
-        sector = self.suggested_limits["sector_limit"]
-        sector_status = "🔴 REDUCE" if sector["needs_reduction"] else "🟢 OK"
-        lines.append(f"🎯 Sector Concentration Limit:")
-        lines.append(f"{'─'*40}")
-        lines.append(f"{sector_status} Max Sector Exposure   Current: {sector['current_max_sector']:>6.1%}  →  Max: {sector['suggested_max_sector']:>6.1%}")
+        sector = self.suggested_limits.get("sector_limit")
+        if sector:
+            sector_status = "🔴 REDUCE" if sector.get("needs_reduction", False) else "🟢 OK"
+            lines.append(f"🎯 Sector Concentration Limit:")
+            lines.append(f"{'─'*40}")
+            lines.append(
+                f"{sector_status} Max Sector Exposure   Current: {sector.get('current_max_sector', 0.0):>6.1%}  →  "
+                f"Max: {sector.get('suggested_max_sector', 0.0):>6.1%}"
+            )
+        else:
+            sector = {"needs_reduction": False}
         
         lines.append("")  # Add blank line after sector limit
         
@@ -2425,13 +2471,13 @@ class RiskScoreResult:
         
         # Identify biggest issues
         issues = []
-        if any(data["needs_reduction"] for data in factor_limits.values()):
+        if any(data.get("needs_reduction", False) for data in factor_limits.values()):
             issues.append("Reduce systematic factor exposures")
-        if conc["needs_reduction"]:
+        if conc.get("needs_reduction", False):
             issues.append("Reduce largest position sizes")
-        if vol["needs_reduction"]:
+        if vol.get("needs_reduction", False):
             issues.append("Reduce portfolio volatility")
-        if sector["needs_reduction"]:
+        if sector.get("needs_reduction", False):
             issues.append("Reduce sector concentration")
         
         if not issues:

@@ -21,28 +21,30 @@ Primary flow:
 """
 
 import math
+import time
 from typing import Dict, Any, Optional, Union
 from datetime import datetime, UTC
 
 import pandas as pd
 
 from core.result_objects import RiskAnalysisResult
-from core.data_objects import PortfolioData, RiskLimitsData
-from core.config_adapters import resolve_portfolio_config, resolve_risk_config
+from portfolio_risk_engine.data_objects import PortfolioData, RiskLimitsData
+from portfolio_risk_engine.config_adapters import resolve_portfolio_config, resolve_risk_config
 
-from core.portfolio_config import (
+from portfolio_risk_engine.portfolio_config import (
     standardize_portfolio_input,
     latest_price,
     get_cash_positions,
 )
-from core.constants import DIVERSIFIED_SECURITY_TYPES
-from run_portfolio_risk import (
+from portfolio_risk_engine.constants import DIVERSIFIED_SECURITY_TYPES
+from core.run_portfolio_risk import (
     evaluate_portfolio_risk_limits,
     evaluate_portfolio_beta_limits,
 )
-from portfolio_risk import build_portfolio_view
-from risk_helpers import calc_max_factor_betas
+from portfolio_risk_engine.portfolio_risk import build_portfolio_view
+from portfolio_risk_engine.risk_helpers import calc_max_factor_betas
 from settings import PORTFOLIO_DEFAULTS
+from app_platform.logging.core import log_timing_event
 
 # Add logging decorator imports
 from utils.logging import (
@@ -54,7 +56,7 @@ from utils.logging import (
 
 @log_errors("high")
 @log_operation("portfolio_analysis")
-@log_timing(3.0)
+@log_timing(3.0, always_record=True)
 def analyze_portfolio(
     portfolio: Union[str, PortfolioData],
     risk_limits: Union[str, RiskLimitsData, Dict[str, Any], None] = "risk_limits.yaml",
@@ -85,27 +87,48 @@ def analyze_portfolio(
         factor exposures, risk checks, and formatted reporting capabilities.
     """
     
+    step_timings: Dict[str, float] = {}
+    t0 = time.perf_counter()
+
     # ─── 1. Load Inputs ─────────────────────────────
     config, filepath = resolve_portfolio_config(portfolio)
     risk_config = resolve_risk_config(risk_limits)
+    step_timings["resolve_config"] = round((time.perf_counter() - t0) * 1000, 2)
 
     # Get full standardized portfolio data (including exposure metrics)
     fmp_ticker_map = config.get("fmp_ticker_map")
     currency_map = config.get("currency_map")
     instrument_types = config.get("instrument_types")
+    contract_identities = config.get("contract_identities")
+
+    def _contract_identity_for_ticker(ticker: str) -> Optional[Dict[str, Any]]:
+        if not contract_identities:
+            return None
+        raw_ticker = str(ticker or "").strip()
+        normalized_ticker = raw_ticker.upper()
+        return contract_identities.get(normalized_ticker) or contract_identities.get(raw_ticker)
+
     if fmp_ticker_map:
-        price_fetcher = lambda t: latest_price(
-            t,
-            fmp_ticker_map=fmp_ticker_map,
-            currency=currency_map.get(t) if currency_map else None,
-            instrument_types=instrument_types,
-        )
+        def price_fetcher(t: str) -> float:
+            contract_identity = _contract_identity_for_ticker(t)
+            kwargs: Dict[str, Any] = {
+                "fmp_ticker_map": fmp_ticker_map,
+                "currency": currency_map.get(t) if currency_map else None,
+                "instrument_types": instrument_types,
+            }
+            if contract_identity:
+                kwargs["contract_identity"] = contract_identity
+            return latest_price(t, **kwargs)
     else:
-        price_fetcher = lambda t: latest_price(
-            t,
-            currency=currency_map.get(t) if currency_map else None,
-            instrument_types=instrument_types,
-        )
+        def price_fetcher(t: str) -> float:
+            contract_identity = _contract_identity_for_ticker(t)
+            kwargs: Dict[str, Any] = {
+                "currency": currency_map.get(t) if currency_map else None,
+                "instrument_types": instrument_types,
+            }
+            if contract_identity:
+                kwargs["contract_identity"] = contract_identity
+            return latest_price(t, **kwargs)
     standardized_keys = (
         "weights",
         "dollar_exposure",
@@ -115,6 +138,7 @@ def analyze_portfolio(
         "leverage",
         "notional_leverage",
     )
+    t1 = time.perf_counter()
     if all(k in config for k in standardized_keys) and config.get("weights") is not None:
         standardized_data = {k: config.get(k) for k in standardized_keys}
     else:
@@ -124,23 +148,42 @@ def analyze_portfolio(
             currency_map=currency_map,
             fmp_ticker_map=fmp_ticker_map,
             instrument_types=instrument_types,
+            contract_identities=contract_identities,
         )
+    step_timings["standardize"] = round((time.perf_counter() - t1) * 1000, 2)
     weights = standardized_data["weights"]
-    
-    # ─── 2. Build Portfolio View ─────────────────────────────
-    summary = build_portfolio_view(
-        weights,
-        config["start_date"],
-        config["end_date"],
-        config.get("expected_returns"),
-        config.get("stock_factor_proxies"),
-        asset_classes=asset_classes,
-        fmp_ticker_map=fmp_ticker_map,
-        currency_map=currency_map,
-        instrument_types=instrument_types,
-        security_types=security_types,
-    )
-    
+
+    # ─── 2+3. Build Portfolio View & Calculate Beta Limits (concurrent) ───
+    from concurrent.futures import ThreadPoolExecutor
+
+    lookback_years = PORTFOLIO_DEFAULTS.get('worst_case_lookback_years', 10)
+
+    t2 = time.perf_counter()
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        future_view = executor.submit(
+            build_portfolio_view,
+            weights,
+            config["start_date"],
+            config["end_date"],
+            config.get("expected_returns"),
+            config.get("stock_factor_proxies"),
+            asset_classes=asset_classes,
+            fmp_ticker_map=fmp_ticker_map,
+            currency_map=currency_map,
+            instrument_types=instrument_types,
+            contract_identities=contract_identities,
+            security_types=security_types,
+        )
+        future_betas = executor.submit(
+            calc_max_factor_betas,
+            lookback_years=lookback_years,
+            echo=False,
+            stock_factor_proxies=config.get("stock_factor_proxies"),
+            fmp_ticker_map=config.get("fmp_ticker_map"),
+            max_single_factor_loss=risk_config.get("max_single_factor_loss"),
+        )
+        summary = future_view.result()
+        max_betas, max_betas_by_proxy, historical_analysis = future_betas.result()
     # ─── 2.1. Add Exposure Metrics to Summary ─────────────────
     summary.update({
         "net_exposure": standardized_data["net_exposure"],
@@ -150,18 +193,10 @@ def analyze_portfolio(
         "dollar_exposure": standardized_data["dollar_exposure"],
         "notional_leverage": standardized_data.get("notional_leverage", 1.0),
     })
-    
-    # ─── 3. Calculate Beta Limits ────────────────────────────
-    lookback_years = PORTFOLIO_DEFAULTS.get('worst_case_lookback_years', 10)
-    max_betas, max_betas_by_proxy, historical_analysis = calc_max_factor_betas(
-        lookback_years=lookback_years,
-        echo=False,  # Don't print helper tables when capturing output
-        stock_factor_proxies=config.get("stock_factor_proxies"),
-        fmp_ticker_map=config.get("fmp_ticker_map"),
-        max_single_factor_loss=risk_config.get("max_single_factor_loss"),
-    )
+    step_timings["build_view_and_betas"] = round((time.perf_counter() - t2) * 1000, 2)
     
     # ─── 4. Run Risk Checks ──────────────────────────────────
+    t3 = time.perf_counter()
     df_risk = evaluate_portfolio_risk_limits(
         summary,
         risk_config["portfolio_limits"],
@@ -176,9 +211,11 @@ def analyze_portfolio(
         proxy_betas=summary["industry_variance"].get("per_industry_group_beta"),
         max_proxy_betas=max_betas_by_proxy
     )
+    step_timings["risk_checks"] = round((time.perf_counter() - t3) * 1000, 2)
     
     # ─── 5. Return Result Object ────────────────────────
-    return RiskAnalysisResult.from_core_analysis(
+    t4 = time.perf_counter()
+    result = RiskAnalysisResult.from_core_analysis(
         portfolio_summary=summary,
         risk_checks=df_risk.to_dict('records'), 
         beta_checks=df_beta.reset_index().to_dict('records'),
@@ -200,8 +237,22 @@ def analyze_portfolio(
             "security_types": security_types,
             "target_allocation": config.get("target_allocation"),
             "fmp_ticker_map": fmp_ticker_map,
+            "step_timings_ms": step_timings,
         }
     )
+    step_timings["result_construction"] = round((time.perf_counter() - t4) * 1000, 2)
+    step_timings["total"] = round((time.perf_counter() - t0) * 1000, 2)
+    if hasattr(result, "analysis_metadata") and isinstance(result.analysis_metadata, dict):
+        result.analysis_metadata["step_timings_ms"] = step_timings
+    elif isinstance(result, dict):
+        result.setdefault("analysis_metadata", {})["step_timings_ms"] = step_timings
+    log_timing_event(
+        kind="step",
+        name="analyze_portfolio",
+        duration_ms=step_timings["total"],
+        steps=step_timings,
+    )
+    return result
 
 
 def _as_finite_float(value: Any) -> Optional[float]:

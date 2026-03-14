@@ -1,0 +1,3 @@
+line_no,row_kind,source_table,currency,value_date,symbol,start_date,quantity,collateral_amount,market_based_rate,syep_rate_on_customer_collateral,syep_fee_earned_by_customer,code
+484,Data,stock_yield_enhancement_program_securities_lent_fee_earned_details__01,USD,2025-12-17,TKO,2025-12-17,-12,2580,0.1,0.05,0.01,Po
+485,Data,stock_yield_enhancement_program_securities_lent_fee_earned_details__01,Total,,,,,,,,0.01,

@@ -1,0 +1,368 @@
+{
+  "analysis_period": {
+    "start_date": "2024-05-31",
+    "end_date": "2026-01-31",
+    "total_months": 21,
+    "years": 1.75
+  },
+  "returns": {
+    "total_return": 51.36,
+    "annualized_return": 26.73,
+    "best_month": 13.34,
+    "worst_month": -7.68,
+    "positive_months": 15,
+    "negative_months": 6,
+    "win_rate": 71.4
+  },
+  "risk_metrics": {
+    "volatility": 20.34,
+    "maximum_drawdown": -6.45,
+    "downside_deviation": 15.73,
+    "tracking_error": 22.13
+  },
+  "risk_adjusted_returns": {
+    "sharpe_ratio": 1.094,
+    "sortino_ratio": 1.414,
+    "information_ratio": 0.298,
+    "calmar_ratio": 4.14
+  },
+  "benchmark_analysis": {
+    "benchmark_ticker": "SPY",
+    "alpha_annual": 19.45,
+    "beta": 0.13,
+    "r_squared": 0.004,
+    "excess_return": 6.59
+  },
+  "benchmark_comparison": {
+    "portfolio_total_return": 51.36,
+    "benchmark_total_return": 37.85,
+    "portfolio_return": 26.73,
+    "benchmark_return": 20.13,
+    "portfolio_volatility": 20.34,
+    "benchmark_volatility": 10.16,
+    "portfolio_sharpe": 1.094,
+    "benchmark_sharpe": 1.541
+  },
+  "monthly_stats": {
+    "average_monthly_return": 2.15,
+    "average_win": 4.58,
+    "average_loss": -3.93,
+    "win_loss_ratio": 1.17
+  },
+  "risk_free_rate": 4.47,
+  "monthly_returns": {
+    "2024-05-31": -0.0768,
+    "2024-06-30": -0.0645,
+    "2024-07-31": 0.1203,
+    "2024-08-31": 0.1146,
+    "2024-09-30": 0.0365,
+    "2024-10-31": 0.1219,
+    "2024-11-30": 0.1334,
+    "2024-12-31": -0.0319,
+    "2025-01-31": 0.019,
+    "2025-02-28": 0.0069,
+    "2025-03-31": -0.0116,
+    "2025-04-30": 0.0046,
+    "2025-05-31": 0.0207,
+    "2025-06-30": 0.0082,
+    "2025-07-31": 0.0115,
+    "2025-08-31": 0.0495,
+    "2025-09-30": -0.0192,
+    "2025-10-31": -0.032,
+    "2025-11-30": 0.0302,
+    "2025-12-31": 0.003,
+    "2026-01-31": 0.0076
+  },
+  "realized_metadata": {
+    "realized_pnl": 81.71,
+    "unrealized_pnl": 737.87,
+    "net_contributions": 73578.27,
+    "nav_pnl_usd": 9030.14,
+    "nav_pnl_synthetic_enhanced_usd": 9030.14,
+    "nav_pnl_observed_only_usd": 8325.67,
+    "nav_pnl_synthetic_impact_usd": 704.47,
+    "lot_pnl_usd": 7212.17,
+    "reconciliation_gap_usd": 1817.97,
+    "pnl_basis": {
+      "nav": "nav_flow_synthetic_enhanced",
+      "nav_observed_only": "nav_flow_observed_only",
+      "lot": "fifo_observed_lots"
+    },
+    "nav_metrics_estimated": true,
+    "high_confidence_realized": false,
+    "income": {
+      "total": 6392.59,
+      "dividends": 7456.74,
+      "interest": -1064.15,
+      "by_month": {
+        "2024-08": 64.34,
+        "2024-09": 44.14,
+        "2024-10": 44.52,
+        "2024-11": 65.78999999999999,
+        "2024-12": 45.34,
+        "2025-01": 45.75,
+        "2025-02": 303.15,
+        "2025-03": 676.21,
+        "2025-04": 581.9,
+        "2025-05": 254.19,
+        "2025-06": 467.58,
+        "2025-07": 882.33,
+        "2025-08": 259.14,
+        "2025-09": 431.16,
+        "2025-10": 812.0300000000001,
+        "2025-11": 215.86,
+        "2025-12": 377.67,
+        "2026-01": 821.4799999999999,
+        "2026-02": 0.01
+      },
+      "by_symbol": {
+        "DSU": 3667.7900000000004,
+        "MSCI": 136.20999999999998,
+        "INTEREST": -1064.15,
+        "ENB": 611.99,
+        "SHY": 258.98,
+        "CBL": 460.0,
+        "STWD": 880.4200000000001,
+        "BXMT": 915.98,
+        "MRP": 513.41,
+        "SPY": 11.96
+      },
+      "by_institution": {
+        "Charles Schwab": {
+          "dividends": 7456.74,
+          "interest": -1064.15,
+          "total": 6392.59
+        }
+      },
+      "current_monthly_rate": 399.72,
+      "projected_annual": 4796.64,
+      "yield_on_cost": 11.3548,
+      "yield_on_value": 10.4551
+    },
+    "data_coverage": 66.67,
+    "inception_date": "2024-04-29",
+    "synthetic_positions": [
+      {
+        "ticker": "CPPMF",
+        "currency": "USD",
+        "direction": "LONG"
+      },
+      {
+        "ticker": "GLBE",
+        "currency": "USD",
+        "direction": "LONG"
+      },
+      {
+        "ticker": "LIFFF",
+        "currency": "USD",
+        "direction": "LONG"
+      },
+      {
+        "ticker": "PCTY",
+        "currency": "USD",
+        "direction": "LONG"
+      }
+    ],
+    "synthetic_entry_count": 4,
+    "synthetic_current_position_count": 4,
+    "synthetic_current_position_tickers": [
+      "CPPMF",
+      "GLBE",
+      "LIFFF",
+      "PCTY"
+    ],
+    "synthetic_current_market_value": 4887.68,
+    "synthetic_incomplete_trade_count": 0,
+    "first_transaction_exit_count": 0,
+    "first_transaction_exit_details": [],
+    "extreme_return_months": [],
+    "data_quality_flags": [
+      {
+        "code": "CROSS_SOURCE_HOLDING_LEAKAGE",
+        "severity": "medium",
+        "count": 3,
+        "symbols": [
+          "DSU",
+          "MSCI",
+          "STWD"
+        ]
+      },
+      {
+        "code": "SYNTHETIC_OPENING_POSITIONS",
+        "severity": "high",
+        "count": 4,
+        "symbols": [
+          "CPPMF",
+          "GLBE",
+          "LIFFF",
+          "PCTY"
+        ],
+        "estimated_current_market_value": 4887.68
+      }
+    ],
+    "unpriceable_symbol_count": 0,
+    "unpriceable_symbols": [],
+    "unpriceable_reason_counts": {},
+    "unpriceable_reasons": {},
+    "ibkr_pricing_coverage": {
+      "total_symbols_priced_via_ibkr": 0,
+      "by_instrument_type": {
+        "futures": 0,
+        "fx": 0,
+        "bond": 0,
+        "option": 0
+      }
+    },
+    "source_breakdown": {
+      "schwab": 88
+    },
+    "reliable": false,
+    "reliability_reasons": [
+      "Data coverage 66.67% is below target 95.00%.",
+      "Reconciliation gap 2.78% exceeds max 2.00%.",
+      "NAV metrics include estimated inputs (synthetic positions, low coverage, or unpriceable symbols).",
+      "3 holding symbol(s) had cross-source attribution leakage."
+    ],
+    "holdings_scope": "source_scoped",
+    "source_holding_symbols": [
+      "BXMT",
+      "CBL",
+      "CPPMF",
+      "ENB",
+      "GLBE",
+      "LIFFF",
+      "MRP",
+      "PCTY",
+      "SPY"
+    ],
+    "source_holding_count": 9,
+    "source_transaction_count": 88,
+    "cross_source_holding_leakage_symbols": [
+      "DSU",
+      "MSCI",
+      "STWD"
+    ],
+    "reliability_reason_codes": [
+      "LOW_DATA_COVERAGE",
+      "RECONCILIATION_GAP_EXCEED_LIMIT",
+      "NAV_METRICS_ESTIMATED",
+      "CROSS_SOURCE_HOLDING_LEAKAGE"
+    ],
+    "fetch_errors": {},
+    "flow_source_breakdown": {
+      "provider_authoritative_applied": 127,
+      "provider_authoritative_available": 127,
+      "provider_diagnostics_only": 3,
+      "inferred": 0
+    },
+    "inferred_flow_diagnostics": {
+      "mode": "provider_authoritative_only",
+      "fallback_slices_present": false,
+      "replayed_fallback_provider_activity": false,
+      "total_inferred_event_count": 0,
+      "total_inferred_net_usd": 0.0,
+      "inferred_event_window": {
+        "start": null,
+        "end": null
+      },
+      "by_provider": {},
+      "by_slice": {}
+    },
+    "provider_flow_coverage": {
+      "schwab|charles schwab|468AE470AC18C1252813F827DCF77818763E6B013C5706E3A05A238F61CFF8EC": {
+        "authoritative": true,
+        "has_metadata": true,
+        "event_count": 39,
+        "coverage_start": "2024-08-24T00:00:00",
+        "coverage_end": "2026-02-17T00:00:00",
+        "has_error": false,
+        "has_partial": false,
+        "deterministic_no_flow": false,
+        "unmapped_row_count": 0
+      },
+      "schwab|charles schwab|4AE3AB6F3ED9C99B4FC9E92FE05BB82AAFA0584FEB9DFF118AC324EF75920A1B": {
+        "authoritative": true,
+        "has_metadata": true,
+        "event_count": 87,
+        "coverage_start": "2024-04-01T00:00:00",
+        "coverage_end": "2026-02-24T00:00:00",
+        "has_error": false,
+        "has_partial": false,
+        "deterministic_no_flow": false,
+        "unmapped_row_count": 0
+      },
+      "schwab|charles schwab|A3CF93C405D3DDC831B9CB5BDB74483D2945097D50EBC608C222340237E8DC1F": {
+        "authoritative": true,
+        "has_metadata": true,
+        "event_count": 4,
+        "coverage_start": "2024-08-24T00:00:00",
+        "coverage_end": "2026-01-30T00:00:00",
+        "has_error": false,
+        "has_partial": false,
+        "deterministic_no_flow": false,
+        "unmapped_row_count": 0
+      }
+    },
+    "flow_fallback_reasons": [],
+    "dedup_diagnostics": {
+      "input_count": 130,
+      "output_count": 130,
+      "duplicates_dropped_by_provider": {},
+      "duplicates_dropped_by_slice": {}
+    },
+    "external_net_flows_usd": 50442.64,
+    "net_contributions_definition": "trade_cash_legs_legacy",
+    "data_warnings": [
+      "2024-04-30: V_start=0 with no detected inflows; return set to 0.",
+      "Detected 4 synthetic position(s) with estimated cash impact. Synthetic positions are valued in NAV but excluded from cash replay to avoid inflating the Modified Dietz denominator.",
+      "Excluded 3 cross-source holding symbol(s) from schwab strict holdings scope (DSU, MSCI, STWD); attribution remained ambiguous after precedence checks.",
+      "HIGH CONFIDENCE GATE FAILED: NAV metrics include estimated inputs (synthetic positions, low coverage, or unpriceable symbols).",
+      "HIGH CONFIDENCE GATE FAILED: data coverage 66.67% is below target 95.00%.",
+      "HIGH CONFIDENCE GATE FAILED: reconciliation gap 2.78% exceeds max 2.00%.",
+      "HIGH DATA QUALITY FLAG: Synthetic opening positions inferred for 4 symbol(s) (CPPMF, GLBE, LIFFF, PCTY). NAV/return metrics include these synthetic lots, but realized/unrealized P&L only includes observed transaction lots, so the metrics can diverge.",
+      "source filter applies to transactions and holdings are source-scoped when attribution is available."
+    ],
+    "futures_cash_policy": "fee_only",
+    "futures_txn_count_replayed": 0,
+    "futures_notional_suppressed_usd": 0.0,
+    "futures_fee_cash_impact_usd": 0.0,
+    "futures_unknown_action_count": 0,
+    "futures_missing_fx_count": 0,
+    "income_flow_overlap_dropped_count": 0,
+    "income_flow_overlap_dropped_net_usd": 0.0,
+    "income_flow_overlap_dropped_by_provider": {},
+    "income_flow_overlap_candidate_count": 0,
+    "income_flow_overlap_alias_mismatch_count": 0,
+    "income_flow_overlap_alias_mismatch_samples": []
+  },
+  "realized_pnl": 81.71,
+  "unrealized_pnl": 737.87,
+  "income_total": 6392.59,
+  "income_yield_on_cost": 11.3548,
+  "income_yield_on_value": 10.4551,
+  "data_coverage": 66.67,
+  "inception_date": "2024-04-29",
+  "nav_pnl_usd": 9030.14,
+  "nav_pnl_observed_only_usd": 8325.67,
+  "nav_pnl_synthetic_impact_usd": 704.47,
+  "lot_pnl_usd": 7212.17,
+  "reconciliation_gap_usd": 1817.97,
+  "nav_metrics_estimated": true,
+  "high_confidence_realized": false,
+  "pnl_basis": {
+    "nav": "nav_flow_synthetic_enhanced",
+    "nav_observed_only": "nav_flow_observed_only",
+    "lot": "fifo_observed_lots"
+  },
+  "external_net_flows_usd": 50442.64,
+  "net_contributions_definition": "trade_cash_legs_legacy",
+  "status": "success",
+  "mode": "realized",
+  "performance_category": "good",
+  "key_insights": [
+    "\u2022 Reliability warning: realized metrics are low confidence (LOW_DATA_COVERAGE, RECONCILIATION_GAP_EXCEED_LIMIT, NAV_METRICS_ESTIMATED, ...)",
+    "\u2022 Strong alpha generation (+19.4% vs benchmark)",
+    "\u2022 High volatility (20.3% vs 10.2% benchmark)",
+    "\u2022 High consistency (71% positive months)"
+  ]
+}

@@ -1,0 +1,4 @@
+line_no,row_kind,asset_category,symbol,description,conid,underlying,listing_exch,multiplier,expiry,delivery_month,code
+521,Data,Futures,MGCM5,MGC 26JUN25,639786536,MGC,COMEX,10,2025-06-26,2025-06,
+522,Data,Futures,MHIJ5,MHI 29APR25,765238357,MHI,HKFE,10,2025-04-29,2025-04,
+523,Data,Futures,ZFM5,ZF 30JUN25,732487391,ZF,CBOT,"1,000",2025-06-30,2025-06,

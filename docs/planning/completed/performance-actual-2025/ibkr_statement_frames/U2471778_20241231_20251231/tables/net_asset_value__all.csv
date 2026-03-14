@@ -1,0 +1,7 @@
+line_no,row_kind,source_table,asset_class,prior_total,current_long,current_short,current_total,change,time_weighted_rate_of_return
+15,Data,net_asset_value__01,Cash ,-2386.26360983,4054.86813,-9909.107072742,-5854.238942742,-3467.975332912,
+16,Data,net_asset_value__01,Stock,20123.959,27791.01,0,27791.01,7667.051,
+17,Data,net_asset_value__01,Options,6518.85,15.05,0,15.05,-6503.8,
+18,Data,net_asset_value__01,Interest Accruals,-67.871624,0,-25.58,-25.58,42.291624,
+19,Data,net_asset_value__01,Total,24188.67376617,31860.92813,-9934.687072742,21926.241057258,-2262.432708912,
+21,Data,net_asset_value__02,,,,,,,-9.353273068%

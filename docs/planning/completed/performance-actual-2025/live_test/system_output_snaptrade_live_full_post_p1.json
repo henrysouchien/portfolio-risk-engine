@@ -1,0 +1,4 @@
+{
+  "status": "error",
+  "error": "Realized performance analysis failed: No transaction history and no current positions available for realized performance analysis."
+}

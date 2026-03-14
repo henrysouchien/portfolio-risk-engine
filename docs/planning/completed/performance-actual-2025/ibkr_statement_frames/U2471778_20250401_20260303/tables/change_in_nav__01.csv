@@ -1,0 +1,12 @@
+line_no,row_kind,field_name,field_value
+24,Data,Starting Value,22283.715994375
+25,Data,Mark-to-Market,327.49596306
+26,Data,Dividends,182.41
+27,Data,Change in Dividend Accruals,-0.26
+28,Data,Interest,-261.8375582
+29,Data,Change in Interest Accruals,54.1696298
+30,Data,Other Fees,-164
+31,Data,Commissions,-61.99442473
+32,Data,Transaction Fees,-11.0411085
+33,Data,Other FX Translations,0.1084138
+34,Data,Ending Value,22348.766909136

@@ -1,0 +1,853 @@
+{
+  "analysis_period": {
+    "start_date": "2024-05-31",
+    "end_date": "2026-01-31",
+    "total_months": 21,
+    "years": 1.75
+  },
+  "returns": {
+    "total_return": 188.08,
+    "annualized_return": 83.05,
+    "best_month": 99.38,
+    "worst_month": -22.71,
+    "positive_months": 15,
+    "negative_months": 6,
+    "win_rate": 71.4
+  },
+  "risk_metrics": {
+    "volatility": 90.4,
+    "maximum_drawdown": -34.99,
+    "downside_deviation": 39.81,
+    "tracking_error": 93.33
+  },
+  "risk_adjusted_returns": {
+    "sharpe_ratio": 0.869,
+    "sortino_ratio": 1.974,
+    "information_ratio": 0.674,
+    "calmar_ratio": 2.374
+  },
+  "benchmark_analysis": {
+    "benchmark_ticker": "SPY",
+    "alpha_annual": 115.0,
+    "beta": -2.108,
+    "r_squared": 0.056,
+    "excess_return": 62.92
+  },
+  "benchmark_comparison": {
+    "portfolio_total_return": 188.08,
+    "benchmark_total_return": 37.85,
+    "portfolio_return": 83.05,
+    "benchmark_return": 20.13,
+    "portfolio_volatility": 90.4,
+    "benchmark_volatility": 10.16,
+    "portfolio_sharpe": 0.869,
+    "benchmark_sharpe": 1.541
+  },
+  "monthly_stats": {
+    "average_monthly_return": 7.41,
+    "average_win": 13.24,
+    "average_loss": -7.18,
+    "win_loss_ratio": 1.84
+  },
+  "risk_free_rate": 4.47,
+  "monthly_returns": {
+    "2024-05-31": 0.028,
+    "2024-06-30": 0.0176,
+    "2024-07-31": 0.0921,
+    "2024-08-31": 0.9938,
+    "2024-09-30": 0.0327,
+    "2024-10-31": 0.0149,
+    "2024-11-30": 0.0797,
+    "2024-12-31": -0.0208,
+    "2025-01-31": 0.0291,
+    "2025-02-28": 0.0133,
+    "2025-03-31": 0.6282,
+    "2025-04-30": -0.2271,
+    "2025-05-31": -0.1533,
+    "2025-06-30": 0.0088,
+    "2025-07-31": -0.0058,
+    "2025-08-31": 0.0146,
+    "2025-09-30": -0.0037,
+    "2025-10-31": -0.0201,
+    "2025-11-30": 0.0118,
+    "2025-12-31": 0.0164,
+    "2026-01-31": 0.0057
+  },
+  "realized_metadata": {
+    "realized_pnl": -1491.12,
+    "unrealized_pnl": 2231.7,
+    "net_contributions": 36821.84,
+    "nav_pnl_usd": 56694.35,
+    "nav_pnl_synthetic_enhanced_usd": 56694.35,
+    "nav_pnl_observed_only_usd": 27255.63,
+    "nav_pnl_synthetic_impact_usd": 29438.72,
+    "lot_pnl_usd": 10062.08,
+    "reconciliation_gap_usd": 46632.27,
+    "pnl_basis": {
+      "nav": "nav_flow_synthetic_enhanced",
+      "nav_observed_only": "nav_flow_observed_only",
+      "lot": "fifo_observed_lots"
+    },
+    "nav_metrics_estimated": true,
+    "high_confidence_realized": false,
+    "income": {
+      "total": 9321.51,
+      "dividends": 11495.29,
+      "interest": -2173.78,
+      "by_month": {
+        "2026-01": 1094.9599999999998,
+        "2025-12": 447.97,
+        "2025-11": 320.9,
+        "2025-10": 1111.2400000000002,
+        "2025-09": 504.51000000000005,
+        "2025-08": 367.61000000000007,
+        "2025-07": 1213.4299999999998,
+        "2025-06": 575.4200000000001,
+        "2025-05": 354.0400000000001,
+        "2025-04": 905.98,
+        "2025-03": 835.9499999999999,
+        "2025-02": 452.94000000000005,
+        "2025-01": 177.46,
+        "2024-12": 48.67,
+        "2024-11": 101.09,
+        "2024-10": 364.2200000000001,
+        "2024-09": 168.51,
+        "2024-08": 237.47,
+        "2026-02": -29.069999999999997
+      },
+      "by_symbol": {
+        "CUR:USD": -782.81,
+        "DSU": 6206.519999999998,
+        "STWD": 1871.1399999999999,
+        "MSCI": 352.68,
+        "V": 7.32,
+        "UNKNOWN": -395.03999999999996,
+        "TKO": 27.599999999999998,
+        "CBL": 580.0,
+        "NVDA": 1.0,
+        "IGIC": 102.51,
+        "EQT": 19.2,
+        "KINS": 15.0,
+        "USD IBKR MANAGED SECURITIES": 0.01,
+        "INTEREST": -1064.15,
+        "ENB": 611.99,
+        "SHY": 258.98,
+        "BXMT": 915.98,
+        "MRP": 513.41,
+        "SPY": 11.96
+      },
+      "by_institution": {
+        "Charles Schwab": {
+          "dividends": 7456.74,
+          "interest": -1064.15,
+          "total": 6392.59
+        },
+        "Merrill": {
+          "dividends": 3736.92,
+          "interest": -782.81,
+          "total": 2954.11
+        },
+        "ibkr": {
+          "dividends": 301.63,
+          "interest": -326.82,
+          "total": -25.19
+        }
+      },
+      "current_monthly_rate": 507.21,
+      "projected_annual": 6086.51,
+      "yield_on_cost": 3.8045,
+      "yield_on_value": 3.7389
+    },
+    "data_coverage": 58.33,
+    "inception_date": "2024-04-29",
+    "synthetic_positions": [
+      {
+        "ticker": "CBL",
+        "currency": "USD",
+        "direction": "LONG"
+      },
+      {
+        "ticker": "CPPMF",
+        "currency": "USD",
+        "direction": "LONG"
+      },
+      {
+        "ticker": "CUBI",
+        "currency": "USD",
+        "direction": "LONG"
+      },
+      {
+        "ticker": "EQT",
+        "currency": "USD",
+        "direction": "LONG"
+      },
+      {
+        "ticker": "GLBE",
+        "currency": "USD",
+        "direction": "LONG"
+      },
+      {
+        "ticker": "GLBE",
+        "currency": "USD",
+        "direction": "SHORT"
+      },
+      {
+        "ticker": "IGIC",
+        "currency": "USD",
+        "direction": "LONG"
+      },
+      {
+        "ticker": "IT",
+        "currency": "USD",
+        "direction": "LONG"
+      },
+      {
+        "ticker": "KINS",
+        "currency": "USD",
+        "direction": "LONG"
+      },
+      {
+        "ticker": "LIFFF",
+        "currency": "USD",
+        "direction": "LONG"
+      },
+      {
+        "ticker": "MES",
+        "currency": "USD",
+        "direction": "LONG"
+      },
+      {
+        "ticker": "MGC",
+        "currency": "USD",
+        "direction": "LONG"
+      },
+      {
+        "ticker": "MSCI",
+        "currency": "USD",
+        "direction": "LONG"
+      },
+      {
+        "ticker": "NMM",
+        "currency": "USD",
+        "direction": "LONG"
+      },
+      {
+        "ticker": "NVDA",
+        "currency": "USD",
+        "direction": "LONG"
+      },
+      {
+        "ticker": "NXT_C30_250815",
+        "currency": "USD",
+        "direction": "LONG"
+      },
+      {
+        "ticker": "PCTY",
+        "currency": "USD",
+        "direction": "LONG"
+      },
+      {
+        "ticker": "PDD_C110_260116",
+        "currency": "USD",
+        "direction": "LONG"
+      },
+      {
+        "ticker": "PLTR_P80_250417",
+        "currency": "USD",
+        "direction": "SHORT"
+      },
+      {
+        "ticker": "PLTR_P90_250417",
+        "currency": "USD",
+        "direction": "LONG"
+      },
+      {
+        "ticker": "SE",
+        "currency": "USD",
+        "direction": "LONG"
+      },
+      {
+        "ticker": "TKO",
+        "currency": "USD",
+        "direction": "LONG"
+      },
+      {
+        "ticker": "V",
+        "currency": "USD",
+        "direction": "LONG"
+      },
+      {
+        "ticker": "VBNK",
+        "currency": "USD",
+        "direction": "LONG"
+      }
+    ],
+    "synthetic_entry_count": 27,
+    "synthetic_current_position_count": 13,
+    "synthetic_current_position_tickers": [
+      "CBL",
+      "CPPMF",
+      "EQT",
+      "GLBE",
+      "IGIC",
+      "IT",
+      "KINS",
+      "LIFFF",
+      "MSCI",
+      "NVDA",
+      "PCTY",
+      "TKO",
+      "V"
+    ],
+    "synthetic_current_market_value": 49789.03,
+    "synthetic_incomplete_trade_count": 14,
+    "first_transaction_exit_count": 14,
+    "first_transaction_exit_details": [
+      {
+        "symbol": "CUBI",
+        "currency": "USD",
+        "direction": "LONG",
+        "first_date": "2025-04-09",
+        "first_type": "SELL",
+        "source": "ibkr_flex",
+        "quantity": 50.0
+      },
+      {
+        "symbol": "GBP.HKD",
+        "currency": "HKD",
+        "direction": "LONG",
+        "first_date": "2025-04-04",
+        "first_type": "SELL",
+        "source": "ibkr_flex",
+        "quantity": 13.16
+      },
+      {
+        "symbol": "GLBE",
+        "currency": "USD",
+        "direction": "SHORT",
+        "first_date": "2025-03-10",
+        "first_type": "COVER",
+        "source": "ibkr_flex",
+        "quantity": 47.0
+      },
+      {
+        "symbol": "MES",
+        "currency": "USD",
+        "direction": "LONG",
+        "first_date": "2025-03-10",
+        "first_type": "SELL",
+        "source": "ibkr_flex",
+        "quantity": 5.0
+      },
+      {
+        "symbol": "MGC",
+        "currency": "USD",
+        "direction": "LONG",
+        "first_date": "2025-03-27",
+        "first_type": "SELL",
+        "source": "ibkr_flex",
+        "quantity": 10.0
+      },
+      {
+        "symbol": "NMM",
+        "currency": "USD",
+        "direction": "LONG",
+        "first_date": "2025-04-08",
+        "first_type": "SELL",
+        "source": "ibkr_flex",
+        "quantity": 40.0
+      },
+      {
+        "symbol": "NMM_C70_260116",
+        "currency": "USD",
+        "direction": "LONG",
+        "first_date": "2026-01-16",
+        "first_type": "SELL",
+        "source": "ibkr_flex",
+        "quantity": 1.0
+      },
+      {
+        "symbol": "NMM_C85_260116",
+        "currency": "USD",
+        "direction": "LONG",
+        "first_date": "2026-01-16",
+        "first_type": "SELL",
+        "source": "ibkr_flex",
+        "quantity": 1.0
+      },
+      {
+        "symbol": "NXT_C30_250815",
+        "currency": "USD",
+        "direction": "LONG",
+        "first_date": "2025-04-04",
+        "first_type": "SELL",
+        "source": "ibkr_flex",
+        "quantity": 1.0
+      },
+      {
+        "symbol": "PDD_C110_260116",
+        "currency": "USD",
+        "direction": "LONG",
+        "first_date": "2025-04-07",
+        "first_type": "SELL",
+        "source": "ibkr_flex",
+        "quantity": 1.0
+      },
+      {
+        "symbol": "PLTR_P80_250417",
+        "currency": "USD",
+        "direction": "SHORT",
+        "first_date": "2025-03-21",
+        "first_type": "COVER",
+        "source": "ibkr_flex",
+        "quantity": 1.0
+      },
+      {
+        "symbol": "PLTR_P90_250417",
+        "currency": "USD",
+        "direction": "LONG",
+        "first_date": "2025-03-21",
+        "first_type": "SELL",
+        "source": "ibkr_flex",
+        "quantity": 2.0
+      },
+      {
+        "symbol": "SE",
+        "currency": "USD",
+        "direction": "LONG",
+        "first_date": "2025-04-09",
+        "first_type": "SELL",
+        "source": "ibkr_flex",
+        "quantity": 16.0
+      },
+      {
+        "symbol": "VBNK",
+        "currency": "USD",
+        "direction": "LONG",
+        "first_date": "2025-03-10",
+        "first_type": "SELL",
+        "source": "ibkr_flex",
+        "quantity": 145.0
+      }
+    ],
+    "extreme_return_months": [],
+    "data_quality_flags": [
+      {
+        "code": "UNPRICEABLE_SYMBOLS",
+        "severity": "high",
+        "count": 1,
+        "symbols": [
+          "US Treasury Note - 4.25% 15/10/2025 USD 100"
+        ]
+      },
+      {
+        "code": "FIRST_TRANSACTION_EXIT",
+        "severity": "medium",
+        "count": 14,
+        "details": [
+          {
+            "symbol": "CUBI",
+            "currency": "USD",
+            "direction": "LONG",
+            "first_date": "2025-04-09",
+            "first_type": "SELL",
+            "source": "ibkr_flex",
+            "quantity": 50.0
+          },
+          {
+            "symbol": "GBP.HKD",
+            "currency": "HKD",
+            "direction": "LONG",
+            "first_date": "2025-04-04",
+            "first_type": "SELL",
+            "source": "ibkr_flex",
+            "quantity": 13.16
+          },
+          {
+            "symbol": "GLBE",
+            "currency": "USD",
+            "direction": "SHORT",
+            "first_date": "2025-03-10",
+            "first_type": "COVER",
+            "source": "ibkr_flex",
+            "quantity": 47.0
+          },
+          {
+            "symbol": "MES",
+            "currency": "USD",
+            "direction": "LONG",
+            "first_date": "2025-03-10",
+            "first_type": "SELL",
+            "source": "ibkr_flex",
+            "quantity": 5.0
+          },
+          {
+            "symbol": "MGC",
+            "currency": "USD",
+            "direction": "LONG",
+            "first_date": "2025-03-27",
+            "first_type": "SELL",
+            "source": "ibkr_flex",
+            "quantity": 10.0
+          },
+          {
+            "symbol": "NMM",
+            "currency": "USD",
+            "direction": "LONG",
+            "first_date": "2025-04-08",
+            "first_type": "SELL",
+            "source": "ibkr_flex",
+            "quantity": 40.0
+          },
+          {
+            "symbol": "NMM_C70_260116",
+            "currency": "USD",
+            "direction": "LONG",
+            "first_date": "2026-01-16",
+            "first_type": "SELL",
+            "source": "ibkr_flex",
+            "quantity": 1.0
+          },
+          {
+            "symbol": "NMM_C85_260116",
+            "currency": "USD",
+            "direction": "LONG",
+            "first_date": "2026-01-16",
+            "first_type": "SELL",
+            "source": "ibkr_flex",
+            "quantity": 1.0
+          },
+          {
+            "symbol": "NXT_C30_250815",
+            "currency": "USD",
+            "direction": "LONG",
+            "first_date": "2025-04-04",
+            "first_type": "SELL",
+            "source": "ibkr_flex",
+            "quantity": 1.0
+          },
+          {
+            "symbol": "PDD_C110_260116",
+            "currency": "USD",
+            "direction": "LONG",
+            "first_date": "2025-04-07",
+            "first_type": "SELL",
+            "source": "ibkr_flex",
+            "quantity": 1.0
+          },
+          {
+            "symbol": "PLTR_P80_250417",
+            "currency": "USD",
+            "direction": "SHORT",
+            "first_date": "2025-03-21",
+            "first_type": "COVER",
+            "source": "ibkr_flex",
+            "quantity": 1.0
+          },
+          {
+            "symbol": "PLTR_P90_250417",
+            "currency": "USD",
+            "direction": "LONG",
+            "first_date": "2025-03-21",
+            "first_type": "SELL",
+            "source": "ibkr_flex",
+            "quantity": 2.0
+          },
+          {
+            "symbol": "SE",
+            "currency": "USD",
+            "direction": "LONG",
+            "first_date": "2025-04-09",
+            "first_type": "SELL",
+            "source": "ibkr_flex",
+            "quantity": 16.0
+          },
+          {
+            "symbol": "VBNK",
+            "currency": "USD",
+            "direction": "LONG",
+            "first_date": "2025-03-10",
+            "first_type": "SELL",
+            "source": "ibkr_flex",
+            "quantity": 145.0
+          }
+        ]
+      },
+      {
+        "code": "SYNTHETIC_OPENING_POSITIONS",
+        "severity": "high",
+        "count": 13,
+        "symbols": [
+          "CBL",
+          "CPPMF",
+          "EQT",
+          "GLBE",
+          "IGIC",
+          "IT",
+          "KINS",
+          "LIFFF",
+          "MSCI",
+          "NVDA",
+          "PCTY",
+          "TKO",
+          "V"
+        ],
+        "estimated_current_market_value": 49789.03
+      },
+      {
+        "code": "SYNTHETIC_PNL_SENSITIVITY",
+        "severity": "high",
+        "impact_usd": 29438.72,
+        "threshold_usd": 5000.0,
+        "nav_pnl_synthetic_enhanced_usd": 56694.35,
+        "nav_pnl_observed_only_usd": 27255.63
+      }
+    ],
+    "unpriceable_symbol_count": 1,
+    "unpriceable_symbols": [
+      "US Treasury Note - 4.25% 15/10/2025 USD 100"
+    ],
+    "unpriceable_reason_counts": {
+      "bond_missing_con_id": 1
+    },
+    "unpriceable_reasons": {
+      "US Treasury Note - 4.25% 15/10/2025 USD 100": "bond_missing_con_id"
+    },
+    "ibkr_pricing_coverage": {
+      "total_symbols_priced_via_ibkr": 2,
+      "by_instrument_type": {
+        "futures": 2,
+        "fx": 0,
+        "bond": 0,
+        "option": 0
+      }
+    },
+    "source_breakdown": {
+      "schwab": 88,
+      "plaid": 54,
+      "ibkr_flex": 82
+    },
+    "reliable": false,
+    "reliability_reasons": [
+      "Data coverage 58.33% is below target 95.00%.",
+      "Incomplete trades (19) exceed max allowed (0).",
+      "Reconciliation gap 29.04% exceeds max 2.00%.",
+      "NAV metrics include estimated inputs (synthetic positions, low coverage, or unpriceable symbols).",
+      "High-severity unpriceable symbols are present.",
+      "NAV P&L is highly sensitive to synthetic reconstruction."
+    ],
+    "holdings_scope": "consolidated",
+    "source_holding_symbols": [
+      "AT.L",
+      "BXMT",
+      "CBL",
+      "CPPMF",
+      "DSU",
+      "ENB",
+      "EQT",
+      "FIG",
+      "GLBE",
+      "IGIC",
+      "IT",
+      "KINS",
+      "LIFFF",
+      "MRP",
+      "MSCI",
+      "NVDA",
+      "PCTY",
+      "RNMBY",
+      "SFM",
+      "SLV",
+      "SPY",
+      "STWD",
+      "TKO",
+      "V"
+    ],
+    "source_holding_count": 24,
+    "source_transaction_count": 224,
+    "cross_source_holding_leakage_symbols": [],
+    "reliability_reason_codes": [
+      "LOW_DATA_COVERAGE",
+      "INCOMPLETE_TRADES_EXCEED_LIMIT",
+      "RECONCILIATION_GAP_EXCEED_LIMIT",
+      "NAV_METRICS_ESTIMATED",
+      "HIGH_SEVERITY_UNPRICEABLE",
+      "SYNTHETIC_PNL_SENSITIVITY"
+    ],
+    "fetch_errors": {},
+    "flow_source_breakdown": {
+      "provider_authoritative_applied": 238,
+      "provider_authoritative_available": 238,
+      "provider_diagnostics_only": 3,
+      "inferred": 0
+    },
+    "inferred_flow_diagnostics": {
+      "mode": "provider_authoritative_only",
+      "fallback_slices_present": false,
+      "replayed_fallback_provider_activity": false,
+      "total_inferred_event_count": 0,
+      "total_inferred_net_usd": 0.0,
+      "inferred_event_window": {
+        "start": null,
+        "end": null
+      },
+      "by_provider": {},
+      "by_slice": {}
+    },
+    "provider_flow_coverage": {
+      "ibkr_flex|ibkr|U2471778": {
+        "authoritative": true,
+        "has_metadata": true,
+        "event_count": 50,
+        "coverage_start": "2025-03-05T00:00:00",
+        "coverage_end": "2026-02-04T00:00:00",
+        "has_error": false,
+        "has_partial": false,
+        "deterministic_no_flow": false,
+        "unmapped_row_count": 0
+      },
+      "plaid|merrill|16Yk8NJ5E5u3jz1zoKEJsyRZ9jBeybUg59bBx": {
+        "authoritative": true,
+        "has_metadata": true,
+        "event_count": 61,
+        "coverage_start": "2024-08-30T00:00:00",
+        "coverage_end": "2026-01-30T00:00:00",
+        "has_error": false,
+        "has_partial": false,
+        "deterministic_no_flow": false,
+        "unmapped_row_count": 0
+      },
+      "schwab|charles schwab|468AE470AC18C1252813F827DCF77818763E6B013C5706E3A05A238F61CFF8EC": {
+        "authoritative": true,
+        "has_metadata": true,
+        "event_count": 39,
+        "coverage_start": "2024-08-24T00:00:00",
+        "coverage_end": "2026-02-17T00:00:00",
+        "has_error": false,
+        "has_partial": false,
+        "deterministic_no_flow": false,
+        "unmapped_row_count": 0
+      },
+      "schwab|charles schwab|4AE3AB6F3ED9C99B4FC9E92FE05BB82AAFA0584FEB9DFF118AC324EF75920A1B": {
+        "authoritative": true,
+        "has_metadata": true,
+        "event_count": 87,
+        "coverage_start": "2024-04-01T00:00:00",
+        "coverage_end": "2026-02-24T00:00:00",
+        "has_error": false,
+        "has_partial": false,
+        "deterministic_no_flow": false,
+        "unmapped_row_count": 0
+      },
+      "schwab|charles schwab|A3CF93C405D3DDC831B9CB5BDB74483D2945097D50EBC608C222340237E8DC1F": {
+        "authoritative": true,
+        "has_metadata": true,
+        "event_count": 4,
+        "coverage_start": "2024-08-24T00:00:00",
+        "coverage_end": "2026-01-30T00:00:00",
+        "has_error": false,
+        "has_partial": false,
+        "deterministic_no_flow": false,
+        "unmapped_row_count": 0
+      }
+    },
+    "flow_fallback_reasons": [],
+    "dedup_diagnostics": {
+      "input_count": 241,
+      "output_count": 241,
+      "duplicates_dropped_by_provider": {},
+      "duplicates_dropped_by_slice": {}
+    },
+    "external_net_flows_usd": 79604.59,
+    "net_contributions_definition": "trade_cash_legs_legacy",
+    "data_warnings": [
+      "2024-04-30: V_start=0 with no detected inflows; return set to 0.",
+      "Cash replay: 2 open futures position(s) at end of replay (MES, MGC). Inference was suppressed during open period.",
+      "Cash replay: dropped 40 overlapping non-external provider-flow event(s) in favor of INCOME rows.",
+      "Cash replay: provider alias normalization adjusted 107 source token(s) (ibkr_flex->IBKR).",
+      "Cash replay: replaying 12 futures transaction(s); inference is suppressed while futures exposure is open.",
+      "Cash replay: skipped 4 fx-artifact transaction(s).",
+      "Detected 14 symbol(s) where the first observed transaction is an exit without an opening (CUBI, GBP.HKD, GLBE, MES, MGC, ...). Entry history is likely truncated; backfill recommended.",
+      "Detected 27 synthetic position(s) with estimated cash impact. Synthetic positions are valued in NAV but excluded from cash replay to avoid inflating the Modified Dietz denominator.",
+      "FMP plan does not include futures symbol MGC (HTTP 402); using IBKR fallback.",
+      "FMP plan does not include futures symbol ZF (HTTP 402); using IBKR fallback.",
+      "Filtered GBP.HKD (HKD, LONG) from timeline: instrument_type=fx_artifact.",
+      "Filtered USD.HKD (HKD, LONG) from timeline: instrument_type=fx_artifact.",
+      "HIGH CONFIDENCE GATE FAILED: NAV P&L is highly sensitive to synthetic reconstruction.",
+      "HIGH CONFIDENCE GATE FAILED: NAV metrics include estimated inputs (synthetic positions, low coverage, or unpriceable symbols).",
+      "HIGH CONFIDENCE GATE FAILED: data coverage 58.33% is below target 95.00%.",
+      "HIGH CONFIDENCE GATE FAILED: high-severity unpriceable symbols are present.",
+      "HIGH CONFIDENCE GATE FAILED: incomplete trades (19) exceed max allowed (0).",
+      "HIGH CONFIDENCE GATE FAILED: reconciliation gap 29.04% exceeds max 2.00%.",
+      "HIGH DATA QUALITY FLAG: 1 symbol(s) could not be priced (US Treasury Note - 4.25% 15/10/2025 USD 100). These symbols are valued at 0 in NAV and unrealized P&L.",
+      "HIGH DATA QUALITY FLAG: NAV P&L is highly sensitive to synthetic reconstruction (synthetic impact $29,438.72).",
+      "HIGH DATA QUALITY FLAG: Synthetic opening positions inferred for 13 symbol(s) (CBL, CPPMF, EQT, GLBE, IGIC, ...). NAV/return metrics include these synthetic lots, but realized/unrealized P&L only includes observed transaction lots, so the metrics can diverge.",
+      "No contract_identity.con_id for bond US Treasury Note - 4.25% 15/10/2025 USD 100; skipping IBKR bond pricing.",
+      "No monthly prices found for US Treasury Note - 4.25% 15/10/2025 USD 100; valuing as 0 when unavailable.",
+      "Priced expired option NMM_C70_260116 using FIFO close-price terminal heuristic (expiry 2026-01-16, current holdings flat).",
+      "Priced expired option NMM_C85_260116 using FIFO close-price terminal heuristic (expiry 2026-01-16, current holdings flat).",
+      "Priced futures MGC via IBKR Gateway fallback (24 monthly bars).",
+      "Priced futures ZF via IBKR Gateway fallback (24 monthly bars).",
+      "Priced option NXT_C30_250815 using FIFO close-price terminal heuristic.",
+      "Priced option PDD_C110_260116 using FIFO close-price terminal heuristic.",
+      "Priced option PDD_P110_260116 using FIFO close-price terminal heuristic.",
+      "Priced option PDD_P60_260116 using FIFO close-price terminal heuristic.",
+      "Priced option PLTR_P80_250417 using FIFO close-price terminal heuristic.",
+      "Priced option PLTR_P90_250417 using FIFO close-price terminal heuristic.",
+      "Priced option SLV_C30_250620 using FIFO close-price terminal heuristic.",
+      "Priced option SLV_C35_250620 using FIFO close-price terminal heuristic.",
+      "Seed skip DSU: broker cost $46781.35 < observed lot cost $48544.68; data inconsistency."
+    ],
+    "futures_cash_policy": "fee_only",
+    "futures_txn_count_replayed": 12,
+    "futures_notional_suppressed_usd": 518945.37,
+    "futures_fee_cash_impact_usd": -16.74,
+    "futures_unknown_action_count": 0,
+    "futures_missing_fx_count": 0,
+    "income_flow_overlap_dropped_count": 40,
+    "income_flow_overlap_dropped_net_usd": -1177.85,
+    "income_flow_overlap_dropped_by_provider": {
+      "IBKR": 25,
+      "PLAID": 15
+    },
+    "income_flow_overlap_candidate_count": 40,
+    "income_flow_overlap_alias_mismatch_count": 107,
+    "income_flow_overlap_alias_mismatch_samples": [
+      {
+        "raw_provider": "ibkr_flex",
+        "normalized_provider": "IBKR"
+      }
+    ]
+  },
+  "realized_pnl": -1491.12,
+  "unrealized_pnl": 2231.7,
+  "income_total": 9321.51,
+  "income_yield_on_cost": 3.8045,
+  "income_yield_on_value": 3.7389,
+  "data_coverage": 58.33,
+  "inception_date": "2024-04-29",
+  "nav_pnl_usd": 56694.35,
+  "nav_pnl_observed_only_usd": 27255.63,
+  "nav_pnl_synthetic_impact_usd": 29438.72,
+  "lot_pnl_usd": 10062.08,
+  "reconciliation_gap_usd": 46632.27,
+  "nav_metrics_estimated": true,
+  "high_confidence_realized": false,
+  "pnl_basis": {
+    "nav": "nav_flow_synthetic_enhanced",
+    "nav_observed_only": "nav_flow_observed_only",
+    "lot": "fifo_observed_lots"
+  },
+  "external_net_flows_usd": 79604.59,
+  "net_contributions_definition": "trade_cash_legs_legacy",
+  "status": "success",
+  "mode": "realized",
+  "performance_category": "fair",
+  "key_insights": [
+    "\u2022 Reliability warning: realized metrics are low confidence (LOW_DATA_COVERAGE, INCOMPLETE_TRADES_EXCEED_LIMIT, RECONCILIATION_GAP_EXCEED_LIMIT, ...)",
+    "\u2022 Strong alpha generation (+115.0% vs benchmark)",
+    "\u2022 High volatility (90.4% vs 10.2% benchmark)",
+    "\u2022 High consistency (71% positive months)",
+    "\u2022 Significant drawdown risk (max: -35.0%)"
+  ]
+}

@@ -1,0 +1,4 @@
+line_no,row_kind,source_table,asset_category,currency,symbol,date,type,direction,xfer_company,xfer_account,qty,xfer_price,market_value,realized_p_l,cash_amount,code
+318,Data,transfers__01,Stocks,USD,DSU,2024-12-27,ACATS,Out,--,42X71X13,"1,300",--,"14,131.00",0.00,0.00,Ca
+319,Data,transfers__01,Stocks,USD,DSU,2024-12-27,ACATS,Out,--,42X71X13,"-1,300",--,"-14,131.00",0.00,0.00,
+320,Data,transfers__01,Total,,,,,,,,,,0,0,0,

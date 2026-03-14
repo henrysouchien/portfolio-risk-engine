@@ -1,0 +1,9 @@
+line_no,row_kind,datadiscriminator,asset_category,currency,symbol,date_time,quantity,t_price,proceeds,comm_in_usd,field_10,field_11,code
+258,Data,Order,Forex,HKD,GBP.HKD,"2025-04-04, 07:09:59",-13.16,10.1197,133.175252,0,,,L
+259,SubTotal,,Forex,HKD,GBP.HKD,,-13.16,,133.175252,0,,,
+260,Data,Order,Forex,HKD,USD.HKD,"2025-02-28, 23:48:56",0.0065,7.77855,-0.050560575,0,,,
+261,Data,Order,Forex,HKD,USD.HKD,"2025-03-07, 23:55:38",-0.8649,7.77035,6.720575715,0,,,
+262,Data,Order,Forex,HKD,USD.HKD,"2025-04-06, 21:18:42","-2,674.58",7.77275,20788.841695,-0.053479559,,,L
+263,SubTotal,,Forex,HKD,USD.HKD,,-2675.4384,,20795.51171014,-0.053479559,,,
+264,Total,,Forex,HKD,,,,,20928.68696214,-0.053479559,,, 
+265,Total,,Forex,USD,,,,,2694.344383906,-0.053479559,,, 

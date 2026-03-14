@@ -1,0 +1,33 @@
+line_no,row_kind,source_table,currency,date,description,amount
+382,Data,interest__01,GBP,2025-01-06,GBP Debit Interest for Dec-2024,-5.05
+383,Data,interest__01,GBP,2025-02-05,GBP Debit Interest for Jan-2025,-7.23
+384,Data,interest__01,GBP,2025-03-05,GBP Debit Interest for Feb-2025,-6.32
+385,Data,interest__01,Total,,,-18.6
+386,Data,interest__01,Total in USD,,,-23.513987
+387,Data,interest__01,HKD,2025-03-05,HKD Debit Interest for Feb-2025,-6.72
+388,Data,interest__01,HKD,2025-04-03,HKD Debit Interest for Mar-2025,-31.15
+389,Data,interest__01,HKD,2025-05-05,HKD Debit Interest for Apr-2025,-19.32
+390,Data,interest__01,HKD,2025-06-04,HKD Debit Interest for May-2025,-2.01
+391,Data,interest__01,HKD,2025-07-03,HKD Debit Interest for Jun-2025,-1.5
+392,Data,interest__01,HKD,2025-08-05,HKD Debit Interest for Jul-2025,-1.59
+393,Data,interest__01,HKD,2025-09-04,HKD Debit Interest for Aug-2025,-2.26
+394,Data,interest__01,HKD,2025-10-03,HKD Debit Interest for Sep-2025,-3.19
+395,Data,interest__01,HKD,2025-11-05,HKD Debit Interest for Oct-2025,-3.48
+396,Data,interest__01,HKD,2025-12-03,HKD Debit Interest for Nov-2025,-2.82
+397,Data,interest__01,Total,,,-74.04
+398,Data,interest__01,Total in USD,,,-9.5216611
+399,Data,interest__01,USD,2025-01-06,USD Debit Interest for Dec-2024,-65.56
+400,Data,interest__01,USD,2025-01-06,USD IBKR Managed Securities (SYEP) Interest for Dec-2024,0.09
+401,Data,interest__01,USD,2025-02-05,USD Debit Interest for Jan-2025,-35.86
+402,Data,interest__01,USD,2025-03-05,USD Debit Interest for Feb-2025,-56.18
+403,Data,interest__01,USD,2025-04-03,USD Debit Interest for Mar-2025,-86.07
+404,Data,interest__01,USD,2025-05-05,USD Debit Interest for Apr-2025,-25.29
+405,Data,interest__01,USD,2025-06-04,USD Debit Interest for May-2025,-16.11
+406,Data,interest__01,USD,2025-07-03,USD Debit Interest for Jun-2025,-9.55
+407,Data,interest__01,USD,2025-08-05,USD Debit Interest for Jul-2025,-11.78
+408,Data,interest__01,USD,2025-09-04,USD Debit Interest for Aug-2025,-12.06
+409,Data,interest__01,USD,2025-10-03,USD Debit Interest for Sep-2025,-11.44
+410,Data,interest__01,USD,2025-11-05,USD Debit Interest for Oct-2025,-11.72
+411,Data,interest__01,USD,2025-12-03,USD Debit Interest for Nov-2025,-15.98
+412,Data,interest__01,Total,,,-357.51
+413,Data,interest__01,Total Interest in USD,,,-390.5456481

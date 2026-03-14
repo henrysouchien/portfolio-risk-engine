@@ -1,0 +1,133 @@
+{
+  "status": "success",
+  "format": "agent",
+  "snapshot": {
+    "mode": "realized",
+    "period": {
+      "start_date": "2024-05-31",
+      "end_date": "2026-01-31",
+      "months": 21,
+      "years": 1.8,
+      "inception_date": "2024-04-29"
+    },
+    "returns": {
+      "total_return_pct": 142.79,
+      "annualized_return_pct": 66.01,
+      "best_month_pct": 156.19,
+      "worst_month_pct": -16.52,
+      "win_rate_pct": 52.4
+    },
+    "risk": {
+      "volatility_pct": 119.1,
+      "max_drawdown_pct": -16.52,
+      "sharpe_ratio": 0.517,
+      "sortino_ratio": 3.344
+    },
+    "benchmark": {
+      "ticker": "SPY",
+      "alpha_annual_pct": 17.79,
+      "beta": 4.485,
+      "portfolio_return_pct": 142.79,
+      "benchmark_return_pct": 37.85,
+      "excess_return_pct": 45.88
+    },
+    "pnl": {
+      "nav_pnl_usd": 8961.5,
+      "realized_pnl": 81.71,
+      "unrealized_pnl": 737.87
+    },
+    "income": {
+      "total": 6392.59,
+      "dividends": 7456.74,
+      "interest": -1064.15,
+      "yield_on_cost_pct": 11.3548,
+      "yield_on_value_pct": 10.48
+    },
+    "data_quality": {
+      "coverage_pct": 66.67,
+      "high_confidence": false,
+      "reliable": false,
+      "reliability_reasons": [
+        "Data coverage 66.67% is below target 95.00%.",
+        "Reconciliation gap 3.00% exceeds max 2.00%.",
+        "NAV metrics include estimated inputs (synthetic positions, low coverage, or unpriceable symbols).",
+        "3 holding symbol(s) had cross-source attribution leakage."
+      ],
+      "reliability_reason_codes": [
+        "LOW_DATA_COVERAGE",
+        "RECONCILIATION_GAP_EXCEED_LIMIT",
+        "NAV_METRICS_ESTIMATED",
+        "CROSS_SOURCE_HOLDING_LEAKAGE"
+      ],
+      "synthetic_impact_usd": -64.5,
+      "holdings_scope": "source_scoped",
+      "source_transaction_count": 88,
+      "source_holding_count": 9,
+      "cross_source_holding_leakage_count": 3,
+      "nav_metrics_estimated": true,
+      "synthetic_count": 4,
+      "warning_count": 14
+    },
+    "verdict": "fair",
+    "insights": [
+      "\u2022 Reliability warning: realized metrics are low confidence (LOW_DATA_COVERAGE, RECONCILIATION_GAP_EXCEED_LIMIT, NAV_METRICS_ESTIMATED, ...)",
+      "\u2022 Strong alpha generation (+17.8% vs benchmark)",
+      "\u2022 High volatility (119.1% vs 10.2% benchmark)"
+    ]
+  },
+  "flags": [
+    {
+      "type": "realized_reliability_warning",
+      "severity": "warning",
+      "message": "Realized metrics are marked low reliability; use caution for decisioning.",
+      "reason_codes": [
+        "LOW_DATA_COVERAGE",
+        "RECONCILIATION_GAP_EXCEED_LIMIT",
+        "NAV_METRICS_ESTIMATED",
+        "CROSS_SOURCE_HOLDING_LEAKAGE"
+      ],
+      "reasons": [
+        "Data coverage 66.67% is below target 95.00%.",
+        "Reconciliation gap 3.00% exceeds max 2.00%.",
+        "NAV metrics include estimated inputs (synthetic positions, low coverage, or unpriceable symbols).",
+        "3 holding symbol(s) had cross-source attribution leakage."
+      ]
+    },
+    {
+      "type": "low_data_coverage",
+      "severity": "warning",
+      "message": "Transaction data covers only 67% of portfolio",
+      "coverage_pct": 66.7
+    },
+    {
+      "type": "high_volatility",
+      "severity": "info",
+      "message": "Portfolio volatility is 119.1% (above average)",
+      "volatility_pct": 119.1
+    },
+    {
+      "type": "data_quality_issues",
+      "severity": "info",
+      "message": "14 data quality warnings detected",
+      "warning_count": 14
+    },
+    {
+      "type": "synthetic_positions",
+      "severity": "info",
+      "message": "4 position(s) inferred from current holdings (no opening trade found)",
+      "synthetic_count": 4
+    },
+    {
+      "type": "nav_metrics_estimated",
+      "severity": "info",
+      "message": "NAV-based metrics (return, drawdown) are estimated - not all cash flows observed"
+    },
+    {
+      "type": "outperforming",
+      "severity": "success",
+      "message": "Beating SPY by 45.9% annualized excess return",
+      "excess_return_pct": 45.88
+    }
+  ],
+  "file_path": null
+}

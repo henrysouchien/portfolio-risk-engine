@@ -1,4 +1,5 @@
 # Futures Portfolio Integration — High-Level Design
+**Status:** ACTIVE
 
 ## Overview
 

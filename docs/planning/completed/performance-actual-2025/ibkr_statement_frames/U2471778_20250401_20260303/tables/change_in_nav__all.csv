@@ -1,0 +1,12 @@
+line_no,row_kind,source_table,field_name,field_value
+24,Data,change_in_nav__01,Starting Value,22283.715994375
+25,Data,change_in_nav__01,Mark-to-Market,327.49596306
+26,Data,change_in_nav__01,Dividends,182.41
+27,Data,change_in_nav__01,Change in Dividend Accruals,-0.26
+28,Data,change_in_nav__01,Interest,-261.8375582
+29,Data,change_in_nav__01,Change in Interest Accruals,54.1696298
+30,Data,change_in_nav__01,Other Fees,-164
+31,Data,change_in_nav__01,Commissions,-61.99442473
+32,Data,change_in_nav__01,Transaction Fees,-11.0411085
+33,Data,change_in_nav__01,Other FX Translations,0.1084138
+34,Data,change_in_nav__01,Ending Value,22348.766909136

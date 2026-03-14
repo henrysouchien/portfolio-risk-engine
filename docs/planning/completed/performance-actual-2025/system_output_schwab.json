@@ -1,0 +1,107 @@
+{
+  "generated_at": "2026-02-25T10:59:55.635292",
+  "request": {
+    "mode": "realized",
+    "source": "schwab",
+    "format": "agent"
+  },
+  "ok": true,
+  "result": {
+    "status": "success",
+    "format": "agent",
+    "snapshot": {
+      "mode": "realized",
+      "period": {
+        "start_date": "2024-05-31",
+        "end_date": "2026-01-31",
+        "months": 21,
+        "years": 1.8,
+        "inception_date": "2024-04-29"
+      },
+      "returns": {
+        "total_return_pct": 176.19,
+        "annualized_return_pct": 78.7,
+        "best_month_pct": 40.9,
+        "worst_month_pct": -13.7,
+        "win_rate_pct": 57.1
+      },
+      "risk": {
+        "volatility_pct": 46.48,
+        "max_drawdown_pct": -13.7,
+        "sharpe_ratio": 1.597,
+        "sortino_ratio": 3.803
+      },
+      "benchmark": {
+        "ticker": "SPY",
+        "alpha_annual_pct": 35.64,
+        "beta": 1.945,
+        "portfolio_return_pct": 176.19,
+        "benchmark_return_pct": 37.85,
+        "excess_return_pct": 58.57
+      },
+      "pnl": {
+        "nav_pnl_usd": 5595.59,
+        "realized_pnl": 81.71,
+        "unrealized_pnl": 4995.32
+      },
+      "income": {
+        "total": 6392.59,
+        "dividends": 7456.74,
+        "interest": -1064.15,
+        "yield_on_cost_pct": 2.9983,
+        "yield_on_value_pct": 2.9586
+      },
+      "data_quality": {
+        "coverage_pct": 37.5,
+        "high_confidence": false,
+        "nav_metrics_estimated": true,
+        "synthetic_count": 19,
+        "warning_count": 9
+      },
+      "verdict": "excellent",
+      "insights": [
+        "\u2022 Strong alpha generation (+35.6% vs benchmark)",
+        "\u2022 Excellent risk-adjusted returns (Sharpe: 1.60)",
+        "\u2022 High volatility (46.5% vs 10.2% benchmark)"
+      ]
+    },
+    "flags": [
+      {
+        "type": "low_data_coverage",
+        "severity": "warning",
+        "message": "Transaction data covers only 38% of portfolio",
+        "coverage_pct": 37.5
+      },
+      {
+        "type": "high_volatility",
+        "severity": "info",
+        "message": "Portfolio volatility is 46.5% (above average)",
+        "volatility_pct": 46.48
+      },
+      {
+        "type": "data_quality_issues",
+        "severity": "info",
+        "message": "9 data quality warnings detected",
+        "warning_count": 9
+      },
+      {
+        "type": "synthetic_positions",
+        "severity": "info",
+        "message": "19 position(s) inferred from current holdings (no opening trade found)",
+        "synthetic_count": 19
+      },
+      {
+        "type": "nav_metrics_estimated",
+        "severity": "info",
+        "message": "NAV-based metrics (return, drawdown) are estimated - not all cash flows observed"
+      },
+      {
+        "type": "outperforming",
+        "severity": "success",
+        "message": "Beating SPY by 58.6% annualized excess return",
+        "excess_return_pct": 58.57
+      }
+    ],
+    "file_path": null
+  }
+}

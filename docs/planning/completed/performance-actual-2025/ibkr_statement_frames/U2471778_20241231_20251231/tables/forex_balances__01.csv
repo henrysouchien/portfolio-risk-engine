@@ -1,0 +1,5 @@
+line_no,row_kind,asset_category,currency,description,quantity,cost_price,cost_basis_in_usd,close_price,value_in_usd,unrealized_p_l_in_usd,code
+101,Data,Forex,USD,GBP,57.45,1.2625,-72.530625,1.3474,77.40813,4.877505,
+102,Data,Forex,USD,HKD,-673.352813,0.128875548,86.778713,0.12849,-86.519103,0.25961,
+103,Data,Forex,USD,USD,-5845.127890739,0,5845.127890739,1,-5845.127890739,0,
+104,Data,Total,,,,,5859.376067739,,-5854.238941739,5.137126,

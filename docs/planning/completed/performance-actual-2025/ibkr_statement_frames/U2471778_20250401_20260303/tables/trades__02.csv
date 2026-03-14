@@ -1,0 +1,13 @@
+line_no,row_kind,datadiscriminator,asset_category,currency,symbol,date_time,quantity,t_price,c_price,notional_value,comm_fee,basis,realized_p_l,mtm_p_l,code
+298,Data,Order,Futures,HKD,MHIJ5,"2025-04-06, 21:45:44",-1,20632,19780,206320,-17,-236967,-30664,8520,C;L
+299,SubTotal,,Futures,HKD,MHIJ5,,-1,,,206320,-17,-236967,-30664,8520,
+300,Total,,Futures,HKD,,,,,,206320,-17,-236967,-30664,8520, 
+301,Total,,Futures,USD,,,,,,26561.6368,-2.18858,-30507.13158,-3947.68336,1096.8648, 
+302,Data,Order,Futures,USD,MGCM5,"2025-04-01, 16:50:17",1,3151.2,3146,-31512,-0.87,31512.87,0,-52,O
+303,Data,Order,Futures,USD,MGCM5,"2025-04-04, 11:51:31",-1,3041.2,3035.4,30412,-0.87,-31512.87,-1101.74,58,C;L
+304,Data,Order,Futures,USD,MGCM5,"2025-04-14, 15:39:07",1,3225.9,3226.3,-32259,-0.87,32259.87,0,4,O
+305,Data,Order,Futures,USD,MGCM5,"2025-05-28, 09:42:35",-1,3298,3294.9,32980,-0.87,-32259.87,719.26,31,C;L
+306,SubTotal,,Futures,USD,MGCM5,,0,,,-379,-3.48,0,-382.48,41,
+307,Data,Order,Futures,USD,ZFM5,"2025-04-09, 09:50:40",-1,108.203125,107.679688,108203.125,-1.52,-108165.5825,36.0225,523.4375,C
+308,SubTotal,,Futures,USD,ZFM5,,-1,,,108203.125,-1.52,-108165.5825,36.0225,523.4375,
+309,Total,,Futures,USD,,,,,,107824.125,-5,-108165.5825,-346.4575,564.4375, 

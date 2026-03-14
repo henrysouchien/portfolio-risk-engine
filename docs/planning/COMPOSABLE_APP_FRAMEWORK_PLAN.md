@@ -1,4 +1,5 @@
 # Composable App Framework (SDK)
+**Status:** ACTIVE
 
 **Date**: 2026-03-03
 **Status**: Draft (foundations partially implemented)
@@ -10,7 +11,7 @@
 ### Prerequisites (Phase 2 — must complete before this)
 | Doc | Purpose |
 |-----|---------|
-| `FRONTEND_PHASE2_WORKING_DOC.md` | Phase 2 master doc — wire all components to real data + evaluate what to keep/kill |
+| `completed/FRONTEND_PHASE2_WORKING_DOC.md` | Phase 2 master doc — wire all components to real data + evaluate what to keep/kill |
 | `completed/FRONTEND_WAVE1_IMPLEMENTATION_PLAN.md` | Wave 1 of Phase 2 — pure frontend wiring |
 | `FRONTEND_COMPONENT_VISUAL_MAP.md` | Visual guide mapping on-screen UI elements to code components |
 | `completed/FRONTEND_DATA_WIRING_AUDIT.md` | Container/adapter-level audit (ported into Phase 2 working doc) |

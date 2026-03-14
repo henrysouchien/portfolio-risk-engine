@@ -1,6 +1,128 @@
 # Progress Log
 
+**STATUS:** REFERENCE
+
 Daily log of completed work. Most recent first.
+
+---
+
+## 2026-03-13
+
+### Summary: March 5-13 (200+ commits)
+
+Massive execution push across all workstreams. Full detail in `docs/TODO.md` and MEMORY `completed_features.md`.
+
+**Phase 1 — Unblock Everything: ALL DONE** (except 1B infra deploy)
+- 1C.1+1C.2: Cash YAML-only + Pandas fix (`a16c346d`)
+- 1C.3+3b: Mutual fund E2E + remediation (`ff78e74c`)
+- 1C4: Market intelligence improvements (`191cd4ca`, `2861f677`, `396e415e`)
+- Security audit + remediation (`770be0bf`)
+
+**Phase 2 — Build the Product: MOSTLY DONE**
+- 2D.0-2D.6: Full nav restructure (7 phases) — `fcc9e02b`→`fe5ebb7d`
+  - Layout toggle, sidebar nav, research merge, scenarios overhaul, dashboard enrichment, trading section, performance cards
+- 2E-a: C4 web CSV import + normalizer builder (`22d59176`) — backend tools, onboarding route, AI chat panel
+- Frontend Release Tracker: Tiers 0-3 ALL DONE (38 issues triaged, delete pass + 3 fix tiers + nav restructure)
+
+**Frontend Architecture**
+- Redesign decomposition (6 monoliths → orchestrator + subdirs)
+- Redesign migration Batches 1-3 (block components)
+- Theme system (classic/premium toggle)
+- Visual polish Phase 5 (4 batches)
+- Frontend performance Phases 1-3 (2.1MB→16 chunks, 45% gzip reduction)
+- Hook migration Batches A-D (18/18 data-fetch hooks → `useDataSource`)
+- App-platform extraction + npm publish
+
+**Backend Architecture**
+- Root cleanup: 32→3 root .py files (4 rounds of shim removal + reorg)
+- App platform extraction v0.2.0 (db, logging, middleware, auth, gateway)
+- Backend performance Phases 1-4 (event-loop -99%, factor recs -95%)
+- Efficient frontier (CVXPY + frontend)
+- No-DB mode
+- Core shim removal (19 files)
+
+**Trading + Data**
+- IBKR order status fix (`e0b55569`)
+- Option pricing chain (system-wide, multiplier NAV, cash replay, portfolio analysis)
+- Exercise cost basis linkage
+- Cross-currency dedup fix, income dedup fix
+- TWR inception month fix
+- Futures margin capital base, phases 8b-9
+- Transaction store phases A-B
+- Continuous hedge monitoring
+
+**Remaining for ship:**
+- 1B: Multi-user infra deploy (needs domain name)
+- 2E: Portfolio selector (backend in progress)
+- 2E-b: CSV import settings path + live test
+- 2F: Tier 4 features (AI insights toggle, rebalance execution)
+- 3G: Tier 5 polish (toggle, settings, connections)
+- 3I: Onboarding E2E test
+- 3J: Final deploy + verify
+- 3K: Release scrub execution
+
+---
+
+## 2026-03-04
+
+### Risk Analysis — Detail Gaps: Computed Text + Hedging Enrichment
+
+Replaced all hardcoded placeholder content in the Risk Analysis view with computed values from real backend data.
+
+**Part 1 — Risk Factor Descriptions** (RiskAnalysisModernContainer.tsx):
+- `buildRiskFactorDescription()` helper computes `description`, `mitigation`, `timeline` for 4 risk factors
+- Concentration: top 3 positions from `portfolio_weights` (e.g., "DSU (31.3%), STWD (13.4%), MSCI (13.4%) — 58.1% of portfolio")
+- Volatility: `annual_volatility` directly (already percent from adapter, 8.6% = low)
+- Factor: dominant beta from `portfolio_factor_betas` + `variance_decomposition.factor_variance` (Market β=1.05, 76.4%)
+- Sector: `industry_variance_absolute` converted from absolute to percentage (REM 41.2% of variance, 21 sectors)
+- All fall back to generic text if data missing
+
+**Part 2 — Hedging Enrichment** (container-only, no adapter/hook changes):
+- `enrichedHedgingData` useMemo computes `expectedCost`, `beforeVaR`/`afterVaR` (parametric 95% daily, matching RiskMetricsContainer formula), `portfolioBeta`
+- Removed hardcoded override layer in RiskAnalysis.tsx (lines 314-339 → `...hs` spread)
+- Updated `RiskAnalysisProps.hedgingStrategies` type to include `duration` + `details`
+
+**Plan:** `completed/RISK_ANALYSIS_DETAIL_GAPS_PLAN.md` (4 Codex review rounds)
+**Commit:** `5831c982`
+**Verification:** Live in Chrome — all 4 risk factors show real data, hedging cards show adapter values (Duration: "Rebalance", real protection percentages), no hardcoded placeholders visible.
+
+### Scenario Analysis: Full Overhaul (Phases 2-5) — Complete
+
+All 5 tabs of the Scenario Analysis view are now functional with real data. Phase 1 (Stress Test wiring) was completed previously in Wave 3h.
+
+**Phase 2 — What-If Preset Templates (frontend only):**
+- `buildScenarioTemplates()` computes 5 presets from live portfolio positions:
+  - Equal Weight (1/N across non-cash holdings)
+  - Conservative 60/40 (bond/cash 60%, equity 40%)
+  - Risk Parity (inverse-volatility weighting with equal-weight fallback)
+  - Concentrated Growth (top 5 positions at 20% each)
+  - Hedge Overlay (current weights + SPY -5% delta)
+- Uses `holding.type` and `holding.volatility` from `PositionsAdapter` (enriched in Wave 2.5)
+- Templates produce `new_weights` dict → auto-run via `runScenario()` from `useWhatIfAnalysis`
+- Commit: `627c167f`
+
+**Phase 3 — Monte Carlo Simulation Engine (backend + frontend):**
+- New `portfolio_risk_engine/monte_carlo.py`: Cholesky decomposition on monthly covariance, `nearest_psd()` fix for non-PSD matrices, -99% return floor, configurable simulations (500/1000/5000) and horizon (6/12/24/36 months)
+- Returns percentile paths (p5/p25/p50/p75/p95), terminal distribution (mean, median, VaR 95%, CVaR 95%, probability of loss)
+- `POST /api/monte-carlo` endpoint in `app.py` + `MonteCarloRequest`/`MonteCarloResponse` models
+- Frontend: `useMonteCarlo` hook, `monteCarloKey(portfolioId)`, full UI with parameter controls + results display
+- 5 unit tests (output shape, percentile ordering, terminal stats, single asset edge case, zero vol)
+- Commit: `078aed92`
+
+**Phase 4 — Scenario Session History (frontend only):**
+- `useScenarioHistory` hook with `sessionStorage` (clears on tab close), max 20 entries FIFO
+- Auto-captures runs from what-if, stress test, and Monte Carlo hooks via `useEffect` ref comparison
+- Collapsible "Recent Runs" panel per tab with re-run and compare mode
+- Commit: `c3e4eb56`
+
+**Phase 5 — Optimizations Tab (frontend only):**
+- Reads cached optimization data via `queryClient.getQueryData(portfolioOptimizationKey(...))` — avoids auto-fetching `usePortfolioOptimization()` which takes 60+ seconds
+- Checks both `min_variance` and `max_return` strategies, picks most recently cached
+- Shows optimized weights vs current + "Apply as What-If" cross-link, or "Run in Strategy Builder" prompt
+- Commit: `b6f3e45e`
+
+**Plan:** `completed/SCENARIO_ANALYSIS_OVERHAUL_PLAN.md` (6 Codex review rounds for plan, 4 Codex implementation rounds)
+**Verification:** All 5 tabs live-tested in Chrome — stress tests (8 scenarios, Market Crash -26.0%/-$38,069), templates (25 assets), Monte Carlo (1000 sims, $164,900 expected, 2.2% loss probability), session history tracking, optimization tab wired.
 
 ---
 

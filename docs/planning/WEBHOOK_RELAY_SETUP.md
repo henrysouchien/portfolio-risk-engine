@@ -1,4 +1,5 @@
 # Webhook Relay Setup — SnapTrade
+**Status:** ACTIVE
 
 Instructions for setting up a public webhook relay so SnapTrade can deliver events to the local backend.
 

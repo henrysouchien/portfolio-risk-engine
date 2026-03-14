@@ -24,7 +24,6 @@ from __future__ import annotations
 from typing import Dict, List, Tuple, Optional, Any
 from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from pathlib import Path
 import time
 import json
 import hashlib
@@ -32,6 +31,7 @@ import numpy as np
 
 import pandas as pd
 
+from config import resolve_config_path
 from utils.config import DATA_LOADER_LRU_SIZE
 from utils.logging import log_portfolio_operation, log_critical_alert
 
@@ -50,20 +50,17 @@ def _get_ticker_source_file(ticker: str, category: str) -> str:
         return "unknown_source"
 
 
-from portfolio_risk import calculate_portfolio_performance_metrics
+from portfolio_risk_engine.portfolio_risk import calculate_portfolio_performance_metrics
 
-from data_loader import (
+from portfolio_risk_engine.data_loader import (
     fetch_monthly_total_return_price,
     fetch_monthly_close,
 )
-from factor_utils import calc_monthly_returns
+from portfolio_risk_engine.factor_utils import calc_monthly_returns
 from settings import RATE_FACTOR_CONFIG, FACTOR_INTELLIGENCE_DEFAULTS
 
 # Reuse existing DB‑first YAML loaders for exchange/industry maps
-from proxy_builder import load_exchange_proxy_map, load_industry_etf_map
-
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
-
+from core.proxy_builder import load_exchange_proxy_map, load_industry_etf_map
 
 @lru_cache(maxsize=DATA_LOADER_LRU_SIZE)
 def load_asset_class_proxies() -> Tuple[Dict[str, Dict[str, str]], str]:
@@ -92,7 +89,7 @@ def load_asset_class_proxies() -> Tuple[Dict[str, Dict[str, str]], str]:
     # YAML fallback
     try:
         import yaml
-        yaml_path = _PROJECT_ROOT / "asset_etf_proxies.yaml"
+        yaml_path = resolve_config_path("asset_etf_proxies.yaml")
         if yaml_path.exists():
             with open(yaml_path, 'r') as f:
                 data = yaml.safe_load(f) or {}
@@ -136,35 +133,19 @@ def load_industry_buckets() -> Dict[str, str]:
 @lru_cache(maxsize=DATA_LOADER_LRU_SIZE)
 def load_cash_proxies() -> Tuple[Dict[str, str], str]:
     """
-    Load cash currency → ETF proxy mappings (DB‑first, YAML fallback).
+    Load cash currency → ETF proxy mappings from ``cash_map.yaml``.
 
     Returns (mapping, source) where mapping is {currency: proxy_etf}.
     """
-    # DB-first
-    try:
-        from inputs.database_client import DatabaseClient
-        from database import get_db_session
-        with get_db_session() as conn:
-            db_client = DatabaseClient(conn)
-            mapping = db_client.get_cash_proxies()
-        if mapping:
-            return mapping, 'database'
-    except Exception as e:
-        log_portfolio_operation("cash_proxy_loader_db_failed", {"error": str(e)}, execution_time=0)
-
-    # YAML fallback: cash_map.yaml (existing)
     try:
         import yaml
-        yaml_path = _PROJECT_ROOT / "cash_map.yaml"
+        yaml_path = resolve_config_path("cash_map.yaml")
         if yaml_path.exists():
             with open(yaml_path, 'r') as f:
                 data = yaml.safe_load(f) or {}
-            # Expect structure {USD: SGOV, EUR: ESTR, ...} OR nested with key 'cash_proxies'
-            if isinstance(data, dict) and 'USD' in data or 'cash_proxies' in data:
-                if 'cash_proxies' in data and isinstance(data['cash_proxies'], dict):
-                    return {k: str(v) for k, v in data['cash_proxies'].items()}, 'yaml'
-                else:
-                    return {k: str(v) for k, v in data.items()}, 'yaml'
+            proxy = data.get("proxy_by_currency", {})
+            if proxy:
+                return {k: str(v) for k, v in proxy.items()}, 'yaml'
     except Exception as e:
         log_portfolio_operation("cash_proxy_loader_yaml_failed", {"error": str(e)}, execution_time=0)
 
@@ -556,8 +537,8 @@ def fetch_factor_universe(use_database: bool = True) -> Dict[str, List[str]]:
     - ``services.factor_intelligence_service.FactorIntelligenceService``.
 
     Calls into:
-    - DB-first proxy loaders (industry/exchange/asset/cash), with YAML/hardcoded
-      fallbacks in loader functions.
+    - DB-backed proxy loaders for industry/exchange/asset mappings, plus the
+      YAML-backed cash proxy loader, with hardcoded fallbacks where applicable.
 
     Returns
     -------
@@ -609,7 +590,7 @@ def fetch_factor_universe(use_database: bool = True) -> Dict[str, List[str]]:
     commodity_etfs = sorted(set(asset_proxies.get('commodity', {}).values()))
     crypto_etfs = sorted(set(asset_proxies.get('crypto', {}).values()))
 
-    # Cash proxies (DB-first): include in universe for macro composites
+    # Cash proxies (YAML-backed): include in universe for macro composites
     cash_map, _cash_src = load_cash_proxies()
     cash_etfs = sorted(set(str(v).upper() for v in cash_map.values())) if isinstance(cash_map, dict) else []
 
@@ -1027,7 +1008,7 @@ def _calculate_group_rate_betas(
             return {}
 
         group_betas = {}
-        from factor_utils import compute_multifactor_betas
+        from portfolio_risk_engine.factor_utils import compute_multifactor_betas
 
         for group_name, group_series in label_series.items():
             aligned = pd.concat([group_series, dy[used_maturities]], axis=1).dropna()
@@ -1087,7 +1068,7 @@ def compute_rate_sensitivity(
     chosen = [t for t in all_tickers if cats.get(t) in included_cats]
 
     # Load monthly yield levels and convert to Δy in decimal
-    from factor_utils import fetch_monthly_treasury_yield_levels, prepare_rate_factors
+    from portfolio_risk_engine.factor_utils import fetch_monthly_treasury_yield_levels, prepare_rate_factors
     yl = fetch_monthly_treasury_yield_levels(
         start_date=returns_panel.attrs.get("start_date"),
         end_date=returns_panel.attrs.get("end_date"),
@@ -1101,7 +1082,7 @@ def compute_rate_sensitivity(
     per_ticker_r2: Dict[str, float] = {}
     used_maturities: List[str] = [c for c in dy.columns if c in rate_keys]
 
-    from factor_utils import compute_multifactor_betas
+    from portfolio_risk_engine.factor_utils import compute_multifactor_betas
     from utils.sector_config import resolve_sector_preferences
 
     core_tickers, preferred_labels = resolve_sector_preferences()
@@ -1185,7 +1166,7 @@ def _calculate_group_market_betas(
             return {}
 
         group_betas = {}
-        from factor_utils import compute_multifactor_betas
+        from portfolio_risk_engine.factor_utils import compute_multifactor_betas
 
         for group_name, group_series in label_series.items():
             aligned = pd.concat([group_series, bench_df], axis=1).dropna()
@@ -1293,7 +1274,7 @@ def compute_market_sensitivity(
     beta_rows: Dict[str, Dict[str, float]] = {}
     per_ticker_obs: Dict[str, int] = {}
     per_ticker_r2: Dict[str, float] = {}
-    from factor_utils import compute_multifactor_betas
+    from portfolio_risk_engine.factor_utils import compute_multifactor_betas
     from utils.sector_config import resolve_sector_preferences
 
     core_tickers, preferred_labels = resolve_sector_preferences()
@@ -1401,43 +1382,43 @@ def compute_factor_performance_profiles(
     except Exception:
         pass  # fall back to 4%
 
-    for t in returns_panel.columns:
-        # Basket columns: compute metrics directly from panel series (no FMP re-fetch)
-        if categories.get(t) == "user_baskets":
-            try:
-                series = returns_panel[t].dropna()
-                if len(series) < 3:
-                    errors[t] = "insufficient data for basket"
-                    continue
-                total_return = float((1 + series).prod() - 1)
-                n_months = len(series)
-                ann_return = float((1 + total_return) ** (12 / n_months) - 1) if total_return > -1 else 0.0
-                vol = float(series.std() * np.sqrt(12))
-                # Max drawdown from cumulative returns
-                cum = (1 + series).cumprod()
-                running_max = cum.cummax()
-                drawdown = ((cum - running_max) / running_max).min()
-                profiles[t] = {
-                    "annual_return": round(ann_return * 100, 2),
-                    "volatility": round(vol * 100, 2),
-                    "sharpe_ratio": round((ann_return - risk_free_rate) / vol, 3) if vol > 0 else None,
-                    "max_drawdown": round(float(drawdown) * 100, 2),
-                    "beta_to_market": None,
-                }
-            except Exception as e:
-                errors[t] = str(e)
-            continue
+    # Pre-extract benchmark series for beta computation
+    bench_series = None
+    if benchmark_ticker in returns_panel.columns:
+        bench_series = returns_panel[benchmark_ticker].dropna()
 
-        weights = {t: 1.0}
+    for t in returns_panel.columns:
         try:
-            perf = calculate_portfolio_performance_metrics(
-                weights,
-                start,
-                end,
-                benchmark_ticker=benchmark_ticker,
-                instrument_types=instrument_types,
-            )
-            profiles[t] = _perf_pick_fields(perf)
+            series = returns_panel[t].dropna()
+            if len(series) < 3:
+                errors[t] = "insufficient data"
+                continue
+            total_return = float((1 + series).prod() - 1)
+            n_months = len(series)
+            ann_return = float((1 + total_return) ** (12 / n_months) - 1) if total_return > -1 else 0.0
+            vol = float(series.std() * np.sqrt(12))
+            # Max drawdown from cumulative returns
+            cum = (1 + series).cumprod()
+            running_max = cum.cummax()
+            drawdown = ((cum - running_max) / running_max).min()
+            # Beta to benchmark via OLS on overlapping observations
+            beta = None
+            if bench_series is not None and t != benchmark_ticker:
+                aligned = pd.concat([series, bench_series], axis=1, join="inner").dropna()
+                if len(aligned) >= 3:
+                    y = aligned.iloc[:, 0].values
+                    x = aligned.iloc[:, 1].values
+                    x_mean = x.mean()
+                    cov = float(((x - x_mean) * (y - y.mean())).mean())
+                    var = float(((x - x_mean) ** 2).mean())
+                    beta = round(cov / var, 3) if var > 1e-12 else None
+            profiles[t] = {
+                "annual_return": round(ann_return * 100, 2),
+                "volatility": round(vol * 100, 2),
+                "sharpe_ratio": round((ann_return - risk_free_rate) / vol, 3) if vol > 0 else None,
+                "max_drawdown": round(float(drawdown) * 100, 2),
+                "beta_to_market": beta,
+            }
         except Exception as e:
             errors[t] = str(e)
 

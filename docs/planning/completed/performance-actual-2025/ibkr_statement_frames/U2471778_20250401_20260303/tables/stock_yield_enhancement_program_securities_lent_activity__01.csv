@@ -1,0 +1,5 @@
+line_no,row_kind,asset_category,currency,symbol,date,description,field_6,transaction_id,quantity,collateral_amount
+479,Data,Stocks,USD,TKO,2025-12-17,New Loan Allocation, ,SLB.114348369,-12,2580
+480,Data,Stocks,USD,TKO,2025-12-18,Loan Return Allocation, ,SLB.114348369,12,-2580
+481,Data,Total,,,,,,,,0
+482,Notes,"Important Notice re: SIPC Protection for Loans of Fully Paid and Excess Margin Securities:  Please be aware that if you execute loans of your fully paid or excess margin securities, the  provisions of the Securities Investor Protection Act of 1970 may not protect you with respect to the securities loan transaction.  Therefore, the collateral value credited to your account by Interactive Brokers (see above) may constitute the only source of satisfaction in the event that Interactive Brokers cannot return the securities.",,,,,,,,

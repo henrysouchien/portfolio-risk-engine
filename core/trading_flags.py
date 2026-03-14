@@ -55,7 +55,8 @@ def generate_trading_flags(snapshot: dict) -> list[dict]:
 
     # --- Timing flags ---
     avg_timing = timing.get("avg_timing_score_pct")
-    if avg_timing is not None and total >= 5 and avg_timing < 40:
+    timing_count = timing.get("timing_symbol_count", 0)
+    if avg_timing is not None and timing_count >= 3 and avg_timing < 40:
         flags.append(
             {
                 "type": "poor_timing",

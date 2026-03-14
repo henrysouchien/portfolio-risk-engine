@@ -1,0 +1,126 @@
+{
+  "timestamp_utc": "2026-02-25T22:00:11.533726+00:00",
+  "mode": "realized",
+  "format": "full",
+  "label": "post_p2b",
+  "results": [
+    {
+      "source": "all",
+      "status": "ok",
+      "file": "docs/planning/performance-actual-2025/live_test/system_output_all_live_full_post_p2b.json",
+      "metrics": {
+        "total_return": 188.08,
+        "annualized_return": 83.05,
+        "coverage_pct": 58.33,
+        "reliable": false,
+        "high_confidence_realized": false,
+        "futures_txn_count_replayed": 12,
+        "futures_notional_suppressed_usd": 518945.37,
+        "futures_fee_cash_impact_usd": -16.74,
+        "income_flow_overlap_dropped_count": 40,
+        "income_flow_overlap_dropped_net_usd": -1177.85,
+        "source_transaction_count": 224,
+        "reliability_reason_codes": [
+          "LOW_DATA_COVERAGE",
+          "INCOMPLETE_TRADES_EXCEED_LIMIT",
+          "RECONCILIATION_GAP_EXCEED_LIMIT",
+          "NAV_METRICS_ESTIMATED",
+          "HIGH_SEVERITY_UNPRICEABLE",
+          "SYNTHETIC_PNL_SENSITIVITY"
+        ]
+      }
+    },
+    {
+      "source": "ibkr_flex",
+      "status": "ok",
+      "file": "docs/planning/performance-actual-2025/live_test/system_output_ibkr_flex_live_full_post_p2b.json",
+      "metrics": {
+        "total_return": -68.88,
+        "annualized_return": -75.36,
+        "coverage_pct": 45.45,
+        "reliable": false,
+        "high_confidence_realized": false,
+        "futures_txn_count_replayed": 12,
+        "futures_notional_suppressed_usd": 519047.58,
+        "futures_fee_cash_impact_usd": -16.75,
+        "income_flow_overlap_dropped_count": 25,
+        "income_flow_overlap_dropped_net_usd": -395.04,
+        "source_transaction_count": 82,
+        "reliability_reason_codes": [
+          "LOW_DATA_COVERAGE",
+          "INCOMPLETE_TRADES_EXCEED_LIMIT",
+          "RECONCILIATION_GAP_EXCEED_LIMIT",
+          "NAV_METRICS_ESTIMATED"
+        ]
+      }
+    },
+    {
+      "source": "schwab",
+      "status": "ok",
+      "file": "docs/planning/performance-actual-2025/live_test/system_output_schwab_live_full_post_p2b.json",
+      "metrics": {
+        "total_return": 51.36,
+        "annualized_return": 26.73,
+        "coverage_pct": 66.67,
+        "reliable": false,
+        "high_confidence_realized": false,
+        "futures_txn_count_replayed": 0,
+        "futures_notional_suppressed_usd": 0.0,
+        "futures_fee_cash_impact_usd": 0.0,
+        "income_flow_overlap_dropped_count": 0,
+        "income_flow_overlap_dropped_net_usd": 0.0,
+        "source_transaction_count": 88,
+        "reliability_reason_codes": [
+          "LOW_DATA_COVERAGE",
+          "RECONCILIATION_GAP_EXCEED_LIMIT",
+          "NAV_METRICS_ESTIMATED",
+          "CROSS_SOURCE_HOLDING_LEAKAGE"
+        ]
+      }
+    },
+    {
+      "source": "plaid",
+      "status": "ok",
+      "file": "docs/planning/performance-actual-2025/live_test/system_output_plaid_live_full_post_p2b.json",
+      "metrics": {
+        "total_return": -7.96,
+        "annualized_return": -5.69,
+        "coverage_pct": 0.0,
+        "reliable": false,
+        "high_confidence_realized": false,
+        "futures_txn_count_replayed": 0,
+        "futures_notional_suppressed_usd": 0.0,
+        "futures_fee_cash_impact_usd": 0.0,
+        "income_flow_overlap_dropped_count": 15,
+        "income_flow_overlap_dropped_net_usd": -782.81,
+        "source_transaction_count": 54,
+        "reliability_reason_codes": [
+          "LOW_DATA_COVERAGE",
+          "NAV_METRICS_ESTIMATED",
+          "HIGH_SEVERITY_UNPRICEABLE",
+          "SYNTHETIC_PNL_SENSITIVITY",
+          "CROSS_SOURCE_HOLDING_LEAKAGE"
+        ]
+      }
+    },
+    {
+      "source": "snaptrade",
+      "status": "ok",
+      "file": "docs/planning/performance-actual-2025/live_test/system_output_snaptrade_live_full_post_p2b.json",
+      "metrics": {
+        "total_return": null,
+        "annualized_return": null,
+        "coverage_pct": null,
+        "reliable": null,
+        "high_confidence_realized": null,
+        "futures_txn_count_replayed": null,
+        "futures_notional_suppressed_usd": null,
+        "futures_fee_cash_impact_usd": null,
+        "income_flow_overlap_dropped_count": null,
+        "income_flow_overlap_dropped_net_usd": null,
+        "source_transaction_count": null,
+        "reliability_reason_codes": null
+      }
+    }
+  ]
+}

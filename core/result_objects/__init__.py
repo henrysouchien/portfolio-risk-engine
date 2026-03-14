@@ -18,6 +18,7 @@ from ._helpers import (
 from .positions import PositionResult
 from .risk import RiskAnalysisResult, RiskScoreResult
 from .performance import PerformanceResult
+from .backtest import BacktestResult
 from .realized_performance import (
     RealizedIncomeMetrics,
     RealizedPnlBasis,
@@ -25,6 +26,7 @@ from .realized_performance import (
     RealizedPerformanceResult,
 )
 from .optimization import OptimizationResult
+from .efficient_frontier import EfficientFrontierResult
 from .whatif import WhatIfResult
 from .stock_analysis import StockAnalysisResult
 from .basket import BasketAnalysisResult
@@ -49,11 +51,13 @@ __all__ = [
     "RiskAnalysisResult",
     "RiskScoreResult",
     "PerformanceResult",
+    "BacktestResult",
     "RealizedIncomeMetrics",
     "RealizedPnlBasis",
     "RealizedMetadata",
     "RealizedPerformanceResult",
     "OptimizationResult",
+    "EfficientFrontierResult",
     "WhatIfResult",
     "StockAnalysisResult",
     "BasketAnalysisResult",

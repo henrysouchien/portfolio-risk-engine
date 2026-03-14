@@ -25,6 +25,16 @@ def generate_risk_score_flags(snapshot: dict) -> list[dict]:
     is_compliant = snapshot.get("is_compliant", True) if isinstance(snapshot, dict) else True
     violation_count = snapshot.get("violation_count", 0) if isinstance(snapshot, dict) else 0
     component_scores = snapshot.get("component_scores", {}) if isinstance(snapshot, dict) else {}
+    if isinstance(snapshot, dict):
+        try:
+            raw_score = float(snapshot.get("raw_score", score))
+            penalty_points = float(snapshot.get("compliance_penalty_points", 0))
+        except (TypeError, ValueError):
+            raw_score = score
+            penalty_points = 0.0
+    else:
+        raw_score = score
+        penalty_points = 0.0
 
     if not is_compliant:
         flags.append(
@@ -43,12 +53,25 @@ def generate_risk_score_flags(snapshot: dict) -> list[dict]:
                 "message": f"Risk score {score}/100 indicates high portfolio risk requiring attention",
             }
         )
-    elif score >= 90:
+    elif score >= 90 and is_compliant:
         flags.append(
             {
                 "flag": "excellent_risk",
                 "severity": "success",
                 "message": f"Risk score {score}/100 - excellent risk management",
+            }
+        )
+
+    if penalty_points > 0 and score < raw_score:
+        ceiling_applied = (
+            snapshot.get("compliance_ceiling_applied", False) if isinstance(snapshot, dict) else False
+        )
+        reason = "compliance violations (ceiling applied)" if ceiling_applied else "compliance violations"
+        flags.append(
+            {
+                "flag": "compliance_penalty_applied",
+                "severity": "info",
+                "message": f"Score adjusted {raw_score:.1f} → {score:.1f} due to {reason}",
             }
         )
 

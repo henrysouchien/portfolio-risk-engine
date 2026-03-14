@@ -1,0 +1,6 @@
+line_no,row_kind,source_table,field_name,field_value
+2,Data,statement__01,BrokerName,Interactive Brokers LLC
+3,Data,statement__01,BrokerAddress,"Two Pickwick Plaza, Greenwich, CT 06830"
+4,Data,statement__01,Title,Activity Statement
+5,Data,statement__01,Period,"April 1, 2025 - March 3, 2026"
+6,Data,statement__01,WhenGenerated,"2026-03-04, 09:57:43 EST"

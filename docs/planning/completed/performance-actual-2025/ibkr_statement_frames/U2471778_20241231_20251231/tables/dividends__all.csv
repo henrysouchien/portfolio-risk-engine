@@ -1,0 +1,34 @@
+line_no,row_kind,source_table,currency,date,description,amount
+348,Data,dividends__01,USD,2025-02-13,NMM(MHY622674098) Cash Dividend USD 0.05 per Share (Ordinary Dividend),2
+349,Data,dividends__01,USD,2025-02-28,MSCI(US55354G1004) Cash Dividend USD 1.80 per Share (Ordinary Dividend),9
+350,Data,dividends__01,USD,2025-03-03,V(US92826C8394) Cash Dividend USD 0.59 per Share (Ordinary Dividend),1.77
+351,Data,dividends__01,USD,2025-03-31,CBL(524096642) Cash Dividend USD 0.40 per Share (Ordinary Dividend),28.4
+352,Data,dividends__01,USD,2025-03-31,CBL(524096642) Payment in Lieu of Dividend (Ordinary Dividend),11.6
+353,Data,dividends__01,USD,2025-03-31,CBL(US1248308785) Payment in Lieu of Dividend (Bonus Dividend),23.2
+354,Data,dividends__01,USD,2025-03-31,CBL(US1248308785) Cash Dividend USD 0.80 per Share (Bonus Dividend),56.8
+355,Data,dividends__01,USD,2025-03-31,TKO(US87256C1018) Cash Dividend USD 0.38 per Share (Ordinary Dividend),0.38
+356,Data,dividends__01,USD,2025-03-31,TKO(US87256C1018) Payment in Lieu of Dividend (Ordinary Dividend),4.18
+357,Data,dividends__01,USD,2025-04-02,NVDA(US67066G1040) Cash Dividend USD 0.01 per Share (Ordinary Dividend),0.25
+358,Data,dividends__01,USD,2025-04-22,IGIC(BMG4809J1062) Payment in Lieu of Dividend (Ordinary Dividend),0.38
+359,Data,dividends__01,USD,2025-04-22,IGIC(BMG4809J1062) Cash Dividend USD 0.025 per Share (Ordinary Dividend),2.13
+360,Data,dividends__01,USD,2025-04-22,IGIC(BMG4809J1062) Cash Dividend USD 0.85 per Share (Bonus Dividend),72.25
+361,Data,dividends__01,USD,2025-04-22,IGIC(BMG4809J1062) Payment in Lieu of Dividend (Bonus Dividend),12.75
+362,Data,dividends__01,USD,2025-06-02,EQT(US26884L1098) Cash Dividend USD 0.1575 per Share (Ordinary Dividend),6.3
+363,Data,dividends__01,USD,2025-06-02,V(US92826C8394) Cash Dividend USD 0.59 per Share (Ordinary Dividend),1.77
+364,Data,dividends__01,USD,2025-06-18,IGIC(BMG4809J1062) Cash Dividend USD 0.05 per Share (Ordinary Dividend),5
+365,Data,dividends__01,USD,2025-06-30,TKO(US87256C1018) Payment in Lieu of Dividend (Ordinary Dividend),0.76
+366,Data,dividends__01,USD,2025-06-30,TKO(US87256C1018) Cash Dividend USD 0.38 per Share (Ordinary Dividend),3.8
+367,Data,dividends__01,USD,2025-07-03,NVDA(US67066G1040) Cash Dividend USD 0.01 per Share (Ordinary Dividend),0.25
+368,Data,dividends__01,USD,2025-08-26,KINS(US4967191051) Cash Dividend USD 0.05 per Share (Ordinary Dividend),7.5
+369,Data,dividends__01,USD,2025-09-02,EQT(US26884L1098) Cash Dividend USD 0.1575 per Share (Ordinary Dividend),6.3
+370,Data,dividends__01,USD,2025-09-02,V(US92826C8394) Cash Dividend USD 0.59 per Share (Ordinary Dividend),1.77
+371,Data,dividends__01,USD,2025-09-16,IGIC(BMG4809J1062) Cash Dividend USD 0.05 per Share (Ordinary Dividend),5
+372,Data,dividends__01,USD,2025-09-30,TKO(US87256C1018) Cash Dividend USD 0.76 per Share (Ordinary Dividend),9.12
+373,Data,dividends__01,USD,2025-10-02,NVDA(US67066G1040) Cash Dividend USD 0.01 per Share (Ordinary Dividend),0.25
+374,Data,dividends__01,USD,2025-11-26,KINS(US4967191051) Cash Dividend USD 0.05 per Share (Ordinary Dividend),7.5
+375,Data,dividends__01,USD,2025-12-01,EQT(US26884L1098) Cash Dividend USD 0.165 per Share (Ordinary Dividend),6.6
+376,Data,dividends__01,USD,2025-12-01,V(US92826C8394) Cash Dividend USD 0.67 per Share (Ordinary Dividend),2.01
+377,Data,dividends__01,USD,2025-12-26,NVDA(US67066G1040) Cash Dividend USD 0.01 per Share (Ordinary Dividend),0.25
+378,Data,dividends__01,USD,2025-12-30,TKO(US87256C1018) Cash Dividend USD 0.78 per Share (Ordinary Dividend),9.36
+379,Data,dividends__01,USD,2025-12-31,IGIC(BMG4809J1062) Cash Dividend USD 0.05 per Share (Ordinary Dividend),5
+380,Data,dividends__01,Total,,,303.63

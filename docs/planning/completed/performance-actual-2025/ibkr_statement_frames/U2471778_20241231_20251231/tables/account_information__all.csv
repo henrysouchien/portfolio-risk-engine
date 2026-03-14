@@ -1,0 +1,7 @@
+line_no,row_kind,source_table,field_name,field_value
+8,Data,account_information__01,Name,Henry Chien
+9,Data,account_information__01,Account,U2471778
+10,Data,account_information__01,Account Type,Individual
+11,Data,account_information__01,Customer Type,Individual
+12,Data,account_information__01,Account Capabilities,Margin
+13,Data,account_information__01,Base Currency,USD

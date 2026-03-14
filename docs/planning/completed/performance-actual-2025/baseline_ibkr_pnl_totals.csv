@@ -1,0 +1,6 @@
+institution,account_id,asset_category,realized_total_usd,unrealized_total_usd,total_pnl_usd
+Interactive Brokers LLC,U2471778,Stocks,-4141.89288197,5510.172382,1368.27950003
+Interactive Brokers LLC,U2471778,Equity and Index Options,-1901.1915132,-280.0379,-2181.2294132
+Interactive Brokers LLC,U2471778,Futures,-2049.94534,0.0,-2049.94534
+Interactive Brokers LLC,U2471778,Forex,26.80653,5.137126,31.943656
+Interactive Brokers LLC,U2471778,Total (All Assets),-8066.22320517,5235.271608,-2830.95159717

@@ -121,6 +121,9 @@ class PerformanceResult:
     sector_attribution: Optional[List[Dict[str, Any]]] = None
     security_attribution: Optional[List[Dict[str, Any]]] = None
     factor_attribution: Optional[List[Dict[str, Any]]] = None
+    benchmark_monthly_returns: Optional[Dict[str, float]] = None
+    rolling_sharpe: Optional[Dict[str, float]] = None
+    rolling_volatility: Optional[Dict[str, float]] = None
     
     @classmethod  
     def from_core_analysis(cls,
@@ -244,6 +247,9 @@ class PerformanceResult:
             sector_attribution=performance_metrics.get("sector_attribution"),
             security_attribution=performance_metrics.get("security_attribution"),
             factor_attribution=performance_metrics.get("factor_attribution"),
+            benchmark_monthly_returns=performance_metrics.get("benchmark_monthly_returns"),
+            rolling_sharpe=performance_metrics.get("rolling_sharpe"),
+            rolling_volatility=performance_metrics.get("rolling_volatility"),
         )
     
     def get_summary(self) -> Dict[str, Any]:
@@ -348,25 +354,25 @@ class PerformanceResult:
     def _generate_key_insights(self) -> list:
         """
         Generate key insights bullets based on performance metrics.
-        
+
         Returns actionable insights highlighting strengths and areas for improvement.
         """
         insights = []
-        
+
         # Alpha generation insight
         alpha = self.benchmark_analysis.get("alpha_annual", 0)
         if alpha is not None and alpha > 5:
             insights.append(f"• Strong alpha generation (+{alpha:.1f}% vs benchmark)")
         elif alpha is not None and alpha < -2:
             insights.append(f"• Underperforming benchmark ({alpha:.1f}% alpha)")
-        
+
         # Risk-adjusted returns insight
         sharpe = self.risk_adjusted_returns.get("sharpe_ratio", 0)
         if sharpe is not None and sharpe > 1.2:
             insights.append(f"• Excellent risk-adjusted returns (Sharpe: {sharpe:.2f})")
         elif sharpe is not None and sharpe < 0.5:
             insights.append(f"• Poor risk-adjusted returns (Sharpe: {sharpe:.2f})")
-        
+
         # Volatility insight
         volatility = self.risk_metrics.get("volatility", 0)
         benchmark_vol = self.benchmark_comparison.get("benchmark_volatility", 0)
@@ -377,20 +383,110 @@ class PerformanceResult:
             and volatility > benchmark_vol * 1.2
         ):
             insights.append(f"• High volatility ({volatility:.1f}% vs {benchmark_vol:.1f}% benchmark)")
-        
+
         # Win rate insight
         win_rate = self.returns.get("win_rate", 0)
         if win_rate is not None and win_rate > 65:
             insights.append(f"• High consistency ({win_rate:.0f}% positive months)")
         elif win_rate is not None and win_rate < 50:
             insights.append(f"• Low consistency ({win_rate:.0f}% positive months)")
-        
+
         # Drawdown insight
         max_dd = self.risk_metrics.get("maximum_drawdown", 0)
         if max_dd is not None and abs(max_dd) > 25:
             insights.append(f"• Significant drawdown risk (max: {max_dd:.1f}%)")
-        
+
         return insights
+
+    def _generate_structured_insights(self) -> Dict[str, Dict[str, str]]:
+        """
+        Generate structured insights for frontend consumption.
+
+        Returns a dict with keys "performance", "risk", "opportunity", each containing:
+        - text: descriptive insight text
+        - action: suggested action
+        - impact: "high" | "medium" | "low"
+
+        Impact logic:
+        - Performance: negative alpha = high concern; large positive alpha = low (things are good)
+        - Risk: high volatility/drawdown/beta = high concern
+        - Opportunity: Sharpe < 1 = high improvement opportunity; Sharpe > 1.5 = low
+        """
+        alpha = self.benchmark_analysis.get("alpha_annual") or 0
+        beta = self.benchmark_analysis.get("beta") or 0
+        sharpe = self.risk_adjusted_returns.get("sharpe_ratio") or 0
+        volatility = self.risk_metrics.get("volatility") or 0
+        max_dd = self.risk_metrics.get("maximum_drawdown") or 0
+        benchmark_vol = self.benchmark_comparison.get("benchmark_volatility") or 0
+
+        # --- Performance insight ---
+        if alpha > 5:
+            perf_text = f"Portfolio is significantly outperforming the benchmark with {alpha:.2f}% alpha."
+            perf_action = "Continue current allocation strategy"
+        elif alpha >= 0:
+            perf_text = f"Portfolio is modestly outperforming with {alpha:.2f}% alpha."
+            perf_action = "Continue current allocation strategy"
+        else:
+            perf_text = f"Portfolio is underperforming the benchmark by {abs(alpha):.2f}%."
+            perf_action = "Review allocation strategy"
+
+        # Impact: negative alpha is a high concern, not a high opportunity
+        if alpha < 0:
+            perf_impact = "high"
+        elif alpha <= 5:
+            perf_impact = "medium"
+        else:
+            perf_impact = "low"
+
+        # --- Risk insight ---
+        beta_sensitivity = "above" if beta > 1.1 else ("below" if beta < 0.9 else "near")
+        dd_magnitude = abs(max_dd)
+
+        if volatility > 20:
+            risk_text = (
+                f"Volatility of {volatility:.1f}% is elevated. "
+                f"Max drawdown of {dd_magnitude:.1f}% suggests significant downside risk. "
+                f"Beta of {beta:.2f} indicates {beta_sensitivity}-market sensitivity."
+            )
+        elif volatility >= 10:
+            risk_text = (
+                f"Volatility of {volatility:.1f}% is moderate with a max drawdown of {dd_magnitude:.1f}%. "
+                f"Beta of {beta:.2f} indicates {beta_sensitivity}-market sensitivity."
+            )
+        else:
+            risk_text = (
+                f"Volatility of {volatility:.1f}% is low, indicating conservative positioning. "
+                f"Beta of {beta:.2f} indicates {beta_sensitivity}-market sensitivity."
+            )
+
+        if volatility > 20 or dd_magnitude > 20 or beta > 1.2:
+            risk_impact = "high"
+        elif volatility >= 10 or dd_magnitude > 10 or beta >= 1:
+            risk_impact = "medium"
+        else:
+            risk_impact = "low"
+
+        risk_action = "Reduce concentration risk" if volatility > 20 else "Monitor risk metrics"
+
+        # --- Opportunity insight ---
+        if sharpe > 1.5:
+            opp_text = f"Strong risk-adjusted returns (Sharpe {sharpe:.2f}) suggest current strategy is effective."
+            opp_action = "Fine-tune position sizing"
+            opp_impact = "low"
+        elif sharpe >= 1:
+            opp_text = "Decent risk-adjusted returns. Consider optimizing for better Sharpe ratio."
+            opp_action = "Fine-tune position sizing"
+            opp_impact = "medium"
+        else:
+            opp_text = f"Risk-adjusted returns could be improved (Sharpe {sharpe:.2f}). Consider rebalancing."
+            opp_action = "Consider rebalancing"
+            opp_impact = "high"
+
+        return {
+            "performance": {"text": perf_text, "action": perf_action, "impact": perf_impact},
+            "risk": {"text": risk_text, "action": risk_action, "impact": risk_impact},
+            "opportunity": {"text": opp_text, "action": opp_action, "impact": opp_impact},
+        }
     
     def _format_analysis_period(self) -> str:
         """Return human-readable analysis period text (e.g. "2019-01-31 to 2025-06-27")."""
@@ -544,6 +640,9 @@ class PerformanceResult:
             "monthly_stats": self.monthly_stats, # Monthly statistics (average_monthly_return, average_win, average_loss, win_loss_ratio)   
             "risk_free_rate": self.risk_free_rate, # Risk-free rate (as percentage)
             "monthly_returns": self.monthly_returns, # Monthly returns (date, return)
+            "benchmark_monthly_returns": self.benchmark_monthly_returns,
+            "rolling_sharpe": self.rolling_sharpe,
+            "rolling_volatility": self.rolling_volatility,
             "analysis_date": self.analysis_date.isoformat(), # Analysis date (ISO-8601 UTC)
             "portfolio_name": self.portfolio_name, # Portfolio name
             "formatted_report": self.to_cli_report(), # Human-readable CLI report (identical to current output)
@@ -551,8 +650,9 @@ class PerformanceResult:
             "position_count": self.get_position_count(), # Number of positions in portfolio
             "performance_category": self._categorize_performance(), # Performance category (excellent, good, fair, poor)
             "key_insights": self._generate_key_insights(), # Key insights (benchmark comparison, market sensitivity, risk-adjusted returns, win rate)
-            "display_formatting": self._get_display_formatting_metadata(), # Display formatting metadata    
+            "display_formatting": self._get_display_formatting_metadata(), # Display formatting metadata
             "enhanced_key_insights": self._generate_enhanced_key_insights(), # Enhanced key insights
+            "insights": self._generate_structured_insights(), # Structured insights for frontend (performance/risk/opportunity)
             "allocations": _convert_to_json_serializable(self._allocations) if self._allocations else None, # Portfolio allocation data for position analysis
             # Data quality information
             "excluded_tickers": self.excluded_tickers, # Tickers excluded due to insufficient data
@@ -626,7 +726,7 @@ class PerformanceResult:
     def _format_performance_metrics(self) -> str:
         """Format performance metrics - delegates to display_portfolio_performance_metrics"""
         # CRITICAL: Must use existing display function to preserve exact formatting
-        from run_portfolio_risk import display_portfolio_performance_metrics
+        from core.run_portfolio_risk import display_portfolio_performance_metrics
         import io
         import sys
         

@@ -431,9 +431,9 @@ class OptimizationResult:
             Dict[str, Any]: Complete optimization results with compliance validation and performance metrics
         """
         # Use standard serialization (consistent with rest of codebase)
-        risk_checks = _convert_to_json_serializable(self.risk_table) # Risk limit validation results from optimization
-        factor_checks = _convert_to_json_serializable(self.beta_table) # Factor beta validation results from optimization
-        proxy_checks = _convert_to_json_serializable(self.proxy_table) # Industry proxy validation results from optimization
+        risk_checks = _convert_to_json_serializable(self.risk_table, orient='records') # Risk limit validation results from optimization
+        factor_checks = _convert_to_json_serializable(self.beta_table, orient='records') # Factor beta validation results from optimization
+        proxy_checks = _convert_to_json_serializable(self.proxy_table, orient='records') # Industry proxy validation results from optimization
         
         # Compute summary statuses for quick API consumption
         risk_passes = bool(self.risk_table['Pass'].all()) # True if all risk checks pass
@@ -441,9 +441,9 @@ class OptimizationResult:
         proxy_passes = bool(self.proxy_table['pass'].all()) if not self.proxy_table.empty else True # True if all proxy checks pass
         
         # Extract violations only (failed checks for error handling)
-        risk_violations = _convert_to_json_serializable(self.risk_table[~self.risk_table['Pass']]) # Only failed risk checks
-        factor_violations = _convert_to_json_serializable(self.beta_table[~self.beta_table['pass']]) # Only failed factor checks
-        proxy_violations = _convert_to_json_serializable(self.proxy_table[~self.proxy_table['pass']]) if not self.proxy_table.empty else [] # Only failed proxy checks
+        risk_violations = _convert_to_json_serializable(self.risk_table[~self.risk_table['Pass']], orient='records') # Only failed risk checks
+        factor_violations = _convert_to_json_serializable(self.beta_table[~self.beta_table['pass']], orient='records') # Only failed factor checks
+        proxy_violations = _convert_to_json_serializable(self.proxy_table[~self.proxy_table['pass']], orient='records') if not self.proxy_table.empty else [] # Only failed proxy checks
         
         # Build comprehensive response with both structured and original formats
         result = {
@@ -616,7 +616,7 @@ class OptimizationResult:
 
     def _format_min_variance_factor_checks(self) -> str:
         """Format minimum variance factor checks - EXACT copy from print_min_var_report"""
-        from helpers_display import _drop_factors
+        from utils.helpers_display import _drop_factors
         
         lines = ["\n📊  Optimised Portfolio – Factor Betas\n"]
         beta_tbl = _drop_factors(self.beta_table)
@@ -627,4 +627,3 @@ class OptimizationResult:
             "pass":      lambda x: "PASS" if x else "FAIL",  # Use lowercase 'pass' to match actual column name
         }))
         return "\n".join(lines)
-

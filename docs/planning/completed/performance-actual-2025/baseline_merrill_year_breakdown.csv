@@ -1,0 +1,4 @@
+institution,account_id,year_or_period,opening_balance_usd,contributions_withdrawals_usd,interest_dividends_usd,appreciation_depreciation_usd,closing_balance_usd
+Merrill Edge,CMA-Edge 42X-71X13,2025,23726.84,14605.0,2552.74,-8057.18,32827.4
+Merrill Edge,CMA-Edge 42X-71X13,2026,32827.4,0.0,395.09,-349.4,32873.09
+Merrill Edge,CMA-Edge 42X-71X13,Total (Selected Range),23726.84,14605.0,2947.83,-8406.58,32873.09

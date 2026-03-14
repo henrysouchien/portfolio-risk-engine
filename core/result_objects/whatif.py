@@ -401,7 +401,7 @@ class WhatIfResult:
         
         # Get reference data for position labeling
         try:
-            from core.portfolio_config import get_cash_positions
+            from portfolio_risk_engine.portfolio_config import get_cash_positions
             from utils.etf_mappings import get_etf_to_industry_map, format_ticker_with_label
             cash_positions = get_cash_positions()
             industry_map = get_etf_to_industry_map()
@@ -654,6 +654,22 @@ class WhatIfResult:
                 "concentration_delta": self.concentration_delta,        # float: Change in Herfindahl concentration index
                 "factor_variance_delta": self.factor_variance_delta     # float: Change in factor variance percentage
             },
+            "scenario_summary": {
+                "current": {
+                    "volatility": self.current_metrics.volatility_annual,
+                    "volatility_monthly": self.current_metrics.volatility_monthly,
+                    "herfindahl": self.current_metrics.herfindahl,
+                    "factor_variance_pct": self.current_metrics.variance_decomposition.get('factor_pct', 0) * 100,
+                    "idiosyncratic_variance_pct": self.current_metrics.variance_decomposition.get('idiosyncratic_pct', 0) * 100,
+                },
+                "scenario": {
+                    "volatility": self.scenario_metrics.volatility_annual,
+                    "volatility_monthly": self.scenario_metrics.volatility_monthly,
+                    "herfindahl": self.scenario_metrics.herfindahl,
+                    "factor_variance_pct": self.scenario_metrics.variance_decomposition.get('factor_pct', 0) * 100,
+                    "idiosyncratic_variance_pct": self.scenario_metrics.variance_decomposition.get('idiosyncratic_pct', 0) * 100,
+                }
+            },
             
             # === STRUCTURED ANALYSIS DATA (Raw - for programming) ===
             "risk_analysis": self._build_risk_analysis(),               # Dict: Raw risk data with checks/passes/violations/limits
@@ -688,9 +704,9 @@ class WhatIfResult:
         risk_df = self._new_portfolio_risk_checks
         
         # Use standard serialization (consistent with OptimizationResult)
-        risk_checks = _convert_to_json_serializable(risk_df)
+        risk_checks = _convert_to_json_serializable(risk_df, orient='records')
         risk_passes = bool(risk_df['Pass'].all()) if 'Pass' in risk_df.columns else True
-        risk_violations = _convert_to_json_serializable(risk_df[~risk_df['Pass']]) if 'Pass' in risk_df.columns else []
+        risk_violations = _convert_to_json_serializable(risk_df[~risk_df['Pass']], orient='records') if 'Pass' in risk_df.columns else []
         
         return {
             "risk_checks": risk_checks,              # List[Dict]: All risk checks in row format
@@ -712,18 +728,18 @@ class WhatIfResult:
         # Process factor beta checks
         if hasattr(self, '_new_portfolio_factor_checks') and not self._new_portfolio_factor_checks.empty:
             factor_df = self._new_portfolio_factor_checks
-            factor_checks = _convert_to_json_serializable(factor_df)
+            factor_checks = _convert_to_json_serializable(factor_df, orient='records')
             if 'pass' in factor_df.columns:
                 factor_passes = bool(factor_df['pass'].all())
-                factor_violations = _convert_to_json_serializable(factor_df[~factor_df['pass']])
+                factor_violations = _convert_to_json_serializable(factor_df[~factor_df['pass']], orient='records')
         
         # Process proxy beta checks
         if hasattr(self, '_new_portfolio_industry_checks') and not self._new_portfolio_industry_checks.empty:
             proxy_df = self._new_portfolio_industry_checks
-            proxy_checks = _convert_to_json_serializable(proxy_df)
+            proxy_checks = _convert_to_json_serializable(proxy_df, orient='records')
             if 'pass' in proxy_df.columns:
                 proxy_passes = bool(proxy_df['pass'].all())
-                proxy_violations = _convert_to_json_serializable(proxy_df[~proxy_df['pass']])
+                proxy_violations = _convert_to_json_serializable(proxy_df[~proxy_df['pass']], orient='records')
         
         return {
             "factor_beta_checks": factor_checks,     # List[Dict]: Factor beta checks in row format
@@ -737,8 +753,8 @@ class WhatIfResult:
     def _build_comparison_analysis(self) -> Dict[str, Any]:
         """Build structured comparison analysis data for API response (matching OptimizationResult pattern)."""
         # Use standard serialization (consistent with OptimizationResult)
-        risk_comparison = _convert_to_json_serializable(self.risk_comparison) if not self.risk_comparison.empty else []
-        beta_comparison = _convert_to_json_serializable(self.beta_comparison) if not self.beta_comparison.empty else []
+        risk_comparison = _convert_to_json_serializable(self.risk_comparison, orient='records') if not self.risk_comparison.empty else []
+        beta_comparison = _convert_to_json_serializable(self.beta_comparison, orient='records') if not self.beta_comparison.empty else []
         
         return {
             "risk_comparison": risk_comparison,       # List[Dict]: Before/after risk comparison in row format
@@ -932,4 +948,3 @@ class WhatIfResult:
             })
             
         return factor_comparison
-

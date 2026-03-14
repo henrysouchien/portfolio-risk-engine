@@ -1,0 +1,13 @@
+line_no,row_kind,source_table,asset_category,currency,symbol,description,shares_at_ib,shares_borrowed,shares_lent,net_shares
+211,Data,net_stock_position_summary__01,Stocks,GBP,AT.,ASHTEAD TECHNOLOGY HOLDINGS,400,0,0,400
+212,Data,net_stock_position_summary__01,Stocks,USD,AAPL,APPLE INC,2,0,0,2
+213,Data,net_stock_position_summary__01,Stocks,USD,EQT,EQT CORP,40,0,0,40
+214,Data,net_stock_position_summary__01,Stocks,USD,FIG,FIGMA INC-CL A,103,0,0,103
+215,Data,net_stock_position_summary__01,Stocks,USD,IGIC,INTERNATIONAL GENERAL INSURA,100,0,0,100
+216,Data,net_stock_position_summary__01,Stocks,USD,KINS,KINGSTONE COS INC,150,0,0,150
+217,Data,net_stock_position_summary__01,Stocks,USD,NVDA,NVIDIA CORP,25,0,0,25
+218,Data,net_stock_position_summary__01,Stocks,USD,RNMBY,RHEINMETALL AG-UNSP ADR,3,0,0,3
+219,Data,net_stock_position_summary__01,Stocks,USD,SFM,SPROUTS FARMERS MARKET INC,14,0,0,14
+220,Data,net_stock_position_summary__01,Stocks,USD,SLV,ISHARES SILVER TRUST,100,0,0,100
+221,Data,net_stock_position_summary__01,Stocks,USD,TKO,TKO GROUP HOLDINGS INC,12,0,0,12
+222,Data,net_stock_position_summary__01,Stocks,USD,V,VISA INC-CLASS A SHARES,3,0,0,3

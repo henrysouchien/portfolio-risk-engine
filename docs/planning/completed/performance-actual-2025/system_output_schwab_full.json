@@ -1,0 +1,427 @@
+{
+  "generated_at": "2026-02-25T11:01:18.761155",
+  "request": {
+    "mode": "realized",
+    "source": "schwab",
+    "format": "full"
+  },
+  "ok": true,
+  "result": {
+    "analysis_period": {
+      "start_date": "2024-05-31",
+      "end_date": "2026-01-31",
+      "total_months": 21,
+      "years": 1.75
+    },
+    "returns": {
+      "total_return": 176.19,
+      "annualized_return": 78.7,
+      "best_month": 40.9,
+      "worst_month": -13.7,
+      "positive_months": 12,
+      "negative_months": 9,
+      "win_rate": 57.1
+    },
+    "risk_metrics": {
+      "volatility": 46.48,
+      "maximum_drawdown": -13.7,
+      "downside_deviation": 19.52,
+      "tracking_error": 43.15
+    },
+    "risk_adjusted_returns": {
+      "sharpe_ratio": 1.597,
+      "sortino_ratio": 3.803,
+      "information_ratio": 1.357,
+      "calmar_ratio": 5.744
+    },
+    "benchmark_analysis": {
+      "benchmark_ticker": "SPY",
+      "alpha_annual": 35.64,
+      "beta": 1.945,
+      "r_squared": 0.181,
+      "excess_return": 58.57
+    },
+    "benchmark_comparison": {
+      "portfolio_total_return": 176.19,
+      "benchmark_total_return": 37.85,
+      "portfolio_return": 78.7,
+      "benchmark_return": 20.13,
+      "portfolio_volatility": 46.48,
+      "benchmark_volatility": 10.16,
+      "portfolio_sharpe": 1.597,
+      "benchmark_sharpe": 1.541
+    },
+    "monthly_stats": {
+      "average_monthly_return": 5.69,
+      "average_win": 12.73,
+      "average_loss": -3.69,
+      "win_loss_ratio": 3.45
+    },
+    "risk_free_rate": 4.47,
+    "monthly_returns": {
+      "2024-05-31": 0.2082,
+      "2024-06-30": -0.0029,
+      "2024-07-31": 0.409,
+      "2024-08-31": 0.1565,
+      "2024-09-30": 0.0463,
+      "2024-10-31": 0.0689,
+      "2024-11-30": 0.3694,
+      "2024-12-31": -0.137,
+      "2025-01-31": 0.1389,
+      "2025-02-28": -0.005,
+      "2025-03-31": -0.0447,
+      "2025-04-30": -0.0108,
+      "2025-05-31": 0.047,
+      "2025-06-30": 0.0215,
+      "2025-07-31": -0.0226,
+      "2025-08-31": -0.0213,
+      "2025-09-30": -0.0332,
+      "2025-10-31": -0.0546,
+      "2025-11-30": 0.0063,
+      "2025-12-31": 0.0376,
+      "2026-01-31": 0.0183
+    },
+    "realized_metadata": {
+      "realized_pnl": 81.71,
+      "unrealized_pnl": 4995.32,
+      "net_contributions": 73578.27,
+      "nav_pnl_usd": 5595.59,
+      "nav_pnl_synthetic_enhanced_usd": 5595.59,
+      "nav_pnl_observed_only_usd": 9026.0,
+      "nav_pnl_synthetic_impact_usd": -3430.41,
+      "lot_pnl_usd": 11469.62,
+      "reconciliation_gap_usd": -5874.03,
+      "pnl_basis": {
+        "nav": "nav_flow_synthetic_enhanced",
+        "nav_observed_only": "nav_flow_observed_only",
+        "lot": "fifo_observed_lots"
+      },
+      "nav_metrics_estimated": true,
+      "high_confidence_realized": false,
+      "income": {
+        "total": 6392.59,
+        "dividends": 7456.74,
+        "interest": -1064.15,
+        "by_month": {
+          "2024-08": 64.34,
+          "2024-09": 44.14,
+          "2024-10": 44.52,
+          "2024-11": 65.78999999999999,
+          "2024-12": 45.34,
+          "2025-01": 45.75,
+          "2025-02": 303.15,
+          "2025-03": 676.21,
+          "2025-04": 581.9,
+          "2025-05": 254.19,
+          "2025-06": 467.58,
+          "2025-07": 882.33,
+          "2025-08": 259.14,
+          "2025-09": 431.16,
+          "2025-10": 812.0300000000001,
+          "2025-11": 215.86,
+          "2025-12": 377.67,
+          "2026-01": 821.4799999999999,
+          "2026-02": 0.01
+        },
+        "by_symbol": {
+          "DSU": 3667.7900000000004,
+          "MSCI": 136.20999999999998,
+          "INTEREST": -1064.15,
+          "ENB": 611.99,
+          "SHY": 258.98,
+          "CBL": 460.0,
+          "STWD": 880.4200000000001,
+          "BXMT": 915.98,
+          "MRP": 513.41,
+          "SPY": 11.96
+        },
+        "by_institution": {
+          "Charles Schwab": {
+            "dividends": 7456.74,
+            "interest": -1064.15,
+            "total": 6392.59
+          }
+        },
+        "current_monthly_rate": 399.72,
+        "projected_annual": 4796.64,
+        "yield_on_cost": 2.9983,
+        "yield_on_value": 2.9582
+      },
+      "data_coverage": 37.5,
+      "inception_date": "2024-04-29",
+      "synthetic_positions": [
+        {
+          "ticker": "AT.L",
+          "currency": "GBP",
+          "direction": "LONG"
+        },
+        {
+          "ticker": "CPPMF",
+          "currency": "USD",
+          "direction": "LONG"
+        },
+        {
+          "ticker": "DSU",
+          "currency": "USD",
+          "direction": "LONG"
+        },
+        {
+          "ticker": "EQT",
+          "currency": "USD",
+          "direction": "LONG"
+        },
+        {
+          "ticker": "FIG",
+          "currency": "USD",
+          "direction": "LONG"
+        },
+        {
+          "ticker": "GLBE",
+          "currency": "USD",
+          "direction": "LONG"
+        },
+        {
+          "ticker": "IGIC",
+          "currency": "USD",
+          "direction": "LONG"
+        },
+        {
+          "ticker": "IT",
+          "currency": "USD",
+          "direction": "LONG"
+        },
+        {
+          "ticker": "KINS",
+          "currency": "USD",
+          "direction": "LONG"
+        },
+        {
+          "ticker": "LIFFF",
+          "currency": "USD",
+          "direction": "LONG"
+        },
+        {
+          "ticker": "MSCI",
+          "currency": "USD",
+          "direction": "LONG"
+        },
+        {
+          "ticker": "NVDA",
+          "currency": "USD",
+          "direction": "LONG"
+        },
+        {
+          "ticker": "PCTY",
+          "currency": "USD",
+          "direction": "LONG"
+        },
+        {
+          "ticker": "RNMBY",
+          "currency": "USD",
+          "direction": "LONG"
+        },
+        {
+          "ticker": "SFM",
+          "currency": "USD",
+          "direction": "LONG"
+        },
+        {
+          "ticker": "SLV",
+          "currency": "USD",
+          "direction": "LONG"
+        },
+        {
+          "ticker": "STWD",
+          "currency": "USD",
+          "direction": "LONG"
+        },
+        {
+          "ticker": "TKO",
+          "currency": "USD",
+          "direction": "LONG"
+        },
+        {
+          "ticker": "V",
+          "currency": "USD",
+          "direction": "LONG"
+        }
+      ],
+      "synthetic_entry_count": 19,
+      "synthetic_current_position_count": 19,
+      "synthetic_current_position_tickers": [
+        "AT.L",
+        "CPPMF",
+        "DSU",
+        "EQT",
+        "FIG",
+        "GLBE",
+        "IGIC",
+        "IT",
+        "KINS",
+        "LIFFF",
+        "MSCI",
+        "NVDA",
+        "PCTY",
+        "RNMBY",
+        "SFM",
+        "SLV",
+        "STWD",
+        "TKO",
+        "V"
+      ],
+      "synthetic_current_market_value": 121657.04,
+      "synthetic_incomplete_trade_count": 0,
+      "first_transaction_exit_count": 0,
+      "first_transaction_exit_details": [],
+      "extreme_return_months": [],
+      "data_quality_flags": [
+        {
+          "code": "SYNTHETIC_OPENING_POSITIONS",
+          "severity": "high",
+          "count": 19,
+          "symbols": [
+            "AT.L",
+            "CPPMF",
+            "DSU",
+            "EQT",
+            "FIG",
+            "GLBE",
+            "IGIC",
+            "IT",
+            "KINS",
+            "LIFFF",
+            "MSCI",
+            "NVDA",
+            "PCTY",
+            "RNMBY",
+            "SFM",
+            "SLV",
+            "STWD",
+            "TKO",
+            "V"
+          ],
+          "estimated_current_market_value": 121657.04
+        }
+      ],
+      "unpriceable_symbol_count": 0,
+      "unpriceable_symbols": [],
+      "unpriceable_reason_counts": {},
+      "unpriceable_reasons": {},
+      "ibkr_pricing_coverage": {
+        "total_symbols_priced_via_ibkr": 0,
+        "by_instrument_type": {
+          "futures": 0,
+          "fx": 0,
+          "bond": 0,
+          "option": 0
+        }
+      },
+      "source_breakdown": {
+        "schwab": 88
+      },
+      "flow_source_breakdown": {
+        "provider_authoritative_applied": 127,
+        "provider_authoritative_available": 127,
+        "provider_diagnostics_only": 3,
+        "inferred": 0
+      },
+      "inferred_flow_diagnostics": {
+        "mode": "provider_authoritative_only",
+        "fallback_slices_present": false,
+        "replayed_fallback_provider_activity": false,
+        "total_inferred_event_count": 0,
+        "total_inferred_net_usd": 0.0,
+        "inferred_event_window": {
+          "start": null,
+          "end": null
+        },
+        "by_provider": {},
+        "by_slice": {}
+      },
+      "provider_flow_coverage": {
+        "schwab|charles schwab|468AE470AC18C1252813F827DCF77818763E6B013C5706E3A05A238F61CFF8EC": {
+          "authoritative": true,
+          "has_metadata": true,
+          "event_count": 39,
+          "coverage_start": "2024-08-24T00:00:00",
+          "coverage_end": "2026-02-17T00:00:00",
+          "has_error": false,
+          "has_partial": false,
+          "deterministic_no_flow": false,
+          "unmapped_row_count": 0
+        },
+        "schwab|charles schwab|4AE3AB6F3ED9C99B4FC9E92FE05BB82AAFA0584FEB9DFF118AC324EF75920A1B": {
+          "authoritative": true,
+          "has_metadata": true,
+          "event_count": 87,
+          "coverage_start": "2024-04-01T00:00:00",
+          "coverage_end": "2026-02-24T00:00:00",
+          "has_error": false,
+          "has_partial": false,
+          "deterministic_no_flow": false,
+          "unmapped_row_count": 0
+        },
+        "schwab|charles schwab|A3CF93C405D3DDC831B9CB5BDB74483D2945097D50EBC608C222340237E8DC1F": {
+          "authoritative": true,
+          "has_metadata": true,
+          "event_count": 4,
+          "coverage_start": "2024-08-24T00:00:00",
+          "coverage_end": "2026-01-30T00:00:00",
+          "has_error": false,
+          "has_partial": false,
+          "deterministic_no_flow": false,
+          "unmapped_row_count": 0
+        }
+      },
+      "flow_fallback_reasons": [],
+      "dedup_diagnostics": {
+        "input_count": 130,
+        "output_count": 130,
+        "duplicates_dropped_by_provider": {},
+        "duplicates_dropped_by_slice": {}
+      },
+      "external_net_flows_usd": 50442.64,
+      "net_contributions_definition": "trade_cash_legs_legacy",
+      "data_warnings": [
+        "2024-04-30: V_start=0 with no detected inflows; return set to 0.",
+        "Created 19 synthetic cash event(s) for cash-flow reconstruction.",
+        "Excluded 3 mixed-source position symbol(s) from schwab holdings alignment for short-inference gap logic (DSU, MSCI, STWD); provider attribution is ambiguous in consolidated rows.",
+        "HIGH CONFIDENCE GATE FAILED: NAV metrics include estimated inputs (synthetic positions, low coverage, or unpriceable symbols).",
+        "HIGH CONFIDENCE GATE FAILED: data coverage 37.50% is below target 95.00%.",
+        "HIGH CONFIDENCE GATE FAILED: reconciliation gap 9.20% exceeds max 2.00%.",
+        "HIGH DATA QUALITY FLAG: Synthetic opening positions inferred for 19 symbol(s) (AT.L, CPPMF, DSU, EQT, FIG, ...). NAV/return metrics include these synthetic lots, but realized/unrealized P&L only includes observed transaction lots, so the metrics can diverge.",
+        "Used synthetic price hint for FIG (LONG) on 2024-04-29 because no historical price was available.",
+        "source filter applies to transactions; current positions are filtered only by institution (when provided), not by source, for NAV and valuation. Short-inference gap logic uses source-aligned holdings when attributable."
+      ]
+    },
+    "realized_pnl": 81.71,
+    "unrealized_pnl": 4995.32,
+    "income_total": 6392.59,
+    "income_yield_on_cost": 2.9983,
+    "income_yield_on_value": 2.9582,
+    "data_coverage": 37.5,
+    "inception_date": "2024-04-29",
+    "nav_pnl_usd": 5595.59,
+    "nav_pnl_observed_only_usd": 9026.0,
+    "nav_pnl_synthetic_impact_usd": -3430.41,
+    "lot_pnl_usd": 11469.62,
+    "reconciliation_gap_usd": -5874.03,
+    "nav_metrics_estimated": true,
+    "high_confidence_realized": false,
+    "pnl_basis": {
+      "nav": "nav_flow_synthetic_enhanced",
+      "nav_observed_only": "nav_flow_observed_only",
+      "lot": "fifo_observed_lots"
+    },
+    "external_net_flows_usd": 50442.64,
+    "net_contributions_definition": "trade_cash_legs_legacy",
+    "status": "success",
+    "mode": "realized",
+    "performance_category": "excellent",
+    "key_insights": [
+      "\u2022 Strong alpha generation (+35.6% vs benchmark)",
+      "\u2022 Excellent risk-adjusted returns (Sharpe: 1.60)",
+      "\u2022 High volatility (46.5% vs 10.2% benchmark)"
+    ]
+  }
+}

@@ -1,0 +1,36 @@
+line_no,row_kind,source_table,asset_category,symbol,description,conid,security_id,underlying,listing_exch,multiplier,type,code,expiry,delivery_month,strike
+487,Data,financial_instrument_information__01,Stocks,AAPL,APPLE INC,265598,US0378331005,AAPL,NASDAQ,1,COMMON,,,,
+488,Data,financial_instrument_information__01,Stocks,AT.,ASHTEAD TECHNOLOGY HOLDINGS,528621060,GB00BLH42507,AT.,LSE,1,COMMON,,,,
+489,Data,financial_instrument_information__01,Stocks,CBL,CBL & ASSOCIATES PROPERTIES,524096642,US1248308785,CBL,NYSE,1,REIT,,,,
+490,Data,financial_instrument_information__01,Stocks,CUBI,CUSTOMERS BANCORP INC,99757340,US23204G1004,CUBI,NYSE,1,COMMON,,,,
+491,Data,financial_instrument_information__01,Stocks,EL,ESTEE LAUDER COMPANIES-CL A,1448477,US5184391044,EL,NYSE,1,COMMON,,,,
+492,Data,financial_instrument_information__01,Stocks,EQT,EQT CORP,57698865,US26884L1098,EQT,NYSE,1,COMMON,,,,
+493,Data,financial_instrument_information__01,Stocks,FIG,FIGMA INC-CL A,802794976,US3168411052,FIG,NYSE,1,COMMON,,,,
+494,Data,financial_instrument_information__01,Stocks,HAS,HASBRO INC,754956,US4180561072,HAS,NASDAQ,1,COMMON,,,,
+495,Data,financial_instrument_information__01,Stocks,HBI,HANESBRANDS INC.,40369429,US4103451021,HBI,NYSE,1,COMMON,,,,
+496,Data,financial_instrument_information__01,Stocks,HPE,HEWLETT PACKARD ENTERPRISE,209411798,US42824C1099,HPE,NYSE,1,COMMON,,,,
+497,Data,financial_instrument_information__01,Stocks,HPQ,HP INC,209411801,US40434L1052,HPQ,NYSE,1,COMMON,,,,
+498,Data,financial_instrument_information__01,Stocks,IGIC,INTERNATIONAL GENERAL INSURA,411917900,BMG4809J1062,IGIC,NASDAQ,1,COMMON,,,,
+499,Data,financial_instrument_information__01,Stocks,KINS,KINGSTONE COS INC,61481444,US4967191051,KINS,NASDAQ,1,COMMON,,,,
+500,Data,financial_instrument_information__01,Stocks,MAT,MATTEL INC,9365,US5770811025,MAT,NASDAQ,1,COMMON,,,,
+501,Data,financial_instrument_information__01,Stocks,MSCI,MSCI INC,47101335,US55354G1004,MSCI,NYSE,1,COMMON,,,,
+502,Data,financial_instrument_information__01,Stocks,NMM,NAVIOS MARITIME PARTNERS LP,362915197,MHY622674098,NMM,NYSE,1,MLP,,,,
+503,Data,financial_instrument_information__01,Stocks,NVDA,NVIDIA CORP,4815747,US67066G1040,NVDA,NASDAQ,1,COMMON,,,,
+504,Data,financial_instrument_information__01,Stocks,RNMBY,RHEINMETALL AG-UNSP ADR,56347307,US76206K1079,RNMBY,PINK,1,ADR,,,,
+505,Data,financial_instrument_information__01,Stocks,SE,SEA LTD-ADR,292735472,US81141R1005,SE,NYSE,1,ADR,,,,
+506,Data,financial_instrument_information__01,Stocks,SFM,SPROUTS FARMERS MARKET INC,132310192,US85208M1027,SFM,NASDAQ,1,COMMON,,,,
+507,Data,financial_instrument_information__01,Stocks,SLV,ISHARES SILVER TRUST,39039301,US46428Q1094,SLV,ARCA,1,ETF,,,,
+508,Data,financial_instrument_information__01,Stocks,TKO,TKO GROUP HOLDINGS INC,652841542,US87256C1018,TKO,NYSE,1,COMMON,,,,
+509,Data,financial_instrument_information__01,Stocks,V,VISA INC-CLASS A SHARES,49462172,US92826C8394,V,NYSE,1,COMMON,,,,
+510,Data,financial_instrument_information__01,Stocks,WHR,WHIRLPOOL CORP,13751,US9633201069,WHR,NYSE,1,COMMON,,,,
+511,Data,financial_instrument_information__01,Stocks,YETI,YETI HOLDINGS INC,338719595,US98585X1046,YETI,NYSE,1,COMMON,,,,
+513,Data,financial_instrument_information__02,Equity and Index Options,NMM   260116C00070000,NMM 16JAN26 70 C,724541921,,NMM,CBOE,100,C,,2026-01-16,2026-01,70
+514,Data,financial_instrument_information__02,Equity and Index Options,NMM   260116C00085000,NMM 16JAN26 85 C,730746698,,NMM,CBOE,100,C,,2026-01-16,2026-01,85
+515,Data,financial_instrument_information__02,Equity and Index Options,NXT   250815C00030000,NXT 15AUG25 30 C,749553624,,NXT,CBOE,100,C,,2025-08-15,2025-08,30
+516,Data,financial_instrument_information__02,Equity and Index Options,PDD   260116C00110000,PDD 16JAN26 110 C,653214861,,PDD,CBOE,100,C,,2026-01-16,2026-01,110
+517,Data,financial_instrument_information__02,Equity and Index Options,PDD   260116P00060000,PDD 16JAN26 60 P,653216841,,PDD,CBOE,100,P,,2026-01-16,2026-01,60
+518,Data,financial_instrument_information__02,Equity and Index Options,SLV   250620C00030000,SLV 20JUN25 30 C,692142100,,SLV,CBOE,100,C,,2025-06-20,2025-06,30
+519,Data,financial_instrument_information__02,Equity and Index Options,SLV   250620C00035000,SLV 20JUN25 35 C,694779550,,SLV,CBOE,100,C,,2025-06-20,2025-06,35
+521,Data,financial_instrument_information__03,Futures,MGCM5,MGC 26JUN25,639786536,,MGC,COMEX,10,,,2025-06-26,2025-06,
+522,Data,financial_instrument_information__03,Futures,MHIJ5,MHI 29APR25,765238357,,MHI,HKFE,10,,,2025-04-29,2025-04,
+523,Data,financial_instrument_information__03,Futures,ZFM5,ZF 30JUN25,732487391,,ZF,CBOT,"1,000",,,2025-06-30,2025-06,

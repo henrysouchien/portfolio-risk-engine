@@ -4,6 +4,342 @@ Items moved from `docs/planning/TODO.md` as they were completed. Most recent fir
 
 ---
 
+### 2026-03-10 — Multi-User Deployment: Phase 3 Code Changes
+
+Production deployment code changes (Phase 3 of `MULTI_USER_DEPLOYMENT_PLAN.md`). CORS origins configurable via `CORS_ALLOWED_ORIGINS` env var (was hardcoded localhost). Session cookie `secure=True` in production via `ENVIRONMENT` env var (`routes/auth.py` + `SessionMiddleware`). Admin auth switched from query param (`?admin_token=`) to `X-Admin-Token` header (prevents token leaking in access logs/browser history). `POST /generate_key` now requires admin auth (was unauthenticated). `POST /auth/cleanup` now requires admin auth with `HTTPException` pass-through fix. New `scripts/run_migrations.py` (per-file transactions, `_migrations` tracking table, atomic rollback). New `scripts/deploy.sh` (rsync + pip install + source .env + migrate + restart + health check). 8 Codex review rounds on the deployment plan. 3149 tests pass. Live-tested: health, auth, CORS allow/deny, endpoint auth enforcement. Commits `15138d6e`, `eb8fd989`.
+
+---
+
+### 2026-03-10 — Per-User Ticker Configuration (`user_ticker_config`)
+
+Per-user FMP ticker alias overrides via `manage_ticker_config` MCP tool. Action-dispatched CRUD (list/set/get/delete), user-scoped. One table with `config_type` discriminator (`fmp_alias` wired, `cash_proxy` stored with warning for Phase 2). FMP alias overrides merged into `portfolio_data.fmp_ticker_map` in `_load_portfolio_for_analysis()` — applies to all 8+ risk/perf/optimization MCP tools. User overrides take precedence over position-data mappings. Non-fatal if DB unavailable. 3 `DatabaseClient` methods (get/upsert/delete with table-missing degradation). Validation: ticker regex, currency regex, resolved_value format. 22 tests. 5 Codex review rounds. Plan: `USER_TICKER_CONFIG_PLAN.md`. Commit `ba827e05`.
+
+---
+
+### 2026-03-10 — Frontend App Platform Extraction (`@risk/app-platform`)
+
+Extracted generic, domain-agnostic frontend infrastructure from `@risk/chassis` into new `@risk/app-platform` package, mirroring the backend `app_platform/` extraction pattern. 5 phases: (1) scaffold + pre-init-safe logger, (2) EventBus + cache + utilities with `portfolioId→scopeId` generalization, (3) HttpClient from APIService + QueryProvider with lazy client + `initQueryConfig()`, (4) auth store factories (`createAuthStore<TUser>()`, `createAuthSelectors<TUser>()`, `createAuthProvider<TUser>()`) with callback injection for all side effects, (5) `createRuntimeConfigLoader<T>()` with injectable Zod schema. Chassis re-exports are permanent backward-compat layer. Deleted `AuthProvider.tsx` + `AuthInitializer.tsx` (absorbed into factory). APIService broken dedup dropped. 47 files, 443 tests, `tsc -b` clean. Published to npm as `web-app-platform@0.1.0`. tsup build (ESM+CJS+DTS). Sync: `scripts/sync_frontend_app_platform.sh`. Publish: `scripts/publish_web_app_platform.sh`. GitHub: `henrysouchien/web-app-platform`. Plan: `FRONTEND_APP_PLATFORM_PLAN.md`. Commits: `eb23f3e6`, `c3a2efe9`, `473cfe45`.
+
+---
+
+### 2026-03-10 — Admin MCP Tool: `manage_instrument_config`
+
+Admin CRUD tool for futures contract specs and exchange resolution config. 6 actions: `list_contracts`, `get_contract`, `upsert_contract`, `delete_contract`, `get_exchange_config`, `update_exchange_section`. Input validation (symbol regex, positive numbers, asset_class whitelist, section name whitelist, JSON string parsing), Decimal/datetime serialization, cache invalidation via `InstrumentConfigLRUCacheAdapter` on all writes, ephemeral-change warning. 3 new `DatabaseClient` methods. 28 tests. Plan: `ADMIN_INSTRUMENT_CONFIG_PLAN.md`. Commit `8e4ace39`.
+
+---
+
+### 2026-03-10 — Frontend Logging userId Spoofing Fix
+
+`frontend_logging_auth_check()` resolved user from session cookie but returned `True` instead of user dict, allowing authenticated clients to spoof `userId` and `session` in log payloads. Fix: return full user dict in production, thread `auth_result` through `process_individual_log()`, override `userId` with `str(auth_result['user_id'])` and `session` with cookie-sourced `session_id` (not body). Dev mode preserves client-supplied values. 3 new tests (spoofed userId, spoofed session, dev passthrough). 2 Codex review rounds. Plan: `FRONTEND_LOGGING_USERID_FIX_PLAN.md`. Commit `5027a351`.
+
+---
+
+### 2026-03-10 — YAML → DB Seed: Reference Data Read Paths
+
+Added DB-first + YAML fallback read paths for the last 2 YAML-only reference data configs (`contracts.yaml`, `exchange_mappings.yaml`). 2 new DB tables (`futures_contracts` normalized, `exchange_resolution_config` JSONB). Unified `scripts/seed_reference_data.py` orchestrates all 7 reference data seeders (existing 5 + new 2) with atomic Phase 2 seeding, verification of all 9 tables, and full cache invalidation (5 caches + service caches). `InstrumentConfigLRUCacheAdapter` registered in both cache-manager assembly paths. 14 new tests, cache isolation fixtures in 4 existing test files. 10 Codex review rounds. Plan: `YAML_DB_SEED_PLAN.md`. Commit `1f18ae90`.
+
+---
+
+### 2026-03-10 — Hook Migration: usePositions (Batch E, 17/18)
+
+Migrated `usePositions` from direct TanStack Query to `useDataSource('positions-enriched')` pattern. Added new `positions-enriched` data source with API+adapter resolver — raw `positions` resolver stays untouched for 5 downstream resolvers that depend on the store-based shape. Hook 57→26 lines. 3 Codex review rounds (catalog registration sites, refetch void-return, retry behavior). Plan: `HOOK_MIGRATION_USEPOSITIONS_PLAN.md`. Commit `4665b964`.
+
+**Hook Migration complete**: 17/18 hooks migrated (Batches A-E). `useScenarioHistory` permanently deferred (90% mutations, doesn't fit read-only `useDataSource` pattern). Performance Optimization also complete (all 4 phases).
+
+---
+
+### 2026-03-09 — Performance Optimization Phase 4C: Concurrent Analysis Steps
+
+Final piece of backend performance optimization. `build_portfolio_view()` and `calc_max_factor_betas()` in `analyze_portfolio()` are independent — Step 3 needs only config, not Step 2's output. Wrapped both in `ThreadPoolExecutor(max_workers=2)`. FMP rate limiter confirmed thread-safe (`threading.Lock`, 700 calls/min sliding window).
+
+Fix (`e82db300`): Added `concurrent.futures.ThreadPoolExecutor` to `core/portfolio_analysis.py`. LRU-miss warm-disk: ~1.14s → ~0.74s (~35% improvement). All 4 phases of performance optimization now complete (P1: frontend logger, P2: request dedup, P3: gateway prompt caching, P4: backend).
+
+---
+
+### 2026-03-09 — Futures Phase 9: Live Futures Pricing in Trade Preview
+
+`preview_futures_roll` MCP tool had zero live pricing — Market orders returned `estimated_price=None`. Fix (`bb9b5e00`): Added `_fetch_roll_market_data()` helper to `TradeExecutionService` that calls `IBKRMarketDataClient.fetch_snapshot()` for both roll legs BEFORE the adapter's `whatIfOrder()` call (avoiding `ibkr_shared_lock` deadlock). Market orders derive `estimated_price` from calendar spread mid (back_mid − front_mid for long_roll, negated for short_roll). Always recomputes `estimated_total` with contract multiplier from `get_contract_spec()` (fixes pre-existing bug where adapter formula missed multiplier). Graceful degradation when market closed. Added `market_data` field to `TradePreviewResult` (surfaced in API response + formatted report). 3 Codex review rounds. 10 new tests. Plan: `FUTURES_LIVE_PRICING_PLAN.md`.
+
+---
+
+### 2026-03-09 — Futures Phase 8b: instrument_types DB Read Path
+
+Closed the gap where `_load_portfolio_from_database()` → `PortfolioAssembler.build_portfolio_data()` never passed `instrument_types` or `contract_identities` to `PortfolioData.from_holdings()`, even though the DB `positions.type` column already stored correct values from brokerage normalizers.
+
+Fix (`f138ffe6`): Added `build_instrument_types_map()` (detects futures/option/bond from DB type, promotes IBKR-direct `derivative` → `futures` via exchange mappings, falls through to option symbol parsing for Plaid-style derivative options). Made `filter_positions()` derivative-aware via `promoted_derivatives` set (promoted futures/options pass, warrants/structured products dropped). Added `build_contract_identities_map()` (uppercased keys matching downstream lookups), `enrich_futures_fmp_tickers()` (fills missing FMP symbols from contract specs). Threaded `instrument_types` through `_ensure_factor_proxies()` to prevent bogus proxy lookups. Reordered `_load_portfolio_from_database()`: detect types on raw positions before filtering. 8 Codex review rounds. 15 new tests. Plan: `INSTRUMENT_TYPES_DB_READ_PATH_PLAN.md`.
+
+---
+
+### 2026-03-09 — Multi-User Isolation Audit Fixes
+
+Audit found 3 gaps in multi-user readiness. Fix (`15219d03`): Added `user_id` param + WHERE clause to `delete_provider_item()` and `set_provider_item_reauth()` in `database_client.py`. Added `_resolve_item_owner()` helper for Plaid ITEM webhook user resolution (scoped to 3 mutating codes only). Implemented production session auth on `POST /api/log-frontend` (health endpoint stays public). Threaded `user_id` through all callers (`routes/plaid.py`, `scripts/plaid_reauth.py`). 17 new tests. 3 Codex review rounds. Plan: `MULTI_USER_AUDIT_FIX_PLAN.md`.
+
+---
+
+### 2026-03-09 — PostgreSQL Connection Leak — Root Cause Fix
+
+Root cause: MCP stdio processes died without closing their `psycopg2` connection pools. Each `/mcp` reconnect orphaned `DB_POOL_MIN` connections. Over days, 85 idle connections accumulated (17 pools × 5 connections), approaching `max_connections=100`.
+
+Fix (`0b8b100d`): `SimpleConnectionPool` → `ThreadedConnectionPool` (thread-safe). Pool defaults 5/20 → 2/10. Added `close_pool()` in `app_platform/db/pool.py`. Wired cleanup into MCP lifespan (`@mcp_lifespan`), FastAPI lifespan, and `atexit`. Hardened `putconn()` with `PoolError` catch for shutdown races. Fixed use-after-release bug in `routes/factor_intelligence.py` (`delete_factor_group` was outside `with` block). Updated `.env.example` and 5 doc files. 4 new test files. Plan: `PG_CONNECTION_LEAK_FIX_PLAN.md`.
+
+Live-tested: 85 → 2 connections after deploy. Two `/mcp` reconnects confirmed cleanup handler fires reliably (old pool cleaned, new pool creates 2).
+
+---
+
+### 2026-03-09 — Performance Optimization Phase 4 (Backend)
+
+Phase 4 (`2f4e3f0c`): 3 items optimizing the `analyze_portfolio()` cold-cache path. Plan: `PERFORMANCE_PHASE4_PLAN.md`.
+- **4A — Eliminate redundant fetch**: Added optional `worst_losses` kwarg to `compute_max_betas()`. `calc_max_factor_betas()` passes precomputed data, skipping redundant `get_worst_monthly_factor_losses()` call. 7 external callers unchanged (backward-compatible).
+- **4B — Parallelize proxy fetches**: Replaced sequential `for` loop in `get_worst_monthly_factor_losses()` with `ThreadPoolExecutor` + `as_completed`. Mirrors existing `get_returns_dataframe()` pattern.
+- **4D — Fix Makefile worker config**: Split `dev` (reload, single worker) from `serve` (multi-worker, no reload) — uvicorn `--workers` and `--reload` are mutually exclusive. Updated `app.py` `__main__` to use import string `"app:app"` and env-configurable `UVICORN_WORKERS`.
+- **4C — Concurrent steps**: Deferred pending FMP rate limiter concurrent access testing.
+
+Live test: `analyze_portfolio()` cold cache 1.14s (15-pos YAML), warm cache 26ms. 4 new tests. 6 Codex review rounds.
+
+---
+
+### 2026-03-09 — PostgreSQL Connection Pool Exhaustion — Cascading Failure Fix
+
+Fix (`2dca72fd`): TTL (5min) + cooldown (30s) on `is_db_available()`, `PoolError`→`PoolExhaustionError` + `OperationalError`→`ConnectionError` wrapping in `get_db_session()`, `on_pool_error` callback wired via `database/session.py` shim, 503 handler in `app_platform/db/handlers.py`, defense-in-depth in `@handle_mcp_errors` + 3-way `@require_db` messaging. System self-heals after pool recovery instead of requiring `pg_ctl restart`. 30 tests. Live-tested with real pool exhaustion + recovery. Plan: `PG_POOL_EXHAUSTION_FIX_PLAN.md`.
+
+---
+
+### 2026-03-09 — Performance Optimization Phase 2 (Frontend Request Reduction)
+
+Phase 2 (`5429d81e`): 4 items reducing page load from ~45 → 26 API requests. Plan: `PERFORMANCE_PHASE2_PLAN.md`.
+- **2C — Normalize performancePeriod default**: `stripDefaults()` in `buildDataSourceQueryKey()` strips `performancePeriod: '1M'` before cache key serialization, eliminating 1 duplicate HTTP request at both TanStack and `PortfolioCacheService` layers (`.p1M` suffix mismatch).
+- **2B — Fix prefetch cache key alignment**: Scheduler now passes `{ portfolioId }` for all 5 eager sources (positions, risk-score, risk-analysis, risk-profile, performance), so prefetch actually warms consumer cache instead of building mismatched keys.
+- **2B-ii — Parallelize eager sources**: `groupByDependencyLevel()` + `Promise.allSettled` runs Level 1 sources concurrently instead of sequentially.
+- **2A — Remove app-level hooks**: Removed redundant `usePortfolioSummary()` + `useRiskAnalysis()` from `ModernDashboardApp.tsx` — containers already mount their own hooks.
+- **2D — Throttle network logs**: Production-mode filter skips fast successful network requests in `frontendLogger.ts`.
+
+Cumulative: **103 → 45 → 26 API requests** across Phases 1+2 (75% total reduction).
+
+---
+
+### 2026-03-09 — Performance Optimization Phase 1 (Items 1A + 1B)
+
+- **1A — Batch frontendLogger** (`4d8ca07e`): `processQueue()` now sends single batched POST using backend's existing `{ logs, sessionId }` format instead of N individual fetches. 200ms idle-timer debounce. Beacon flush on `beforeunload` and `visibilitychange`. Result: ~55 log requests → ~11 per page load.
+- **1B — Fix market-intelligence 500** (`4d8ca07e`): `_coerce_symbol()` handles NaN/float `fmp_ticker` values in `mcp_tools/news_events.py`. Endpoint returns graceful empty payload on error instead of HTTP 500. Eliminated 12-request retry storms. 32 tests. Plan: `PERFORMANCE_OPTIMIZATION_PLAN.md`.
+
+---
+
+### 2026-03-09 — Efficient Frontier (Phases 1+2 Complete)
+
+- **Phase 1 — Backend** (`33f2d33d`): CVXPY parametric volatility sweep engine, `get_efficient_frontier` MCP tool, `POST /api/efficient-frontier` REST endpoint, `EfficientFrontierResult`, 5 tests. Live-verified 10-point frontier in 2.2s. Plan: `EFFICIENT_FRONTIER_PLAN.md`.
+- **Phase 2 — Frontend** (`66ac39a7`): New "Efficient Frontier" tab in ScenarioAnalysis. Recharts ScatterChart (emerald frontier + orange current portfolio marker). 19 files across 3 packages (chassis/connectors/ui). `useEfficientFrontier()` hook, metric cards, 10/15/20 n_points selector, detail table. Codex-reviewed (2 rounds). Live-verified 15 points in 1.7s. Plan: `EFFICIENT_FRONTIER_PHASE2_PLAN.md`.
+
+---
+
+### 2026-03-09 — IBKR Order Status Fix (Completed Orders)
+
+- **IBKR completed order zeroed fills**: `order.filledQuantity` fallback when `orderStatus.filled` is zeroed by ib_async for completed orders. Post-status override: EXECUTED+0+non-BAG→CANCELED. SQL only-increase guard for `filled_quantity`, late `average_fill_price` backfill, `cancelled_at` idempotency (`COALESCE(cancelled_at, NOW())`). Recovery probe rewritten with same fallback. 12 Codex review iterations, 12 new tests. Commit `e0b55569`. Plan: `IBKR_ORDER_STATUS_FIX_PLAN.md`.
+
+---
+
+### 2026-03-09 — Idea Ingestion Scheduling (Phase 3 Complete)
+
+Configured 10 recurring job schedules in jobs-mcp for automated idea ingestion. Screens run at 04:30 local, results flow to workspace markdown, analyst triages at 06:00 (step 3.5, 8 ideas/run). Updated 8 existing schedules (increased frequency, moved earlier) and created 2 new ones. Pipeline: jobs-mcp scheduler → `ingest.py` CLI → memory connectors → workspace `tickers/*.md` → analyst triage.
+
+Schedules: daily estimate_revisions, 2x/week insider_buying (Mon+Thu) + special_situations (Tue+Fri), weekly quality_screen (Sun) + fingerprint_screen (Wed) + ownership (Mon) + biotech_pipeline (Mon). Portfolio estimate alert kept monthly (separate purpose).
+
+---
+
+### 2026-03-08 — IBKR get_orders Fill Bug + Risk Score Redesign
+
+- **IBKR `get_orders` fill bug**: `_fill_data_from_trade()` extracts from `trade.fills[]` when `orderStatus` is zeroed (reqCompletedOrders bug). BAG order safe. 8 tests. Commit `102c1722`.
+- **Risk Analysis Card: Risk Score View redesign**: Cards now show top positions+weights, actual vol %, dominant factor+beta, top sector+variance instead of redundant score display. `buildRiskFactorDescription()` computes contextual descriptions. Commit `5831c982`. Formatting fix: `46dd030e`.
+
+### 2026-03-08 — Frontend Phase 5 Visual Polish (Complete)
+
+- **Batch 1 — StockLookup + Risk Analysis** (`05bb1241`): `glassTinted` on 11 Cards, `hover-lift-subtle` on 12 metric cards, `animate-stagger-fade-in` on 4 card lists. Plan: `FRONTEND_STOCKLOOKUP_RISK_POLISH_PLAN.md`.
+- **Batch 2 — Chart Polish** (`e3570800`): MonteCarloTab 9 hex colors → `chartSemanticColors` system. Plan: `FRONTEND_CHART_POLISH_PLAN.md`.
+- **Batch 3 — Typography + CSS Pruning** (`26831157`): `text-balance-optimal` on SectionHeader + 5 CardTitle headings. Removed unused `dashboard-layout` CSS. Plan: `FRONTEND_TYPOGRAPHY_CSS_PRUNE_PLAN.md`.
+- **Batch 4 — Dark Mode Audit + Morph Border** (`02ee0a3a`): Dark mode fixes for `morph-border` + premium hover shadows. `morph-border` on MarketplaceTab Featured Strategy card. 26-class audit. Plan: `FRONTEND_DARKMODE_MORPHBORDER_PLAN.md`.
+
+---
+
+### 2026-03-08 — Backend Bug Fixes (fetch_monthly_close 500s, Risk Score NaN, FMP Cache, Date Range)
+
+- **Backend Bug: `fetch_monthly_close` 500s**: Three root causes — float NaN in fmp_ticker_map (`bd0d57fa`), unmapped CUR: cash tickers + trailing-dot key mismatch (`a7f2f25c`). Plans: `FMP_TICKER_MAP_FLOAT_BUG_PLAN.md`, `PERFORMANCE_500_CUR_AND_TRAILING_DOT_PLAN.md`.
+- **`/api/performance` Default Date Range**: 7-year DB range → 1-year lookback default. Commit `a6b76b4d`. Plan: `PERFORMANCE_DEFAULT_DATE_RANGE_FIX_PLAN.md`.
+- **FMP Pricing Cache Audit**: Split `fetch_fmp_quote_with_currency()` into cached `infer_fmp_currency()` + uncached price path. ~60-70% reduction in profile API calls. Commit `3076e595`. Plan: `FMP_PRICING_CACHE_AUDIT_PLAN.md`.
+- **Volatility Risk Score NaN**: `_safe_finite()` helper, NaN→conservative fallback, `.get()` guards in formatters. 17 tests. Commit `ab41ecd1`. Plan: `VOLATILITY_RISK_SCORE_FIX_PLAN.md`.
+
+### 2026-03-08 — Risk Analysis Card Formatting Fix
+
+- **Risk Analysis Card: Fix Formatting & Remove Redundancy**: Removed redundant "Risk Level" / impact row from Risk Score tab (was echoing score already in header). Stress Tests tab: formatted raw floats as percentages via `formatPercent` from `@risk/chassis`, title-cased scenario names, formatted probability decimals. Hedging tab already fine. Commit `46dd030e`. Plan: `RISK_ANALYSIS_CARD_FIX_PLAN.md`.
+
+### 2026-03-08 — Exercise Cost Basis Linkage
+
+- **Exercise Cost Basis Linkage**: Option exercise/assignment pre-FIFO linkage. Flex `code` field parsing, four-way right×side matrix, store round-trip via contract_identity JSONB. SLV live-tested: exercised option P&L $-179 → $0, stock cost basis adjusted by premium. Feature-flagged `EXERCISE_COST_BASIS_ENABLED`. 23 tests. Commit `67fd47f5`. Plan: `EXERCISE_COST_BASIS_PLAN.md`.
+
+### 2026-03-08 — Chat UI Markdown + LaTeX Rendering
+
+- **Chat UI: Markdown Rendering**: Wired up `react-markdown` + `remark-gfm` for assistant messages in ChatCore. MarkdownRenderer component + `.chat-markdown` CSS styles (headers, tables, code blocks, blockquotes, lists). User messages stay plain text. Commit `1f04969a`.
+- **Chat UI: LaTeX Math Rendering**: Added `remark-math` + `rehype-katex` + `katex` for LaTeX math in assistant messages. `$inline$` and `$$block$$` syntax renders as typeset math (fractions, subscripts, superscripts, square roots). Verified with Sharpe ratio and Black-Scholes formulas. Commit `0aff4ff7`.
+
+### 2026-03-08 — Realized Performance Data Quality Investigation Complete
+
+- **Realized Performance: Data Quality & Accuracy**: 20 fixes across Feb 25 – Mar 8. All major accounts within ~1pp of broker actuals (IBKR 0.48pp, Plaid 1.13pp, Schwab 165 0.94pp). Schwab 252 structural gap (2.48pp) = TWR vs XIRR + FMP vs Schwab pricing. Investigation doc: `completed/REALIZED_PERF_DATA_QUALITY.md`. Full progression: `completed/performance-actual-2025/RETURN_PROGRESSION_BY_FIX.md`.
+- **drive-mcp: Apostrophe in Filename Breaks `gdrive_read_file`**: Added `_escape_query()` helper. Commit `c9257ea` (drive-mcp repo). Published PyPI 0.1.3 (`7252aa1`).
+
+### 2026-03-08 — Frontend SDK Testing Wave 3
+
+- **Frontend: SDK Testing — Wave 3 (Complex Hooks)**: 16 hook test files, 200 new tests (446 total, 50 files). All complex hooks with external SDK deps, auth flows, streaming, and multi-query composition. Commit `205b4bf7`. Plan: `FRONTEND_SDK_TESTING_WAVE3_PLAN.md`.
+
+---
+
+### 2026-03-07 — Batch cleanup
+
+- **EDGAR FastAPI Migration — Phase 4 Cleanup**: Removed 4 dead Flask `/api/*` routes + 2 helpers from `app.py` (-1,628 lines). Deleted obsolete test files, ported 3 assertions to FastAPI suite, updated docs. Commit `b3635ee` (Edgar_updater repo).
+- **Docs Cleanup (all repos)**: Archived completed plans across 4 repos — ai-excel-addin (28 docs, `d694ff4`), investment_tools (16 docs, `844a7c9`), finance_cli (103 docs, `971859d`), risk_module (done 2026-03-06).
+- **drive-mcp: OneDrive Re-Auth**: Already committed and pushed. Commit `f4b8f37` in drive-mcp repo.
+- **Options: Continuous Hedge Monitoring**: MCP tool `monitor_hedge_positions()` — 3-tier expiry alerts, delta drift, theta drain, vega, roll recommendations. 25 tests. Commit `201a3a69`. Plan: `completed/HEDGE_MONITOR_PLAN.md`.
+
+---
+
+### 2026-03-06 — Docs Cleanup (risk_module)
+Archived completed planning docs and removed stale completed items from active TODO tracking.
+
+Archived plan docs moved to `docs/planning/completed/`:
+- `ASSET_ALLOCATION_WORKFLOW_PLAN.md`
+- `BACKTESTING_ENGINE_PLAN.md`
+- `EVENT_LOOP_BLOCKING_FIX_PLAN.md`
+- `FRONTEND_CLEANUP_P4P5_PLAN.md`
+- `FRONTEND_SDK_TESTING_WAVE2_PLAN.md`
+- `OPTION_CASH_REPLAY_MULTIPLIER_PLAN.md`
+- `OPTION_PRICING_SYSTEM_WIDE_PLAN.md`
+- `ORPHANED_COMPONENT_CLEANUP_PLAN.md`
+- `PERFORMANCE_ATTRIBUTION_TAB_PLAN.md`
+- `SHARED_REDIS_CACHE_PLAN.md`
+- `STALE_TODO_CLEANUP_PLAN.md`
+- `STOCK_LOOKUP_WORKFLOW_PLAN.md`
+- `STRESS_TEST_ENGINE_PLAN.md`
+
+Moved from `TODO.md` ("Recently Completed"):
+- Frontend: Visual Audit (V1-V32) — all waves complete (`7a7d326c`, `c419a812`, `765435b1`, `9b895ac3`, `20be3311`, `281f6c31`, `7cc9e275`)
+- Frontend: Adapter Data Gaps (P6) (`fa3ddc75`, `a2cce363`)
+- Frontend: Holdings Export CSV (`ebb71edf`)
+- Frontend: Stock Lookup — Price Chart (`20be3311`)
+- Architecture: Break Up Large Monolithic Files (`11a26922`)
+- Production: Shared Cache for Multi-Worker Uvicorn (`631c8b6e`)
+- MCP: `get_performance` response size too large (`94cd5087`)
+- API ↔ MCP alignment audit reviewed on 2026-03-04 (8 core pairs working; trading analysis + income projection REST endpoints added)
+
+### 2026-03-06 — Docs Cleanup (risk_module, sweep 2)
+Archived an additional batch of completed plan documents from `docs/planning/` to `docs/planning/completed/`:
+- `FRONTEND_CLEANUP_P1_PLAN.md`
+- `FRONTEND_CLEANUP_P2_PLAN.md`
+- `FRONTEND_CLEANUP_P3_PLAN.md`
+- `FRONTEND_CLEANUP_STRAGGLERS_PLAN.md`
+- `FRONTEND_REDESIGN_PHASE1A_PLAN.md`
+- `FRONTEND_VISUAL_AUDIT_P1_PLAN.md`
+- `HEDGING_WORKFLOW_PLAN.md`
+- `HOLDINGS_EXPORT_CSV_PLAN.md`
+- `PERFORMANCE_BACKEND_GAPS_PLAN.md`
+- `PERFORMANCE_VIEW_CLEANUP_PLAN.md`
+- `PER_POSITION_RISK_SCORE_PLAN.md`
+- `PLAID_GHOST_TXN_FILTER_PLAN.md`
+- `REST_TRADING_INCOME_ENDPOINTS_PLAN.md`
+- `RISK_ANALYSIS_DETAIL_GAPS_PLAN.md`
+- `SCENARIO_ANALYSIS_OVERHAUL_PLAN.md`
+
+### 2026-03-06 — Docs Cleanup (risk_module, sweep 3)
+Archived completed frontend audit docs from `docs/planning/` to `docs/planning/completed/`:
+- `FRONTEND_CLEANUP_AUDIT.md`
+- `FRONTEND_DATA_WIRING_AUDIT.md`
+- `FRONTEND_ORPHANED_COMPONENTS.md`
+- `FRONTEND_VISUAL_AUDIT.md`
+
+### 2026-03-06 — Docs Cleanup (risk_module, sweep 4)
+Archived historical cleanup audit doc:
+- `PLAN_CLEANUP_AUDIT_2026-03-03.md`
+
+### 2026-03-06 — Docs Cleanup (risk_module, sweep 5)
+Archived additional implemented plans/audits:
+- `CASH_ANCHOR_NAV_PLAN.md`
+- `REALIZED_AUDIT_TRAIL_PLAN.md`
+- `PROVIDER_ROUTING_AUDIT.md`
+
+### 2026-03-05 — Option Cash Replay Multiplier Fix
+Cash replay in `nav.py` `derive_cash_and_external_flows()` computed `price × quantity` without the 100x contract multiplier for non-IBKR option trades, undervaluing cash impact by 100x (e.g. $12.50 instead of $1,250). IBKR Flex trades already have per-contract prices (×100 at `flex.py:356`) and are correctly skipped. Fix threads `instrument_type`, `source`, `multiplier` into event dict and applies multiplier for non-IBKR options in both trade cash impact and `unpriceable_suppressed_usd` tracking. Guards trade math behind event_type check to prevent KeyError on INCOME/PROVIDER_FLOW/FUTURES_MTM events. Gated by `OPTION_MULTIPLIER_NAV_ENABLED`. Completes the option multiplier system — with this fix plus commits `62110090`/`e2c33f5f`, the flag is safe for production. Commit `ea5382d1`. Plan: `OPTION_CASH_REPLAY_MULTIPLIER_PLAN.md`.
+
+### 2026-03-05 — Option Multiplier NAV Fix
+Fix 100x undervaluation of option positions in realized performance NAV when prices come from IBKR market data or B-S fallback (per-share premiums vs per-contract convention). Two fix sites in `engine.py`: (1) price chain results (source 3, all providers) and (2) FIFO terminal heuristic (source 2, non-IBKR only — IBKR Flex already per-contract). New `_option_fifo_terminal_source()` helper in `_helpers.py` mirrors terminal event selection to check source. Feature-flagged via `OPTION_MULTIPLIER_NAV_ENABLED` (default false). Known follow-up: cash replay multiplier fix in `nav.py:288` must be done before enabling flag in production. Commits `62110090`, `e2c33f5f`. Plan: `OPTION_PRICING_SYSTEM_WIDE_PLAN.md`.
+
+### 2026-03-05 — System-Wide Option Pricing
+Made option prices available across all providers: (1) Phase 1 — fixed Schwab (3 sites), SnapTrade (4 sites), and Plaid (1 site) normalizers to populate `contract_identity` for options using `parse_option_contract_identity_from_symbol()` + `enrich_option_contract_identity()` (adds `multiplier: 100`). Fixed OCC parser to strip internal whitespace for Schwab space-padded symbols. (2) Phase 2 — new `OptionBSPriceProvider` in `providers/bs_option_price.py` (~210 lines) implementing `PriceSeriesProvider` protocol. Uses DI for underlying/treasury fetchers. Registered at priority 25 (after IBKR at 20) in both registries. Computes rolling 12m realized vol, risk-free rate from treasury, calls `black_scholes_price()` per month-end, intrinsic value after expiry. Feature-flagged via `OPTION_BS_FALLBACK_ENABLED` (default false). Verified live with real SLV option data (6 monthly B-S prices). Commit `6c1fe46b`. Plan: `OPTION_PRICING_SYSTEM_WIDE_PLAN.md`.
+
+### 2026-03-05 — Shared Redis Cache for Multi-Worker Uvicorn
+Redis L2 write-through cache behind `PortfolioService.analyze_portfolio()`. Both uvicorn workers share expensive analysis results (~30-60s compute → ~5ms Redis hit). pickle+zlib serialization, graceful fallback when Redis unavailable. Feature-flagged via `REDIS_CACHE_ENABLED` (default false). New file `services/redis_cache.py`, `RedisCacheAdapter` registered in both `build_cache_manager()` and `ServiceManager._get_cache_manager()`. 34 targeted tests pass. Commit `631c8b6e`. Plan: `SHARED_REDIS_CACHE_PLAN.md`.
+
+### 2026-03-05 — Frontend SDK Testing Wave 2
+26 new hook test files, 246 total tests (up from 54). Covers useDataSource wrappers (useRiskAnalysis, usePerformance, useRiskMetrics, useAnalysisReport), useQuery/API hooks (useSmartAlerts, useMetricInsights, useAIRecommendations, useMarketIntelligence, usePositions, useHedgingRecommendations), mutation hooks (useHedgePreview, useHedgeTrade, useRealizedPerformance, useSetTargetAllocation, useRebalanceTrades), query+state hooks (useTargetAllocation, useStockSearch, usePeerComparison, useStockAnalysis, useStrategyTemplates, useNotificationStorage), and composition hooks (useNotifications, useMonteCarlo, useStressTest, useBacktest, useScenarioHistory). +3,814 lines. Commit `54b82f63`. Plan: `FRONTEND_SDK_TESTING_WAVE2_PLAN.md`.
+
+### 2026-03-04 — Frontend Cleanup Audit P1-P5 COMPLETE
+All 5 priority tiers of the frontend cleanup audit are done. P1 (active harmful code, `62106f7b`), P2 (mock data rendering, `62106f7b`+`1ee96537`), P3 (inert buttons, `b99dc188`+`396da1c3`), P4 (dead code, `f0073bc9`+`396da1c3`), P5 (stale comments, `396da1c3`). P6 (adapter gaps) deferred — needs backend work. Orphaned components also deleted (`39380859`, -7,118 lines). Full audit: `completed/FRONTEND_CLEANUP_AUDIT.md`.
+
+### 2026-03-04 — Orphaned Component Cleanup
+Deleted 41 orphaned frontend files (-7,118 lines) across 6 categories: dead InstantTryPage + 3 dependencies (no route), superseded infrastructure (AppOrchestrator, DashboardLayout, ConnectedRiskAnalysis), entire orphaned charts/ subsystem (6 charts, 8 slots, 2 examples, 1 adapter, 1 constants, 2 docs), unused shared UI primitives (MetricsCard, StatusIndicator, LoadingView), legacy Plaid/SnapTrade provider wrappers (4 components bypassed by AccountConnectionsContainer), debug recovery artifact. Cleaned 4 barrel exports. Deleted 6 directories. `pnpm typecheck` + `pnpm build` clean. Live-verified: Overview, Holdings, Performance all render correctly. Commit `39380859`. Plan: `ORPHANED_COMPONENT_CLEANUP_PLAN.md`.
+
+### 2026-03-04 — Event Loop Blocking Fix: `run_in_threadpool` for 9 Heavy Endpoints
+Wrapped 9 blocking `async def` API endpoints with `run_in_threadpool` to prevent event loop starvation under `--workers 2`. Pattern: extract blocking work into `_run_*_workflow()` sync helper, call via `await run_in_threadpool()`. Endpoints: `/api/analyze`, `/api/risk-score`, `/api/performance`, `/api/interpret`, `/api/portfolio-analysis`, `/api/what-if`, `/api/stress-test`, `/api/stress-test/run-all`, `/api/monte-carlo`. 3 endpoints already done (backtest, min-variance, max-return) → 12 total. Error handling preserved per-group: PortfolioService endpoints (1-5) catch generic `Exception → 500`; ScenarioService endpoints (6-9) have `PortfolioNotFoundError → 404` + `except HTTPException: raise`. All 9 tested live via curl. Remaining: 9 `/api/direct/*` variants (lower priority). Commit `55605c76`. Plan: `EVENT_LOOP_BLOCKING_FIX_PLAN.md`.
+
+### 2026-03-04 — PortfolioOverview Alpha/Concentration Metrics
+Alpha Generation wired to CAPM alpha from performance engine. ESG Score replaced with Concentration metric (risk score component, 0-100, higher=safer). Unused `_prefixed` setters cleaned up. Commit `671d41de`.
+
+### 2026-03-04 — Performance Attribution Tab Rebuild
+Replaced inconsistent card/list rendering with clean attribution tables matching StrategyBuilder backtest pattern. 4 tables: Sector Attribution (name, allocation%, return%, contribution%), Factor Attribution (Market/Value/Momentum betas + contributions), Top Contributors, Top Detractors. Removed unused `getTrendIcon()` and `getAnalystRatingBadgeColor()`. Added `formatOptionalPercent`/`formatOptionalNumber` helpers. Live-verified: 10 sectors, 4 factors, contributors (SLV +14.18%) and detractors (IT -1.53%). Commit `df9de726`. Plan: `PERFORMANCE_ATTRIBUTION_TAB_PLAN.md`.
+
+### 2026-03-04 — Frontend Wiring Gaps (Pre-Redesign) — SECTION COMPLETE
+All 14 items complete. 9/9 views wired to real APIs with zero mock data. Final items: Stale TODO Cleanup (`f58c6d21`), Alpha/Concentration (`671d41de`), Performance Attribution (`df9de726`). Full audit: `completed/FRONTEND_DATA_WIRING_AUDIT.md`.
+
+### 2026-03-04 — Frontend Views → Defined Workflows (Phase 4) — SECTION COMPLETE
+All 5 workflow upgrades complete: Stock Lookup Research (`3337f2d1`), Hedging Real Workflow (`18aa43ae`), Asset Allocation Target+Rebalance (`f2dc9b55`), Performance Realized Mode (`ae290b35`), Scenario Analysis Full Overhaul (5 phases, `627c167f`→`b6f3e45e`→`b0194df1`).
+
+### 2026-03-04 — Workflow Gaps: Scenario & Strategy — 5/7 COMPLETE
+Predefined scenario templates (`627c167f`), stress test presets (`d1df3fee`→`a1d598fb`), scenario persistence (`c3e4eb56`), return attribution/Brinson (`df9de726`), backtesting engine (Wave 3g, 4 commits). Remaining: efficient frontier visualization, strategy versioning.
+
+### 2026-03-04 — Stale TODO Cleanup (PortfolioOverview & PerformanceView)
+Removed stale TODO comments and unused state variables from 3 frontend files. PortfolioOverview: 6 `TODO:ADD to PortfolioSummaryAdapter` comments replaced with `✅` (all fields already wired), 5 unused `useState` declarations deleted (`_personalizedView`, `_predictiveMode`, `_correlationAnalysis`, `_riskRadar`, `_selectedTimeframe`). PerformanceView: stale `❌ TODO` status markers updated to `✅ INTEGRATED` (attribution + benchmarks), aspirational TODO block updated (sector/security `✅`, factor backlog, benchmarks `✅`), mock data TODOs relabeled as fallback/backlog, unused `_activeTab` state removed, architecture diagram and Enhancement Opportunities updated. PerformanceViewContainer: stale "MINOR ENHANCEMENTS NEEDED" block removed (all 3 items wired), stale `TODO: Enhance` comment removed. This closes the "Frontend Wiring Gaps (Pre-Redesign)" section. Commit `f58c6d21`. Plan: `STALE_TODO_CLEANUP_PLAN.md`.
+
+### 2026-03-04 — Stress Test Engine (Wave 3h)
+Full stress test computation engine wired end-to-end. Backend: `portfolio_risk_engine/stress_testing.py` with 8 predefined multi-factor scenarios (interest rate shock, credit spread widening, equity vol spike, currency devaluation, oil price shock, correlation breakdown, market crash, stagflation). Math reuses existing factor-beta infrastructure: `portfolio_impact = Σ(factor_beta × shock) × leverage_ratio`, per-position impacts via `stock_betas` DataFrame, factor contribution breakdown. `services/scenario_service.py` implements `analyze_stress_scenario()` (previously declared but never built). 3 API endpoints: `POST /api/stress-test` (single scenario), `GET /api/stress-test/scenarios` (catalog), `POST /api/stress-test/run-all` (comparison matrix). Pydantic `StressTestRequest`/`StressTestResponse` models. 5 unit tests. Frontend: `APIService` (3 methods with response unwrapping), `PortfolioCacheService` (cache method), `PortfolioManager` (analyzeStressTest), `StressTestAdapter` (snake→camel transform with `generateContentHash`/`generateStandardCacheKey`), `useStressTest`/`useStressScenarios` hooks, `ScenarioAnalysisContainer` wiring, `ScenarioAnalysis` UI (dynamic scenario cards with severity badges, shock factor display, Live/Coming Soon indicators, Run button, results panel with position impacts sorted worst-first + factor contributions). Live-verified: Market Crash (-20%) → -26.0% portfolio impact (-$38,069), NVDA worst at -35.6%, factor contribution Market -26.0% (beta 1.04). Also added `make dev` target with `--workers 2` default to prevent single-worker blocking. Commits `f89dad23` (plan), `d1df3fee` (backend), `9e43e547` (Phase 3 plan), `6644b810` (frontend), `a1d598fb` (API unwrapping fix), `3b0f4972` (make dev). Plan: `STRESS_TEST_ENGINE_PLAN.md`.
+
+### 2026-03-03 — Asset Allocation → Interactive Workflow (Phase 4)
+Asset Allocation upgraded from data-display to interactive **monitor → set targets → rebalance** workflow. Backend: 3 REST endpoints in `app.py` — `GET /api/allocations/target` (read targets from DB), `POST /api/allocations/target` (validate via `_validate_and_normalize_allocations()` + persist via `PortfolioRepository`), `POST /api/allocations/rebalance` (delegates to `generate_rebalance_trades()` from `mcp_tools/rebalance.py`). Frontend: `targetAllocationKey` in queryKeys.ts, 3 APIService methods, 3 TanStack hooks (`useTargetAllocation`, `useSetTargetAllocation` with `cacheCoordinator.invalidateRiskData()`, `useRebalanceTrades`). UI: inline target editing with running total validation (100% ± 0.5%, green/red), "Set Targets" + "Rebalance" action buttons, rebalance preview panel with sequenced trade legs (sells first, buys second), summary stats (trade count, net cash, total value). Canonical asset-class key preservation for backend compatibility. 10 files (1 backend + 9 frontend), 6 backend tests. Live-verified in Chrome: set targets → save → drift updates → rebalance → 23 trade preview (5 sells, 18 buys). Commit `f2dc9b55`. Plan: `ASSET_ALLOCATION_WORKFLOW_PLAN.md`.
+
+### 2026-03-03 — Stock Lookup → Full Research Workflow (Phase 4)
+Stock Lookup upgraded from 4-tab data display to 6-tab research→evaluate→size→execute workflow. Backend: `GET /api/direct/stock/{symbol}/peers` endpoint delegating to `fmp.tools.peers.compare_peers()` via `stock_service.get_peer_comparison()`. Frontend: `peerComparisonKey` in queryKeys.ts, `getPeerComparison()` in APIService, `usePeerComparison` hook, 2 new tabs. **Peer Comparison**: ratio table (P/E, P/B, P/S, margins, debt/equity) with ranking badges (#N/M, Best/Worst). **Portfolio Fit**: 1%/2.5%/5% size selector, what-if via existing `useWhatIfAnalysis` with string delta format (`"+2.5%"`), before/after risk metrics (volatility, concentration, factor variance), risk check pass/fail, MVP trade preview (computed shares + estimated cost from portfolio value × size ÷ price). 11 files, 877 insertions, 2 backend tests. Live-verified in Chrome with real FMP data. Commit `3337f2d1`. Plan: `STOCK_LOOKUP_WORKFLOW_PLAN.md`.
+
+### 2026-03-03 — Strategy Builder Backtesting Engine (Wave 3g)
+Real historical backtesting engine for the Strategy Builder. Replays target ticker weights over historical price data to show what-would-have-happened performance vs benchmark. 5 phases: (1) Core engine `portfolio_risk_engine/backtest_engine.py` reusing `get_returns_dataframe()`, `compute_portfolio_returns_partial()`, `compute_performance_metrics()` with dynamic observation gating and ticker filtering. (2) `BacktestResult` dataclass + `backtest_flags.py` (5 flag types: excluded tickers, short window, deep drawdown, benchmark relative, positive risk-adjusted). (3) `POST /api/backtest` endpoint in `app.py`. (4) MCP tool `run_backtest` in `mcp_tools/backtest.py` with agent/summary/full format. (5) Frontend: `useBacktest` hook, `BacktestAdapter`, period selector (1Y/3Y/5Y/10Y/MAX), wired into `StrategyBuilderContainer.tsx` using real optimization weights. Verified end-to-end: 30% AAPL / 30% MSFT / 40% SGOV → 38% return vs 67.6% SPY over 3Y, 4-year annual breakdown, cumulative/monthly returns. Commits `42473036` (plan), `76bf0121` (backend), `6e007162` (frontend), `733b8c9e` (API endpoint fix). Plan: `BACKTESTING_ENGINE_PLAN.md`.
+
+### 2026-03-03 — Smart Alerts Fund/ETF Concentration Fix (DSU)
+Schwab's `_ASSET_TYPE_MAP` mapped `MUTUAL_FUND` → `"equity"` in both `providers/schwab_positions.py` and `providers/normalizers/schwab.py`. This caused funds like DSU (BlackRock Debt Strategies Fund) to bypass the `_is_diversified()` concentration exemption (`774e673e`), triggering false concentration risk alerts. Fix: map `MUTUAL_FUND` → `"mutual_fund"` (matches `DIVERSIFIED_SECURITY_TYPES`). Commit `f9135ff6`.
+
+### 2026-03-03 — Performance View Mock Fallback Removal (Wave 3f)
+Deleted 5 hardcoded fallback arrays (`fallbackSectors`, `fallbackTopContributors`, `fallbackTopDetractors`, `fallbackMetrics`, hardcoded `monthlyReturns`) from `PerformanceView.tsx`. Refactored `buildInsights()` to detect no-data via `=== 0` checks instead of comparing against deleted `fallbackMetrics`. Wired real monthly returns by computing per-month deltas from cumulative `timeSeries` data (inverse compounding). Added empty-state guards for sectors, contributors, detractors, monthly sections. Changed "AI Enhanced" badge to "Portfolio Data". Timezone-safe date parsing via string split. Unique React keys via date string. Commit `52c6d95a`. Plan: `PERFORMANCE_MOCK_REMOVAL_PLAN.md`.
+
+### 2026-03-03 — Silent Transaction Provider Failure Fix
+Three-part fix: (1) `_detect_skipped_providers()` in `fetch_transactions_for_source()` emits `FetchMetadata` for enabled-but-unavailable providers (`1dc1c8b8`, `277cbc40`). (2) `fetch_errors` surfaced in `get_agent_snapshot()` data_quality dict → readable by performance flags. (3) Two new flags: `provider_data_missing` (credentials gap, user-actionable) and `provider_fetch_error` (runtime failure, transient). Both `warning` severity. (4) `IBKR_FLEX_ENABLED` toggle separates enablement from credentials (`2e76d26f`) — previously ibkr_flex used credential presence as enablement signal, preventing skip detection from distinguishing "missing" from "intentionally disabled". Plan: `SILENT_PROVIDER_FAILURE_PLAN.md`.
+
+### 2026-03-03 — Notification Center Wired to Real Data (Wave 3c / B-018)
+Frontend composition hook `useNotifications()` composing `useSmartAlerts()` + `usePendingUpdates()` into `Notification[]` shape for the existing `NotificationCenter` UI component. `alertMappings.ts` maps ~20 backend flag types to human-readable titles + navigation actions. `useNotificationStorage.ts` persists dismissed/read IDs to localStorage. Session-only dismissal for pending update notifications. Backend fix: `_build_alert_id()` for alert ID uniqueness (`ticker || provider || sector || 'portfolio'`). Removed hardcoded mock notifications from `ModernDashboardApp.tsx`. Verified in Chrome: 5 real alerts render with correct titles, severity colors, action buttons navigate to correct views. Commits `1505c1f1` (implementation), `d0c2cb22` (plan). Plan: `NOTIFICATION_CENTER_WIRING_PLAN.md`.
+
+### 2026-03-03 — Provider Routing Gaps (6 Findings) — All Closed
+All 6 gaps from audit (`completed/PROVIDER_ROUTING_AUDIT.md`) fixed. 2 behavioral: transaction `is_provider_available()` guard (Schwab/IBKR Flex), `account` filter on `fetch_transactions_for_source()` with `_filter_provider_payload_for_account()` helper (correct per-provider field names). 4 documentation: `owns_account()` ephemeral docstring, `_resolve_native_account()` directional-vs-bidirectional comment, position direct-first comment, IBKR position provider comment. 3 new tests. Commit `66e85369`. Plan: `PROVIDER_ROUTING_GAPS_FIX_PLAN.md`.
+
+### 2026-03-03 — Institution-Based Realized Performance Routing (Already Working)
+Investigated and confirmed: `get_performance(institution="merrill", mode="realized")` already works end-to-end. `INSTITUTION_SLUG_ALIASES` covers all Merrill variants. `resolve_providers_for_institution("merrill")` correctly falls back to default aggregators (snaptrade+plaid) since Merrill has no direct provider — this is by design, not a gap. Two-stage filtering (provider-level narrowing + row-level `match_institution`) handles all cases. `source` param already defaults to "all", making it an internal detail. No code changes needed.
+
+### 2026-03-03 — Plaid CUSIP → Bond Pricing Chain Fix
+Wired `PlaidSecurity.cusip`/`isin` into `contract_identity` for bonds in Plaid normalizer, connecting to existing IBKR bond pricing chain (FMP→IBKR fallback via `resolve_bond_contract()`). Fixed `_infer_plaid_instrument_type()` metadata-first ordering so bonds aren't blocked by UNKNOWN early return. 8 new tests (20 total in test_plaid.py). Commit `2baba27f`. Plan: `PLAID_CUSIP_BOND_PRICING_PLAN.md`.
+
+### 2026-03-03 — Account Alias Resolution Fix
+Canonical account alias resolution across all 7 matching sites. `resolve_account_aliases()` builds equivalence classes from `TRADE_ACCOUNT_MAP` (UUID↔U-number). Shared `match_account()` in `providers/routing_config.py`. Fixes `_discover_account_ids` to merge aliased accounts. 18 new tests. Commit `f1161d0b`. Plan: `ACCOUNT_ALIAS_RESOLUTION_PLAN.md`.
+
 ### 2026-03-02 — Live Options Pricing (3 Phases)
 Live IBKR bid/ask/mid surfaced in strategy + chain tools. Phase 1: `LegAnalysis` market price fields, `net_market_premium` property, agent snapshot + summary. Phase 2: `pricing_by_strike` in chain output, `atm_pricing` summary, `wide_atm_spread` flag. Phase 3: `underlying_price` optional in `preview_option_trade` with auto-fetch. 16 new tests (79 total). Commit `3ed26f80`. Plan: `LIVE_OPTIONS_PRICING_PLAN.md`.
 
@@ -23,7 +359,7 @@ Option snapshot fix, config centralization + structured logging, ephemeral conne
 Connection singleton fix + `TRADE_ROUTING`/`TRADE_ACCOUNT_MAP`. Commits `ab8bff60`, `8a20f4b8`. Plan: `IBKR_DIRECT_TRADING_PLAN.md`.
 
 ### 2026-03-01 — Frontend: Package Formalization + Component Data Wiring (3 phases)
-Package formalization, data wiring audit (9/9 containers wired), backend data enrichment (7 items). Audit: `FRONTEND_DATA_WIRING_AUDIT.md`.
+Package formalization, data wiring audit (9/9 containers wired), backend data enrichment (7 items). Audit: `completed/FRONTEND_DATA_WIRING_AUDIT.md`.
 
 ### 2026-03-01 — Frontend: Block Component Refactoring (3 waves)
 5 block components across 9 views. Commits: `9506643d`, `93e5ed9e`, `750dea25`. Plan: `FRONTEND_BLOCK_REFACTOR_PLAN.md`.
@@ -148,7 +484,7 @@ Full `options/` package with `OptionLeg`/`OptionStrategy` class framework, payof
 
 ### 2026-02-27 — Architecture: Pricing Provider Pluggability Review
 Completed the pricing provider refactor plan across equity/general pricing paths. Legacy `PriceProvider` now delegates to registry-backed providers, FX routing goes through `get_fx_provider()`, scattered `fmp.fx` pricing-path imports were reduced, and provider integration tests were added for registry custom-provider handling, `set_price_provider()` override behavior, and `data_loader.fetch_monthly_close()` registry flow.
-See: `docs/planning/PRICING_PROVIDER_REFACTOR_PLAN.md`
+See: `PRICING_PROVIDER_REFACTOR_PLAN.md`
 
 ### 2026-02-27 — Futures Phase 2: Pricing Dispatch + Pluggable Pricing Chain
 Decoupled contract catalog from IBKR into `brokerage/futures/contracts.yaml` (27 contracts). Built pluggable `FuturesPricingChain` protocol with broker-agnostic `alt_symbol` parameter — default chain: FMP commodity endpoints → IBKR historical data fallback. Added futures dispatch to `latest_price()` and `get_returns_dataframe()` via `instrument_types` dict. Threaded `instrument_types` through ~20 call sites (config_adapters, optimization, performance, risk score, scenario, portfolio_optimizer full chain, portfolio_service special case, factor_intelligence). Second pass in `to_portfolio_data()` populates `fmp_ticker_map` from contract specs. Slimmed `ibkr/exchange_mappings.yaml` (removed multiplier/tick_size/fmp mapping). Live tested: ES $6,874.75, GC $5,257.40 via FMP. 11/27 FMP symbols working (rest 402 — IBKR fallback). 56 new tests, 1943 total passing. Codex-reviewed plan (18 rounds).
@@ -265,6 +601,9 @@ See: `docs/interfaces/README.md`, `docs/interfaces/mcp.md`, `docs/interfaces/tes
 ### 2026-02-17 — Provider-Native Flows: Plaid, SnapTrade, IBKR
 Extended provider-native flows to all remaining providers. Coverage gating and validation complete.
 See: `docs/planning/completed/PROVIDER_NATIVE_FLOWS_EXPANSION_IMPLEMENTATION_PLAN.md`
+
+### 2026-03-04 — Frontend Cleanup P4+P5: Dead Code & Stale Comments
+Removed dead code (unused props in RiskAnalysis/StockLookup, `animationEnabled` in PerformanceView) and stale comments (13 header TODOs in HoldingsView, 164-line ASCII header in RiskAnalysis, 70-line header in StockLookup, mock data block in StrategyBuilder, 8 "Coming Soon" locations in ScenarioAnalysis, misleading "Excel Workbook" label in PerformanceView). -501 lines across 6 files. Commit `396da1c3`. Plan: `FRONTEND_CLEANUP_P4P5_PLAN.md`.
 
 ### 2026-02-17 — Schwab Dividend Description → Ticker Resolution (Bug 23)
 Fixed unresolved ENB dividends ($612).

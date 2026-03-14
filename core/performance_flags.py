@@ -145,6 +145,33 @@ def generate_performance_flags(snapshot: dict) -> list[dict]:
                 }
             )
 
+        fetch_errors = data_quality.get("fetch_errors") or {}
+        if fetch_errors:
+            skipped = sorted(p for p, e in fetch_errors.items() if "skipped" in str(e).lower())
+            errored = sorted(p for p in fetch_errors if p not in skipped)
+            if skipped:
+                flags.append(
+                    {
+                        "type": "provider_data_missing",
+                        "severity": "warning",
+                        "message": (
+                            f"Transaction provider(s) not configured: "
+                            f"{', '.join(skipped)}. Realized performance may be incomplete."
+                        ),
+                    }
+                )
+            if errored:
+                flags.append(
+                    {
+                        "type": "provider_fetch_error",
+                        "severity": "warning",
+                        "message": (
+                            f"Transaction provider(s) failed during fetch: "
+                            f"{', '.join(errored)}. Their transactions are excluded."
+                        ),
+                    }
+                )
+
         if bool(data_quality.get("high_confidence", False)) and reliable is not False:
             flags.append(
                 {

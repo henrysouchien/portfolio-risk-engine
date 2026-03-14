@@ -1,19 +1,54 @@
-# Resolved Bugs
+# Completed Bugs
 
-Bugs moved from `docs/planning/BUGS.md` as they were resolved. Most recent first.
+Resolved bugs archived from `docs/planning/BUGS.md`.
 
 ---
 
-## Bug B-016: Risk score methodology review — RESOLVED (2026-02-19)
+## Bug 01: PostgreSQL "too many clients" on cash position detection
+
+**Status:** Resolved
+**Severity:** Low
+**Opened:** 2026-02-27
+**Resolved:** 2026-03-12
+
+**Symptom:**
+`get_cash_positions()` in `portfolio_config.py` logged `⚠️ Database unavailable (too many clients already)` and fell back to `cash_map.yaml`.
+
+**Root cause:**
+Connection pool usage was correct; the cash mapping callers were still opening unnecessary database reads for static global data. Removing the DB dependency for cash mappings eliminated the failure mode.
 
 **Resolution:**
-1. Fund exemption extended to `calculate_suggested_risk_limits()` — keyword-only `security_types` param, input guards
-2. Piecewise linear scoring curve replaces step function — configurable `risk_score_critical_threshold` added
-3. Risk profile interaction validated — 18 tests covering monotonicity, tolerance sensitivity, leverage amplification
-See: `docs/planning/completed/RISK_SCORE_METHODOLOGY_REVIEW_PLAN.md`
+- Removed all production reads from `cash_proxies` / `cash_aliases`
+- Standardized runtime cash mapping reads on `config/cash_map.yaml`
+- Added a migration to drop the obsolete cash tables
+
+**Files:**
+- `portfolio_risk_engine/portfolio_config.py`
+- `services/security_type_service.py`
+- `inputs/portfolio_manager.py`
+- `inputs/portfolio_repository.py`
+- `portfolio_risk_engine/data_objects.py`
+- `services/returns_service.py`
+- `core/factor_intelligence.py`
+- `database/migrations/20260312_drop_cash_tables.sql`
 
 ---
 
-## Bug B-015: Single-stock weight limit treats funds/ETFs as single stocks — RESOLVED (2026-02-19)
+## Bug 02: Pandas FutureWarning on fillna downcasting
 
-See: `docs/planning/completed/FUND_WEIGHT_EXEMPTION_PLAN.md`
+**Status:** Resolved
+**Severity:** Low
+**Opened:** 2026-02-27
+**Resolved:** 2026-03-12
+
+**Symptom:**
+`portfolio_risk.py` emitted a pandas FutureWarning for implicit downcasting on `.fillna(0.0)` applied to an object-dtype Series.
+
+**Root cause:**
+The code relied on pandas' deprecated implicit dtype coercion. The repo targets pandas 3.x compatibility, so explicit numeric conversion is required.
+
+**Resolution:**
+- Replaced the object-series `.fillna(0.0)` path with `pd.to_numeric(..., errors="coerce").fillna(0.0)`
+
+**Files:**
+- `portfolio_risk_engine/portfolio_risk.py`

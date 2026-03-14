@@ -1,4 +1,5 @@
 # Design: Investment Idea Ingestion System
+**Status:** ACTIVE
 
 ## Context
 
@@ -260,7 +261,7 @@ This is the autonomous analyst workflow from the TODO — the ingestion system p
 - `AI-excel-addin/tests/test_ingest.py` — 36 pipeline core tests
 - `AI-excel-addin/tests/test_connectors.py` — 28 connector tests
 - `risk_module/mcp_tools/` — enrichment tools (analyze_stock, etc.)
-- `risk_module/fmp_mcp_server.py` — FMP tools (screens, profiles, estimates)
+- `risk_module/fmp/server.py` — FMP tools (screens, profiles, estimates)
 
 ## Verification
 

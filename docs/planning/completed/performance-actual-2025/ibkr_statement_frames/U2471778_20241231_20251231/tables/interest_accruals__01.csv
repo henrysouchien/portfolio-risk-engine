@@ -1,0 +1,20 @@
+line_no,row_kind,currency,field_name,field_value
+415,Data,Base Currency Summary,Starting Accrual Balance,-67.871624
+416,Data,Base Currency Summary,Interest Accrued,-347.9426386
+417,Data,Base Currency Summary,Accrual Reversal,390.5456481
+418,Data,Base Currency Summary,FX Translation,-0.3113855
+419,Data,Base Currency Summary,Ending Accrual Balance,-25.58
+420,Data,GBP,Starting Accrual Balance,-4.24
+421,Data,GBP,Interest Accrued,-14.36
+422,Data,GBP,Accrual Reversal,18.6
+423,Data,GBP,Ending Accrual Balance,0
+424,Data,GBP,Ending Accrual Balance in USD,0
+425,Data,HKD,Starting Accrual Balance,0
+426,Data,HKD,Interest Accrued,-74.04
+427,Data,HKD,Accrual Reversal,74.04
+428,Data,HKD,Ending Accrual Balance,0
+429,Data,HKD,Ending Accrual Balance in USD,0
+430,Data,USD,Starting Accrual Balance,-62.55
+431,Data,USD,Interest Accrued,-320.54
+432,Data,USD,Accrual Reversal,357.51
+433,Data,USD,Ending Accrual Balance,-25.58

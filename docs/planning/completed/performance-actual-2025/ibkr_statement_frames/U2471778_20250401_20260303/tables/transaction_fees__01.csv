@@ -1,0 +1,5 @@
+line_no,row_kind,asset_category,currency,date_time,symbol,description,quantity,trade_price,amount,code
+318,Data,Stocks,GBP,"2026-01-30, 08:10:15",AT.,UK Stamp Tax,300,4,-6,
+319,Data,Stocks,GBP,"2026-02-06, 09:56:07",AT.,UK Stamp Tax,100,4.155,-2.0775,
+320,Data,Total,,,,,,,-8.0775,
+321,Data,Total in USD,,,,,,,-11.0411085,

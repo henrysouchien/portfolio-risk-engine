@@ -1,0 +1,1344 @@
+{
+  "input_csv": "/Users/henrychien/Documents/Jupyter/risk_module/docs/planning/performance-actual-2025/U2471778_20250401_20260303.csv",
+  "row_count": 624,
+  "table_count": 28,
+  "tables": [
+    {
+      "table_name": "statement__01",
+      "section": "Statement",
+      "header_line_no": 1,
+      "column_count": 2,
+      "row_count": 5,
+      "csv_path": "tables/statement__01.csv",
+      "raw_headers": [
+        "Field Name",
+        "Field Value"
+      ],
+      "column_names": [
+        "field_name",
+        "field_value"
+      ]
+    },
+    {
+      "table_name": "account_information__01",
+      "section": "Account Information",
+      "header_line_no": 7,
+      "column_count": 2,
+      "row_count": 6,
+      "csv_path": "tables/account_information__01.csv",
+      "raw_headers": [
+        "Field Name",
+        "Field Value"
+      ],
+      "column_names": [
+        "field_name",
+        "field_value"
+      ]
+    },
+    {
+      "table_name": "net_asset_value__01",
+      "section": "Net Asset Value",
+      "header_line_no": 14,
+      "column_count": 6,
+      "row_count": 6,
+      "csv_path": "tables/net_asset_value__01.csv",
+      "raw_headers": [
+        "Asset Class",
+        "Prior Total",
+        "Current Long",
+        "Current Short",
+        "Current Total",
+        "Change"
+      ],
+      "column_names": [
+        "asset_class",
+        "prior_total",
+        "current_long",
+        "current_short",
+        "current_total",
+        "change"
+      ]
+    },
+    {
+      "table_name": "net_asset_value__02",
+      "section": "Net Asset Value",
+      "header_line_no": 21,
+      "column_count": 1,
+      "row_count": 1,
+      "csv_path": "tables/net_asset_value__02.csv",
+      "raw_headers": [
+        "Time Weighted Rate of Return"
+      ],
+      "column_names": [
+        "time_weighted_rate_of_return"
+      ]
+    },
+    {
+      "table_name": "change_in_nav__01",
+      "section": "Change in NAV",
+      "header_line_no": 23,
+      "column_count": 2,
+      "row_count": 11,
+      "csv_path": "tables/change_in_nav__01.csv",
+      "raw_headers": [
+        "Field Name",
+        "Field Value"
+      ],
+      "column_names": [
+        "field_name",
+        "field_value"
+      ]
+    },
+    {
+      "table_name": "mark_to_market_performance_summary__01",
+      "section": "Mark-to-Market Performance Summary",
+      "header_line_no": 35,
+      "column_count": 12,
+      "row_count": 48,
+      "csv_path": "tables/mark_to_market_performance_summary__01.csv",
+      "raw_headers": [
+        "Asset Category",
+        "Symbol",
+        "Prior Quantity",
+        "Current Quantity",
+        "Prior Price",
+        "Current Price",
+        "Mark-to-Market P/L Position",
+        "Mark-to-Market P/L Transaction",
+        "Mark-to-Market P/L Commissions",
+        "Mark-to-Market P/L Other",
+        "Mark-to-Market P/L Total",
+        "Code"
+      ],
+      "column_names": [
+        "asset_category",
+        "symbol",
+        "prior_quantity",
+        "current_quantity",
+        "prior_price",
+        "current_price",
+        "mark_to_market_p_l_position",
+        "mark_to_market_p_l_transaction",
+        "mark_to_market_p_l_commissions",
+        "mark_to_market_p_l_other",
+        "mark_to_market_p_l_total",
+        "code"
+      ]
+    },
+    {
+      "table_name": "realized_unrealized_performance_summary__01",
+      "section": "Realized & Unrealized Performance Summary",
+      "header_line_no": 85,
+      "column_count": 15,
+      "row_count": 42,
+      "csv_path": "tables/realized_unrealized_performance_summary__01.csv",
+      "raw_headers": [
+        "Asset Category",
+        "Symbol",
+        "Cost Adj.",
+        "Realized S/T Profit",
+        "Realized S/T Loss",
+        "Realized L/T Profit",
+        "Realized L/T Loss",
+        "Realized Total",
+        "Unrealized S/T Profit",
+        "Unrealized S/T Loss",
+        "Unrealized L/T Profit",
+        "Unrealized L/T Loss",
+        "Unrealized Total",
+        "Total",
+        "Code"
+      ],
+      "column_names": [
+        "asset_category",
+        "symbol",
+        "cost_adj",
+        "realized_s_t_profit",
+        "realized_s_t_loss",
+        "realized_l_t_profit",
+        "realized_l_t_loss",
+        "realized_total",
+        "unrealized_s_t_profit",
+        "unrealized_s_t_loss",
+        "unrealized_l_t_profit",
+        "unrealized_l_t_loss",
+        "unrealized_total",
+        "total",
+        "code"
+      ]
+    },
+    {
+      "table_name": "month_year_to_date_performance_summary__01",
+      "section": "Month & Year to Date Performance Summary",
+      "header_line_no": 129,
+      "column_count": 9,
+      "row_count": 17,
+      "csv_path": "tables/month_year_to_date_performance_summary__01.csv",
+      "raw_headers": [
+        "Asset Category",
+        "Symbol",
+        "Description",
+        "Mark-to-Market MTD",
+        "Mark-to-Market YTD",
+        "Realized S/T MTD",
+        "Realized S/T YTD",
+        "Realized L/T MTD",
+        "Realized L/T YTD"
+      ],
+      "column_names": [
+        "asset_category",
+        "symbol",
+        "description",
+        "mark_to_market_mtd",
+        "mark_to_market_ytd",
+        "realized_s_t_mtd",
+        "realized_s_t_ytd",
+        "realized_l_t_mtd",
+        "realized_l_t_ytd"
+      ]
+    },
+    {
+      "table_name": "cash_report__01",
+      "section": "Cash Report",
+      "header_line_no": 147,
+      "column_count": 8,
+      "row_count": 40,
+      "csv_path": "tables/cash_report__01.csv",
+      "raw_headers": [
+        "Currency Summary",
+        "Currency",
+        "Total",
+        "Securities",
+        "Futures",
+        "Month to Date",
+        "Year to Date",
+        ""
+      ],
+      "column_names": [
+        "currency_summary",
+        "currency",
+        "total",
+        "securities",
+        "futures",
+        "month_to_date",
+        "year_to_date",
+        "field_8"
+      ]
+    },
+    {
+      "table_name": "open_positions__01",
+      "section": "Open Positions",
+      "header_line_no": 188,
+      "column_count": 12,
+      "row_count": 16,
+      "csv_path": "tables/open_positions__01.csv",
+      "raw_headers": [
+        "DataDiscriminator",
+        "Asset Category",
+        "Currency",
+        "Symbol",
+        "Quantity",
+        "Mult",
+        "Cost Price",
+        "Cost Basis",
+        "Close Price",
+        "Value",
+        "Unrealized P/L",
+        "Code"
+      ],
+      "column_names": [
+        "datadiscriminator",
+        "asset_category",
+        "currency",
+        "symbol",
+        "quantity",
+        "mult",
+        "cost_price",
+        "cost_basis",
+        "close_price",
+        "value",
+        "unrealized_p_l",
+        "code"
+      ]
+    },
+    {
+      "table_name": "forex_balances__01",
+      "section": "Forex Balances",
+      "header_line_no": 205,
+      "column_count": 10,
+      "row_count": 4,
+      "csv_path": "tables/forex_balances__01.csv",
+      "raw_headers": [
+        "Asset Category",
+        "Currency",
+        "Description",
+        "Quantity",
+        "Cost Price",
+        "Cost Basis in USD",
+        "Close Price",
+        "Value in USD",
+        "Unrealized P/L in USD",
+        "Code"
+      ],
+      "column_names": [
+        "asset_category",
+        "currency",
+        "description",
+        "quantity",
+        "cost_price",
+        "cost_basis_in_usd",
+        "close_price",
+        "value_in_usd",
+        "unrealized_p_l_in_usd",
+        "code"
+      ]
+    },
+    {
+      "table_name": "net_stock_position_summary__01",
+      "section": "Net Stock Position Summary",
+      "header_line_no": 210,
+      "column_count": 8,
+      "row_count": 12,
+      "csv_path": "tables/net_stock_position_summary__01.csv",
+      "raw_headers": [
+        "Asset Category",
+        "Currency",
+        "Symbol",
+        "Description",
+        "Shares at IB",
+        "Shares Borrowed",
+        "Shares Lent",
+        "Net Shares"
+      ],
+      "column_names": [
+        "asset_category",
+        "currency",
+        "symbol",
+        "description",
+        "shares_at_ib",
+        "shares_borrowed",
+        "shares_lent",
+        "net_shares"
+      ]
+    },
+    {
+      "table_name": "trades__01",
+      "section": "Trades",
+      "header_line_no": 223,
+      "column_count": 14,
+      "row_count": 72,
+      "csv_path": "tables/trades__01.csv",
+      "raw_headers": [
+        "DataDiscriminator",
+        "Asset Category",
+        "Currency",
+        "Symbol",
+        "Date/Time",
+        "Quantity",
+        "T. Price",
+        "C. Price",
+        "Proceeds",
+        "Comm/Fee",
+        "Basis",
+        "Realized P/L",
+        "MTM P/L",
+        "Code"
+      ],
+      "column_names": [
+        "datadiscriminator",
+        "asset_category",
+        "currency",
+        "symbol",
+        "date_time",
+        "quantity",
+        "t_price",
+        "c_price",
+        "proceeds",
+        "comm_fee",
+        "basis",
+        "realized_p_l",
+        "mtm_p_l",
+        "code"
+      ]
+    },
+    {
+      "table_name": "trades__02",
+      "section": "Trades",
+      "header_line_no": 297,
+      "column_count": 14,
+      "row_count": 12,
+      "csv_path": "tables/trades__02.csv",
+      "raw_headers": [
+        "DataDiscriminator",
+        "Asset Category",
+        "Currency",
+        "Symbol",
+        "Date/Time",
+        "Quantity",
+        "T. Price",
+        "C. Price",
+        "Notional Value",
+        "Comm/Fee",
+        "Basis",
+        "Realized P/L",
+        "MTM P/L",
+        "Code"
+      ],
+      "column_names": [
+        "datadiscriminator",
+        "asset_category",
+        "currency",
+        "symbol",
+        "date_time",
+        "quantity",
+        "t_price",
+        "c_price",
+        "notional_value",
+        "comm_fee",
+        "basis",
+        "realized_p_l",
+        "mtm_p_l",
+        "code"
+      ]
+    },
+    {
+      "table_name": "trades__03",
+      "section": "Trades",
+      "header_line_no": 310,
+      "column_count": 14,
+      "row_count": 6,
+      "csv_path": "tables/trades__03.csv",
+      "raw_headers": [
+        "DataDiscriminator",
+        "Asset Category",
+        "Currency",
+        "Symbol",
+        "Date/Time",
+        "Quantity",
+        "T. Price",
+        "",
+        "Proceeds",
+        "Comm in USD",
+        "",
+        "",
+        "MTM in USD",
+        "Code"
+      ],
+      "column_names": [
+        "datadiscriminator",
+        "asset_category",
+        "currency",
+        "symbol",
+        "date_time",
+        "quantity",
+        "t_price",
+        "field_8",
+        "proceeds",
+        "comm_in_usd",
+        "field_11",
+        "field_12",
+        "mtm_in_usd",
+        "code"
+      ]
+    },
+    {
+      "table_name": "transaction_fees__01",
+      "section": "Transaction Fees",
+      "header_line_no": 317,
+      "column_count": 9,
+      "row_count": 4,
+      "csv_path": "tables/transaction_fees__01.csv",
+      "raw_headers": [
+        "Asset Category",
+        "Currency",
+        "Date/Time",
+        "Symbol",
+        "Description",
+        "Quantity",
+        "Trade Price",
+        "Amount",
+        "Code"
+      ],
+      "column_names": [
+        "asset_category",
+        "currency",
+        "date_time",
+        "symbol",
+        "description",
+        "quantity",
+        "trade_price",
+        "amount",
+        "code"
+      ]
+    },
+    {
+      "table_name": "fees__01",
+      "section": "Fees",
+      "header_line_no": 322,
+      "column_count": 5,
+      "row_count": 29,
+      "csv_path": "tables/fees__01.csv",
+      "raw_headers": [
+        "Subtitle",
+        "Currency",
+        "Date",
+        "Description",
+        "Amount"
+      ],
+      "column_names": [
+        "subtitle",
+        "currency",
+        "date",
+        "description",
+        "amount"
+      ]
+    },
+    {
+      "table_name": "dividends__01",
+      "section": "Dividends",
+      "header_line_no": 352,
+      "column_count": 4,
+      "row_count": 28,
+      "csv_path": "tables/dividends__01.csv",
+      "raw_headers": [
+        "Currency",
+        "Date",
+        "Description",
+        "Amount"
+      ],
+      "column_names": [
+        "currency",
+        "date",
+        "description",
+        "amount"
+      ]
+    },
+    {
+      "table_name": "interest__01",
+      "section": "Interest",
+      "header_line_no": 381,
+      "column_count": 4,
+      "row_count": 27,
+      "csv_path": "tables/interest__01.csv",
+      "raw_headers": [
+        "Currency",
+        "Date",
+        "Description",
+        "Amount"
+      ],
+      "column_names": [
+        "currency",
+        "date",
+        "description",
+        "amount"
+      ]
+    },
+    {
+      "table_name": "interest_accruals__01",
+      "section": "Interest Accruals",
+      "header_line_no": 409,
+      "column_count": 3,
+      "row_count": 19,
+      "csv_path": "tables/interest_accruals__01.csv",
+      "raw_headers": [
+        "Currency",
+        "Field Name",
+        "Field Value"
+      ],
+      "column_names": [
+        "currency",
+        "field_name",
+        "field_value"
+      ]
+    },
+    {
+      "table_name": "change_in_dividend_accruals__01",
+      "section": "Change in Dividend Accruals",
+      "header_line_no": 429,
+      "column_count": 13,
+      "row_count": 48,
+      "csv_path": "tables/change_in_dividend_accruals__01.csv",
+      "raw_headers": [
+        "Asset Category",
+        "Currency",
+        "Symbol",
+        "Date",
+        "Ex Date",
+        "Pay Date",
+        "Quantity",
+        "Tax",
+        "Fee",
+        "Gross Rate",
+        "Gross Amount",
+        "Net Amount",
+        "Code"
+      ],
+      "column_names": [
+        "asset_category",
+        "currency",
+        "symbol",
+        "date",
+        "ex_date",
+        "pay_date",
+        "quantity",
+        "tax",
+        "fee",
+        "gross_rate",
+        "gross_amount",
+        "net_amount",
+        "code"
+      ]
+    },
+    {
+      "table_name": "stock_yield_enhancement_program_securities_lent_activity__01",
+      "section": "Stock Yield Enhancement Program Securities Lent Activity",
+      "header_line_no": 478,
+      "column_count": 9,
+      "row_count": 4,
+      "csv_path": "tables/stock_yield_enhancement_program_securities_lent_activity__01.csv",
+      "raw_headers": [
+        "Asset Category",
+        "Currency",
+        "Symbol",
+        "Date",
+        "Description",
+        " ",
+        "Transaction ID",
+        "Quantity",
+        "Collateral Amount"
+      ],
+      "column_names": [
+        "asset_category",
+        "currency",
+        "symbol",
+        "date",
+        "description",
+        "field_6",
+        "transaction_id",
+        "quantity",
+        "collateral_amount"
+      ]
+    },
+    {
+      "table_name": "stock_yield_enhancement_program_securities_lent_fee_earned_details__01",
+      "section": "Stock Yield Enhancement Program Securities Lent Fee Earned Details",
+      "header_line_no": 483,
+      "column_count": 10,
+      "row_count": 2,
+      "csv_path": "tables/stock_yield_enhancement_program_securities_lent_fee_earned_details__01.csv",
+      "raw_headers": [
+        "Currency",
+        "Value Date",
+        "Symbol",
+        "Start Date",
+        "Quantity",
+        "Collateral Amount",
+        "Market-based Rate (%)",
+        "SYEP Rate on Customer Collateral (%)",
+        "SYEP Fee Earned by Customer",
+        "Code"
+      ],
+      "column_names": [
+        "currency",
+        "value_date",
+        "symbol",
+        "start_date",
+        "quantity",
+        "collateral_amount",
+        "market_based_rate",
+        "syep_rate_on_customer_collateral",
+        "syep_fee_earned_by_customer",
+        "code"
+      ]
+    },
+    {
+      "table_name": "financial_instrument_information__01",
+      "section": "Financial Instrument Information",
+      "header_line_no": 486,
+      "column_count": 10,
+      "row_count": 25,
+      "csv_path": "tables/financial_instrument_information__01.csv",
+      "raw_headers": [
+        "Asset Category",
+        "Symbol",
+        "Description",
+        "Conid",
+        "Security ID",
+        "Underlying",
+        "Listing Exch",
+        "Multiplier",
+        "Type",
+        "Code"
+      ],
+      "column_names": [
+        "asset_category",
+        "symbol",
+        "description",
+        "conid",
+        "security_id",
+        "underlying",
+        "listing_exch",
+        "multiplier",
+        "type",
+        "code"
+      ]
+    },
+    {
+      "table_name": "financial_instrument_information__02",
+      "section": "Financial Instrument Information",
+      "header_line_no": 512,
+      "column_count": 12,
+      "row_count": 7,
+      "csv_path": "tables/financial_instrument_information__02.csv",
+      "raw_headers": [
+        "Asset Category",
+        "Symbol",
+        "Description",
+        "Conid",
+        "Underlying",
+        "Listing Exch",
+        "Multiplier",
+        "Expiry",
+        "Delivery Month",
+        "Type",
+        "Strike",
+        "Code"
+      ],
+      "column_names": [
+        "asset_category",
+        "symbol",
+        "description",
+        "conid",
+        "underlying",
+        "listing_exch",
+        "multiplier",
+        "expiry",
+        "delivery_month",
+        "type",
+        "strike",
+        "code"
+      ]
+    },
+    {
+      "table_name": "financial_instrument_information__03",
+      "section": "Financial Instrument Information",
+      "header_line_no": 520,
+      "column_count": 10,
+      "row_count": 3,
+      "csv_path": "tables/financial_instrument_information__03.csv",
+      "raw_headers": [
+        "Asset Category",
+        "Symbol",
+        "Description",
+        "Conid",
+        "Underlying",
+        "Listing Exch",
+        "Multiplier",
+        "Expiry",
+        "Delivery Month",
+        "Code"
+      ],
+      "column_names": [
+        "asset_category",
+        "symbol",
+        "description",
+        "conid",
+        "underlying",
+        "listing_exch",
+        "multiplier",
+        "expiry",
+        "delivery_month",
+        "code"
+      ]
+    },
+    {
+      "table_name": "codes__01",
+      "section": "Codes",
+      "header_line_no": 524,
+      "column_count": 4,
+      "row_count": 72,
+      "csv_path": "tables/codes__01.csv",
+      "raw_headers": [
+        "Code",
+        "Meaning",
+        "Code (Cont.)",
+        "Meaning (Cont.)"
+      ],
+      "column_names": [
+        "code",
+        "meaning",
+        "code_cont",
+        "meaning_cont"
+      ]
+    },
+    {
+      "table_name": "notes_legal_notes__01",
+      "section": "Notes/Legal Notes",
+      "header_line_no": 597,
+      "column_count": 2,
+      "row_count": 27,
+      "csv_path": "tables/notes_legal_notes__01.csv",
+      "raw_headers": [
+        "Type",
+        "Note"
+      ],
+      "column_names": [
+        "type",
+        "note"
+      ]
+    },
+    {
+      "table_name": "account_information__all",
+      "section": "Account Information",
+      "header_line_no": 8,
+      "column_count": 2,
+      "row_count": 6,
+      "csv_path": "tables/account_information__all.csv",
+      "raw_headers": [
+        "<consolidated union of section variants>"
+      ],
+      "column_names": [
+        "line_no",
+        "row_kind",
+        "source_table",
+        "field_name",
+        "field_value"
+      ]
+    },
+    {
+      "table_name": "cash_report__all",
+      "section": "Cash Report",
+      "header_line_no": 148,
+      "column_count": 8,
+      "row_count": 40,
+      "csv_path": "tables/cash_report__all.csv",
+      "raw_headers": [
+        "<consolidated union of section variants>"
+      ],
+      "column_names": [
+        "line_no",
+        "row_kind",
+        "source_table",
+        "currency_summary",
+        "currency",
+        "total",
+        "securities",
+        "futures",
+        "month_to_date",
+        "year_to_date",
+        "field_8"
+      ]
+    },
+    {
+      "table_name": "change_in_dividend_accruals__all",
+      "section": "Change in Dividend Accruals",
+      "header_line_no": 430,
+      "column_count": 13,
+      "row_count": 48,
+      "csv_path": "tables/change_in_dividend_accruals__all.csv",
+      "raw_headers": [
+        "<consolidated union of section variants>"
+      ],
+      "column_names": [
+        "line_no",
+        "row_kind",
+        "source_table",
+        "asset_category",
+        "currency",
+        "symbol",
+        "date",
+        "ex_date",
+        "pay_date",
+        "quantity",
+        "tax",
+        "fee",
+        "gross_rate",
+        "gross_amount",
+        "net_amount",
+        "code"
+      ]
+    },
+    {
+      "table_name": "change_in_nav__all",
+      "section": "Change in NAV",
+      "header_line_no": 24,
+      "column_count": 2,
+      "row_count": 11,
+      "csv_path": "tables/change_in_nav__all.csv",
+      "raw_headers": [
+        "<consolidated union of section variants>"
+      ],
+      "column_names": [
+        "line_no",
+        "row_kind",
+        "source_table",
+        "field_name",
+        "field_value"
+      ]
+    },
+    {
+      "table_name": "codes__all",
+      "section": "Codes",
+      "header_line_no": 525,
+      "column_count": 4,
+      "row_count": 72,
+      "csv_path": "tables/codes__all.csv",
+      "raw_headers": [
+        "<consolidated union of section variants>"
+      ],
+      "column_names": [
+        "line_no",
+        "row_kind",
+        "source_table",
+        "code",
+        "meaning",
+        "code_cont",
+        "meaning_cont"
+      ]
+    },
+    {
+      "table_name": "dividends__all",
+      "section": "Dividends",
+      "header_line_no": 353,
+      "column_count": 4,
+      "row_count": 28,
+      "csv_path": "tables/dividends__all.csv",
+      "raw_headers": [
+        "<consolidated union of section variants>"
+      ],
+      "column_names": [
+        "line_no",
+        "row_kind",
+        "source_table",
+        "currency",
+        "date",
+        "description",
+        "amount"
+      ]
+    },
+    {
+      "table_name": "fees__all",
+      "section": "Fees",
+      "header_line_no": 323,
+      "column_count": 5,
+      "row_count": 29,
+      "csv_path": "tables/fees__all.csv",
+      "raw_headers": [
+        "<consolidated union of section variants>"
+      ],
+      "column_names": [
+        "line_no",
+        "row_kind",
+        "source_table",
+        "subtitle",
+        "currency",
+        "date",
+        "description",
+        "amount"
+      ]
+    },
+    {
+      "table_name": "financial_instrument_information__all",
+      "section": "Financial Instrument Information",
+      "header_line_no": 487,
+      "column_count": 13,
+      "row_count": 35,
+      "csv_path": "tables/financial_instrument_information__all.csv",
+      "raw_headers": [
+        "<consolidated union of section variants>"
+      ],
+      "column_names": [
+        "line_no",
+        "row_kind",
+        "source_table",
+        "asset_category",
+        "symbol",
+        "description",
+        "conid",
+        "security_id",
+        "underlying",
+        "listing_exch",
+        "multiplier",
+        "type",
+        "code",
+        "expiry",
+        "delivery_month",
+        "strike"
+      ]
+    },
+    {
+      "table_name": "forex_balances__all",
+      "section": "Forex Balances",
+      "header_line_no": 206,
+      "column_count": 10,
+      "row_count": 4,
+      "csv_path": "tables/forex_balances__all.csv",
+      "raw_headers": [
+        "<consolidated union of section variants>"
+      ],
+      "column_names": [
+        "line_no",
+        "row_kind",
+        "source_table",
+        "asset_category",
+        "currency",
+        "description",
+        "quantity",
+        "cost_price",
+        "cost_basis_in_usd",
+        "close_price",
+        "value_in_usd",
+        "unrealized_p_l_in_usd",
+        "code"
+      ]
+    },
+    {
+      "table_name": "interest__all",
+      "section": "Interest",
+      "header_line_no": 382,
+      "column_count": 4,
+      "row_count": 27,
+      "csv_path": "tables/interest__all.csv",
+      "raw_headers": [
+        "<consolidated union of section variants>"
+      ],
+      "column_names": [
+        "line_no",
+        "row_kind",
+        "source_table",
+        "currency",
+        "date",
+        "description",
+        "amount"
+      ]
+    },
+    {
+      "table_name": "interest_accruals__all",
+      "section": "Interest Accruals",
+      "header_line_no": 410,
+      "column_count": 3,
+      "row_count": 19,
+      "csv_path": "tables/interest_accruals__all.csv",
+      "raw_headers": [
+        "<consolidated union of section variants>"
+      ],
+      "column_names": [
+        "line_no",
+        "row_kind",
+        "source_table",
+        "currency",
+        "field_name",
+        "field_value"
+      ]
+    },
+    {
+      "table_name": "mark_to_market_performance_summary__all",
+      "section": "Mark-to-Market Performance Summary",
+      "header_line_no": 36,
+      "column_count": 12,
+      "row_count": 48,
+      "csv_path": "tables/mark_to_market_performance_summary__all.csv",
+      "raw_headers": [
+        "<consolidated union of section variants>"
+      ],
+      "column_names": [
+        "line_no",
+        "row_kind",
+        "source_table",
+        "asset_category",
+        "symbol",
+        "prior_quantity",
+        "current_quantity",
+        "prior_price",
+        "current_price",
+        "mark_to_market_p_l_position",
+        "mark_to_market_p_l_transaction",
+        "mark_to_market_p_l_commissions",
+        "mark_to_market_p_l_other",
+        "mark_to_market_p_l_total",
+        "code"
+      ]
+    },
+    {
+      "table_name": "month_year_to_date_performance_summary__all",
+      "section": "Month & Year to Date Performance Summary",
+      "header_line_no": 130,
+      "column_count": 9,
+      "row_count": 17,
+      "csv_path": "tables/month_year_to_date_performance_summary__all.csv",
+      "raw_headers": [
+        "<consolidated union of section variants>"
+      ],
+      "column_names": [
+        "line_no",
+        "row_kind",
+        "source_table",
+        "asset_category",
+        "symbol",
+        "description",
+        "mark_to_market_mtd",
+        "mark_to_market_ytd",
+        "realized_s_t_mtd",
+        "realized_s_t_ytd",
+        "realized_l_t_mtd",
+        "realized_l_t_ytd"
+      ]
+    },
+    {
+      "table_name": "net_asset_value__all",
+      "section": "Net Asset Value",
+      "header_line_no": 15,
+      "column_count": 7,
+      "row_count": 7,
+      "csv_path": "tables/net_asset_value__all.csv",
+      "raw_headers": [
+        "<consolidated union of section variants>"
+      ],
+      "column_names": [
+        "line_no",
+        "row_kind",
+        "source_table",
+        "asset_class",
+        "prior_total",
+        "current_long",
+        "current_short",
+        "current_total",
+        "change",
+        "time_weighted_rate_of_return"
+      ]
+    },
+    {
+      "table_name": "net_stock_position_summary__all",
+      "section": "Net Stock Position Summary",
+      "header_line_no": 211,
+      "column_count": 8,
+      "row_count": 12,
+      "csv_path": "tables/net_stock_position_summary__all.csv",
+      "raw_headers": [
+        "<consolidated union of section variants>"
+      ],
+      "column_names": [
+        "line_no",
+        "row_kind",
+        "source_table",
+        "asset_category",
+        "currency",
+        "symbol",
+        "description",
+        "shares_at_ib",
+        "shares_borrowed",
+        "shares_lent",
+        "net_shares"
+      ]
+    },
+    {
+      "table_name": "notes_legal_notes__all",
+      "section": "Notes/Legal Notes",
+      "header_line_no": 598,
+      "column_count": 2,
+      "row_count": 27,
+      "csv_path": "tables/notes_legal_notes__all.csv",
+      "raw_headers": [
+        "<consolidated union of section variants>"
+      ],
+      "column_names": [
+        "line_no",
+        "row_kind",
+        "source_table",
+        "type",
+        "note"
+      ]
+    },
+    {
+      "table_name": "open_positions__all",
+      "section": "Open Positions",
+      "header_line_no": 189,
+      "column_count": 12,
+      "row_count": 16,
+      "csv_path": "tables/open_positions__all.csv",
+      "raw_headers": [
+        "<consolidated union of section variants>"
+      ],
+      "column_names": [
+        "line_no",
+        "row_kind",
+        "source_table",
+        "datadiscriminator",
+        "asset_category",
+        "currency",
+        "symbol",
+        "quantity",
+        "mult",
+        "cost_price",
+        "cost_basis",
+        "close_price",
+        "value",
+        "unrealized_p_l",
+        "code"
+      ]
+    },
+    {
+      "table_name": "realized_unrealized_performance_summary__all",
+      "section": "Realized & Unrealized Performance Summary",
+      "header_line_no": 86,
+      "column_count": 15,
+      "row_count": 42,
+      "csv_path": "tables/realized_unrealized_performance_summary__all.csv",
+      "raw_headers": [
+        "<consolidated union of section variants>"
+      ],
+      "column_names": [
+        "line_no",
+        "row_kind",
+        "source_table",
+        "asset_category",
+        "symbol",
+        "cost_adj",
+        "realized_s_t_profit",
+        "realized_s_t_loss",
+        "realized_l_t_profit",
+        "realized_l_t_loss",
+        "realized_total",
+        "unrealized_s_t_profit",
+        "unrealized_s_t_loss",
+        "unrealized_l_t_profit",
+        "unrealized_l_t_loss",
+        "unrealized_total",
+        "total",
+        "code"
+      ]
+    },
+    {
+      "table_name": "statement__all",
+      "section": "Statement",
+      "header_line_no": 2,
+      "column_count": 2,
+      "row_count": 5,
+      "csv_path": "tables/statement__all.csv",
+      "raw_headers": [
+        "<consolidated union of section variants>"
+      ],
+      "column_names": [
+        "line_no",
+        "row_kind",
+        "source_table",
+        "field_name",
+        "field_value"
+      ]
+    },
+    {
+      "table_name": "stock_yield_enhancement_program_securities_lent_activity__all",
+      "section": "Stock Yield Enhancement Program Securities Lent Activity",
+      "header_line_no": 479,
+      "column_count": 9,
+      "row_count": 4,
+      "csv_path": "tables/stock_yield_enhancement_program_securities_lent_activity__all.csv",
+      "raw_headers": [
+        "<consolidated union of section variants>"
+      ],
+      "column_names": [
+        "line_no",
+        "row_kind",
+        "source_table",
+        "asset_category",
+        "currency",
+        "symbol",
+        "date",
+        "description",
+        "field_6",
+        "transaction_id",
+        "quantity",
+        "collateral_amount"
+      ]
+    },
+    {
+      "table_name": "stock_yield_enhancement_program_securities_lent_fee_earned_details__all",
+      "section": "Stock Yield Enhancement Program Securities Lent Fee Earned Details",
+      "header_line_no": 484,
+      "column_count": 10,
+      "row_count": 2,
+      "csv_path": "tables/stock_yield_enhancement_program_securities_lent_fee_earned_details__all.csv",
+      "raw_headers": [
+        "<consolidated union of section variants>"
+      ],
+      "column_names": [
+        "line_no",
+        "row_kind",
+        "source_table",
+        "currency",
+        "value_date",
+        "symbol",
+        "start_date",
+        "quantity",
+        "collateral_amount",
+        "market_based_rate",
+        "syep_rate_on_customer_collateral",
+        "syep_fee_earned_by_customer",
+        "code"
+      ]
+    },
+    {
+      "table_name": "trades__all",
+      "section": "Trades",
+      "header_line_no": 224,
+      "column_count": 20,
+      "row_count": 90,
+      "csv_path": "tables/trades__all.csv",
+      "raw_headers": [
+        "<consolidated union of section variants>"
+      ],
+      "column_names": [
+        "line_no",
+        "row_kind",
+        "source_table",
+        "datadiscriminator",
+        "asset_category",
+        "currency",
+        "symbol",
+        "date_time",
+        "quantity",
+        "t_price",
+        "c_price",
+        "proceeds",
+        "comm_fee",
+        "basis",
+        "realized_p_l",
+        "mtm_p_l",
+        "code",
+        "notional_value",
+        "field_8",
+        "comm_in_usd",
+        "field_11",
+        "field_12",
+        "mtm_in_usd"
+      ]
+    },
+    {
+      "table_name": "transaction_fees__all",
+      "section": "Transaction Fees",
+      "header_line_no": 318,
+      "column_count": 9,
+      "row_count": 4,
+      "csv_path": "tables/transaction_fees__all.csv",
+      "raw_headers": [
+        "<consolidated union of section variants>"
+      ],
+      "column_names": [
+        "line_no",
+        "row_kind",
+        "source_table",
+        "asset_category",
+        "currency",
+        "date_time",
+        "symbol",
+        "description",
+        "quantity",
+        "trade_price",
+        "amount",
+        "code"
+      ]
+    }
+  ],
+  "sqlite_db": "/Users/henrychien/Documents/Jupyter/risk_module/docs/planning/performance-actual-2025/ibkr_statement_frames/U2471778_20250401_20260303/statement_tables.sqlite",
+  "raw_csv": "/Users/henrychien/Documents/Jupyter/risk_module/docs/planning/performance-actual-2025/ibkr_statement_frames/U2471778_20250401_20260303/all_rows_raw.csv"
+}

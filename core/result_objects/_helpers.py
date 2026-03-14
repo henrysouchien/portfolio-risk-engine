@@ -5,7 +5,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 
-def _convert_to_json_serializable(obj):
+def _convert_to_json_serializable(obj, orient: str = 'dict'):
     """Convert pandas objects to JSON-serializable format."""
     if isinstance(obj, pd.DataFrame):
         # Convert DataFrame with timestamp handling
@@ -16,7 +16,13 @@ def _convert_to_json_serializable(obj):
             df_copy.index = df_copy.index.map(lambda x: x.isoformat() if hasattr(x, 'isoformat') else str(x))
         
         # Convert to dict and clean NaN values
-        result = df_copy.to_dict()
+        if orient == 'records':
+            # Preserve named indices as columns for row-oriented serialization.
+            if df_copy.index.name is not None:
+                df_copy = df_copy.reset_index()
+            result = df_copy.to_dict(orient='records')
+        else:
+            result = df_copy.to_dict()
         return _clean_nan_values(result)
     
     elif isinstance(obj, pd.Series):
@@ -49,10 +55,10 @@ def _convert_to_json_serializable(obj):
         return bool(obj)
     
     elif isinstance(obj, dict):
-        return {k: _convert_to_json_serializable(v) for k, v in obj.items()}
+        return {k: _convert_to_json_serializable(v, orient=orient) for k, v in obj.items()}
     
-    elif isinstance(obj, list):
-        return [_convert_to_json_serializable(item) for item in obj]
+    elif isinstance(obj, (list, tuple)):
+        return [_convert_to_json_serializable(item, orient=orient) for item in obj]
     
     elif isinstance(obj, float):
         # Handle regular Python floats to prevent scientific notation
@@ -230,4 +236,3 @@ def _abbreviate_labels(labels: List[str], max_width: int, mapping: Optional[Dict
     for lab in labels:
         out[str(lab)] = _abbreviate_label(str(lab), max_width, mapping)
     return out
-

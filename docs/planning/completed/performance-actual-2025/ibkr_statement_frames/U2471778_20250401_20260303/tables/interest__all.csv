@@ -1,0 +1,28 @@
+line_no,row_kind,source_table,currency,date,description,amount
+382,Data,interest__01,HKD,2025-04-03,HKD Debit Interest for Mar-2025,-31.15
+383,Data,interest__01,HKD,2025-05-05,HKD Debit Interest for Apr-2025,-19.32
+384,Data,interest__01,HKD,2025-06-04,HKD Debit Interest for May-2025,-2.01
+385,Data,interest__01,HKD,2025-07-03,HKD Debit Interest for Jun-2025,-1.5
+386,Data,interest__01,HKD,2025-08-05,HKD Debit Interest for Jul-2025,-1.59
+387,Data,interest__01,HKD,2025-09-04,HKD Debit Interest for Aug-2025,-2.26
+388,Data,interest__01,HKD,2025-10-03,HKD Debit Interest for Sep-2025,-3.19
+389,Data,interest__01,HKD,2025-11-05,HKD Debit Interest for Oct-2025,-3.48
+390,Data,interest__01,HKD,2025-12-03,HKD Debit Interest for Nov-2025,-2.82
+391,Data,interest__01,HKD,2026-01-06,HKD Debit Interest for Dec-2025,-3.01
+392,Data,interest__01,HKD,2026-02-04,HKD Debit Interest for Jan-2026,-3.08
+393,Data,interest__01,Total,,,-73.41
+394,Data,interest__01,Total in USD,,,-9.4375582
+395,Data,interest__01,USD,2025-04-03,USD Debit Interest for Mar-2025,-86.07
+396,Data,interest__01,USD,2025-05-05,USD Debit Interest for Apr-2025,-25.29
+397,Data,interest__01,USD,2025-06-04,USD Debit Interest for May-2025,-16.11
+398,Data,interest__01,USD,2025-07-03,USD Debit Interest for Jun-2025,-9.55
+399,Data,interest__01,USD,2025-08-05,USD Debit Interest for Jul-2025,-11.78
+400,Data,interest__01,USD,2025-09-04,USD Debit Interest for Aug-2025,-12.06
+401,Data,interest__01,USD,2025-10-03,USD Debit Interest for Sep-2025,-11.44
+402,Data,interest__01,USD,2025-11-05,USD Debit Interest for Oct-2025,-11.72
+403,Data,interest__01,USD,2025-12-03,USD Debit Interest for Nov-2025,-15.98
+404,Data,interest__01,USD,2026-01-06,USD Debit Interest for Dec-2025,-26.41
+405,Data,interest__01,USD,2026-01-06,USD IBKR Managed Securities (SYEP) for Dec-2025,0.01
+406,Data,interest__01,USD,2026-02-04,USD Debit Interest for Jan-2026,-26
+407,Data,interest__01,Total,,,-252.4
+408,Data,interest__01,Total Interest in USD,,,-261.8375582

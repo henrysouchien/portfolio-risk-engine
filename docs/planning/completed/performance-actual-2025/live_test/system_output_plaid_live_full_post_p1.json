@@ -1,0 +1,327 @@
+{
+  "analysis_period": {
+    "start_date": "2024-09-30",
+    "end_date": "2026-01-31",
+    "total_months": 17,
+    "years": 1.42
+  },
+  "returns": {
+    "total_return": 1.32,
+    "annualized_return": 0.93,
+    "best_month": 2.37,
+    "worst_month": -2.93,
+    "positive_months": 9,
+    "negative_months": 7,
+    "win_rate": 52.9
+  },
+  "risk_metrics": {
+    "volatility": 4.99,
+    "maximum_drawdown": -5.43,
+    "downside_deviation": 5.37,
+    "tracking_error": 10.0
+  },
+  "risk_adjusted_returns": {
+    "sharpe_ratio": -0.669,
+    "sortino_ratio": -0.621,
+    "information_ratio": -1.465,
+    "calmar_ratio": 0.171
+  },
+  "benchmark_analysis": {
+    "benchmark_ticker": "SPY",
+    "alpha_annual": -5.14,
+    "beta": 0.177,
+    "r_squared": 0.146,
+    "excess_return": -14.65
+  },
+  "benchmark_comparison": {
+    "portfolio_total_return": 1.32,
+    "benchmark_total_return": 22.76,
+    "portfolio_return": 0.93,
+    "benchmark_return": 15.57,
+    "portfolio_volatility": 4.99,
+    "benchmark_volatility": 10.78,
+    "portfolio_sharpe": -0.669,
+    "benchmark_sharpe": 1.049
+  },
+  "monthly_stats": {
+    "average_monthly_return": 0.09,
+    "average_win": 1.12,
+    "average_loss": -1.24,
+    "win_loss_ratio": 0.91
+  },
+  "risk_free_rate": 4.26,
+  "monthly_returns": {
+    "2024-09-30": 0.0,
+    "2024-10-31": 0.0015,
+    "2024-11-30": 0.007,
+    "2024-12-31": -0.0068,
+    "2025-01-31": 0.0084,
+    "2025-02-28": 0.0237,
+    "2025-03-31": -0.0195,
+    "2025-04-30": -0.003,
+    "2025-05-31": 0.0213,
+    "2025-06-30": 0.0119,
+    "2025-07-31": -0.0,
+    "2025-08-31": 0.0174,
+    "2025-09-30": -0.0145,
+    "2025-10-31": -0.0293,
+    "2025-11-30": 0.002,
+    "2025-12-31": -0.0133,
+    "2026-01-31": 0.0081
+  },
+  "realized_metadata": {
+    "realized_pnl": -6.0,
+    "unrealized_pnl": -7241.07,
+    "net_contributions": 31338.7,
+    "nav_pnl_usd": -5538.51,
+    "nav_pnl_synthetic_enhanced_usd": -5538.51,
+    "nav_pnl_observed_only_usd": 1295.94,
+    "nav_pnl_synthetic_impact_usd": -6834.45,
+    "lot_pnl_usd": -4292.96,
+    "reconciliation_gap_usd": -1245.56,
+    "pnl_basis": {
+      "nav": "nav_flow_synthetic_enhanced",
+      "nav_observed_only": "nav_flow_observed_only",
+      "lot": "fifo_observed_lots"
+    },
+    "nav_metrics_estimated": true,
+    "high_confidence_realized": false,
+    "income": {
+      "total": 2954.11,
+      "dividends": 3736.92,
+      "interest": -782.81,
+      "by_month": {
+        "2026-01": 302.89,
+        "2025-12": 65.88000000000001,
+        "2025-11": 112.74000000000001,
+        "2025-10": 313.59000000000003,
+        "2025-09": 65.47999999999999,
+        "2025-08": 114.34,
+        "2025-07": 341.90000000000003,
+        "2025-06": 108.32999999999998,
+        "2025-05": 144.46,
+        "2025-04": 353.54,
+        "2025-03": 102.63,
+        "2025-02": 140.79,
+        "2025-01": 131.71,
+        "2024-12": 3.33,
+        "2024-11": 35.3,
+        "2024-10": 319.70000000000005,
+        "2024-09": 124.36999999999999,
+        "2024-08": 173.13
+      },
+      "by_symbol": {
+        "CUR:USD": -782.81,
+        "DSU": 2538.73,
+        "STWD": 990.72,
+        "MSCI": 207.47
+      },
+      "by_institution": {
+        "Merrill": {
+          "dividends": 3736.92,
+          "interest": -782.81,
+          "total": 2954.11
+        }
+      },
+      "current_monthly_rate": 160.5,
+      "projected_annual": 1926.04,
+      "yield_on_cost": 19.9433,
+      "yield_on_value": 55.9391
+    },
+    "data_coverage": 0.0,
+    "inception_date": "2024-08-30",
+    "synthetic_positions": [
+      {
+        "ticker": "IT",
+        "currency": "USD",
+        "direction": "LONG"
+      }
+    ],
+    "synthetic_entry_count": 1,
+    "synthetic_current_position_count": 1,
+    "synthetic_current_position_tickers": [
+      "IT"
+    ],
+    "synthetic_current_market_value": 3443.1,
+    "synthetic_incomplete_trade_count": 0,
+    "first_transaction_exit_count": 0,
+    "first_transaction_exit_details": [],
+    "extreme_return_months": [],
+    "data_quality_flags": [
+      {
+        "code": "UNPRICEABLE_SYMBOLS",
+        "severity": "high",
+        "count": 1,
+        "symbols": [
+          "US Treasury Note - 4.25% 15/10/2025 USD 100"
+        ]
+      },
+      {
+        "code": "CROSS_SOURCE_HOLDING_LEAKAGE",
+        "severity": "medium",
+        "count": 3,
+        "symbols": [
+          "DSU",
+          "MSCI",
+          "STWD"
+        ]
+      },
+      {
+        "code": "SYNTHETIC_OPENING_POSITIONS",
+        "severity": "high",
+        "count": 1,
+        "symbols": [
+          "IT"
+        ],
+        "estimated_current_market_value": 3443.1
+      },
+      {
+        "code": "SYNTHETIC_PNL_SENSITIVITY",
+        "severity": "high",
+        "impact_usd": -6834.45,
+        "threshold_usd": 5000.0,
+        "nav_pnl_synthetic_enhanced_usd": -5538.51,
+        "nav_pnl_observed_only_usd": 1295.94
+      }
+    ],
+    "unpriceable_symbol_count": 1,
+    "unpriceable_symbols": [
+      "US Treasury Note - 4.25% 15/10/2025 USD 100"
+    ],
+    "unpriceable_reason_counts": {
+      "bond_missing_con_id": 1
+    },
+    "unpriceable_reasons": {
+      "US Treasury Note - 4.25% 15/10/2025 USD 100": "bond_missing_con_id"
+    },
+    "ibkr_pricing_coverage": {
+      "total_symbols_priced_via_ibkr": 0,
+      "by_instrument_type": {
+        "futures": 0,
+        "fx": 0,
+        "bond": 0,
+        "option": 0
+      }
+    },
+    "source_breakdown": {
+      "plaid": 54
+    },
+    "reliable": false,
+    "reliability_reasons": [
+      "Data coverage 0.00% is below target 95.00%.",
+      "Reconciliation gap 5.34% exceeds max 2.00%.",
+      "NAV metrics include estimated inputs (synthetic positions, low coverage, or unpriceable symbols).",
+      "High-severity unpriceable symbols are present.",
+      "NAV P&L is highly sensitive to synthetic reconstruction.",
+      "3 holding symbol(s) had cross-source attribution leakage."
+    ],
+    "holdings_scope": "source_scoped",
+    "source_holding_symbols": [
+      "IT"
+    ],
+    "source_holding_count": 1,
+    "source_transaction_count": 54,
+    "cross_source_holding_leakage_symbols": [
+      "DSU",
+      "MSCI",
+      "STWD"
+    ],
+    "reliability_reason_codes": [
+      "LOW_DATA_COVERAGE",
+      "RECONCILIATION_GAP_EXCEED_LIMIT",
+      "NAV_METRICS_ESTIMATED",
+      "HIGH_SEVERITY_UNPRICEABLE",
+      "SYNTHETIC_PNL_SENSITIVITY",
+      "CROSS_SOURCE_HOLDING_LEAKAGE"
+    ],
+    "fetch_errors": {},
+    "flow_source_breakdown": {
+      "provider_authoritative_applied": 61,
+      "provider_authoritative_available": 61,
+      "provider_diagnostics_only": 0,
+      "inferred": 0
+    },
+    "inferred_flow_diagnostics": {
+      "mode": "provider_authoritative_only",
+      "fallback_slices_present": false,
+      "replayed_fallback_provider_activity": false,
+      "total_inferred_event_count": 0,
+      "total_inferred_net_usd": 0.0,
+      "inferred_event_window": {
+        "start": null,
+        "end": null
+      },
+      "by_provider": {},
+      "by_slice": {}
+    },
+    "provider_flow_coverage": {
+      "plaid|merrill|16Yk8NJ5E5u3jz1zoKEJsyRZ9jBeybUg59bBx": {
+        "authoritative": true,
+        "has_metadata": true,
+        "event_count": 61,
+        "coverage_start": "2024-08-30T00:00:00",
+        "coverage_end": "2026-01-30T00:00:00",
+        "has_error": false,
+        "has_partial": false,
+        "deterministic_no_flow": false,
+        "unmapped_row_count": 0
+      }
+    },
+    "flow_fallback_reasons": [],
+    "dedup_diagnostics": {
+      "input_count": 61,
+      "output_count": 61,
+      "duplicates_dropped_by_provider": {},
+      "duplicates_dropped_by_slice": {}
+    },
+    "external_net_flows_usd": 28951.07,
+    "net_contributions_definition": "trade_cash_legs_legacy",
+    "data_warnings": [
+      "2024-09-30: V_adjusted<=0 (-147.724000); return set to 0.",
+      "2024-09-30: V_adjusted<=0 (-360.014000); return set to 0.",
+      "Created 1 synthetic cash event(s) for cash-flow reconstruction.",
+      "Excluded 3 cross-source holding symbol(s) from plaid strict holdings scope (DSU, MSCI, STWD); attribution remained ambiguous after precedence checks.",
+      "HIGH CONFIDENCE GATE FAILED: NAV P&L is highly sensitive to synthetic reconstruction.",
+      "HIGH CONFIDENCE GATE FAILED: NAV metrics include estimated inputs (synthetic positions, low coverage, or unpriceable symbols).",
+      "HIGH CONFIDENCE GATE FAILED: data coverage 0.00% is below target 95.00%.",
+      "HIGH CONFIDENCE GATE FAILED: high-severity unpriceable symbols are present.",
+      "HIGH CONFIDENCE GATE FAILED: reconciliation gap 5.34% exceeds max 2.00%.",
+      "HIGH DATA QUALITY FLAG: 1 symbol(s) could not be priced (US Treasury Note - 4.25% 15/10/2025 USD 100). These symbols are valued at 0 in NAV and unrealized P&L.",
+      "HIGH DATA QUALITY FLAG: NAV P&L is highly sensitive to synthetic reconstruction (synthetic impact $-6,834.45).",
+      "HIGH DATA QUALITY FLAG: Synthetic opening positions inferred for 1 symbol(s) (IT). NAV/return metrics include these synthetic lots, but realized/unrealized P&L only includes observed transaction lots, so the metrics can diverge.",
+      "No contract_identity.con_id for bond US Treasury Note - 4.25% 15/10/2025 USD 100; skipping IBKR bond pricing.",
+      "No monthly prices found for US Treasury Note - 4.25% 15/10/2025 USD 100; valuing as 0 when unavailable.",
+      "Return metrics are computed from observed-only NAV because synthetic reconstruction sensitivity is high.",
+      "source filter applies to transactions and holdings are source-scoped when attribution is available."
+    ]
+  },
+  "realized_pnl": -6.0,
+  "unrealized_pnl": -7241.07,
+  "income_total": 2954.11,
+  "income_yield_on_cost": 19.9433,
+  "income_yield_on_value": 55.9391,
+  "data_coverage": 0.0,
+  "inception_date": "2024-08-30",
+  "nav_pnl_usd": -5538.51,
+  "nav_pnl_observed_only_usd": 1295.94,
+  "nav_pnl_synthetic_impact_usd": -6834.45,
+  "lot_pnl_usd": -4292.96,
+  "reconciliation_gap_usd": -1245.56,
+  "nav_metrics_estimated": true,
+  "high_confidence_realized": false,
+  "pnl_basis": {
+    "nav": "nav_flow_synthetic_enhanced",
+    "nav_observed_only": "nav_flow_observed_only",
+    "lot": "fifo_observed_lots"
+  },
+  "external_net_flows_usd": 28951.07,
+  "net_contributions_definition": "trade_cash_legs_legacy",
+  "status": "success",
+  "mode": "realized",
+  "performance_category": "poor",
+  "key_insights": [
+    "\u2022 Reliability warning: realized metrics are low confidence (LOW_DATA_COVERAGE, RECONCILIATION_GAP_EXCEED_LIMIT, NAV_METRICS_ESTIMATED, ...)",
+    "\u2022 Underperforming benchmark (-5.1% alpha)",
+    "\u2022 Poor risk-adjusted returns (Sharpe: -0.67)"
+  ]
+}

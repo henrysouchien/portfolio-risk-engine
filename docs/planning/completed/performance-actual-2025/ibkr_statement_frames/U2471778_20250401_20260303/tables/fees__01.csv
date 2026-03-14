@@ -1,0 +1,30 @@
+line_no,row_kind,subtitle,currency,date,description,amount
+323,Data,Other Fees,USD,2025-04-02,H******11:Global Snapshot PNP for Mar 2025,-0.03
+324,Data,Other Fees,USD,2025-04-02,H******11:Global Snapshot PNP for Mar 2025,0.03
+325,Data,Other Fees,USD,2025-04-23,h******11:US Equity and Options Add-On Streaming Bundle Non-Professional for Apr 2025,-4.5
+326,Data,Other Fees,USD,2025-04-23,h******11:US Securities Snapshot and Futures Value Bundle Non-Professional for Apr 2025,-10
+327,Data,Other Fees,USD,2025-05-02,h******11:US Equity and Options Add-On Streaming Bundle Non-Professional for May 2025,-4.5
+328,Data,Other Fees,USD,2025-05-02,h******11:US Securities Snapshot and Futures Value Bundle Non-Professional for Apr 2025,10
+329,Data,Other Fees,USD,2025-05-02,h******11:US Securities Snapshot and Futures Value Bundle Non-Professional for May 2025,-10
+330,Data,Other Fees,USD,2025-06-03,h******11:US Equity and Options Add-On Streaming Bundle Non-Professional for Jun 2025,-4.5
+331,Data,Other Fees,USD,2025-06-03,h******11:US Securities Snapshot and Futures Value Bundle Non-Professional for Jun 2025,-10
+332,Data,Other Fees,USD,2025-07-02,h******11:US Equity and Options Add-On Streaming Bundle Non-Professional for Jul 2025,-4.5
+333,Data,Other Fees,USD,2025-07-02,h******11:US Securities Snapshot and Futures Value Bundle Non-Professional for Jul 2025,-10
+334,Data,Other Fees,USD,2025-08-04,h******11:US Equity and Options Add-On Streaming Bundle Non-Professional for Aug 2025,-4.5
+335,Data,Other Fees,USD,2025-08-04,h******11:US Securities Snapshot and Futures Value Bundle Non-Professional for Aug 2025,-10
+336,Data,Other Fees,USD,2025-09-03,h******11:US Securities Snapshot and Futures Value Bundle Non-Professional for Sep 2025,-10
+337,Data,Other Fees,USD,2025-09-04,h******11:US Equity and Options Add-On Streaming Bundle Non-Professional for Sep 2025,-4.5
+338,Data,Other Fees,USD,2025-10-03,h******11:US Equity and Options Add-On Streaming Bundle Non-Professional for Oct 2025,-4.5
+339,Data,Other Fees,USD,2025-10-03,h******11:US Securities Snapshot and Futures Value Bundle Non-Professional for Oct 2025,-10
+340,Data,Other Fees,USD,2025-11-04,h******11:US Equity and Options Add-On Streaming Bundle Non-Professional for Nov 2025,-4.5
+341,Data,Other Fees,USD,2025-11-04,h******11:US Securities Snapshot and Futures Value Bundle Non-Professional for Nov 2025,-10
+342,Data,Other Fees,USD,2025-12-02,h******11:US Equity and Options Add-On Streaming Bundle Non-Professional for Dec 2025,-4.5
+343,Data,Other Fees,USD,2025-12-02,h******11:US Securities Snapshot and Futures Value Bundle Non-Professional for Dec 2025,-10
+344,Data,Other Fees,USD,2026-01-05,h******11:US Equity and Options Add-On Streaming Bundle Non-Professional for Jan 2026,-4.5
+345,Data,Other Fees,USD,2026-01-05,h******11:US Securities Snapshot and Futures Value Bundle Non-Professional for Jan 2026,-10
+346,Data,Other Fees,USD,2026-02-04,h******11:US Equity and Options Add-On Streaming Bundle Non-Professional for Feb 2026,-4.5
+347,Data,Other Fees,USD,2026-02-04,h******11:US Securities Snapshot and Futures Value Bundle Non-Professional for Feb 2026,-10
+348,Data,Other Fees,USD,2026-03-03,h******11:US Equity and Options Add-On Streaming Bundle Non-Professional for Mar 2026,-4.5
+349,Data,Other Fees,USD,2026-03-03,h******11:US Securities Snapshot and Futures Value Bundle Non-Professional for Mar 2026,-10
+350,Data,Total,,,,-164
+351,Notes,"Market data is provided by Global Financial Information Services (GmbH). Your local broker collects amounts owed for fees and tax for such data on behalf of Global Financial Information Services (GmbH). Note, you are responsible for any applicable taxes relating to the provision of these services.",,,,
