@@ -427,6 +427,8 @@ def generate_position_flags(
         for position in monitor_positions:
             if not isinstance(position, dict):
                 continue
+            if position.get("type") == "cash":
+                continue
             total_positions += 1
 
             cost_basis = position.get("cost_basis")

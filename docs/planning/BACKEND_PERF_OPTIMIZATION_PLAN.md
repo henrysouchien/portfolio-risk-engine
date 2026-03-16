@@ -2,7 +2,7 @@
 
 **Status:** ACTIVE  
 **Updated:** 2026-03-16  
-**Primary Goal:** Reduce the remaining `"All Accounts"` dashboard tail latency after the shared-snapshot and bootstrap-deduplication pass.  
+**Primary Goal:** Reduce the remaining cold first-hit `"All Accounts"` dashboard latency now that the warm-path deduplication pass is largely complete.  
 **Related Docs:** `docs/planning/PERFORMANCE_BASELINE_2026-03-10.md`, `docs/planning/PERFORMANCE_BASELINE_2026-03-15.md`, `docs/planning/PERFORMANCE_BASELINE_2026-03-16.md`, `docs/planning/REVIEW_FINDINGS.md`, `docs/planning/completed/performance/BACKEND_PERFORMANCE_PLAN.md`, `docs/planning/completed/performance/BACKEND_PERFORMANCE_PHASE2_PLAN.md`
 
 ## Checkpoint — 2026-03-16
@@ -27,6 +27,7 @@ The current March 16 checkpoint is the authenticated admin-cache-clear rerun in 
 - The original combined warm-path target is now met under the correct admin cache-clear reset.
 - Bootstrap is no longer a meaningful warm-path bottleneck.
 - The remaining slow surfaces are `market-intelligence`, `metric-insights`, `income`, `performance`, and `holdings`. `analyze` and `risk-score` are now mostly out of the critical path except for occasional tail spikes.
+- This authenticated rerun should remain the formal baseline checkpoint even though later March 16 spot checks are materially faster.
 
 ### Implication
 
@@ -36,6 +37,40 @@ The next pass should stop framing this as a whole-dashboard setup problem. The r
 - reduce or defer `performance` attribution enrichment
 - make `metric-insights` consume existing `performance` / portfolio-context outputs
 - reduce `income` dividend-history cost and holdings market-data enrichment cost before considering any API-shape change
+
+## Post-Baseline Progress — Later 2026-03-16
+
+Additional optimization work landed after the authenticated baseline rerun. Those later changes should be treated as a post-baseline checkpoint, not a replacement for the baseline document.
+
+### Landed Since The Baseline
+
+- `market-intelligence` switched back onto cacheable FMP fetch paths and now parallelizes its independent downstream loaders.
+- `metric-insights` now reuses shared `risk-score` / `performance` outputs instead of rebuilding its own full derived stack.
+- `performance` supports a lighter no-attribution path for `metric-insights`, and analyst enrichment now reuses short-lived snapshots.
+- warm dashboard snapshots and result caches now live long enough to make immediate repeat loads actually reuse them.
+- `PositionService` cold setup work was tightened substantially: concurrent default-registry construction is deduped, missing factor-proxy base builds are parallelized, missing ticker resolution is deduped/parallelized, FX lookups are memoized, and provider fetches are pruned to active user providers.
+- stale provider refresh failures now fall back to cached positions instead of dropping the provider entirely.
+- cached provider quote lookups now use a short-lived shared FMP quote cache with in-flight dedupe.
+- dividend-history loading now dedupes the repeated warm path instead of refetching it every time.
+
+### Current Outcome
+
+- later localhost warm-repeat spot checks brought the combined dashboard burst down to roughly **533ms** end-to-end.
+- the latest warm per-endpoint spot checks were roughly: `analyze` **531ms**, `market-intelligence` **523ms**, `income` **510ms**, `ai-recommendations` **487ms**, `performance` **126ms**, `risk-score` **119ms**, `metric-insights` **84ms**, and `holdings` **50ms**.
+- concurrent fresh `PositionService(...)` initialization dropped from roughly **10.05s** to roughly **371ms**.
+- first-hit `ensure_factor_proxies` work in the `risk-score` path dropped from roughly **2.29s** to roughly **199ms**.
+- direct cold `get_all_positions()` probes dropped from roughly **6.7s** to roughly **1.8s**. Plaid now stays on its intended cache path instead of paying for unrelated broker-order invalidation, IBKR can reuse a recent cached snapshot when no order state changed since the last sync, and the current-user scope still correctly skips `snaptrade`.
+- expired Schwab auth now fast-fails on repeat probes in the same process instead of re-paying the full token failure path each time.
+- real cold `GET /api/positions/holdings` after authenticated cache clear now lands around **1.50s**, with an immediate repeat around **17ms**.
+- full cold dashboard spot checks are still variable, roughly **7s** to **13s**, and now track live provider latency much more than local duplicate setup.
+
+### Implication
+
+The original warm-path dashboard problem is effectively closed. The remaining work is narrower:
+
+- cold first-hit provider fetch latency inside `PositionService.get_all_positions()`
+- cold downstream fetch work layered on top of positions, especially `market-intelligence` and `income`
+- only secondarily, any residual response-assembly overhead once the provider path is under control
 
 ## Scope
 
@@ -73,7 +108,8 @@ These items are already present in the codebase and should not be re-planned as 
 - `docs/planning/PERFORMANCE_BASELINE_2026-03-10.md` still shows cold dashboard load at roughly 49s and slow `POST /api/analyze`, `POST /api/risk-score`, and `POST /api/performance`.
 - `docs/planning/REVIEW_FINDINGS.md` still records user-visible pain at portfolio switch (`R3`), initial holdings/race behavior (`R4`), and excessive request volume (`R17`).
 - The March 10 baseline predates some later fixes, so it is directionally useful but must be refreshed before new optimization work starts.
-- `docs/planning/PERFORMANCE_BASELINE_2026-03-16.md` is now the current checkpoint baseline after rerunning with authenticated `POST /admin/clear_cache`. It shows single-account warm burst `p50` at `1.78s` and combined-account warm burst `p50` at `7.86s`, with the remaining combined warm pressure led by `market-intelligence`, `metric-insights`, `income`, and `performance`.
+- `docs/planning/PERFORMANCE_BASELINE_2026-03-16.md` is the formal authenticated checkpoint baseline after rerunning with authenticated `POST /admin/clear_cache`. It shows single-account warm burst `p50` at `1.78s` and combined-account warm burst `p50` at `7.86s`.
+- Later March 16 spot checks after the follow-on optimization commits show the warm-repeat path is now far faster than the formal baseline. The remaining issue is cold first-hit provider latency, not broad dashboard duplication.
 
 ## Current Request Graph
 
@@ -99,103 +135,107 @@ Once a current portfolio exists, the frontend schedules or mounts:
 - `ai-recommendations`
 - `metric-insights`
 
-The main issue is no longer bootstrap duplication or missing caching infrastructure. The remaining pain is downstream enrichment, dividend/event fetch work, and a few user-scoped intelligence endpoints that still contend badly inside the combined burst.
+The main issue is no longer bootstrap duplication or missing caching infrastructure. After the later March 16 follow-on work, the remaining pain is mostly the first shared cold `get_all_positions()` chain plus downstream fetch work layered on top of that cold path.
 
 ## Confirmed Remaining Bottlenecks
 
-### 1. `metric-insights` Still Recomputes Heavy Derived Layers
+### 1. Cold `get_all_positions()` Is Now Dominated By Real Provider Fetch Latency
 
 Confirmed paths:
 
-- `build_metric_insights()` in `mcp_tools/metric_insights.py`
-- `generate_position_flags()` in `core/position_flags.py`
-- `_run_risk_score_workflow()` in `app.py`
-- `_run_performance_workflow()` in `app.py`
-
-Current behavior:
-
-- `metric-insights` still layers position-flag generation, portfolio-context loading, risk-score flags, and performance flags into one request
-- the authenticated March 16 baseline shows `metric_insights_workflow` averaging roughly `2.0s` in `load_performance_flags`, `1.7s` in `load_portfolio_context`, and `0.18s` in `load_risk_score_flags`
-
-Impact:
-
-- it is still one of the slowest combined warm auxiliaries at roughly `3.94s` `p50`
-- it likely duplicates work that the dashboard already paid for elsewhere in the burst
-
-### 2. Holdings / Income Still Pay For Data Fetches After Snapshot Reuse
-
-Confirmed paths:
-
-- `_load_enriched_positions()` in `routes/positions.py`
-- `_build_portfolio_alerts_payload()` in `routes/positions.py`
-- `_load_positions_for_income()` in `mcp_tools/income.py`
 - `PositionService.get_all_positions()` in `services/position_service.py`
-- `PortfolioService.enrich_positions_with_risk()` in `services/portfolio_service.py`
+- `PositionService._get_positions_df()` in `services/position_service.py`
+- `PositionService._fetch_fresh_positions()` in `services/position_service.py`
+- active provider loaders for `plaid`, `schwab`, and `ibkr`
 
 Current behavior:
 
-- the shared position snapshot now collapses chained follow-up calls, but holdings still pays for first-hit position and market-data work, and income still pays for both positions and dividend history
-- holdings risk enrichment is no longer the main issue; market-data enrichment is now more expensive than risk enrichment in the measured path
-- the authenticated March 16 baseline shows holdings averaging roughly `1.71s` in `get_all_positions` and `0.89s` in `enrich_positions_with_market_data`; income averages roughly `1.88s` in `get_all_positions` and `2.31s` in `fetch_dividend_history`
+- the major local duplicate setup has already been removed
+- current cold probes now spend about **1.8s** inside the first shared positions load after provider pruning, setup dedupe, provider-scoped order invalidation, cached fallback reuse, and shared quote caching
+- the remaining providers for the current local user are `plaid`, `schwab`, `ibkr`, and `csv`; `snaptrade` is now skipped correctly
+- Plaid and IBKR now both stay on cache in the measured cold path when nothing changed since the snapshot, and stale Schwab auth no longer drops Schwab rows from the combined result
 
 Impact:
 
-- holdings and income remain material contributors to the combined burst
-- the position snapshot work helped, but it did not eliminate the underlying first-hit provider, pricing, and dividend-history cost
+- the first cold positions load still dominates multiple downstream endpoints because holdings, alerts, income, and intelligence all depend on it
+- further dashboard-level caching will not move this much unless the provider path itself changes
 
-### 3. Performance Still Spends Material Time In Attribution Enrichment
+### 2. Cold `market-intelligence` Still Pays For External Fetch Work After Position Reuse
 
 Confirmed paths:
-
-- `_run_performance_workflow()` in `app.py`
-- `PortfolioService.analyze_performance()` in `services/portfolio_service.py`
-
-Current behavior:
-
-- core performance analysis is no longer the only cost
-- the authenticated March 16 baseline shows `api_performance_workflow` averaging roughly `1.98s` in `enrich_attribution_with_analyst_data` and only `0.08s` in `analyze_performance`
-
-Impact:
-
-- combined warm `POST /api/performance` is still around `2.69s` `p50`
-- performance remains one of the main overview blockers even after setup reuse landed
-
-### 4. User-Scoped Intelligence Endpoints Still Inflate The Combined Burst
-
-Confirmed gaps:
 
 - `build_market_events()` in `mcp_tools/news_events.py`
-- `build_ai_recommendations()` in `mcp_tools/factor_intelligence.py`
-- `build_metric_insights()` in `mcp_tools/metric_insights.py`
+- downstream FMP/news/event loaders in `fmp/tools/news_events.py`
 
 Current behavior:
 
-- `market-intelligence`, `ai-recommendations`, and `metric-insights` are still user-scoped in the current frontend contract
-- they are not aligned with the portfolio-scoped resolver path, so they can still miss some reuse opportunities or contend badly with the main burst
+- the warm path is now fast, but cold `market-intelligence` still lands around **6.7s** after cache clear
+- warm follow-ups are already down in the low hundreds of milliseconds, which means the remaining issue is the first-hit external fetch path rather than repeated local recompute
+- position loading is no longer the dominant warm cost here; the downstream news/event fetch layer is
 
 Impact:
 
-- even after the snapshot and threadpool work, combined warm `market-intelligence` is still `7.86s`, `metric-insights` is `3.94s`, and `ai-recommendations` is `0.71s`
-- `market-intelligence` is now the clearest remaining combined warm blocker. Its measured position-load substeps are much smaller than the end-to-end request time, which implies downstream event/news fetching is now the main cost.
+- `market-intelligence` remains one of the clearest cold first-hit blockers once the shared positions load completes
+- this is now a fetch-policy / caching problem more than a workflow-duplication problem
+
+### 3. Cold `income` Still Pays For Dividend-History Fetches After Position Reuse
+
+Confirmed paths:
+
+- `_load_positions_for_income()` in `mcp_tools/income.py`
+- dividend-history loaders in `mcp_tools/income.py`
+
+Current behavior:
+
+- the shared positions path now helps repeated loads, and the warm-repeat income path is much better than the baseline
+- the remaining cold income cost is no longer position rebuilding by itself; it is the combination of first-hit positions plus dividend-history fetches
+- immediate repeat income calls now drop sharply once the shared snapshot survives long enough, which confirms the remaining cost is mostly first-hit work
+
+Impact:
+
+- cold dashboard bursts still inherit this extra dividend-history cost even after the broader dedupe pass
+- income no longer justifies a broad architecture change, but it still has targeted first-hit fetch work left
+
+### 4. Warm Repeat Performance / Holdings Are Good Enough; Further Work Should Stay Cold-Path Focused
+
+Confirmed paths:
+
+- `_run_analyze_workflow()` in `app.py`
+- `_run_risk_score_workflow()` in `app.py`
+- `_run_performance_workflow()` in `app.py`
+- `_load_enriched_positions()` in `routes/positions.py`
+
+Current behavior:
+
+- latest warm-repeat spot checks are already well below the original target envelope
+- `performance`, `risk-score`, `metric-insights`, and `holdings` all have credible sub-second warm paths now
+- the main remaining warm owners are narrower auxiliary endpoints like `market-intelligence`, `income`, and `ai-recommendations`, not the core risk stack
+
+Impact:
+
+- additional broad snapshot layers or API-shape changes are unlikely to be the highest-value next move
+- the plan should stay focused on provider-specific cold fetch behavior and a few cold external loaders
 
 ## Non-Primary Observations
 
 - `portfolio-summary` is eager and bypasses part of the resolver dependency graph, but `PortfolioCacheService` already coalesces in-flight `riskAnalysis`, `riskScore`, and `performance` requests. Treat this as sequencing cleanup, not the main backend target.
-- Bootstrap double pricing and the remaining active async/threadpool gaps are no longer the primary issues for this plan.
+- Bootstrap double pricing, warm snapshot reuse, and the remaining active async/threadpool gaps are no longer the primary issues for this plan.
 - `POST /api/factor-intelligence/portfolio-recommendations` is still not part of the main dashboard path. Only optimize it if product usage changes.
 
 ## Success Metrics
 
 | Metric | Current Reference | Target For Next Pass |
 |---|---:|---:|
-| Warm CURRENT_PORTFOLIO dashboard burst | 7.86s p50 / 9.04s p95 | keep p50 <8s and p95 <10s |
+| Warm CURRENT_PORTFOLIO dashboard burst | 7.86s p50 / 9.04s p95 formal baseline; ~0.53s later warm spot check | keep the repeat path sub-second |
 | Warm single-account dashboard burst | 1.78s p50 / 2.09s p95 | keep <2.5s |
 | Warm `GET /api/portfolios/{name}` bootstrap | ~43ms | keep <100ms |
-| Warm combined `POST /api/analyze` | 0.74s p50 / 2.17s p95 | keep p50 <1.5s and reduce p95 tail |
-| Warm combined `POST /api/risk-score` | 0.35s p50 / 2.06s p95 | keep p50 <1s and reduce p95 tail |
-| Warm combined `POST /api/performance` | 2.69s p50 / 2.92s p95 | <2s |
-| Warm combined holdings / alerts / income | 1.58s / 0.06s / 2.78s | <1.5s / <0.25s / <2s |
-| Warm combined intelligence endpoints | 7.86s / 0.71s / 3.94s | <5s / <1s / <3s |
+| Warm combined `POST /api/analyze` | 0.74s p50 / 2.17s p95 formal baseline; ~531ms later spot check | keep <1s repeat |
+| Warm combined `POST /api/risk-score` | 0.35s p50 / 2.06s p95 formal baseline; ~119ms later spot check | keep <500ms repeat |
+| Warm combined `POST /api/performance` | 2.69s p50 / 2.92s p95 formal baseline; ~126ms later spot check | keep <500ms repeat |
+| Warm combined holdings / alerts / income | 1.58s / 0.06s / 2.78s formal baseline; later repeat spot checks ~50ms / cheap / ~510ms | keep repeat holdings <250ms and repeat income <1s |
+| Warm combined intelligence endpoints | 7.86s / 0.71s / 3.94s formal baseline; later repeat spot checks ~523ms / ~487ms / ~84ms | keep repeat path <1s each |
+| Cold direct `get_all_positions()` | ~1.8s latest spot check | <1.5s |
+| Cold CURRENT_PORTFOLIO dashboard burst | ~7-13s latest spot checks | keep first hit consistently <8s |
 | Heavy sync work inside active `async` routes | removed | keep at none |
 
 ## Workstreams
@@ -357,13 +397,13 @@ That endpoint is explicitly a fallback, not the first move.
 
 ## Next Pass Candidates
 
-If optimization work continues, the next pass should be narrower and deeper:
+If optimization work continues, the next pass should stay narrow and cold-path focused:
 
-1. Instrument and reduce the downstream event/news fetch path inside `market-intelligence`.
-2. Cache, defer, or reuse `performance` attribution enrichment outputs.
-3. Feed those same outputs into `metric-insights` instead of rebuilding portfolio-context and performance-derived layers.
-4. Reduce `income` dividend-history fetch cost and holdings market-data enrichment cost.
-5. Only if those do not move the combined p95 enough, introduce a dedicated dashboard snapshot endpoint for the overview path.
+1. Reduce first-hit provider latency in `PositionService.get_all_positions()`, starting with provider-specific freshness shortcuts or scoped fetch-policy changes.
+2. Further trim cold downstream fetch work in `market-intelligence`.
+3. Further trim cold dividend-history work in `income`.
+4. Re-measure cold burst consistency before considering any larger API-shape change.
+5. Only if those do not move the cold first-hit enough, introduce a dedicated dashboard snapshot endpoint for the overview path.
 
 ## File Map
 
@@ -377,10 +417,10 @@ If optimization work continues, the next pass should be narrower and deeper:
 
 ## Execution Order
 
-1. Keep the authenticated March 16 admin-cache-clear baseline as the current source of truth.
-2. Instrument and optimize the downstream `market-intelligence` path.
-3. Reduce or defer `performance` attribution enrichment and reuse those outputs in `metric-insights`.
-4. Reduce `income` dividend-history cost and holdings market-data enrichment cost.
+1. Keep the authenticated March 16 admin-cache-clear baseline as the formal checkpoint and the later March 16 spot checks as supporting evidence.
+2. Reduce cold first-hit provider latency in `PositionService.get_all_positions()`.
+3. Reduce cold downstream `market-intelligence` fetch work.
+4. Reduce cold `income` dividend-history cost.
 5. Re-measure before considering any larger API-shape change.
 
 ## Explicitly Out of Scope

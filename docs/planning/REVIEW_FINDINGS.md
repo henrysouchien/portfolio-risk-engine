@@ -1,11 +1,19 @@
 # User Review Findings
 
-**Status**: COMPLETE (Journeys 1-5, 7-9 covered; J6 Trading — no sidebar entry found)
-**Date**: 2026-03-15
+**Status**: REVIEW COMPLETE — 21/22 fixed, R7 not reproducible, R18 open
+**Date**: 2026-03-15 (reviewed), 2026-03-16 (fixes + re-verification)
 **Plan**: `docs/planning/USER_PERSPECTIVE_E2E_REVIEW_PLAN.md`
 
 Catalog of issues found during user-perspective review. Each item includes reproduction
 context, root cause analysis, and enough detail for another Claude session to plan/fix.
+
+### Fix Commits
+- `8f4b670f` — Session 1: R1, R2, R5, R10, R11, R13, R19 (partial), R20
+- `16e8afa4` — Session 3: R4, R9, R14, R16
+- `8531a6f3` — Session 4: R6, R8, R12, R15, R21, R22
+- `23a2060d`, `2aa2833d`, `02607731`, `487eb2f9` — Perf: R3 improved, R17 improved
+- `2d4a5d06` — Session 5: R17 dedup (31→20 requests), R19 dark mode (6 phases, ~120 components)
+- `bcd85e6f` — Fix notification dropdown hidden behind content (glass-premium overflow + z-index)
 
 ---
 
@@ -13,28 +21,36 @@ context, root cause analysis, and enough detail for another Claude session to pl
 
 | # | Severity | Location | Issue | Status |
 |---|----------|----------|-------|--------|
-| R1 | Medium | Header → dropdown | Popover transparency — `--popover` CSS var undefined | Open |
-| R2 | High | Dashboard → Performance Trend | Chart squashed to 80px, illegible | Open |
-| R3 | High | Portfolio selector → All Accounts | 30s timeout, frontend error state | Open |
-| R4 | High | Dashboard → All Accounts | Holdings empty on initial load (race condition) | Partial — loads after delay |
-| R5 | High | Dashboard → Risk Score card | Score 89 labeled "Low Risk" — semantic inversion | Open |
-| R6 | High | Dashboard + Holdings → Weight column | Weights use equity denominator, not total portfolio value | Open |
-| R7 | Critical | Dashboard → multiple cards | IBKR $131K > All Accounts $109K — single > combined | Open |
-| R8 | Critical | Dashboard → Smart Alerts | IBKR margin $11,212 > All Accounts $5,605 | Open |
-| R9 | Medium | Dashboard → AI Recommendations | Oil & Gas 6.8% flagged with "reduce below 10%" target | Open |
-| R10 | Medium | Dashboard → Total Value subtitle | "Across all accounts" doesn't update on portfolio switch | Open |
-| R11 | Medium | Header → dropdown | Internal IDs visible (`_auto_charles_schwab_...`) | Open |
-| R12 | Medium | Dashboard → Holdings count | Dropdown says 36, "View All" says 15 for All Accounts | Open |
-| R13 | Low | Holdings → Day Change | Small dollar changes round to "$0" — misleading | Open |
-| R14 | Medium | Holdings → Sector badges | GOLD/SLV/AT.L sector misclassified (FMP data quality) | Open |
-| R15 | High | Dashboard vs Performance vs Settings | Volatility 8.41% (dashboard) vs 16.3% (perf/settings) vs 19.4% (factors) | Open |
-| R16 | Medium | Factors → Concentration Risk | SGOV (-17.2%) in top-3 but not in Holdings (phantom position) | Open |
-| R17 | Medium | Cross-cutting → Network | 71 requests on dashboard load (target ≤30), ~30 log-frontend calls | Open |
-| R18 | Medium | Cross-cutting → Navigation | Strategy/Settings clicks sometimes trigger logout (session drop) | Open |
-| R19 | High | Cross-cutting → Dark mode | Dark mode partial — header dark but content light, text faded/unreadable | Open |
-| R20 | Medium | Settings → Alert Thresholds | "Volatility Alert Level: 8" — label says risk score, value too low | Open |
-| R21 | High | Dashboard → Asset Allocation | IBKR allocation sums to $46K, total portfolio is $131K — $85K gap | Open |
-| R22 | High | Dashboard → same page | Cash (Margin) -$11,589 vs Smart Alert "$5,606 margin debt" — contradictory | Open |
+| R1 | Medium | Header → dropdown | Popover transparency — `--popover` CSS var undefined | ✅ Fixed (`8f4b670f`) |
+| R2 | High | Dashboard → Performance Trend | Chart squashed to 80px, illegible | ✅ Fixed (`8f4b670f`) |
+| R3 | High | Portfolio selector → All Accounts | 30s timeout, frontend error state | ⚠️ Improved (~8s, no timeout) |
+| R4 | High | Dashboard → All Accounts | Holdings empty on initial load (race condition) | ✅ Fixed (`16e8afa4`) |
+| R5 | High | Dashboard → Risk Score card | Score 89 labeled "Low Risk" — semantic inversion | ✅ Fixed (`8f4b670f`) |
+| R6 | High | Dashboard + Holdings → Weight column | Weights use equity denominator, not total portfolio value | ✅ Fixed (`8531a6f3`) — see R6b |
+| R6b | Medium | Dashboard → Alert vs Table | Alert "17.1% exposure" ≠ Table "21.6% weight" on same page | ✅ Fixed (`e4e5442a`) |
+| R7 | Critical | Dashboard → multiple cards | IBKR $128K > All Accounts $109K — single > combined | Not reproducible (likely fixed by R8 cash dedup `8531a6f3`) |
+| R8 | Critical | Dashboard → Smart Alerts | IBKR margin $11,212 > All Accounts $5,605 | ✅ Fixed (`8531a6f3`) |
+| R9 | Medium | Dashboard → AI Recommendations | Oil & Gas 6.8% flagged with "reduce below 10%" target | ✅ Fixed (`16e8afa4`) |
+| R10 | Medium | Dashboard → Total Value subtitle | "Across all accounts" doesn't update on portfolio switch | ✅ Fixed (`8f4b670f`) |
+| R11 | Medium | Header → dropdown | Internal IDs visible (`_auto_charles_schwab_...`) | ✅ Fixed (`8f4b670f`) |
+| R12 | Medium | Dashboard → Holdings count | Dropdown says 36, "View All" says 15 for All Accounts | ✅ Fixed (`8531a6f3`) |
+| R13 | Low | Holdings → Day Change | Small dollar changes round to "$0" — misleading | ✅ Fixed (`8f4b670f`) |
+| R14 | Medium | Holdings → Sector badges | GOLD/SLV/AT.L sector misclassified (FMP data quality) | ✅ Fixed (`16e8afa4`) |
+| R15 | High | Dashboard vs Performance vs Settings | Volatility 8.41% vs 16.3% vs 19.4% across views | ✅ Fixed (`8531a6f3`) |
+| R16 | Medium | Factors → Concentration Risk | SGOV (-17.2%) in top-3 but not in Holdings (phantom position) | ✅ Fixed (`16e8afa4`) |
+| R17 | Medium | Cross-cutting → Network | 71 requests on dashboard load (target ≤30) | ✅ Fixed (`2d4a5d06`) — 71→31→20 (target ≤20) |
+| R18 | **Critical** | Cross-cutting → Navigation | Frequent spontaneous logout — any page, any interaction | Open |
+| R19 | High | Cross-cutting → Dark mode | Dark mode partial — header dark but content light, text faded/unreadable | ✅ Fixed (`2d4a5d06`) — 6 phases, ~120 components migrated, toggle + persistence |
+| R20 | Medium | Settings → Alert Thresholds | "Volatility Alert Level: 8" — label says risk score, value too low | ✅ Fixed (`8f4b670f`) |
+| R21 | High | Dashboard → Asset Allocation | IBKR allocation sums to $46K, total portfolio is $131K — $85K gap | ✅ Fixed (`8531a6f3`) |
+| R22 | High | Dashboard → same page | Cash (Margin) -$11,589 vs Smart Alert "$5,606 margin debt" — contradictory | ✅ Fixed (`8531a6f3`) |
+
+### Remaining Open Items
+
+| # | Severity | Issue | What's Needed |
+|---|----------|-------|---------------|
+| R7 | Critical | IBKR $128K > All Accounts $109K | Not reproducible — diagnostic confirms combined ≥ single. Likely fixed by R8 cash dedup (`8531a6f3`). |
+| R18 | Critical | Frequent spontaneous logout | Investigate session drop — see R18 detail section. Multi-layer auth issue (DB write contention + aggressive 401 handler). |
 
 ---
 
@@ -204,23 +220,15 @@ The backend (`core/risk_score_flags.py:48-63`) correctly uses: `< 60` = warning 
 
 **Severity**: Critical (data integrity)
 **Location**: Dashboard → Total Portfolio Value card
+**Status**: Not reproducible (2026-03-16). Likely fixed by R8 cash dedup (`8531a6f3`).
 
 **Symptom**: Switching between portfolios shows:
 - All Accounts (COMBINED): $109,496
 - Interactive Brokers U2471778 (SINGLE): $131,571
 
-A single account cannot be worth more than the combined total of all accounts. This destroys user trust in all displayed numbers.
+**Investigation (2026-03-16)**: Ran `scripts/diag_portfolio_value.py` against real multi-provider user (id=1, 12 accounts across interactive_brokers/charles_schwab/merrill). Both the positions endpoint path (PositionService → consolidation → to_monitor_view) and the analyze endpoint path (PortfolioManager → standardize_portfolio_input) produce combined ≥ single. Code analysis confirms both paths use the same consolidation logic and total_portfolio_value formula (`net_exposure + cash_value_usd`). No structural bug found.
 
-**Root cause**: Likely different computation paths for single vs combined portfolio values. The combined portfolio may be deducting inter-account items (margin, cash sweeps) differently, or the position consolidation logic for CURRENT_PORTFOLIO underestimates the total.
-
-**Files to investigate**:
-- `services/position_service.py` — position aggregation for CURRENT_PORTFOLIO vs single account
-- `routes/portfolio_risk.py` — `/api/analyze` endpoint (computes total value)
-- `portfolio_risk_engine/portfolio_risk.py` — `build_portfolio_view()` total value computation
-
-**Fix direction**: Investigate why the CURRENT_PORTFOLIO total is lower. Likely a double-counting deduction, missing cash positions in combined mode, or an incorrect netting of margin across accounts.
-
-**Reproduction**: Switch between "Interactive Brokers U2471778" ($131,571) and "All Accounts" ($109,496) in the portfolio selector.
+R8 (margin debt doubling, also marked "intermittent") was fixed in the same session by cash dedup fix `8531a6f3`. R7 was likely caused by the same underlying race condition / stale cache that R8 exposed. Diagnostic script left in place to catch recurrence.
 
 ### R8. Margin debt inconsistency: IBKR $11,212 > All Accounts $5,605
 
@@ -376,21 +384,59 @@ The 8.41% is the clear outlier and likely comes from a different endpoint or cal
 2. Deduplicate data requests — use shared query keys and cache properly
 3. The `alerts` endpoint is called with both `CURRENT_PORTFOLIO` and the account-specific name — should be unified
 
-### R18. Navigation to Strategy/Settings sometimes triggers session logout
+### R18. Frequent spontaneous session logout — not limited to specific pages
 
-**Severity**: Medium (usability)
-**Location**: Sidebar → Strategy icon, Settings icon
+**Severity**: Critical (usability — blocks all testing)
+**Location**: Cross-cutting → any navigation or interaction
 
-**Symptom**: Clicking the Strategy or Settings sidebar buttons occasionally redirects to the login page ("Sign in with Google"). Re-authenticating via Google sign-in restores the session and loads the requested view. This happened 2 out of 3 attempts during testing.
+**Symptom**: The app frequently drops the session and redirects to the login page ("Sign in with Google"). Originally observed when clicking Strategy/Settings sidebar buttons (2 out of 3 attempts), but also reproduced during normal dashboard interaction in header nav mode — clicking the notifications bell, switching between Overview/Holdings, and general browsing all trigger spontaneous logouts. This makes the app essentially unusable for sustained use.
 
-**Root cause**: Possibly a session token expiry race condition when navigating to views that check auth differently, or the auth middleware on certain routes rejects stale sessions.
+**Root cause (CONFIRMED — multi-layer interaction)**:
 
-**Files to investigate**:
-- `app_platform/auth/service.py` — session validation logic
-- `frontend/packages/chassis/src/stores/authStore.ts` — auth state management on route transitions
-- Frontend route guards — are Strategy/Settings routes checking auth differently?
+**Layer 1 — Backend: `get_session()` does a WRITE on every READ** (`app_platform/auth/stores.py:58-67`)
+Every API call runs `get_session()` which SELECTs the session, then UPDATEs `last_accessed` if >5min stale. With 30+ concurrent API requests on page load, this causes PostgreSQL write lock contention. If the UPDATE fails or times out, the session lookup raises an exception → `SessionLookupError` → backend returns 401.
 
-**Fix direction**: Investigate whether these routes have a different auth check pattern. The session should be refreshed proactively before it expires, not on navigation failure.
+```python
+# stores.py:58-67 — UPDATE inside get_session()
+if last_accessed is None or (now_cmp - last_accessed) > _TOUCH_INTERVAL:
+    cursor.execute("UPDATE user_sessions SET last_accessed = %s WHERE session_id = %s", (now, session_id))
+    conn.commit()  # WRITE on every read if >5min stale
+```
+
+**Layer 2 — Backend: Any DB error → 401** (`app_platform/auth/service.py:110-147`)
+`get_user_by_session()` catches DB exceptions and raises `SessionLookupError`. The FastAPI dependency (`app.py:1063-1069`) converts ANY falsy return or exception to `HTTPException(401)`. So a transient DB error (lock timeout, connection pool exhaustion) looks identical to "session expired" from the frontend's perspective.
+
+**Layer 3 — Frontend: Aggressive 401 handler with no debounce** (`frontend/packages/chassis/src/stores/authStore.ts:47-69`)
+`handleUnauthorizedSession()` calls `authState.signOut()` on the FIRST 401 from ANY request. The `isHandlingUnauthorizedSession` guard resets in `finally` (line 67), so concurrent 401s from parallel requests can race through. There is no retry, debounce, or "wait for other requests to settle" — one 401 = immediate full logout.
+
+**Layer 4 — Frontend: `onAuthRetry` only checks status, no refresh** (`HttpClient.ts:88-98`)
+On 401, `onAuthRetry` calls `verifySessionStillValid()` which hits `GET /auth/status`. If that ALSO returns 401 (because the same DB contention is happening), it confirms "session dead" and proceeds to nuke the session. No token refresh mechanism exists.
+
+**Layer 5 — Frontend: Cross-tab logout broadcast** (`app-platform/src/auth/createAuthStore.ts:156-168`)
+`signOut()` broadcasts logout via BOTH `localStorage` storage event AND `BroadcastChannel`. Other tabs at localhost:3000 receive both events and call `handleCrossTabLogout()`, potentially causing cascading logouts across all open tabs.
+
+**Failure scenario (confirmed)**:
+1. User clicks notification bell → 5+ API requests fire simultaneously
+2. One request hits `get_session()` UPDATE lock contention → DB error → 401
+3. `HttpClient` retries via `verifySessionStillValid()` → also 401 (same contention)
+4. `handleUnauthorizedSession()` fires → `signOut()` → redirect to login
+5. Cross-tab broadcast logs out ALL other tabs too
+
+**Files**:
+- `app_platform/auth/stores.py:34-75` — `get_session()` with embedded UPDATE (Layer 1)
+- `app_platform/auth/service.py:110-147` — `get_user_by_session()` exception → SessionLookupError (Layer 2)
+- `app.py:1063-1069` — `get_current_user()` FastAPI dependency, any error → 401 (Layer 2)
+- `frontend/packages/chassis/src/stores/authStore.ts:47-69` — `handleUnauthorizedSession()` (Layer 3)
+- `frontend/packages/app-platform/src/http/HttpClient.ts:88-98` — 401 handler + retry (Layer 4)
+- `frontend/packages/app-platform/src/auth/createAuthStore.ts:156-168` — cross-tab sync (Layer 5)
+- `frontend/packages/connectors/src/utils/sessionCleanup.ts:50-69` — second independent `isHandling*` guard (race)
+
+**Fix direction** (priority order):
+1. **Split read/write in `get_session()`** — Remove the UPDATE from the read path. Touch sessions via a separate background job or explicit `touch_session()` call, not on every API request.
+2. **Don't return 401 for DB errors** — `get_user_by_session()` should distinguish "session not found" (real 401) from "DB connection error" (503). Return 503 for transient failures so the frontend retries instead of logging out.
+3. **Debounce the frontend 401 handler** — Use a Promise-based lock so that concurrent 401s collapse into a single logout decision. Add a short delay (500ms) before confirming logout to let other requests settle.
+4. **Add real token refresh** — Instead of just checking `/auth/status`, implement a refresh endpoint that extends the session.
+5. **Pick one cross-tab channel** — Remove either the `storage` event or `BroadcastChannel` listener to prevent double-firing.
 
 ### R19. Dark mode partially applied — text faded and unreadable
 

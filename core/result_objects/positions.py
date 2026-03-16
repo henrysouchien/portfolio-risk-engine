@@ -324,10 +324,10 @@ class PositionResult:
         return PositionResult._safe_float(price) is not None
 
     def _build_monitor_payload(self, by_account: bool = False) -> Dict[str, Any]:
-        """Build the monitor payload with exposure and P&L metrics (cash excluded).
+        """Build the monitor payload with exposure and P&L metrics.
 
         Notes:
-        - Cash positions are excluded before processing.
+        - Investment positions are processed before cash/margin rows are appended.
         - Summary totals are grouped by currency.
         - Missing/invalid cost_basis, price, or quantity are handled without
           contaminating summary totals (positions are counted and flagged).
@@ -563,6 +563,53 @@ class PositionResult:
             portfolio_totals_usd["net_exposure"] + cash_value_usd
         )
 
+        for position in cash_positions:
+            value = self._safe_float(position.get("value"))
+            quantity = self._safe_float(position.get("quantity"))
+            local_value = self._safe_float(position.get("local_value"))
+            if local_value is None:
+                local_value = value
+            ticker = position.get("ticker")
+            currency = position.get("original_currency") or position.get("currency")
+            ticker_currency = None
+            if isinstance(ticker, str) and ticker.startswith("CUR:"):
+                ticker_currency = ticker.split(":", 1)[1]
+            normalized_currency = currency or ticker_currency or "UNKNOWN"
+            display_currency = ticker_currency or normalized_currency
+
+            entry = {
+                "ticker": ticker,
+                "name": f"{'Margin Debt' if (value or 0.0) < 0 else 'Cash'} ({display_currency})",
+                "type": position.get("type"),
+                "asset_class": "cash",
+                "currency": normalized_currency,
+                "direction": "SHORT" if (value or 0.0) < 0 else "LONG",
+                "quantity": quantity,
+                "shares": quantity,
+                "entry_price": None,
+                "weighted_entry_price": None,
+                "current_price": None,
+                "cost_basis": None,
+                "cost_basis_usd": None,
+                "gross_exposure": abs(value) if value is not None else None,
+                "net_exposure": value,
+                "gross_exposure_local": abs(local_value) if local_value is not None else None,
+                "net_exposure_local": local_value,
+                "pnl": None,
+                "dollar_pnl": None,
+                "pnl_percent": None,
+                "pnl_usd": None,
+                "pnl_basis_currency": None,
+                "entry_price_warning": False,
+                "is_cash_equivalent": False,
+            }
+
+            if by_account:
+                entry["account_name"] = position.get("account_name")
+                entry["brokerage_name"] = position.get("brokerage_name")
+
+            processed_positions.append(entry)
+
         payload = {
             "status": "success",
             "module": "positions",
@@ -581,10 +628,10 @@ class PositionResult:
                     [
                         p for p in processed_positions
                         if (p.get("quantity") or 0) != 0
-                        and p.get("type") not in ("option",)
+                        and p.get("type") not in ("option", "cash")
                     ]
                 ),
-                "cash_positions_excluded": len(cash_positions),
+                "cash_positions_count": len(cash_positions),
                 "positions_missing_price_or_quantity": total_missing_price_or_quantity,
                 "portfolio_totals_usd": portfolio_totals_usd,
             },
@@ -1088,9 +1135,9 @@ class PositionResult:
             if has_entry_warning:
                 lines.append("* ⚠ Entry price may be inaccurate")
 
-        cash_excluded = summary.get("cash_positions_excluded", 0)
-        if cash_excluded:
-            lines.append(f"* {cash_excluded} cash position(s) excluded from monitor view")
+        cash_count = summary.get("cash_positions_count", 0)
+        if cash_count:
+            lines.append(f"* {cash_count} cash position(s) shown separately from investment totals")
 
         return "\n".join(lines)
 

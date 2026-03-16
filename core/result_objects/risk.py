@@ -176,6 +176,12 @@ class RiskAnalysisResult:
     dollar_exposure: Optional[Dict[str, float]] = None
     notional_leverage: Optional[float] = None
     fx_attribution: Optional[Dict[str, Dict[str, Any]]] = None
+    _api_response_cache: Optional[Dict[str, Any]] = field(
+        default=None,
+        init=False,
+        repr=False,
+        compare=False,
+    )
     
     @property
     def portfolio_weights(self) -> Optional[Dict[str, float]]:
@@ -1098,8 +1104,11 @@ class RiskAnalysisResult:
         Returns:
             Dict[str, Any]: Complete portfolio risk analysis with 30+ metrics and compliance data
         """
+        if self._api_response_cache is not None:
+            return self._api_response_cache.copy()
+
         # Compute effective duration if interest_rate factor present
-        return {
+        payload = {
             # Fields ordered to match CLI section sequence  
             "portfolio_weights": self.portfolio_weights,  # PORTFOLIO ALLOCATIONS (Raw weights)
             "dollar_exposure": self.dollar_exposure,  # DOLLAR EXPOSURE BY POSITION
@@ -1151,6 +1160,8 @@ class RiskAnalysisResult:
             "risk_limit_violations_summary": self._get_risk_limit_violations_summary(),  # Risk Limit Violations Summary
             "beta_exposure_checks_table": self._get_beta_exposure_checks_table()  # Beta Exposure Checks Formatted Table
         }
+        self._api_response_cache = payload
+        return payload.copy()
     
     
     def to_cli_report(self) -> str:

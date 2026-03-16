@@ -815,7 +815,13 @@ def run_stock(
 @log_errors("high")
 @log_operation("portfolio_performance")
 @log_timing(5.0)
-def run_portfolio_performance(filepath: str, *, return_data: bool = False, benchmark_ticker: str = "SPY") -> Union[None, PerformanceResult, Dict[str, Any]]:
+def run_portfolio_performance(
+    filepath: str,
+    *,
+    return_data: bool = False,
+    benchmark_ticker: str = "SPY",
+    include_attribution: bool = True,
+) -> Union[None, PerformanceResult, Dict[str, Any]]:
     """
     Calculate and display comprehensive portfolio performance metrics.
 
@@ -855,7 +861,11 @@ def run_portfolio_performance(filepath: str, *, return_data: bool = False, bench
     * Error cases return/print error information directly
     """
     # Get performance analysis result
-    performance_result = analyze_performance(filepath, benchmark_ticker)
+    performance_result = analyze_performance(
+        filepath,
+        benchmark_ticker,
+        include_attribution=include_attribution,
+    )
     
     # Handle error case (returns dict on error, PerformanceResult on success)
     if isinstance(performance_result, dict) and "error" in performance_result:
