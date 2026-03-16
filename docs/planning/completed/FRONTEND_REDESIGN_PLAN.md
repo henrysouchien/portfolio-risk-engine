@@ -12,118 +12,105 @@ The frontend has 7 monolith view components (2,300 / 1,800 / 1,600 / 1,100 / 1,0
 
 Build the shared layer everything else depends on.
 
-### ~~1a. Consolidated color/formatting utilities~~ DONE (`d8d985a6`)
-- 4 helpers in `lib/colors.ts`: `getChangeColor`, `getLevelBadgeClasses`, `getTrendColor`, `getChangeStrokeColor`
-- 9 components migrated, 20 duplicated functions → 4 shared. Plan: `completed/FRONTEND_REDESIGN_PHASE1A_PLAN.md`
+### 1a. Consolidated color/formatting utilities
+- Merge duplicated color helpers from 6+ files into `packages/ui/src/lib/colors.ts`
+- Expand `theme/colors.ts` beyond risk colors to include: change, performance, trend, sector colors
+- Export typed helpers; deprecation re-exports from old locations
 
-### ~~1b. Recharts theme layer~~ DONE (`69a5b7b2`)
-- `lib/chart-theme.ts`: color palette from CSS vars, axis/grid presets, financial formatters
-- `ChartTooltip` + `ChartContainer` blocks with glass styling, loading/empty/error states
-- PriceChartTab migrated as proof-of-concept (`af2d51d4`). Plan: `FRONTEND_REDESIGN_PHASE1B_PLAN.md`
+### 1b. Recharts theme layer
+- Custom `<ChartTooltip>` with glass styling, typography, dark mode
+- Custom axis presets (styled XAxis/YAxis with proper font, color, tick formatting)
+- `<ChartContainer>` wrapper with consistent padding, responsive sizing, gradient fills
+- Chart color palette from CSS variables (automatic dark mode)
 
-### ~~1c. Expand block component library (5 new blocks)~~ DONE (`48fc07ca`)
-- StatPair, InsightBanner, StatusCell, TabContentWrapper, DataTable
-- Block library now at 12 components. Infrastructure only, no consumers migrated yet.
-- Plan: `FRONTEND_REDESIGN_PHASE1C_PLAN.md`
+### 1c. Expand block component library (4-6 new blocks)
+- `<StatRow>` — horizontal key/value pair for detail panels
+- `<DataTable>` — styled table wrapper with sorting/filtering (wrapping shadcn Table)
+- `<TabPanel>` — consistent tab content wrapper with spacing + transitions
+- `<AlertBanner>` — for AI insights and warnings
+- `<ScoreRing>` — circular risk score visualization
+- All blocks: dark mode via CSS variables, CVA variants, 7 color schemes
 
-### ~~1d. Upgrade base shadcn components~~ DONE (`28a99734`)
-- Card: CVA variants (default/glass/glassTinted) + hover prop (lift/subtle)
-- Button: `premium` variant (emerald gradient + shimmer + text-white dark mode fix)
-- 28 consumer sites migrated across 13 files. Chrome-verified.
-- Plan: `FRONTEND_REDESIGN_PHASE1D_PLAN.md`
+### 1d. Upgrade base shadcn components
+- Extend shadcn Card with `variant="glass"` (applies `glass-premium`)
+- `hover-lift-premium` on interactive cards
+- `btn-premium` shimmer on primary buttons
 
-**Key files**: `lib/colors.ts`, `lib/chart-theme.ts`, 12 blocks in `components/blocks/`, `components/ui/card.tsx`, `components/ui/button.tsx`
-
----
-
-## ~~Phase 2: PortfolioOverview Decomposition~~ DONE (`810c6140`)
-
-2,303 lines → 127-line orchestrator + 9 files in `overview/`: types, helpers, useOverviewMetrics hook, ViewControlsHeader, OverviewMetricCard, SmartAlertsPanel, MarketIntelligenceBanner, AIRecommendationsPanel, SettingsPanel, InstitutionalSparkline, index. Chrome-verified. Container untouched.
+**Key files**: `lib/colors.ts`, `lib/chart-theme.ts`, new blocks in `components/blocks/`, `components/ui/card.tsx`
 
 ---
 
-## ~~Phase 3: Performance + Holdings Decomposition~~ DONE
+## Phase 2: PortfolioOverview Decomposition
 
-### ~~Phase 3a: HoldingsView~~ DONE (`8c082330`)
-924 lines → 95-line orchestrator + 8 files in `holdings/`: types, helpers, useHoldingsData hook, HoldingsSummaryCards, HoldingsTableHeader, HoldingsTable, HoldingsTableFooter, index. Chrome-verified with live data (26 positions). Plan: `FRONTEND_REDESIGN_PHASE3_PLAN.md`.
+Flagship view (2,303 lines → ~200 line orchestrator). Sets the pattern for all others.
 
-### ~~Phase 3b: PerformanceView~~ DONE (`10a326d9`)
-1,407 lines → 201-line orchestrator + 10 files in `performance/`: types, helpers, usePerformanceState, usePerformanceData, PerformanceHeaderCard, AttributionTab, BenchmarksTab, RiskAnalysisTab, PeriodAnalysisTab, index. Chrome-verified with live data (4 metric cards, 3 insights, 4 tabs with full attribution/benchmark/risk data). Plan: `FRONTEND_REDESIGN_PHASE3_PLAN.md`.
+Extract to `components/portfolio/overview/`:
+- `OverviewHeader.tsx` — title, last updated, refresh, settings trigger
+- `MetricsGrid.tsx` — key metrics using `MetricCard` blocks
+- `RiskScorePanel.tsx` — risk score visualization using `ScoreRing`
+- `InsightsPanel.tsx` — AI insights using `AlertBanner`
+- `ViewModeSelector.tsx` — compact/detailed/professional/institutional toggle
+- Clean up `MetricData` interface (remove unused AI/institutional fields)
 
----
+Apply Phase 1 blocks: MetricCard with color schemes, glass cards, hover-lift, stagger animations.
 
-## ~~Phase 4: Risk + Scenario + Strategy + Stock Decomposition~~ DONE
-
-### RiskAnalysis (345 lines) — already reasonable, skip
-
-### ~~Phase 4a: ScenarioAnalysis~~ DONE (`9a4a460f`)
-2,302 lines → 408-line orchestrator + 12 files in `scenario/`: types, helpers, useScenarioHistory hook, useScenarioOrchestration hook, RecentRunsPanel, ScenarioHeader, PortfolioBuilderTab, OptimizationsTab, HistoricalTab, StressTestsTab, MonteCarloTab, index. Chrome-verified (all 5 tabs). Plan: `FRONTEND_REDESIGN_PHASE4A_PLAN.md`.
-
-### ~~Phase 4b: StockLookup~~ DONE (`6d9ada9d`)
-1,348 lines → 384-line orchestrator + 9 files in `stock-lookup/`: types, helpers, OverviewTab, TechnicalsTab, FundamentalsTab, PeerComparisonTab, PortfolioFitTab, PriceChartTab, index. Risk Factors tab stays inline (~42 lines). Chrome-verified (all 7 tabs). Plan: `FRONTEND_REDESIGN_PHASE4B_PLAN.md`.
-
-### ~~Phase 4c: StrategyBuilder~~ DONE (`a2c88462`)
-1,128 lines → 167-line orchestrator + 8 files in `strategy/`: types, helpers, useStrategyData hook, BuilderTab, MarketplaceTab, ActiveStrategiesTab, PerformanceTab, index. Chrome-verified with live data (all 4 tabs). Plan: `completed/FRONTEND_REDESIGN_PHASE4A_PLAN.md`.
-
+Container (`PortfolioOverviewContainer.tsx`) untouched.
 
 ---
 
-## Phase 4.5: Block Component Migration Batches
+## Phase 3: Performance + Holdings Decomposition
 
-Migrate decomposed views to use Phase 1c block components (replacing inline patterns with shared blocks).
+### PerformanceView (1,782 lines → `components/portfolio/performance/`)
+- `PerformanceSummaryCards.tsx` — period return cards
+- `PerformanceChart.tsx` — time series using chart theme
+- `AttributionTable.tsx` — sector/factor attribution using `DataTable`
+- `BenchmarkSelector.tsx` — extract cleanly
+- Root orchestrates tabs, ~200 lines
 
-### ~~Batch 1: GradientProgress + SectionHeader~~ DONE (`af2d51d4`)
-- GradientProgress: 6 sites across 3 files (OverviewTab, TechnicalsTab, FundamentalsTab)
-- SectionHeader: 14 sites across 5 files
-- Plan: `FRONTEND_REDESIGN_MIGRATION_BATCH1_PLAN.md`
+### HoldingsView (1,031 lines → `components/portfolio/holdings/`)
+- `HoldingsTable.tsx` — main table using `DataTable`
+- `HoldingsSummaryBar.tsx` — aggregate metrics
+- `HoldingDetailRow.tsx` — expandable position details
+- `HoldingsFilters.tsx` — search, filter, sort
+- Root ~150 lines
 
-### ~~Batch 2: Recharts chart-theme + StatPair~~ DONE (`61d24aca`)
-- Chart-theme: 2 charts (equity curve in PerformanceTab, price chart in PriceChartTab)
-- StatPair: 6 sites across 3 files (OverviewTab, TechnicalsTab, FundamentalsTab)
-- Plan: `FRONTEND_REDESIGN_MIGRATION_BATCH2_PLAN.md`
-
-### ~~Batch 3: StatusCell + DataTable~~ DONE (`2805bfd3`)
-- StatusCell: 6 sites across 2 files (OverviewTab 4 risk metric cards, FactorRiskModel 2 risk attribution cards)
-- DataTable: 8 tables across 2 files (AttributionTab 4 tables, PerformanceTab 4 tables)
-- InsightBanner: evaluated, zero clean migration targets (typography/size mismatches)
-- Plan: `FRONTEND_REDESIGN_MIGRATION_BATCH3_PLAN.md`
+Remove inline mock data from both views.
 
 ---
 
-## Phase 4.75: Theme System Infrastructure DONE (`d00019ec`)
+## Phase 4: Risk + Scenario + Strategy + Stock Decomposition
 
-Added `visualStyle: "classic" | "premium"` toggle to `useUIStore` with localStorage persistence, `data-visual-style` attribute sync on `<html>`, and staged Classic/Premium toggle in SettingsPanel. Phase 5 will wire premium CSS classes gated on this toggle. Plan: `FRONTEND_THEME_SYSTEM_PLAN.md`.
+### RiskAnalysis (942 lines → `components/portfolio/risk/`)
+- `RiskOverviewCards.tsx`, `FactorExposurePanel.tsx`, `StressTestPanel.tsx`, `HedgingPanel.tsx`
+- Root orchestrates 3 tabs, ~200 lines
+
+### ScenarioAnalysis (1,648 lines → `components/portfolio/scenario/`)
+- `PortfolioBuilder.tsx`, `HistoricalScenarios.tsx`, `StressTestRunner.tsx`, `MonteCarloPanel.tsx`
+- Root orchestrates 5 tabs, ~250 lines
+
+### StrategyBuilder (1,145 lines → `components/portfolio/strategy/`)
+- `OptimizationForm.tsx`, `OptimizationResults.tsx`, `EfficientFrontierChart.tsx`
+- Root ~200 lines
+
+### StockLookup (1,036 lines → `components/portfolio/stock/`)
+- `StockSearchBar.tsx`, `StockSummaryPanel.tsx`, `StockMetricsGrid.tsx`, `StockFactorPanel.tsx`
+- Root ~200 lines
 
 ---
 
-## ~~Phase 5: Visual Polish Pass~~ DONE
+## Phase 5: Visual Polish Pass
 
-Final sweep across all views for "Bloomberg meets modern SaaS" aesthetic. Delivered in 4 batches:
+Final sweep across all views for "Bloomberg meets modern SaaS" aesthetic.
 
-### ~~Batch 1: StockLookup + Risk Analysis~~ DONE (`05bb1241`)
-- `glassTinted` on 11 plain white Cards (StockLookup tabs + RiskAnalysis main)
-- `hover-lift-subtle` on 12 metric/interactive cards
-- `animate-stagger-fade-in` on 4 card lists (risk factors, stress tests, hedging strategies)
-- Plan: `FRONTEND_STOCKLOOKUP_RISK_POLISH_PLAN.md`
-
-### ~~Batch 2: Chart Polish~~ DONE (`e3570800`)
-- MonteCarloTab: migrated 9 hard-coded hex colors → `chartSemanticColors` system
-- Extracted `mcColors` constant object for gradient defs + Area strokes
-- Plan: `FRONTEND_CHART_POLISH_PLAN.md`
-
-### ~~Batch 3: Typography + CSS Pruning~~ DONE (`26831157`)
-- `text-balance-optimal` on SectionHeader `<h2>` (propagates to 8+ consumers) + 5 standalone `CardTitle` headings
-- Removed unused `dashboard-layout` CSS class (31 lines)
-- Plan: `FRONTEND_TYPOGRAPHY_CSS_PRUNE_PLAN.md`
-
-### ~~Batch 4: Dark Mode Audit + Morph Border~~ DONE (`02ee0a3a`)
-- Dark mode `morph-border` gradient (0.1→0.25 opacity for dark bg visibility)
-- Dark mode premium hover shadows (stronger opacity for dark backgrounds)
-- `morph-border rounded-3xl` on MarketplaceTab Featured Strategy hero card
-- Full premium class dark mode audit (26 classes evaluated)
-- Plan: `FRONTEND_DARKMODE_MORPHBORDER_PLAN.md`
-
-**Known remaining gaps** (documented, out of scope for polish pass): gradient backgrounds (`bg-gradient-sophisticated`, etc.), loading states (`shimmer-loading`, `skeleton-premium`), hardcoded Tailwind light-mode colors. These require a dedicated dark mode color palette effort.
+- Glass effects: main panels `glass-premium`, secondary `glass-tinted`
+- Hover interactions: `hover-lift-premium` / `hover-lift-subtle` by importance
+- Animated borders: `morph-border` on key interactive sections
+- Premium buttons: `btn-premium` shimmer on primary actions
+- Entrance animations: `animate-stagger-fade-in` on grids/lists
+- Dark mode audit: verify every view, fix hardcoded colors
+- Typography: `text-balance-optimal` on headings, verify `clamp()` usage
+- Chart polish: custom legends, branded tooltips, gradient area fills
+- Prune any unused premium CSS
 
 ---
 

@@ -1,5 +1,4 @@
 # Frontend Views → Defined Workflows
-**Status:** DONE
 
 ## Vision
 
@@ -2453,13 +2452,13 @@ Skill files: `AI-excel-addin/api/memory/workspace/memory/skills/*.md`
 
 | Skill | Skill File | Plan |
 |-------|------------|------|
-| allocation-review | allocation-review.md | `completed/WORKFLOW_SKILLS_PLAN.md` |
-| risk-review | risk-review.md | `completed/WORKFLOW_SKILLS_PLAN.md` |
-| hedging | hedging.md | `completed/WORKFLOW_SKILLS_PHASE4_PLAN.md` |
-| scenario-analysis | scenario-analysis.md | `completed/WORKFLOW_SKILLS_PHASE4_PLAN.md` |
-| strategy-design | strategy-design.md | `completed/WORKFLOW_SKILLS_PHASE4_PLAN.md` |
+| allocation-review | allocation-review.md | `WORKFLOW_SKILLS_PLAN.md` |
+| risk-review | risk-review.md | `WORKFLOW_SKILLS_PLAN.md` |
+| hedging | hedging.md | `WORKFLOW_SKILLS_PHASE4_PLAN.md` |
+| scenario-analysis | scenario-analysis.md | `WORKFLOW_SKILLS_PHASE4_PLAN.md` |
+| strategy-design | strategy-design.md | `WORKFLOW_SKILLS_PHASE4_PLAN.md` |
 | performance-review | performance-review.md (pre-existing) | |
-| stock-research | position-initiation.md (enhanced) | `completed/WORKFLOW_SKILLS_STOCK_RESEARCH_PLAN.md` |
+| stock-research | position-initiation.md (enhanced) | `WORKFLOW_SKILLS_STOCK_RESEARCH_PLAN.md` |
 
 ### Phase 4: UI Second Pass — Not started
 For each view, update the frontend to step through the workflow (not just display data). This means:

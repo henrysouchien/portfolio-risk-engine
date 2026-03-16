@@ -15,6 +15,8 @@ except Exception:
 # URL Configuration
 FRONTEND_BASE_URL = os.getenv('FRONTEND_BASE_URL', 'http://localhost:3000')
 BACKEND_BASE_URL = os.getenv('BACKEND_BASE_URL', 'http://localhost:5001')
+AGENT_API_KEY = os.environ.get("AGENT_API_KEY", "")
+AGENT_API_ALLOW_WRITES = os.environ.get("AGENT_API_ALLOW_WRITES", "").lower() == "true"
 
 
 from utils.user_context import (

@@ -81,6 +81,8 @@ Server-side user_id injection into gateway context. Commit `b93a2bd5`.
 - `a6cf9124` test: frontend tests for accounts/portfolios feature (75 tests)
 - `2f83eef5` fix: deduplicate portfolio display names when account name includes institution
 - `a2998d7a` feat: account activate/deactivate MCP tools with sync-durable deactivation
+- `861c24b0` fix: E2E N7 scheduler re-auth reset + N5 graceful empty for trading/income
+- `1911fec8` fix: move useMemo above early returns in PortfolioOverviewContainer
 - `98217b77` feat: rebalance execution flow + fix IBKR event loop conflict
 - `6cb901d4` docs: mark rebalance execution DONE, move spec to completed/
 - `3ff6d9cf` fix: E2E re-audit batch 1 — position count excludes cash, margin label
@@ -105,25 +107,23 @@ Server-side user_id injection into gateway context. Commit `b93a2bd5`.
 ### Recently Fixed
 - N13 (Major): 401 interceptor / session expiry UX — `e6f0b7dd`
 - N16 (Major): Concentration score dual-metric fix — `fd2a135b`
+- N5 (Minor): Trading/income 500 on single-account → graceful empty (`861c24b0`)
+- N7 (Blocker): Scheduler re-auth reset → no more "Mock" dashes (`861c24b0`)
+- PortfolioOverviewContainer hooks crash — useMemo above early returns (`1911fec8`)
 
 ### Verified Fixed (live tested 2026-03-15)
-- N1 (Major): Portfolio selector display name — shows "Interactive Brokers U2471778"
-- N2 (Major): Holdings for single-account — shows real positions
+- N1 (Major): Portfolio selector display name — shows "Interactive Brokers U2471778" (`2f83eef5`)
 - N3 (Minor): Risk settings — loads with sliders and metrics
+- N5 (Minor): Trading/income endpoints return 200 (not 500) for single-account portfolios
 - N10 (Major): Selector switch — client-side, no page reload
+- N16 (Major): Concentration score correct after account deactivation
 
-### Resolved
-- N7 (Blocker): Dashboard "Mock" data after re-auth — **RESOLVED**, verified live 2026-03-15 (shows "Overview: Real")
+### Verified Fixed (not a code bug)
+- N2 (Major): Holdings empty for single-account — was IBKR Gateway being down (runtime, not code). Works when gateway is up. Verified live 2026-03-15.
 
-### Verified Correct
-- N16 (Major): Concentration "100 / Well Diversified" on Combined view — **CORRECT**. After account deactivation (`a2998d7a`), combined portfolio has max position 11.8%, top-3 weight 30.6%. Score 100 is accurate. IBKR single-account correctly shows 59 (Moderate). Dual-metric fix (`fd2a135b`) working.
-
-### TODO
-- N5 (Minor): Trading analysis 500 — untested
-
-### Deferred
+### Deferred (accepted)
 - N4 (Minor): 7× setState-during-render warnings
-- N8 (Major): Rebalance 401 — resolves with N13
+- N8 (Major): Rebalance 401 — resolves with N13 (already fixed)
 - N9 (Major): Plaid 500 — not a bug (expired credentials)
 
 ## Account Activate/Deactivate — DONE

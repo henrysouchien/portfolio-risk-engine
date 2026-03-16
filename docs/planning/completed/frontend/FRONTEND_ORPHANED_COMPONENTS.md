@@ -1,14 +1,14 @@
 # Frontend Orphaned Components — Cleanup Task
 
 **Date**: 2026-02-26
-**Status**: ✅ COMPLETE — 41 files deleted, -7,118 lines. Commit `39380859`. Plan: `completed/ORPHANED_COMPONENT_CLEANUP_PLAN.md`.
+**Status**: Inventory complete — cleanup not started
 **Priority**: Low — none of these affect the running app
 
 ### Related Docs
 | Doc | Purpose |
 |-----|---------|
 | `FRONTEND_COMPONENT_VISUAL_MAP.md` | Visual map of all components that ARE rendered |
-| `completed/FRONTEND_PHASE2_WORKING_DOC.md` | Phase 2 master doc — this cleanup is a separate workstream |
+| `FRONTEND_PHASE2_WORKING_DOC.md` | Phase 2 master doc — this cleanup is a separate workstream |
 
 ---
 

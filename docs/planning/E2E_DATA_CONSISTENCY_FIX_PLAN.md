@@ -1,7 +1,8 @@
 # E2E Data Consistency Fix Plan
 
-**Status**: Partially complete — Steps 1-4 done (prior batches), Steps 5-6 deferred
+**Status**: ALL DONE (N2 deferred by design)
 **Updated**: 2026-03-15
+**Commits**: Prior batches (Steps 1-4) + `861c24b0` (N7+N5)
 **Source**: `FRONTEND_E2E_FINDINGS_2026_03_14.md` (16 issues, 2 sessions)
 
 ---
@@ -14,7 +15,7 @@ Steps 1-4 from original plan (F3/F4/F5 label fixes, portfolio value subtitle) �
 
 ## Remaining Issues (N2, N5, N7 from Re-Audit)
 
-### N7 — Mock data after re-auth (Quick — ~10 min)
+### N7 — Mock data after re-auth `DONE` — `861c24b0`
 
 **Root cause:** Scheduler's `hasPrefetchedForPortfolio` ref is never reset on re-auth. Same portfolio ID → scheduler skips prefetches → `invalidateQueries` marks queries stale but nothing triggers refetch → data is `undefined` → dashes. AI Recommendations works because it uses direct `useQuery` (not `useDataSource`), bypassing the scheduler.
 
@@ -36,7 +37,7 @@ useEffect(() => {
 
 ---
 
-### N5 — Trading analysis / Income 500 for single-account (Medium — ~30 min)
+### N5 — Trading analysis / Income 500 for single-account `DONE` — `861c24b0`
 
 **Root cause:** `load_from_store_for_portfolio()` filters transactions to a single account. Zero matches → `"No transaction data found"` → MCP returns `{"status": "error"}` → REST route promotes ALL error-status to HTTP 500. "No data" is treated as a server error.
 

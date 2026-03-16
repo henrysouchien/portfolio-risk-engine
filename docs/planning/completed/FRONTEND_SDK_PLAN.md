@@ -2,7 +2,7 @@
 
 **Date**: 2026-02-26
 **Status**: Draft
-**Related**: `COMPOSABLE_APP_FRAMEWORK_PLAN.md` (full vision), `completed/FRONTEND_PHASE2_WORKING_DOC.md` (current wiring audit)
+**Related**: `COMPOSABLE_APP_FRAMEWORK_PLAN.md` (full vision), `FRONTEND_PHASE2_WORKING_DOC.md` (current wiring audit)
 
 ## What Is This
 

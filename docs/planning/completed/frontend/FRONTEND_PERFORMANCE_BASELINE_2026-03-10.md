@@ -1,5 +1,5 @@
 # Frontend Performance Baseline — 2026-03-10
-**Status:** DONE — Pre-optimization baseline. Post-optimization results in PERFORMANCE_BASELINE_2026-03-10.md §13
+**Status:** ACTIVE
 
 **Purpose:** Quantitative frontend performance baseline. Companion to the backend baseline (`PERFORMANCE_BASELINE_2026-03-10.md`). Use this document to track improvement over time.
 

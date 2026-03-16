@@ -1,8 +1,8 @@
 # Frontend Phase 2 — Working Doc
 
 **Parent doc:** `completed/FRONTEND_PACKAGE_DESIGN.md`
-**Status:** ALL WAVES COMPLETE (Wave 1 + formatting + Wave 2a-2e + Wave 2.5 + Wave 2.6 + Wave 3a-3i). All 16 original mock data items resolved. Phase 4 workflow upgrades in progress (see TODO.md).
-**Last verified:** 2026-03-03 (full audit)
+**Status:** Wave 1 + formatting + Wave 2a/2b/2c complete; Scenario Analysis N/A metrics fixed (`8a5d111a`); Wave 2d Stock Research FMP wiring complete (`4ae8115f`, refactored `941c92e0`); Wave 2e and remaining mock cleanup pending
+**Last verified:** 2026-03-03 — code/docs drift check
 
 ### Related Docs
 | Doc | Purpose |
@@ -21,7 +21,7 @@
 
 This file is still the main tracking doc, but several references in earlier sections were stale.
 
-- Scenario Analysis is **fully** real. What-if, stress tests, Monte Carlo all wired. Scenario history now persists to database (`93b7ce83`).
+- Scenario Analysis is **partially** real, not fully real. Real what-if execution is wired, but historical/stress/monte-carlo UI remains mostly placeholder.
 - `PerformanceChart.tsx` is still present in `ui/src/components/portfolio/`, but it is legacy and not rendered by `ModernDashboardApp`.
 - Completed docs have moved under `docs/planning/completed/`; links in this file are updated where referenced.
 
@@ -80,14 +80,14 @@ The app has 8 views accessed via keyboard shortcuts or navigation:
 
 | View | Shortcut | Container | Real Data? |
 |------|----------|-----------|------------|
-| Overview | ⌘1 | PortfolioOverviewContainer + PerformanceViewContainer + RiskMetricsContainer | **Real** — metric cards + metric insights on all 6 cards, Smart Alerts (5 real), Market Intelligence (earnings + sentiment + relevance), AI Recommendations (concentration + priority). All 4 AI/insight hooks live. Residual: hedging dialog impact metrics (cosmetic only). |
-| Holdings | ⌘2 | HoldingsViewModernContainer | **Real** — P&L, sectors, day change, sparklines, alerts with tooltip messages (`d644687f`), per-position risk scores (`8a8445ad`) |
-| Factor Analysis | ⌘3 | FactorRiskModelContainer + RiskMetricsContainer | **Real** (Wave 1 + 2e) — factor exposures, risk attribution, Performance tab (Alpha, IR, R²). Gap: t-stat |
-| Performance | ⌘4 | PerformanceViewContainer | **Real** (Wave 2c + 3f) — all mock fallbacks removed, real sector/security attribution, real monthly returns |
-| Strategy Builder | ⌘5 | StrategyBuilderContainer | **Real** — optimization + backtesting (3g) wired. `prebuiltStrategies` fallback when no data. Perf issue: optimization blocks 60+ sec. |
-| Stock Research | ⌘6 | StockLookupContainer | **Real** (Wave 2d + 2.6 + Phase 4) — search, profile, quote, ratios, chart, risk metrics, factor analysis, peer comparison, portfolio fit (`3337f2d1`). Residual: analyst consensus, technical indicators (synthetic fallbacks) |
+| Overview | ⌘1 | PortfolioOverviewContainer + PerformanceViewContainer + RiskMetricsContainer | **Partial** — see below |
+| Holdings | ⌘2 | HoldingsViewModernContainer | **Partial** — see below |
+| Factor Analysis | ⌘3 | FactorRiskModelContainer + RiskMetricsContainer | **Real** (Wave 1) — minor gaps: Performance tab, R², t-stat |
+| Performance | ⌘4 | PerformanceViewContainer | **Partial** — see below |
+| Strategy Builder | ⌘5 | StrategyBuilderContainer | **Partial** — props wired (Wave 1), mock fallbacks when no optimization data |
+| Stock Research | ⌘6 | StockLookupContainer | **Real** (Wave 2d) — search, profile, quote, ratios, chart wired. Remaining mock: analyst consensus, technical indicators, risk factors tab |
 | AI Assistant | ⌘7 | ChatInterface | **Real** |
-| Scenario Analysis | ⌘8 | ScenarioAnalysisContainer | **Real** — what-if execution, stress tests (Wave 3h), Monte Carlo simulation (`078aed92`), scenario history persisted to DB (`93b7ce83`), optimization tab (`b6f3e45e`). All 5 phases of overhaul complete + DB persistence. |
+| Scenario Analysis | ⌘8 | ScenarioAnalysisContainer | **Partial** — run flow is real + metrics fixed (commit `8a5d111a`), historical/stress/monte-carlo sections are placeholder-heavy |
 
 Additionally: Risk Settings and Account Connections accessible via Settings — both real.
 
@@ -95,29 +95,42 @@ Additionally: Risk Settings and Account Connections accessible via Settings — 
 
 ### Mock Data Items — Full Inventory
 
-#### ~~1. Market Intelligence section (Overview view)~~ ✓ DONE (Wave 3a)
+#### 1. Market Intelligence section (Overview view)
 
-- **Completed:** `5151dd0a`. Shared `build_market_events()` in `mcp_tools/news_events.py` reuses existing `get_portfolio_news()` / `get_portfolio_events_calendar()`. Thin `/api/positions/market-intelligence` endpoint. `useMarketIntelligence()` hook + container wiring. Internal `marketEvents = []` stub removed.
-- **Plan:** `completed/MARKET_INTELLIGENCE_WAVE3A_PLAN.md`
-- [x] Design data flow: which backend source feeds this?
-- [x] Create hook or extend existing hook
-- [x] Wire to real data
+- **Location:** `PortfolioOverview.tsx` lines ~1245-1308
+- **What users see:** Market events with impact badges, timeline, relevance scores
+- **Data source:** `generateSmartAlerts()` callback — returns hardcoded demo events
+- **Backend data available?** Yes — `/api/factors/*` endpoints have market/factor data;
+  fmp-mcp `get_market_context` and `get_news` tools return real market intelligence.
+  No frontend consumer wired yet.
+- [ ] Design data flow: which backend source feeds this?
+- [ ] Create hook or extend existing hook
+- [ ] Wire to real data
 
-#### ~~2. Smart Alerts section (Overview view)~~ ✓ DONE (Wave 3b)
+#### 2. Smart Alerts section (Overview view)
 
-- **Completed:** `1dea17ba`. New `/api/positions/alerts` endpoint aggregates `generate_position_flags()` into frontend `SmartAlert` shape. `useSmartAlerts()` hook + container wiring. `generateSmartAlerts()` stub removed.
-- **Plan:** `completed/SMART_ALERTS_WAVE3B_PLAN.md`
-- [x] Design alert data model
-- [x] Wire to risk flags or exit signals
-- [x] Remove demo data
+- **Location:** `PortfolioOverview.tsx` lines ~1311-1358
+- **What users see:** Risk/opportunity alerts with severity badges (High/Medium/Low)
+- **Data source:** `generateSmartAlerts()` — hardcoded demo alerts
+- **Backend data available?** Partially — risk analysis flags are computed by
+  `core/*_flags.py` and returned in agent-format responses. Could surface these
+  as alerts. MCP `check_exit_signals` tool also produces actionable alerts.
+- [ ] Design alert data model
+- [ ] Wire to risk flags or exit signals
+- [ ] Remove demo data
 
-#### ~~3. AI Recommendations panel (Overview view)~~ ✓ DONE (Wave 3d)
+#### 3. AI Recommendations panel (Overview view)
 
-- **Completed:** `aae47747`. `build_ai_recommendations()` shared builder in `mcp_tools/factor_intelligence.py` composes risk drivers + hedge suggestions from `FactorIntelligenceService.recommend_portfolio_offsets()`. `GET /api/positions/ai-recommendations` endpoint. `useAIRecommendations()` hook with 10-min cache. Container passes `aiRecommendations` prop to `PortfolioOverview`. Up to 6 recommendations with priority/confidence/action items. Toggle in display settings.
-- **Plan:** `completed/AI_RECOMMENDATIONS_WAVE3D_PLAN.md`
-- [x] Design recommendation data model
-- [x] Wire to optimization/factor recommendation backend data
-- [x] Remove hardcoded recommendations
+- **Location:** `PortfolioOverview.tsx` `generateAIRecommendations()` (~lines 688-743)
+- **What users see:** 3 ML-generated recommendations (Rebalance, Hedge, Opportunity)
+  with confidence scores (89-96%)
+- **Data source:** Hardcoded — returns static recommendation objects
+- **Backend data available?** Partially — optimization suggestions come from
+  `/api/min-variance` and `/api/max-return`. Factor recommendations from
+  `get_factor_recommendations` MCP tool. Could compose from these.
+- [ ] Design recommendation data model
+- [ ] Wire to optimization/factor recommendation backend data
+- [ ] Remove hardcoded recommendations
 
 #### 4. AI Insights on metric cards (Overview view)
 
@@ -130,37 +143,58 @@ Additionally: Risk Settings and Account Connections accessible via Settings — 
 - **Backend data available?** The core metrics (value, P&L, Sharpe, alpha) come
   from real data via `usePortfolioSummary()`. The AI commentary/confidence/signals
   layer is entirely demo.
-- [x] Decide: generate AI insights server-side or client-side? → Server-side (Option B)
-- [x] Wire backend flags into metric card AI insights (Wave 3e, commit `bc107e04`)
-- [x] ~~If client-side~~ N/A — implemented server-side (Option B)
+- [ ] Decide: generate AI insights server-side or client-side?
+- [ ] If server-side: extend analysis response with interpretive text
+- [ ] If client-side: compute from real metric values
 
-#### ~~5. Notification Center~~ ✓ DONE (Wave 3c)
+#### 5. Notification Center
 
-- **Completed:** `1505c1f1`. Frontend composition hook `useNotifications()` composing `useSmartAlerts()` + `usePendingUpdates()` + `useNotificationStorage()` (localStorage). Backend fix: alert ID uniqueness (`_build_alert_id()` in `routes/positions.py`). `alertMappings.ts` maps ~20 flag types → titles + navigation actions. Plan: `completed/NOTIFICATION_CENTER_WIRING_PLAN.md`.
-- [x] Design notification system (real-time vs polling?)
-- [x] Wire to backend alert sources
-- [x] Remove hardcoded notifications
+- **Location:** `notification-center.tsx` + `ModernDashboardApp.tsx` lines ~157-178
+- **What users see:** Bell icon with badge count, dropdown with notification list
+- **Data source:** Hardcoded initial notifications ("High Tech Concentration Detected",
+  "Portfolio Data Updated")
+- **Backend data available?** No dedicated notification endpoint. Could be derived
+  from risk flags, exit signals, pending updates.
+- [ ] Design notification system (real-time vs polling?)
+- [ ] Wire to backend alert sources
+- [ ] Remove hardcoded notifications
 
 #### 6. FactorRiskModel.tsx (Factor Analysis view — entire view) — DONE (Wave 1)
 
 - **Location:** `ui/src/components/portfolio/FactorRiskModel.tsx` + `FactorRiskModelContainer.tsx`
 - **Status:** ✅ Wired via `FactorRiskModelContainer` → `useRiskAnalysis()` → `RiskAnalysisAdapter`
 - **What's real now:** Factor Exposure tab (6 factors with betas + contributions), Risk Attribution tab (systematic/idiosyncratic split), Total Risk
-- **Known gaps:** t-stat not available from backend (needs regression p-values).
+- **Known gaps:** Performance tab still hardcoded (Factor Alpha, IR, R², Key Risk Insights). R² badge = 0.847 fallback. t-stat = 0.00 (not available from backend).
 - [x] Create FactorRiskModelContainer
 - [x] Wire to useRiskAnalysis()
 - [x] Map factor exposures + risk attribution from backend
 - [x] Fix `weighted_factor_var` DataFrame summation (post-fix)
-- [x] Wire Performance tab metrics — Factor Alpha, IR, R² wired from `variance_decomposition` + `historical_analysis` (Wave 2e, commit `dbcee8c9`)
+- [ ] Wire Performance tab metrics (backend enrichment needed)
 
-#### ~~7. Performance view — AI mock content (Performance view)~~ ✓ DONE (Wave 3f)
+#### 7. Performance view — AI mock content (Performance view)
 
-- **Completed:** `52c6d95a`. Deleted 5 fallback arrays (fallbackSectors, fallbackTopContributors, fallbackTopDetractors, fallbackMetrics, hardcoded monthlyReturns). Refactored `buildInsights()` to detect no-data via `=== 0` instead of comparing against deleted fallbackMetrics. Wired real monthly returns by computing per-month deltas from cumulative timeSeries. Added empty-state guards. Changed "AI Enhanced" badge to "Portfolio Data". Plan: `completed/PERFORMANCE_MOCK_REMOVAL_PLAN.md`.
-- [x] Separate real vs mock data in performanceData object
-- [x] Wire sector attribution to useRiskAnalysis() sector data
-- [x] Wire target prices/ratings to FMP analyst data or remove
-- [x] Decide: keep AI commentary (generate from real data) or remove?
-- [x] Remove all hardcoded mock arrays
+- **Location:** `ui/src/components/portfolio/PerformanceView.tsx` lines 405-636
+- **What users see:** Four large mock sections within the otherwise-wired Performance view:
+  - **AI Performance Insights** (lines 428-448): 3 insight cards (Performance 94%,
+    Risk 87%, Opportunity 76%) with hardcoded commentary and confidence scores
+  - **Sector Performance Attribution** (lines 450-524): "AI Enhanced" badge, per-sector
+    momentum scores (8.4/10, 3.2/10, etc.), AI commentary ("Driving portfolio
+    outperformance with AI/cloud growth"), recommendations ("Hold - Strong fundamentals")
+  - **Top Contributors** (lines 527-583): "AI Insights" badge, hardcoded stock rankings
+    (AAPL Buy Target $225, MSFT Strong Buy Target $450, NVDA Buy Target $1100, etc.)
+  - **Top Detractors** (lines 585-619): "Recovery Watch" badge, hardcoded stock rankings
+    (META Hold Target $380, NFLX Hold Target $420, PYPL Underperform Target $75)
+- **Data source:** Entirely hardcoded `performanceData` object. Basic period returns
+  use real data from props with fallback, but insights/sectors/contributors/detractors
+  are 100% static.
+- **Backend data available?** Partially — sector allocation + returns could come from
+  risk analysis. Target prices/ratings could come from FMP analyst endpoints. Momentum
+  scores have no direct backend source yet.
+- [ ] Separate real vs mock data in performanceData object
+- [ ] Wire sector attribution to useRiskAnalysis() sector data
+- [ ] Wire target prices/ratings to FMP analyst data or remove
+- [ ] Decide: keep AI commentary (generate from real data) or remove?
+- [ ] Remove all hardcoded mock arrays
 
 #### 8. PerformanceChart.tsx (standalone component) — LEGACY UNUSED
 
@@ -192,10 +226,11 @@ Additionally: Risk Settings and Account Connections accessible via Settings — 
 - **What's real now:** ticker, value, weight, currency, type, account, brokerage, sector (via FMP), P&L (unrealized_pnl_usd, pnl_percent), cost basis, current price, quantity, gross/net exposure
 - **Implementation:** New `/api/positions/holdings` endpoint, `usePositions()` hook (direct TanStack Query), `PositionsAdapter` with null→undefined normalization. Weight formatting fix applied.
 - **Cross-ref:** `completed/FRONTEND_HOLDINGS_ENRICHMENT_PLAN.md` (COMPLETE), `completed/FRONTEND_DATA_WIRING_AUDIT.md` Gap 1
+- **Remaining fields** (see "Remaining Holdings Fields" section below): volatility, riskScore, aiScore, alerts, trend, dayChange
 - [x] New `/api/positions/holdings` endpoint with P&L + sector
 - [x] Wire sector via `PortfolioService.enrich_positions_with_sectors()`
 - [x] Wire price, cost basis, P&L, weight, exposure
-- [x] Wire remaining fields — volatility, alerts, dayChange, trend (Wave 2.5), aiScore/riskScore removed
+- [ ] Wire remaining fields (volatility, alerts — see future wave)
 
 #### ~~12. Stock Research — real-time market data~~ ✓ DONE (Wave 2d)
 
@@ -203,7 +238,7 @@ Additionally: Risk Settings and Account Connections accessible via Settings — 
 - Search endpoint (`GET /api/direct/stock/search`) with real FMP search + batch quote
 - Stock enrichment (profile, quote, ratios_ttm, historical chart) via `StockService.enrich_stock_data()`
 - Frontend: `useStockSearch` hook, search dropdown in StockLookup, adapter pass-through
-- Plans: `completed/STOCK_RESEARCH_FMP_WIRING_PLAN.md`, `completed/STOCK_ENRICHMENT_REFACTOR_PLAN.md`
+- Plans: `STOCK_RESEARCH_FMP_WIRING_PLAN.md`, `STOCK_ENRICHMENT_REFACTOR_PLAN.md`
 
 #### 14. Hedging suggestions (Overview view, Advanced Risk Analysis)
 
@@ -227,11 +262,11 @@ Additionally: Risk Settings and Account Connections accessible via Settings — 
 - **Location:** `ui/src/components/portfolio/StrategyBuilder.tsx`
 - **Status:** ✅ Props wired — `optimizationData`, `onOptimize`, `onBacktest`, `loading` all consumed
 - **What's real now:** `currentStrategy.metrics`, `optimizedStrategy`, `templates` from container. Graceful fallback to `prebuiltStrategies` when no optimization data.
-- **Known gaps:** `prebuiltStrategies` kept as fallback (not a bug — templates may not always be available).
+- **Known gaps:** Backtesting is now callback-driven via container/what-if flow, but still not a true historical engine. `prebuiltStrategies` kept as fallback (not a bug — templates may not always be available).
 - [x] Wire optimizationData prop to replace hardcoded results
 - [x] Wire onOptimize/onBacktest callbacks
 - [x] Wire loading prop
-- [x] Wire backtesting to real backend — Wave 3g complete (`76bf0121` backend, `6e007162` frontend, `733b8c9e` endpoint). `useBacktest()` hook + `POST /api/backtest` + `BacktestAdapter`.
+- [ ] Wire backtesting to real backend (future — backend doesn't support it yet)
 
 #### 16. Market status indicator
 
@@ -280,27 +315,12 @@ Components that appear unused or are explicitly marked as such:
 
 | Category | Count | Status |
 |----------|-------|--------|
-| Fully wired views (real data end-to-end) | 8 of 8 views | Overview, Holdings, Factor Analysis, Performance, Strategy Builder, Stock Research, AI Assistant, Scenario Analysis |
-| Partially wired views (mix of real + residual placeholders) | 0 of 8 views | — (Overview hedging dialog impact metrics are cosmetic only) |
-| Fully mock views | 0 of 8 views | — |
-| Total mock data items | 16 total, **16 resolved** (Wave 1 + 2a-2e + 2.5 + 2.6 + 3a-3i) | All original items done. |
+| Fully wired views (real data end-to-end) | 2 of 8 views | Chat, Settings |
+| Partially wired views (mix of real + mock) | 6 of 8 views | Overview, Holdings, Factor Analysis, Performance, Strategy Builder, Scenario Analysis |
+| Fully mock views | 0 of 8 views | No view is purely demo-only, but several remain mixed |
+| Total mock data items | 16 total, **5 resolved** (Wave 1 + 2a) | Items 6, 8, 10, 11, 15 done. 11 remaining. |
 | Dead components cleaned | 0 | `PerformanceChart.tsx` still exists but is legacy/unused in active dashboard routes |
-| Backend endpoints unused by frontend | 15 annotated | Wave 3h: deprecation comments added to 6 `/api/direct/*`, 3 factor-intelligence, 5 factor-groups CRUD, 1 positions/monitor |
-| Market status indicator | Fixed | Wave 3i: ET timezone-aware (Intl.DateTimeFormat) with pre-market/open/after-hours/closed + weekend detection |
-
-### Post-Wave 3 Features (Phase 4 Workflow Upgrades)
-
-Features completed after the original 16-item mock data audit:
-
-| Feature | Commit | Description |
-|---------|--------|-------------|
-| Per-position risk scores | `8a8445ad` | Risk score badges on Holdings view (High/Medium/Low color-coded) |
-| Stock Lookup workflow | `3337f2d1` | Peer Comparison + Portfolio Fit + trade preview tabs (Phase 4) |
-| Backtesting engine | `76bf0121` + `6e007162` | 5-phase engine: BacktestEngine class, POST /api/backtest, useBacktest hook, Strategy Builder wiring |
-| Stress test engine | `d1df3fee`→`a1d598fb` | 8 scenarios, 3 API endpoints, full frontend wiring (Wave 3h). useStressTest/useStressScenarios hooks, StressTestAdapter, live Run with position impacts + factor contributions. |
-| Schwab RECEIVE_AND_DELIVER | `d2bfa1dd` | Account 252 aggregated return 273.92% → 0.82% |
-| Alert badge tooltip | `d644687f` | Per-position alert details threaded through API → adapter → native title tooltip on Holdings badge |
-| Hedging workflow plan | `bf87623d` | Phase 4 plan written (Codex-reviewed PASS), not yet implemented |
+| Backend endpoints unused by frontend | 9 | `/api/direct/*`, `/api/factors/*`, `/api/positions/*` |
 
 ### Cross-Cutting: Shared Number Formatting — COMPLETE
 
@@ -349,42 +369,27 @@ Backend endpoint changes needed to provide data that frontend is ready to consum
 | # | Task | Items | Effort | Description |
 |---|------|-------|--------|-------------|
 | 2a | Holdings enrichment | 11 | Medium | ✅ DONE — `/api/positions/holdings` + `usePositions()` + `PositionsAdapter` + sector via FMP. Plan: `completed/FRONTEND_HOLDINGS_ENRICHMENT_PLAN.md`. |
-| 2b | Hedging suggestions | 14 | Medium-High | ✅ PARTIAL — `useHedgingRecommendations` hook + `HedgingAdapter` + container wiring (commit `1c66dae7`). Backend fixes: ETF→sector label resolution, correlation threshold -0.2→0.3 (commit `475a67e5`). Dialog impact metrics still fallback. Plan: `completed/FRONTEND_HEDGING_WIRING_PLAN.md`. |
+| 2b | Hedging suggestions | 14 | Medium-High | ✅ DONE — `useHedgingRecommendations` hook + `HedgingAdapter` + container wiring (commit `1c66dae7`). Backend fixes: ETF→sector label resolution, correlation threshold -0.2→0.3, readable driver labels (commit `475a67e5`). Verified in Chrome 2026-02-28. Plan: `completed/FRONTEND_HEDGING_WIRING_PLAN.md`. |
 | 2c | Performance attribution | 7 (partial) | Medium | ✅ DONE — Sector + security attribution computed in `calculate_portfolio_performance_metrics()` from `df_ret` + `filtered_weights`. FMP profile sector lookup. Threaded through `PerformanceResult` → API → `PerformanceAdapter` → `PerformanceView`. Factor attribution deferred to P2b. Verified in Chrome 2026-02-28. Plan: `completed/PERFORMANCE_ATTRIBUTION_PLAN.md`. |
 | 2d | ~~Stock Research prices~~ | 12 | ~~Medium~~ | **DONE** (`4ae8115f` + `941c92e0`). Search + enrichment wired via StockService. |
-| 2e | FactorRiskModel Performance tab + R² | 6 (residual) | Medium | ✅ DONE — Factor Alpha, IR, R² wired from backend `variance_decomposition` + `historical_analysis`. Key Risk Insights from real factor betas. R² in header badge. Commit `dbcee8c9`. |
+| 2e | FactorRiskModel Performance tab + R² | 6 (residual) | Medium | Wire Factor Alpha (from `historical_analysis`), Information Ratio (compute from alpha/tracking error), R² (compute from `variance_decomposition.factor_variance / 100`). Wire Key Risk Insights text from real factor betas instead of hardcoded text. Also expose R² in header badge. t-stat: requires regression p-values from backend — low priority. |
 
-**Status:** Wave 2 COMPLETE (2a-2e all done).
+**Status:** 2a COMPLETE, P1-MCP COMPLETE, 2b COMPLETE, 2c COMPLETE, 2d COMPLETE. 2e remaining — needs backend work (B-003).
 
-#### Wave 2.5: Holdings Enrichment Part 2 — DONE
+#### Remaining Holdings Fields (Future Wave)
 
-Per-position fields added to `/api/positions/holdings` endpoint. Plan: `completed/HOLDINGS_ENRICHMENT_WAVE2_5_PLAN.md`. Commit `06e8759b`.
+Fields not covered by Wave 2a holdings enrichment — require additional backend work or product decisions:
 
-| Field | Status |
-|-------|--------|
-| `dayChange` / `dayChangePercent` | ✅ DONE — FMP batch quote endpoint |
-| `trend` (30-day sparkline) | ✅ DONE — FMP `historical_price_eod`, parallel fetch |
-| `volatility` (annualized) | ✅ DONE — computed from same historical data |
-| `alerts` (per-position count) | ✅ DONE — `generate_position_flags()` per-ticker counting |
-| `aiScore` removed from UI | ✅ DONE — undefined field, no spec |
-| `riskScore` removed from UI | ✅ DONE — undefined field, no spec |
-| `mockHoldings` deleted | ✅ DONE — all mock data removed, fallback defaults fixed |
+| Field | Current State | What's Needed | Effort |
+|-------|--------------|---------------|--------|
+| `volatility` (per-holding) | Always 0 | Compute from `df_stock_returns` in risk analysis, or FMP historical prices. Data exists at portfolio level but not surfaced per-position. | Medium |
+| `riskScore` (per-holding) | Always 0 | Needs product design: what does per-position risk mean? Options: concentration risk, volatility-weighted, drawdown-based, or composite. | Medium-High |
+| `aiScore` | Always 0 | Undefined — no clear spec. Could derive from stock analysis or factor exposure. Likely remove from UI if not planned. | Low (remove) or High (build) |
+| `alerts` | Always 0 | Derive from risk flags / exit signals per-ticker. Infrastructure exists in `core/*_flags.py`. | Medium |
+| `trend` (sparkline) | Always `[]` | Requires historical price series per ticker — could use FMP historical prices. Frontend rendering exists. | Medium |
+| `dayChange` / `dayChangePercent` | Always 0 | FMP real-time quote endpoint (already used in stock lookup). | Low-Medium |
 
-#### Wave 2.6: Stock Research — Wire Real Risk Data — DONE
-
-Backend + frontend fixes to wire real risk metrics into the Stock Research view. Plan: `completed/STOCK_RESEARCH_WAVE2_6_PLAN.md`. Commit `03f010ea`.
-
-| Fix | Status |
-|-----|--------|
-| `max_drawdown` added to `vol_metrics` (both analysis paths) | ✅ DONE |
-| `sharpe_ratio`/`sortino_ratio` added to multi-factor path | ✅ DONE |
-| Volatility display scale fixed (decimal → percentage) | ✅ DONE |
-| Sharpe ratio reads from correct source (was hardcoded 1.2) | ✅ DONE |
-| Max drawdown reads real value (was synthetic vol*-2) | ✅ DONE |
-| Correlation bug fixed (was R², now √R²·sign(β)) | ✅ DONE |
-| VaR 95/99% uses daily vol (was annual vol) | ✅ DONE |
-| Risk Factors tab replaced with real factor_summary data | ✅ DONE |
-| Adapter extended: volatility_metrics + full factor_summary | ✅ DONE |
+These can be tackled incrementally — each is independent and can be added to the adapter mapping without changing the holdings pipeline. Suggest fitting into Wave 3 or as a Wave 2.5 batch.
 
 #### Wave 3: Design Decisions + New Features
 
@@ -392,14 +397,14 @@ Need architectural decisions before implementation. Each item has a "server-side
 
 | # | Task | Items | Decision needed |
 |---|------|-------|-----------------|
-| ~~3a~~ | ~~Market Intelligence~~ | ~~1~~ | **DONE** (`5151dd0a`). FMP news + earnings calendar via shared `build_market_events()`. |
-| 3b | ~~Smart Alerts~~ | 2 | ✅ DONE — `/api/positions/alerts` endpoint + `useSmartAlerts()` hook. Commit `1dea17ba`. Plan: `completed/SMART_ALERTS_WAVE3B_PLAN.md`. |
-| ~~3c~~ | ~~Notification Center~~ | ~~5~~ | **DONE** (`1505c1f1`). `useNotifications()` composing `useSmartAlerts()` + `usePendingUpdates()`. Plan: `completed/NOTIFICATION_CENTER_WIRING_PLAN.md`. |
-| ~~3d~~ | ~~AI Recommendations~~ | ~~3~~ | **DONE** (`aae47747`). `build_ai_recommendations()` shared builder + `GET /ai-recommendations` endpoint + `useAIRecommendations()` hook. Plan: `completed/AI_RECOMMENDATIONS_WAVE3D_PLAN.md`. |
-| ~~3e~~ | ~~AI Insights (metric cards)~~ | ~~4~~ | **DONE** (`bc107e04`). `build_metric_insights()` shared builder + `GET /metric-insights` endpoint + `useMetricInsights()` hook. 3 flag generators → 7 metric cards. Plan: `completed/METRIC_INSIGHTS_WAVE3E_PLAN.md`. |
-| ~~3f~~ | ~~Performance AI content~~ | ~~7 (partial)~~ | **DONE** (`52c6d95a`). Deleted 5 fallback arrays, refactored buildInsights(), wired real monthly returns, empty-state guards. Plan: `completed/PERFORMANCE_MOCK_REMOVAL_PLAN.md`. |
-| ~~3g~~ | ~~Strategy Builder backtesting~~ | ~~15~~ | **DONE** (`76bf0121` backend, `6e007162` frontend, `733b8c9e` endpoint). 5-phase backtesting engine: `BacktestEngine` class, `POST /api/backtest`, `useBacktest()` hook, `BacktestAdapter`, Strategy Builder tab wiring. Plan: `completed/BACKTESTING_ENGINE_PLAN.md`. |
-| ~~3h~~ | ~~Unused backend endpoints~~ | ~~—~~ | **DONE** — Added deprecation comments to 15 unused endpoints (6 `/api/direct/*`, 3 factor-intelligence, 5 factor-groups CRUD, 1 positions/monitor). Active endpoints kept. |
-| ~~3i~~ | ~~Market status indicator~~ | ~~16~~ | **DONE** — ET timezone-aware market hours via `Intl.DateTimeFormat`. Handles pre-market/open/after-hours/closed + weekend detection. |
+| 3a | Market Intelligence | 1 | Which backend source? FMP news/market context vs factor endpoints? |
+| 3b | Smart Alerts | 2 | Derive from risk flags / exit signals? Real-time vs polling? |
+| 3c | Notification Center | 5 | Design notification system — event-driven vs derived from alerts? |
+| 3d | AI Recommendations | 3 | Server-side generation (analyst agent) vs client-side from optimization data? |
+| 3e | AI Insights (metric cards) | 4 | Server-side interpretive text vs client-side computed from real values? |
+| 3f | Performance AI content | 7 (partial) | Wire target prices/ratings to FMP analyst data? Or strip mock AI layer? |
+| 3g | Strategy Builder backtesting | 15 (residual) | Backtesting now routes through callbacks/what-if flow, but still lacks a dedicated historical backtest engine. Build engine or simplify UX. |
+| 3h | Unused backend endpoints | — | Keep `/api/direct/*`, `/api/factors/*`, `/api/positions/*` for CLI/API use or deprecate? |
+| 3i | Market status indicator | 16 | Optional: wire to real market calendar or keep naive time-based? |
 
-**Status:** ALL WAVES 3a-3i COMPLETE. All 16 original mock data items resolved.
+**Status:** Blocked on design decisions
