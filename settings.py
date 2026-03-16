@@ -166,6 +166,8 @@ RISK_ANALYSIS_THRESHOLDS = {
     # Diversification Analysis  
     "herfindahl_warning_threshold": 0.15,  # HHI above this indicates low diversification
     "concentration_warning_ratio": 0.8,    # Position size above 80% of limit triggers warning
+    "top_n_dampening": 0.5,                # Multi-position simultaneous crash dampening
+    "top_n_count": 3,                      # Number of top positions to consider
     
     # Volatility Analysis
     "volatility_warning_ratio": 0.8,  # Portfolio volatility above 80% of limit

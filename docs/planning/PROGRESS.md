@@ -55,7 +55,7 @@ Massive execution push across all workstreams. Full detail in `docs/TODO.md` and
 - 1B: Multi-user infra deploy (needs domain name)
 - 2E: Portfolio selector (backend in progress)
 - 2E-b: CSV import settings path + live test
-- 2F: Tier 4 features (AI insights toggle, rebalance execution)
+- ~~2F: Tier 4 features~~ — **ALL DONE**. AI insights toggle (`774459ca`), rebalance execution (`98217b77`)
 - 3G: Tier 5 polish (toggle, settings, connections)
 - 3I: Onboarding E2E test
 - 3J: Final deploy + verify

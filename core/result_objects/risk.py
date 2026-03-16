@@ -1,5 +1,6 @@
 """Risk result objects."""
 
+from decimal import Decimal, ROUND_FLOOR, ROUND_HALF_UP
 from typing import Dict, Any, Optional, List, Union, Tuple
 import numbers
 import math
@@ -333,6 +334,48 @@ class RiskAnalysisResult:
             return default if numeric != numeric else numeric
         except (TypeError, ValueError):
             return default
+
+    @staticmethod
+    def _round_percentages_largest_remainder(
+        percentages: Dict[str, float], precision: int = 1
+    ) -> Dict[str, float]:
+        """Round percentages while preserving the rounded included total."""
+        if not percentages:
+            return {}
+
+        scale = Decimal(10) ** precision
+        quantizer = Decimal("1").scaleb(-precision)
+        exact_decimals = {
+            key: Decimal(str(RiskAnalysisResult._safe_num(value, default=0.0)))
+            for key, value in percentages.items()
+        }
+
+        rounded: Dict[str, Decimal] = {}
+        remainders: List[Tuple[Decimal, Decimal, str]] = []
+        floor_units_total = 0
+
+        for key, exact_pct in exact_decimals.items():
+            scaled = exact_pct * scale
+            floor_units = int(scaled.to_integral_value(rounding=ROUND_FLOOR))
+            floor_units_total += floor_units
+            rounded[key] = Decimal(floor_units) / scale
+            remainders.append((scaled - Decimal(floor_units), exact_pct, key))
+
+        target_units_total = int(
+            (sum(exact_decimals.values()) * scale).to_integral_value(rounding=ROUND_HALF_UP)
+        )
+        increments_remaining = max(0, target_units_total - floor_units_total)
+
+        for _, _, key in sorted(remainders, key=lambda item: (-item[0], -item[1], item[2])):
+            if increments_remaining == 0:
+                break
+            rounded[key] += Decimal(1) / scale
+            increments_remaining -= 1
+
+        return {
+            key: float(value.quantize(quantizer, rounding=ROUND_HALF_UP))
+            for key, value in rounded.items()
+        }
 
     @property
     def effective_duration(self) -> float:
@@ -892,6 +935,8 @@ class RiskAnalysisResult:
         drift_rows = compute_allocation_drift(current_allocation_pct, target_allocation) if target_allocation else []
         drift_by_class = {str(row["asset_class"]): row for row in drift_rows}
 
+        rounded_allocation_pct = self._round_percentages_largest_remainder(current_allocation_pct)
+
         # Build frontend-compatible array
         allocation_breakdown = []
         for asset_class, data in asset_groups.items():
@@ -900,7 +945,7 @@ class RiskAnalysisResult:
             allocation_breakdown.append({
                 # Keep category as canonical key (snake_case) for frontend adapters
                 'category': asset_class,
-                'percentage': round(data['total_weight'] * 100, 1),
+                'percentage': rounded_allocation_pct.get(asset_class, 0.0),
                 'target_pct': drift.get('target_pct') if drift else None,
                 'drift_pct': drift.get('drift_pct') if drift else None,
                 'drift_status': drift.get('drift_status') if drift else None,
@@ -1933,6 +1978,9 @@ class RiskScoreResult:
             ),
             "compliance_ceiling_applied": (
                 details.get("compliance_ceiling_applied", False) if isinstance(details, dict) else False
+            ),
+            "concentration_metadata": (
+                details.get("concentration_metadata", {}) if isinstance(details, dict) else {}
             ),
             "critical_violations": critical_violations[:3],
             "recommendations": recommendations[:5],

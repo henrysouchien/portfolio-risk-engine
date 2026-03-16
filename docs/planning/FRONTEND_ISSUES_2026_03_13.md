@@ -47,12 +47,11 @@
 - **Fix**: At minimum, label each distinctly. Ideally, standardize on portfolio-level vol everywhere.
 - **Effort**: Medium
 
-### F6. Phantom positions in analytics
+### F6. ~~Phantom positions in analytics~~ `NOT A BUG`
 - **Page**: Performance Attribution, Research Risk Analysis, Settings
-- **Symptom**: DSU (27.6%), STWD (11.8%), MSCI (11.2%), ENB, CBL, IT, PCTY appear in analytics but are absent from the 15 current holdings.
-- **Root cause**: Analytics views use the full historical/multi-account portfolio. Holdings shows only current equity positions.
-- **Fix**: Either filter analytics to current holdings, or label historical/cross-account positions.
-- **Effort**: Large
+- **Symptom**: DSU, STWD, MSCI appear in analytics but were absent from Holdings during audit.
+- **Investigation (2026-03-14)**: DSU ($14.6K), STWD ($9K), MSCI ($11.2K) are **real live Plaid positions**. Full portfolio has 28 positions across 3 providers (Plaid, SnapTrade, CSV). Holdings drops 10 cash positions via `to_monitor_view()` (by design). The apparent mismatch was a timing/sync issue during the audit — Plaid positions hadn't loaded into the Holdings view yet. Risk analysis (which caches results) showed them correctly.
+- **Status**: Closed — not a bug. Performance attribution showing historical closed positions (ENB, CBL, IT, PCTY) is correct behavior (they contributed to period returns).
 
 ### F7. "Well Diversified" contradicts concentration alerts
 - **Page**: Dashboard

@@ -86,6 +86,37 @@ def generate_risk_score_flags(snapshot: dict) -> list[dict]:
                 }
             )
 
+    conc_meta = snapshot.get("concentration_metadata", {}) if isinstance(snapshot, dict) else {}
+    conc_score = component_scores.get("concentration_risk", 100) if isinstance(component_scores, dict) else 100
+    if (
+        isinstance(conc_meta, dict)
+        and conc_meta
+        and isinstance(conc_score, (int, float))
+        and conc_score < 75
+    ):
+        severity = "warning" if conc_score < 60 else "info"
+        driver = conc_meta.get("concentration_driver")
+        if driver == "top_n":
+            tickers = ", ".join(conc_meta.get("top_n_tickers", []))
+            weight = conc_meta.get("top_n_weight", 0)
+            flags.append(
+                {
+                    "flag": "concentration_top_n",
+                    "severity": severity,
+                    "message": f"Top positions ({tickers}) represent {weight}% of portfolio",
+                }
+            )
+        else:
+            ticker = conc_meta.get("largest_ticker", "?")
+            weight = conc_meta.get("largest_weight", 0)
+            flags.append(
+                {
+                    "flag": "concentration_single",
+                    "severity": severity,
+                    "message": f"Largest position ({ticker}) is {weight}% of portfolio",
+                }
+            )
+
     if is_compliant and not any(flag.get("flag") == "excellent_risk" for flag in flags):
         flags.append(
             {
