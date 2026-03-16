@@ -558,6 +558,10 @@ class PositionResult:
             pnl_usd_val = position.get("pnl_usd")
             if pnl_usd_val is not None:
                 portfolio_totals_usd["total_pnl_usd"] += pnl_usd_val
+        cash_value_usd = sum(self._safe_float(position.get("value")) or 0.0 for position in cash_positions)
+        portfolio_totals_usd["total_portfolio_value"] = (
+            portfolio_totals_usd["net_exposure"] + cash_value_usd
+        )
 
         payload = {
             "status": "success",
@@ -573,6 +577,13 @@ class PositionResult:
                 "has_multiple_currencies": has_multiple_currencies,
                 "has_partial_cost_basis": total_missing_cost_basis > 0,
                 "total_positions": total_positions,
+                "holdings_count": len(
+                    [
+                        p for p in processed_positions
+                        if (p.get("quantity") or 0) != 0
+                        and p.get("type") not in ("option",)
+                    ]
+                ),
                 "cash_positions_excluded": len(cash_positions),
                 "positions_missing_price_or_quantity": total_missing_price_or_quantity,
                 "portfolio_totals_usd": portfolio_totals_usd,

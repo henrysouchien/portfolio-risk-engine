@@ -882,7 +882,9 @@ class RiskAnalysisResult:
         Returns:
             List[Dict]: Asset allocation breakdown for frontend charts
         """
-        if not self.portfolio_weights:
+        original_weights = (self.analysis_metadata or {}).get("weights", {})
+        allocation_weights = original_weights if original_weights else self.portfolio_weights
+        if not allocation_weights:
             return []
         
         # Require pre-calculated asset classes - fail fast if missing
@@ -908,7 +910,7 @@ class RiskAnalysisResult:
         asset_groups = {}
         total_value = self.total_value or 0
         
-        for ticker, weight in self.portfolio_weights.items():
+        for ticker, weight in allocation_weights.items():
             asset_class = asset_classes.get(ticker)
             if not asset_class:
                 continue  # Skip tickers without asset class classification

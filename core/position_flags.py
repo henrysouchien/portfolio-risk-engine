@@ -7,6 +7,7 @@ import math
 from typing import Any
 
 from portfolio_risk_engine.constants import DIVERSIFIED_SECURITY_TYPES
+from providers.routing_config import resolve_account_aliases
 
 
 def _to_float(value: Any, default: float = 0.0) -> float:
@@ -18,6 +19,15 @@ def _to_float(value: Any, default: float = 0.0) -> float:
     if not math.isfinite(numeric):
         return default
     return numeric
+
+
+def _canonical_account_key(account_id) -> str:
+    """Return a canonical account key, resolving aliases."""
+    normalized = str(account_id or "").strip().lower()
+    if not normalized:
+        return ""
+    aliases = resolve_account_aliases(normalized)
+    return min(aliases) if aliases else normalized
 
 
 def _is_diversified(position: dict[str, Any], security_types: dict[str, str] | None) -> bool:
@@ -297,10 +307,17 @@ def generate_position_flags(
     # Cash: split into positive cash (drag) and negative cash (margin debt)
     cash_balance = 0.0
     margin_debt = 0.0
+    seen_cash_keys = set()
     for position in all_positions:
         ptype = str(position.get("type", ""))
         ticker = str(position.get("ticker", ""))
         if ptype == "cash" or ticker.startswith("CUR:"):
+            brokerage = str(position.get("brokerage_name", ""))
+            acct = _canonical_account_key(position.get("account_id", ""))
+            dedup_key = (ticker, brokerage, acct)
+            if dedup_key in seen_cash_keys:
+                continue
+            seen_cash_keys.add(dedup_key)
             val = _to_float(position.get("value", 0))
             if val >= 0:
                 cash_balance += val

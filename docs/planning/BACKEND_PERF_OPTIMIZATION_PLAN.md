@@ -1,9 +1,41 @@
 # Backend Performance Optimization Plan
 
 **Status:** ACTIVE  
-**Updated:** 2026-03-15  
-**Primary Goal:** Reduce dashboard cold-load and `"All Accounts"` portfolio-switch latency by removing duplicate backend work in the current request burst.  
-**Related Docs:** `docs/planning/PERFORMANCE_BASELINE_2026-03-10.md`, `docs/planning/PERFORMANCE_BASELINE_2026-03-15.md`, `docs/planning/REVIEW_FINDINGS.md`, `docs/planning/completed/performance/BACKEND_PERFORMANCE_PLAN.md`, `docs/planning/completed/performance/BACKEND_PERFORMANCE_PHASE2_PLAN.md`
+**Updated:** 2026-03-16  
+**Primary Goal:** Reduce the remaining `"All Accounts"` dashboard tail latency after the shared-snapshot and bootstrap-deduplication pass.  
+**Related Docs:** `docs/planning/PERFORMANCE_BASELINE_2026-03-10.md`, `docs/planning/PERFORMANCE_BASELINE_2026-03-15.md`, `docs/planning/PERFORMANCE_BASELINE_2026-03-16.md`, `docs/planning/REVIEW_FINDINGS.md`, `docs/planning/completed/performance/BACKEND_PERFORMANCE_PLAN.md`, `docs/planning/completed/performance/BACKEND_PERFORMANCE_PHASE2_PLAN.md`
+
+## Checkpoint — 2026-03-16
+
+This plan has now completed the original Phase 1 through Phase 6 execution sequence.
+
+The current March 16 checkpoint is the authenticated admin-cache-clear rerun in `docs/planning/PERFORMANCE_BASELINE_2026-03-16.md`. It supersedes the earlier March 16 reload-based draft.
+
+### Landed
+
+- Phase 1 workflow-level timing instrumentation is in place.
+- Phase 2 bootstrap pricing deduplication is in place.
+- Phase 3 short-lived shared workflow setup caching for `analyze` / `risk-score` / `performance` is in place.
+- Phase 4 short-lived shared position snapshots across holdings / alerts / income / intelligence are in place.
+- Phase 5 threadpool cleanup for `routes/income.py`, `routes/realized_performance.py`, and `routes/factor_intelligence.py` is in place.
+- Phase 6 remeasurement is captured in `docs/planning/PERFORMANCE_BASELINE_2026-03-16.md`.
+
+### Current Outcome
+
+- Single-account warm dashboard burst `p50` is now **1.78s** and `p95` is **2.09s**.
+- Combined-account warm dashboard burst `p50` is now **7.86s** and `p95` is **9.04s**.
+- The original combined warm-path target is now met under the correct admin cache-clear reset.
+- Bootstrap is no longer a meaningful warm-path bottleneck.
+- The remaining slow surfaces are `market-intelligence`, `metric-insights`, `income`, `performance`, and `holdings`. `analyze` and `risk-score` are now mostly out of the critical path except for occasional tail spikes.
+
+### Implication
+
+The next pass should stop framing this as a whole-dashboard setup problem. The remaining work is endpoint-level tail latency:
+
+- instrument and reduce the downstream fetch path inside `market-intelligence`
+- reduce or defer `performance` attribution enrichment
+- make `metric-insights` consume existing `performance` / portfolio-context outputs
+- reduce `income` dividend-history cost and holdings market-data enrichment cost before considering any API-shape change
 
 ## Scope
 
@@ -26,6 +58,11 @@ These items are already present in the codebase and should not be re-planned as 
 
 - Core analysis routes in `app.py` already use `run_in_threadpool()` for `/api/analyze`, `/api/risk-score`, `/api/performance`, and other heavy handlers.
 - `routes/positions.py` already wraps holdings/alerts/export/market-intelligence/AI-insights work in `run_in_threadpool()`.
+- Workflow-level backend timing instrumentation is already in place for the main burst paths.
+- Bootstrap pricing deduplication is already in place between `GET /api/portfolios/{name}` and `PortfolioInitializer`.
+- Shared workflow setup caching is already in place for `analyze`, `risk-score`, and `performance`.
+- Shared position snapshot caching is already in place for holdings / alerts / income / intelligence.
+- Remaining active sync route gaps in `routes/income.py`, `routes/realized_performance.py`, and `routes/factor_intelligence.py` have already been moved off the event loop.
 - Session `last_accessed` writes are already throttled in `app_platform/auth/stores.py`.
 - `PortfolioService.analyze_portfolio()` already does cache-before-classification and Redis/L1 backfill handling.
 - `core/portfolio_analysis.py` already runs `build_portfolio_view()` and `calc_max_factor_betas()` concurrently.
@@ -36,6 +73,7 @@ These items are already present in the codebase and should not be re-planned as 
 - `docs/planning/PERFORMANCE_BASELINE_2026-03-10.md` still shows cold dashboard load at roughly 49s and slow `POST /api/analyze`, `POST /api/risk-score`, and `POST /api/performance`.
 - `docs/planning/REVIEW_FINDINGS.md` still records user-visible pain at portfolio switch (`R3`), initial holdings/race behavior (`R4`), and excessive request volume (`R17`).
 - The March 10 baseline predates some later fixes, so it is directionally useful but must be refreshed before new optimization work starts.
+- `docs/planning/PERFORMANCE_BASELINE_2026-03-16.md` is now the current checkpoint baseline after rerunning with authenticated `POST /admin/clear_cache`. It shows single-account warm burst `p50` at `1.78s` and combined-account warm burst `p50` at `7.86s`, with the remaining combined warm pressure led by `market-intelligence`, `metric-insights`, `income`, and `performance`.
 
 ## Current Request Graph
 
@@ -44,7 +82,7 @@ These items are already present in the codebase and should not be re-planned as 
 1. `usePortfolioList()` calls `GET /api/v2/portfolios`.
 2. `PortfolioInitializer` calls `GET /api/portfolios/{portfolio_name}`.
 3. That backend route already goes through `transform_portfolio_for_display()`, which calls `PortfolioService.refresh_portfolio_prices()`.
-4. `PortfolioInitializer` may then immediately call `POST /api/portfolio/refresh-prices` for the same holdings.
+4. Current `PortfolioInitializer` skips the immediate `POST /api/portfolio/refresh-prices` call when the GET response already reports `prices_refreshed=true`.
 
 ### Main Dashboard Load
 
@@ -61,115 +99,108 @@ Once a current portfolio exists, the frontend schedules or mounts:
 - `ai-recommendations`
 - `metric-insights`
 
-The main issue is not missing caching infrastructure. The issue is that the backend still performs overlapping portfolio-load and position-load work across these entry points during the same burst.
+The main issue is no longer bootstrap duplication or missing caching infrastructure. The remaining pain is downstream enrichment, dividend/event fetch work, and a few user-scoped intelligence endpoints that still contend badly inside the combined burst.
 
 ## Confirmed Remaining Bottlenecks
 
-### 1. Bootstrap Does Two Pricing Passes
+### 1. `metric-insights` Still Recomputes Heavy Derived Layers
 
 Confirmed paths:
 
-- `GET /api/portfolios/{portfolio_name}` in `app.py`
-- `transform_portfolio_for_display()` in `app.py`
-- `frontend/packages/connectors/src/providers/PortfolioInitializer.tsx`
-
-Current behavior:
-
-- the GET route already prices the holdings
-- the frontend may immediately price them again
-
-Impact:
-
-- unnecessary FMP/pricing work before first useful render
-- extra latency during portfolio bootstrap and portfolio switching
-
-### 2. Analyze / Risk-Score / Performance Rebuild the Same Portfolio Context
-
-Confirmed paths:
-
-- `_run_analyze_workflow()` in `app.py`
+- `build_metric_insights()` in `mcp_tools/metric_insights.py`
+- `generate_position_flags()` in `core/position_flags.py`
 - `_run_risk_score_workflow()` in `app.py`
 - `_run_performance_workflow()` in `app.py`
 
 Current behavior:
 
-- `/api/analyze` loads portfolio data, resolves scope/risk limits, ensures factor proxies, then runs risk analysis
-- `/api/risk-score` does the same portfolio load/proxy prep again, then `run_risk_score_analysis()`
-- `/api/performance` loads portfolio data again and still goes through a temp-file-based performance path
+- `metric-insights` still layers position-flag generation, portfolio-context loading, risk-score flags, and performance flags into one request
+- the authenticated March 16 baseline shows `metric_insights_workflow` averaging roughly `2.0s` in `load_performance_flags`, `1.7s` in `load_portfolio_context`, and `0.18s` in `load_risk_score_flags`
 
 Impact:
 
-- the dashboard burst rebuilds the same portfolio context three times in parallel
-- `/api/risk-score` appears to recompute the heavy `build_portfolio_view()` path instead of consuming `RiskAnalysisResult`
+- it is still one of the slowest combined warm auxiliaries at roughly `3.94s` `p50`
+- it likely duplicates work that the dashboard already paid for elsewhere in the burst
 
-### 3. Holdings / Alerts / Income / Intelligence Rebuild the Same Position Snapshot
+### 2. Holdings / Income Still Pay For Data Fetches After Snapshot Reuse
 
 Confirmed paths:
 
 - `_load_enriched_positions()` in `routes/positions.py`
+- `_build_portfolio_alerts_payload()` in `routes/positions.py`
+- `_load_positions_for_income()` in `mcp_tools/income.py`
 - `PositionService.get_all_positions()` in `services/position_service.py`
-- `get_income_projection()` in `mcp_tools/income.py`
+- `PortfolioService.enrich_positions_with_risk()` in `services/portfolio_service.py`
+
+Current behavior:
+
+- the shared position snapshot now collapses chained follow-up calls, but holdings still pays for first-hit position and market-data work, and income still pays for both positions and dividend history
+- holdings risk enrichment is no longer the main issue; market-data enrichment is now more expensive than risk enrichment in the measured path
+- the authenticated March 16 baseline shows holdings averaging roughly `1.71s` in `get_all_positions` and `0.89s` in `enrich_positions_with_market_data`; income averages roughly `1.88s` in `get_all_positions` and `2.31s` in `fetch_dividend_history`
+
+Impact:
+
+- holdings and income remain material contributors to the combined burst
+- the position snapshot work helped, but it did not eliminate the underlying first-hit provider, pricing, and dividend-history cost
+
+### 3. Performance Still Spends Material Time In Attribution Enrichment
+
+Confirmed paths:
+
+- `_run_performance_workflow()` in `app.py`
+- `PortfolioService.analyze_performance()` in `services/portfolio_service.py`
+
+Current behavior:
+
+- core performance analysis is no longer the only cost
+- the authenticated March 16 baseline shows `api_performance_workflow` averaging roughly `1.98s` in `enrich_attribution_with_analyst_data` and only `0.08s` in `analyze_performance`
+
+Impact:
+
+- combined warm `POST /api/performance` is still around `2.69s` `p50`
+- performance remains one of the main overview blockers even after setup reuse landed
+
+### 4. User-Scoped Intelligence Endpoints Still Inflate The Combined Burst
+
+Confirmed gaps:
+
 - `build_market_events()` in `mcp_tools/news_events.py`
 - `build_ai_recommendations()` in `mcp_tools/factor_intelligence.py`
 - `build_metric_insights()` in `mcp_tools/metric_insights.py`
 
 Current behavior:
 
-- holdings loads positions and then calls `PortfolioService.enrich_positions_with_risk()`
-- that risk enrichment converts positions back into a portfolio and runs `analyze_portfolio()` again
-- alerts, income, market intelligence, AI recommendations, and metric insights all start from their own `get_all_positions()` call chain
+- `market-intelligence`, `ai-recommendations`, and `metric-insights` are still user-scoped in the current frontend contract
+- they are not aligned with the portfolio-scoped resolver path, so they can still miss some reuse opportunities or contend badly with the main burst
 
 Impact:
 
-- CURRENT_PORTFOLIO page load fans out into repeated position fetch and enrichment work
-- the holdings path may trigger a second full risk analysis on top of the dashboard risk-analysis request
-
-### 4. Newer Heavy Routes Still Execute Sync Work Directly Inside `async def`
-
-Confirmed gaps:
-
-- `routes/income.py`
-- `routes/realized_performance.py`
-- `routes/factor_intelligence.py`
-
-Current behavior:
-
-- these route handlers are `async`, but they directly call heavy synchronous helpers/services without `run_in_threadpool()` or `asyncio.to_thread()`
-
-Impact:
-
-- they can still starve the event loop when used
-- the old completed perf docs do not reflect these later-added gaps
-
-### 5. Workflow-Level Timing Is Still Too Coarse
-
-`/api/debug/timing` is useful, but it currently does not break out enough workflow boundaries to answer:
-
-- how much time is portfolio load vs factor-proxy ensure vs analysis cache hit
-- how much time is positions load vs risk enrichment vs dividend fetch
-- whether page-load pain is dominated by duplicate prep work or by the final compute step
+- even after the snapshot and threadpool work, combined warm `market-intelligence` is still `7.86s`, `metric-insights` is `3.94s`, and `ai-recommendations` is `0.71s`
+- `market-intelligence` is now the clearest remaining combined warm blocker. Its measured position-load substeps are much smaller than the end-to-end request time, which implies downstream event/news fetching is now the main cost.
 
 ## Non-Primary Observations
 
 - `portfolio-summary` is eager and bypasses part of the resolver dependency graph, but `PortfolioCacheService` already coalesces in-flight `riskAnalysis`, `riskScore`, and `performance` requests. Treat this as sequencing cleanup, not the main backend target.
-- `POST /api/factor-intelligence/portfolio-recommendations` was the slowest endpoint in the March 10 baseline, but it is not part of the main dashboard path. Only do threadpool hygiene there unless product usage changes.
+- Bootstrap double pricing and the remaining active async/threadpool gaps are no longer the primary issues for this plan.
+- `POST /api/factor-intelligence/portfolio-recommendations` is still not part of the main dashboard path. Only optimize it if product usage changes.
 
 ## Success Metrics
 
-| Metric | Current Reference | Target For This Pass |
+| Metric | Current Reference | Target For Next Pass |
 |---|---:|---:|
-| Cold CURRENT_PORTFOLIO dashboard load | ~49s | <15s |
-| All Accounts switch | ~30s timeout / error state | no timeout, p50 <10s cold |
-| `GET /api/portfolios/{name}` bootstrap | ~2.2s plus second pricing call | single pricing pass, <1s warm |
-| `POST /api/analyze` | 29.9s avg | <5s cold, <1s warm |
-| `POST /api/risk-score` | 37.8s avg | <5s cold, <1s warm |
-| `POST /api/performance` | 44.4s avg | <5s cold, <1s warm |
-| Holdings / alerts / income endpoints | multi-second | <1.5s warm |
-| Heavy sync work inside active `async` routes | present | none on active portfolio/performance surfaces |
+| Warm CURRENT_PORTFOLIO dashboard burst | 7.86s p50 / 9.04s p95 | keep p50 <8s and p95 <10s |
+| Warm single-account dashboard burst | 1.78s p50 / 2.09s p95 | keep <2.5s |
+| Warm `GET /api/portfolios/{name}` bootstrap | ~43ms | keep <100ms |
+| Warm combined `POST /api/analyze` | 0.74s p50 / 2.17s p95 | keep p50 <1.5s and reduce p95 tail |
+| Warm combined `POST /api/risk-score` | 0.35s p50 / 2.06s p95 | keep p50 <1s and reduce p95 tail |
+| Warm combined `POST /api/performance` | 2.69s p50 / 2.92s p95 | <2s |
+| Warm combined holdings / alerts / income | 1.58s / 0.06s / 2.78s | <1.5s / <0.25s / <2s |
+| Warm combined intelligence endpoints | 7.86s / 0.71s / 3.94s | <5s / <1s / <3s |
+| Heavy sync work inside active `async` routes | removed | keep at none |
 
 ## Workstreams
 
-### Phase 0. Refresh the Baseline on Current Code
+### Phase 0. Refresh the Baseline on Current Code [DONE]
 
 Do this before changing behavior.
 
@@ -193,7 +224,7 @@ Deliverable:
 
 This replaces the March 10 baseline as the source of truth for the new pass.
 
-### Phase 1. Add Workflow-Level Timers
+### Phase 1. Add Workflow-Level Timers [DONE]
 
 Add step timing around the current workflow boundaries rather than only the inner math functions.
 
@@ -220,7 +251,7 @@ Acceptance:
 - `/api/debug/timing` can show where duplicate work still lives
 - the top offenders can be ranked by real workflow cost, not guesswork
 
-### Phase 2. Remove Bootstrap Double Pricing
+### Phase 2. Remove Bootstrap Double Pricing [DONE]
 
 Preferred direction:
 
@@ -238,7 +269,7 @@ Acceptance:
 - only one pricing pass occurs during initial portfolio bootstrap
 - no regression in displayed holdings values or total portfolio value
 
-### Phase 3. Share Portfolio Context Across Analyze / Risk-Score / Performance
+### Phase 3. Share Portfolio Context Across Analyze / Risk-Score / Performance [DONE]
 
 Introduce a short-lived backend snapshot keyed by:
 
@@ -270,7 +301,7 @@ Acceptance:
 - the dashboard burst no longer performs three independent portfolio-load/proxy-ensure passes
 - request timing shows prep work is shared rather than repeated
 
-### Phase 4. Share Position Snapshots Across Holdings / Alerts / Income / Intelligence
+### Phase 4. Share Position Snapshots Across Holdings / Alerts / Income / Intelligence [DONE]
 
 Introduce a short-lived `PositionSnapshotService` keyed by:
 
@@ -298,7 +329,7 @@ Acceptance:
 - one position snapshot can feed the main monitor-style endpoints during a refresh window
 - page-load timing shows fewer repeated `get_all_positions()` chains
 
-### Phase 5. Close the Remaining `async` Route Threadpool Gaps
+### Phase 5. Close the Remaining `async` Route Threadpool Gaps [DONE]
 
 Wrap heavy sync route bodies with `run_in_threadpool()` or `asyncio.to_thread()` in:
 
@@ -312,7 +343,7 @@ Acceptance:
 
 - no active performance-sensitive route executes long-running sync work directly in `async def`
 
-### Phase 6. Re-Measure and Decide Whether a Bigger API Shape Change Is Still Needed
+### Phase 6. Re-Measure and Decide Whether a Bigger API Shape Change Is Still Needed [DONE]
 
 After Phases 2-5:
 
@@ -323,6 +354,16 @@ After Phases 2-5:
 Only if targets are still missed should we consider a larger change such as a dedicated dashboard snapshot endpoint.
 
 That endpoint is explicitly a fallback, not the first move.
+
+## Next Pass Candidates
+
+If optimization work continues, the next pass should be narrower and deeper:
+
+1. Instrument and reduce the downstream event/news fetch path inside `market-intelligence`.
+2. Cache, defer, or reuse `performance` attribution enrichment outputs.
+3. Feed those same outputs into `metric-insights` instead of rebuilding portfolio-context and performance-derived layers.
+4. Reduce `income` dividend-history fetch cost and holdings market-data enrichment cost.
+5. Only if those do not move the combined p95 enough, introduce a dedicated dashboard snapshot endpoint for the overview path.
 
 ## File Map
 
@@ -336,13 +377,11 @@ That endpoint is explicitly a fallback, not the first move.
 
 ## Execution Order
 
-1. Refresh baseline on current code.
-2. Add workflow-level timers.
-3. Remove bootstrap double pricing.
-4. Share portfolio context across analyze/risk-score/performance.
-5. Share position snapshots across holdings/income/intelligence.
-6. Close remaining async/threadpool gaps.
-7. Re-measure and decide whether a larger API-shape change is still necessary.
+1. Keep the authenticated March 16 admin-cache-clear baseline as the current source of truth.
+2. Instrument and optimize the downstream `market-intelligence` path.
+3. Reduce or defer `performance` attribution enrichment and reuse those outputs in `metric-insights`.
+4. Reduce `income` dividend-history cost and holdings market-data enrichment cost.
+5. Re-measure before considering any larger API-shape change.
 
 ## Explicitly Out of Scope
 
