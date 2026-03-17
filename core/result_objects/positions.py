@@ -417,6 +417,7 @@ class PositionResult:
 
             entry = {
                 "ticker": position.get("ticker"),
+                "fmp_ticker": position.get("fmp_ticker"),
                 "name": position.get("name"),
                 "type": position.get("type"),
                 "currency": normalized_currency,

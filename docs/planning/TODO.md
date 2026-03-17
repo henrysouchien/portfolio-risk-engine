@@ -135,21 +135,11 @@ Server-side user_id injection into gateway context. Commit `b93a2bd5`.
 
 ---
 
-## Bugs
+## Bugs — All Resolved (2026-03-17)
 
-### Warning: Order accepted for 3x actual held shares — no pre-trade position size validation (SLV Order #121)
-**Logged by analyst-agent**: 2026-03-15
+All 4 bugs fixed in commit `d6ce4dc6`. Plan: `BUG_FIX_PLAN.md`. Migration tracking fixed separately.
 
-Order #121 (SELL 75 SLV @ $74.50 GTC Limit) was accepted with status "ACCEPTED" while the portfolio holds only 25 SLV shares. This discrepancy first appeared in the 2026-03-04 analyst briefing and persisted through 2026-03-13 (5+ sessions) without any system-level detection or alert. The analyst manually identified this as "LIKELY INVALID: Position shows only 25 shares. Order for 75 is over-sized." No pre-trade validation check prevents or flags orders that exceed current holdings. Impact: if SLV dips to $74.50, the broker may attempt to fill 75 shares when only 25 are available — resulting in a partial fill, a rejected order, or unintentional short position creation depending on account margin settings. Suggested fix: add a post-order validation step that compares accepted SELL order quantity against the current position size and emits a warning (or blocks acceptance) when order qty > held shares for non-short-selling accounts.
-
-
-### Warning: Schwab refresh token expiry causes silent position invisibility with no auto-recovery path
-**Logged by analyst-agent**: 2026-03-15
-
-Schwab refresh token expired around 2026-03-11, causing ~8 positions (including PCTY) to become invisible in portfolio data. This persisted across 5+ consecutive analyst sessions (2026-03-11 through 2026-03-13) with no automated recovery. The system requires manual re-auth via `python3 -m scripts.run_schwab login`, which must be run by the user. The analyst briefing persistently flags this but no automated alerting, token-refresh prompt, or session-start check exists. Impact: portfolio NAV appears as $66K visible vs $159K actual; 8 held positions are excluded from compliance assessment and risk scoring; position monitor shows 19/27 positions. Severity escalates the longer the token remains expired. Suggested fix: (a) add token expiry detection at session start with a clear alert, (b) consider proactive token refresh before expiry, (c) expose a re-auth URL or flow the analyst runner can surface to the user automatically.
-
-
-### Bug: get_orders tool fails with DB error: column perm_id does not exist
-**Logged by analyst-agent**: 2026-03-15
-
-The `get_orders` tool returns a DB error "column perm_id does not exist" when querying IBKR order history. First flagged in the 2026-03-04 analyst briefing ("IBKR order history tool: get_orders returning DB error. Flag for system maintenance."), repeated in 2026-03-07 and 2026-03-09 briefings ("Previously logged. Still unresolved."). The tool is non-functional for IBKR order retrieval, requiring the analyst to manually verify order status in IBKR TWS. Impact: loss of programmatic order lifecycle tracking — analyst cannot confirm fills, detect stale orders, or reconcile executed vs pending orders automatically. Reproduction: call `get_orders(days=30)` with IBKR as the brokerage provider.
+- ~~SLV oversized SELL order~~ — **Fixed**: Live IBKR holdings check via `IBKRClient.get_positions()` at preview + execution time, DB fallback for non-IBKR.
+- ~~Schwab token silent invisibility~~ — **Fixed**: Auth errors surfaced before empty-position guard, `auth_warnings` attached to risk tool responses, ERROR-level logging for auth failures.
+- ~~`get_orders` perm_id DB error~~ — **Fixed**: `perm_id` column already existed but migration wasn't tracked. All 28 migrations now tracked in `_migrations` table.
+- ~~`get_risk_score` consolidation empty~~ — **Fixed**: Post-filter `rebuild_position_result()` in `_load_portfolio_for_analysis()` and `load_portfolio_for_performance()`. Rebuild logic moved to service layer.

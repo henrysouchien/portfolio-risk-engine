@@ -1,4 +1,4 @@
-# Bug Fix Plan — 4 Open Bugs (v2 — post-Codex review)
+# Bug Fix Plan — 4 Open Bugs (v4 — Codex PASS)
 
 ## Context
 
@@ -67,16 +67,24 @@ from services.position_service import rebuild_position_result
 position_result = rebuild_position_result(position_service, position_result, consolidate=True)
 ```
 
-### Step 3: Add consolidation call in `load_portfolio_for_performance`
+### Step 3: Add conditional consolidation call in `load_portfolio_for_performance`
 
 **File: `services/performance_helpers.py` (after line 91)**:
 
+The local variable `consolidate_positions` is deliberately set to `False` for realized `source != "all"` (line 75-76) and for VIRTUAL_FILTERED pre-filter (line 77-78). The realized engine needs raw per-source rows for source attribution (`account_id`, `position_source`, `institution`). Cross-provider consolidation drops this detail.
+
+Post-filter rebuild must respect this flag — only consolidate when `consolidate_positions` would have been True for this request:
+
 ```python
 position_result = filter_position_result(position_result, scope.account_filters or [])
-# Post-filter consolidation
-from services.position_service import rebuild_position_result
-position_result = rebuild_position_result(position_service, position_result, consolidate=True)
+# Post-filter consolidation — only when consolidation is appropriate for this mode.
+# Realized source-scoped analysis needs raw rows; skip consolidation there.
+if consolidate_positions:
+    from services.position_service import rebuild_position_result
+    position_result = rebuild_position_result(position_service, position_result, consolidate=True)
 ```
+
+Since `consolidate_positions` is `False` for VIRTUAL_FILTERED (line 78), this means performance_helpers won't consolidate for scoped portfolios. This is correct — the realized engine needs per-account rows. The risk tools path (`risk.py`) unconditionally consolidates, which is also correct since risk analysis works on aggregated positions.
 
 ---
 
@@ -117,15 +125,19 @@ except Exception as exc:
 from mcp_tools.positions import _extract_auth_warnings
 auth_warnings = _extract_auth_warnings(position_result)
 if auth_warnings and not position_result.data.positions:
-    # Auth failure caused empty positions — raise informative error
-    providers = ", ".join(w["provider"] for w in auth_warnings)
-    raise ValueError(
-        f"Provider authentication failed ({providers}). "
-        f"{auth_warnings[0]['message']}"
-    )
+    # Only raise auth error for VIRTUAL_ALL (all providers).
+    # For VIRTUAL_FILTERED, positions may be empty because the scoped
+    # accounts don't match — an unrelated provider's auth failure
+    # should not override the scoped-empty message.
+    if scope.strategy != LoadStrategy.VIRTUAL_FILTERED:
+        providers = ", ".join(w["provider"] for w in auth_warnings)
+        raise ValueError(
+            f"Provider authentication failed ({providers}). "
+            f"{auth_warnings[0]['message']}"
+        )
 ```
 
-This replaces the generic "No brokerage positions found" with a clear auth error message when the root cause is an expired token.
+For VIRTUAL_FILTERED, auth warnings still get attached to the response via Step 3 (if some positions survive from other providers). If all positions are empty for a scoped portfolio, the existing "No positions found for this portfolio" message is more accurate than blaming auth.
 
 ### Step 3: Attach auth warnings to risk tool responses (partial auth failure)
 
@@ -193,10 +205,12 @@ def _get_live_position_quantity(self, broker_provider: str, account_id: str, tic
 
 **File: `services/trade_execution_service.py` (lines 2382-2387)** — Replace DB-only check:
 
+`_validate_pre_trade` already receives `adapter` (see line 300). Use `adapter.provider_name` to determine the broker:
+
 ```python
 if side == "SELL" and quantity_num is not None and ticker:
     held = self._get_live_position_quantity(
-        broker_provider=getattr(self, '_current_broker_provider', ''),
+        broker_provider=adapter.provider_name if adapter else "",
         account_id=account_id,
         ticker=ticker,
     )
@@ -205,8 +219,6 @@ if side == "SELL" and quantity_num is not None and ticker:
             f"Insufficient shares to sell {quantity_num:g} {ticker}; available in account: {held:g}"
         )
 ```
-
-Need to check how `broker_provider` is available in `_validate_pre_trade`. If not currently passed, thread it through or resolve from `account_id`.
 
 ### Step 3: Add execution-time re-validation with live check
 
