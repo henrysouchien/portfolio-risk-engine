@@ -821,6 +821,7 @@ def run_portfolio_performance(
     return_data: bool = False,
     benchmark_ticker: str = "SPY",
     include_attribution: bool = True,
+    include_optional_metrics: bool = True,
 ) -> Union[None, PerformanceResult, Dict[str, Any]]:
     """
     Calculate and display comprehensive portfolio performance metrics.
@@ -865,6 +866,7 @@ def run_portfolio_performance(
         filepath,
         benchmark_ticker,
         include_attribution=include_attribution,
+        include_optional_metrics=include_optional_metrics,
     )
     
     # Handle error case (returns dict on error, PerformanceResult on success)

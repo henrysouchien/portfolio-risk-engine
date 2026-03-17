@@ -1,7 +1,7 @@
 # User Review Findings
 
-**Status**: REVIEW COMPLETE — 21/22 fixed, R7 not reproducible, R18 open
-**Date**: 2026-03-15 (reviewed), 2026-03-16 (fixes + re-verification)
+**Status**: REVIEW COMPLETE — 22/22 fixed (R7 not reproducible, all others resolved)
+**Date**: 2026-03-15 (reviewed), 2026-03-16 (fixes + re-verification + chart upgrades)
 **Plan**: `docs/planning/USER_PERSPECTIVE_E2E_REVIEW_PLAN.md`
 
 Catalog of issues found during user-perspective review. Each item includes reproduction
@@ -13,7 +13,10 @@ context, root cause analysis, and enough detail for another Claude session to pl
 - `8531a6f3` — Session 4: R6, R8, R12, R15, R21, R22
 - `23a2060d`, `2aa2833d`, `02607731`, `487eb2f9` — Perf: R3 improved, R17 improved
 - `2d4a5d06` — Session 5: R17 dedup (31→20 requests), R19 dark mode (6 phases, ~120 components)
+- `f918d5ba` — R18: eliminate spontaneous session logout cascade
 - `bcd85e6f` — Fix notification dropdown hidden behind content (glass-premium overflow + z-index)
+- `9cefd724` — R2 follow-up: replace SVG sparkline with Recharts AreaChart (Performance Trend)
+- `e8e7301e` — Income Forecast: replace SVG sparkline with Recharts BarChart
 
 ---
 
@@ -22,7 +25,7 @@ context, root cause analysis, and enough detail for another Claude session to pl
 | # | Severity | Location | Issue | Status |
 |---|----------|----------|-------|--------|
 | R1 | Medium | Header → dropdown | Popover transparency — `--popover` CSS var undefined | ✅ Fixed (`8f4b670f`) |
-| R2 | High | Dashboard → Performance Trend | Chart squashed to 80px, illegible | ✅ Fixed (`8f4b670f`) |
+| R2 | High | Dashboard → Performance Trend | Chart squashed to 80px, illegible | ✅ Fixed (`8f4b670f`, `9cefd724`) — Recharts AreaChart replacement |
 | R3 | High | Portfolio selector → All Accounts | 30s timeout, frontend error state | ⚠️ Improved (~8s, no timeout) |
 | R4 | High | Dashboard → All Accounts | Holdings empty on initial load (race condition) | ✅ Fixed (`16e8afa4`) |
 | R5 | High | Dashboard → Risk Score card | Score 89 labeled "Low Risk" — semantic inversion | ✅ Fixed (`8f4b670f`) |
@@ -39,7 +42,7 @@ context, root cause analysis, and enough detail for another Claude session to pl
 | R15 | High | Dashboard vs Performance vs Settings | Volatility 8.41% vs 16.3% vs 19.4% across views | ✅ Fixed (`8531a6f3`) |
 | R16 | Medium | Factors → Concentration Risk | SGOV (-17.2%) in top-3 but not in Holdings (phantom position) | ✅ Fixed (`16e8afa4`) |
 | R17 | Medium | Cross-cutting → Network | 71 requests on dashboard load (target ≤30) | ✅ Fixed (`2d4a5d06`) — 71→31→20 (target ≤20) |
-| R18 | **Critical** | Cross-cutting → Navigation | Frequent spontaneous logout — any page, any interaction | Open |
+| R18 | **Critical** | Cross-cutting → Navigation | Frequent spontaneous logout — any page, any interaction | ✅ Fixed (`f918d5ba`) |
 | R19 | High | Cross-cutting → Dark mode | Dark mode partial — header dark but content light, text faded/unreadable | ✅ Fixed (`2d4a5d06`) — 6 phases, ~120 components migrated, toggle + persistence |
 | R20 | Medium | Settings → Alert Thresholds | "Volatility Alert Level: 8" — label says risk score, value too low | ✅ Fixed (`8f4b670f`) |
 | R21 | High | Dashboard → Asset Allocation | IBKR allocation sums to $46K, total portfolio is $131K — $85K gap | ✅ Fixed (`8531a6f3`) |
@@ -47,10 +50,7 @@ context, root cause analysis, and enough detail for another Claude session to pl
 
 ### Remaining Open Items
 
-| # | Severity | Issue | What's Needed |
-|---|----------|-------|---------------|
-| R7 | Critical | IBKR $128K > All Accounts $109K | Not reproducible — diagnostic confirms combined ≥ single. Likely fixed by R8 cash dedup (`8531a6f3`). |
-| R18 | Critical | Frequent spontaneous logout | Investigate session drop — see R18 detail section. Multi-layer auth issue (DB write contention + aggressive 401 handler). |
+None — all 22 findings resolved. R7 not reproducible (likely fixed by R8). All others have fix commits.
 
 ---
 
