@@ -398,6 +398,65 @@ class PerformanceResult:
 
         return insights
 
+    @staticmethod
+    def _as_real(value: Any) -> Optional[float]:
+        """Return finite numeric values as floats, otherwise None."""
+        if isinstance(value, numbers.Real) and not isinstance(value, bool):
+            number = float(value)
+            if math.isfinite(number):
+                return number
+        return None
+
+    def _top_sector_contributor(self) -> Tuple[Optional[str], Optional[float]]:
+        """Return the largest positive named sector contributor."""
+        if not self.sector_attribution:
+            return None, None
+
+        candidates: List[Tuple[str, float]] = []
+        for row in self.sector_attribution:
+            if not isinstance(row, dict):
+                continue
+            name = row.get("name")
+            if not isinstance(name, str):
+                continue
+            clean_name = name.strip()
+            if not clean_name or clean_name.lower() == "unknown":
+                continue
+
+            contribution = self._as_real(row.get("contribution"))
+            if contribution is None or contribution <= 0:
+                continue
+            candidates.append((clean_name, contribution))
+
+        if not candidates:
+            return None, None
+        return max(candidates, key=lambda item: item[1])
+
+    def _top_security_detractor(self) -> Tuple[Optional[str], Optional[float]]:
+        """Return the worst named security detractor."""
+        if not self.security_attribution:
+            return None, None
+
+        candidates: List[Tuple[str, float]] = []
+        for row in self.security_attribution:
+            if not isinstance(row, dict):
+                continue
+            name = row.get("name")
+            if not isinstance(name, str):
+                continue
+            clean_name = name.strip()
+            if not clean_name or clean_name.lower() == "unknown":
+                continue
+
+            contribution = self._as_real(row.get("contribution"))
+            if contribution is None or contribution >= 0:
+                continue
+            candidates.append((clean_name, contribution))
+
+        if not candidates:
+            return None, None
+        return min(candidates, key=lambda item: item[1])
+
     def _generate_structured_insights(self) -> Dict[str, Dict[str, str]]:
         """
         Generate structured insights for frontend consumption.
@@ -412,74 +471,211 @@ class PerformanceResult:
         - Risk: high volatility/drawdown/beta = high concern
         - Opportunity: Sharpe < 1 = high improvement opportunity; Sharpe > 1.5 = low
         """
-        alpha = self.benchmark_analysis.get("alpha_annual") or 0
-        beta = self.benchmark_analysis.get("beta") or 0
-        sharpe = self.risk_adjusted_returns.get("sharpe_ratio") or 0
-        volatility = self.risk_metrics.get("volatility") or 0
-        max_dd = self.risk_metrics.get("maximum_drawdown") or 0
-        benchmark_vol = self.benchmark_comparison.get("benchmark_volatility") or 0
+        alpha = self._as_real((self.benchmark_analysis or {}).get("alpha_annual"))
+        beta = self._as_real((self.benchmark_analysis or {}).get("beta"))
+        sharpe = self._as_real((self.risk_adjusted_returns or {}).get("sharpe_ratio"))
+        sortino = self._as_real((self.risk_adjusted_returns or {}).get("sortino_ratio"))
+        information_ratio = self._as_real((self.risk_adjusted_returns or {}).get("information_ratio"))
+        volatility = self._as_real((self.risk_metrics or {}).get("volatility"))
+        max_dd = self._as_real((self.risk_metrics or {}).get("maximum_drawdown"))
+        benchmark_vol = self._as_real((self.benchmark_comparison or {}).get("benchmark_volatility"))
+        benchmark_sharpe = self._as_real((self.benchmark_comparison or {}).get("benchmark_sharpe"))
+        portfolio_sharpe = self._as_real((self.benchmark_comparison or {}).get("portfolio_sharpe"))
+        if portfolio_sharpe is None:
+            portfolio_sharpe = sharpe
+
+        win_rate = self._as_real((self.returns or {}).get("win_rate"))
+        total_return = self._as_real((self.returns or {}).get("total_return"))
+        annualized_return = self._as_real((self.returns or {}).get("annualized_return"))
+        total_months = self._as_real((self.analysis_period or {}).get("total_months"))
+        total_months_int = int(round(total_months)) if total_months is not None and total_months > 0 else None
+
+        top_sector_name, top_sector_contribution = self._top_sector_contributor()
+        top_detractor_name, top_detractor_contribution = self._top_security_detractor()
 
         # --- Performance insight ---
-        if alpha > 5:
-            perf_text = f"Portfolio is significantly outperforming the benchmark with {alpha:.2f}% alpha."
-            perf_action = "Continue current allocation strategy"
-        elif alpha >= 0:
-            perf_text = f"Portfolio is modestly outperforming with {alpha:.2f}% alpha."
-            perf_action = "Continue current allocation strategy"
+        perf_parts: List[str] = []
+        if alpha is not None:
+            if alpha > 0:
+                perf_sentence = f"Portfolio generated {alpha:.1f}% alpha"
+                if top_sector_name is not None and top_sector_contribution is not None:
+                    perf_sentence += f", driven by {top_sector_name} ({top_sector_contribution:+.1f}%)"
+                perf_parts.append(perf_sentence + ".")
+            elif alpha < 0:
+                perf_sentence = f"Portfolio is trailing the benchmark by {abs(alpha):.1f}% alpha"
+                if top_sector_name is not None and top_sector_contribution is not None:
+                    perf_sentence += f", with {top_sector_name} still adding {top_sector_contribution:+.1f}%"
+                perf_parts.append(perf_sentence + ".")
+            else:
+                perf_sentence = "Portfolio is tracking the benchmark closely"
+                if top_sector_name is not None and top_sector_contribution is not None:
+                    perf_sentence += f", with {top_sector_name} contributing {top_sector_contribution:+.1f}%"
+                perf_parts.append(perf_sentence + ".")
+        elif total_return is not None:
+            perf_sentence = f"Portfolio returned {total_return:.1f}% over the analysis window"
+            if top_sector_name is not None and top_sector_contribution is not None:
+                perf_sentence += f", led by {top_sector_name} ({top_sector_contribution:+.1f}%)"
+            perf_parts.append(perf_sentence + ".")
+        elif top_sector_name is not None and top_sector_contribution is not None:
+            perf_parts.append(
+                f"Performance attribution shows {top_sector_name} as the leading sector contributor ({top_sector_contribution:+.1f}%)."
+            )
+        elif annualized_return is not None:
+            perf_parts.append(f"Annualized return is {annualized_return:.1f}% over the measured period.")
         else:
-            perf_text = f"Portfolio is underperforming the benchmark by {abs(alpha):.2f}%."
-            perf_action = "Review allocation strategy"
+            perf_parts.append("Performance is available, but benchmark-relative attribution detail is limited.")
 
-        # Impact: negative alpha is a high concern, not a high opportunity
-        if alpha < 0:
+        if win_rate is not None and total_months_int is not None:
+            month_label = "month" if total_months_int == 1 else "months"
+            if win_rate >= 60:
+                consistency = "shows consistent execution"
+            elif win_rate >= 50:
+                consistency = "shows mixed consistency"
+            else:
+                consistency = "highlights uneven consistency"
+            perf_parts.append(
+                f"Win rate of {win_rate:.0f}% across {total_months_int} {month_label} {consistency}."
+            )
+        elif win_rate is not None:
+            perf_parts.append(f"Win rate is {win_rate:.0f}% across observed periods.")
+        elif total_months_int is not None:
+            perf_parts.append(f"Analysis spans {total_months_int} months.")
+
+        perf_text = " ".join(perf_parts)
+
+        if alpha is not None and alpha < 0:
+            if top_detractor_name is not None and top_detractor_contribution is not None:
+                perf_action = (
+                    f"Review {top_detractor_name}, the largest detractor at {top_detractor_contribution:.1f}%."
+                )
+            else:
+                perf_action = "Review the weakest holdings and sector weights driving the alpha shortfall."
+        elif alpha is not None and alpha > 5:
+            perf_action = "Maintain the current playbook while monitoring whether leadership stays broad."
+        elif alpha is not None:
+            perf_action = "Keep rebalancing discipline and monitor whether current winners continue to support alpha."
+        else:
+            perf_action = "Monitor attribution trends as more relative-performance data accumulates."
+
+        alpha_for_impact = alpha if alpha is not None else 0.0
+        if alpha_for_impact < 0:
             perf_impact = "high"
-        elif alpha <= 5:
+        elif alpha_for_impact <= 5:
             perf_impact = "medium"
         else:
             perf_impact = "low"
 
         # --- Risk insight ---
-        beta_sensitivity = "above" if beta > 1.1 else ("below" if beta < 0.9 else "near")
-        dd_magnitude = abs(max_dd)
+        dd_magnitude = abs(max_dd) if max_dd is not None else 0.0
+        risk_parts: List[str] = []
 
-        if volatility > 20:
-            risk_text = (
-                f"Volatility of {volatility:.1f}% is elevated. "
-                f"Max drawdown of {dd_magnitude:.1f}% suggests significant downside risk. "
-                f"Beta of {beta:.2f} indicates {beta_sensitivity}-market sensitivity."
+        if volatility is not None and benchmark_vol is not None and benchmark_vol > 0:
+            risk_parts.append(
+                f"Portfolio vol of {volatility:.1f}% is {volatility / benchmark_vol:.1f}x the benchmark ({benchmark_vol:.1f}%), max drawdown {max_dd:.1f}%."
+                if max_dd is not None
+                else f"Portfolio vol of {volatility:.1f}% is {volatility / benchmark_vol:.1f}x the benchmark ({benchmark_vol:.1f}%)."
             )
-        elif volatility >= 10:
-            risk_text = (
-                f"Volatility of {volatility:.1f}% is moderate with a max drawdown of {dd_magnitude:.1f}%. "
-                f"Beta of {beta:.2f} indicates {beta_sensitivity}-market sensitivity."
-            )
+        elif volatility is not None and max_dd is not None:
+            risk_parts.append(f"Portfolio vol is {volatility:.1f}% with max drawdown {max_dd:.1f}%.")
+        elif volatility is not None:
+            risk_parts.append(f"Portfolio vol is {volatility:.1f}%.")
+        elif max_dd is not None:
+            risk_parts.append(f"Max drawdown is {max_dd:.1f}%.")
         else:
-            risk_text = (
-                f"Volatility of {volatility:.1f}% is low, indicating conservative positioning. "
-                f"Beta of {beta:.2f} indicates {beta_sensitivity}-market sensitivity."
-            )
+            risk_parts.append("Risk data is available, but volatility and drawdown detail is limited.")
 
-        if volatility > 20 or dd_magnitude > 20 or beta > 1.2:
+        if sortino is not None:
+            if sortino >= 1.5:
+                sortino_text = "shows strong downside management"
+            elif sortino >= 1.0:
+                sortino_text = "indicates balanced downside control"
+            elif sortino >= 0:
+                sortino_text = "points to weaker downside protection"
+            else:
+                sortino_text = "signals downside losses are not being rewarded"
+            risk_parts.append(f"Sortino of {sortino:.1f} {sortino_text}.")
+
+        if beta is not None and (beta > 1.1 or beta < 0.9):
+            sensitivity = "above-market" if beta > 1.1 else "below-market"
+            risk_parts.append(f"Beta of {beta:.2f} implies {sensitivity} sensitivity.")
+
+        risk_text = " ".join(risk_parts)
+
+        volatility_for_impact = volatility if volatility is not None else 0.0
+        beta_for_impact = beta if beta is not None else 0.0
+        if volatility_for_impact > 20 or dd_magnitude > 20 or beta_for_impact > 1.2:
             risk_impact = "high"
-        elif volatility >= 10 or dd_magnitude > 10 or beta >= 1:
+        elif volatility_for_impact >= 10 or dd_magnitude > 10 or beta_for_impact >= 1:
             risk_impact = "medium"
         else:
             risk_impact = "low"
 
-        risk_action = "Reduce concentration risk" if volatility > 20 else "Monitor risk metrics"
+        if volatility_for_impact > 20 or dd_magnitude > 20:
+            risk_action = "Reduce concentration risk and trim the positions driving drawdown."
+        elif sortino is not None and sortino < 1:
+            risk_action = "Review downside-heavy exposures and improve hedge discipline."
+        else:
+            risk_action = "Monitor volatility, drawdown, and beta as allocations evolve."
 
         # --- Opportunity insight ---
-        if sharpe > 1.5:
-            opp_text = f"Strong risk-adjusted returns (Sharpe {sharpe:.2f}) suggest current strategy is effective."
-            opp_action = "Fine-tune position sizing"
+        opp_parts: List[str] = []
+        opportunity_sharpe = portfolio_sharpe
+        if opportunity_sharpe is not None and benchmark_sharpe is not None and benchmark_sharpe > 0:
+            comparison = "ahead of" if opportunity_sharpe >= benchmark_sharpe else "trails"
+            opp_parts.append(
+                f"Sharpe of {opportunity_sharpe:.2f} {comparison} the benchmark's {benchmark_sharpe:.2f}."
+            )
+        elif opportunity_sharpe is not None:
+            if opportunity_sharpe > 1.5:
+                opp_parts.append(f"Sharpe of {opportunity_sharpe:.2f} shows strong risk-adjusted returns.")
+            elif opportunity_sharpe >= 1:
+                opp_parts.append(f"Sharpe of {opportunity_sharpe:.2f} is solid but still has room to improve.")
+            else:
+                opp_parts.append(f"Sharpe of {opportunity_sharpe:.2f} leaves room to improve risk-adjusted returns.")
+        else:
+            opp_parts.append("Risk-adjusted opportunity analysis is limited without a reliable Sharpe ratio.")
+
+        if top_detractor_name is not None and top_detractor_contribution is not None:
+            opp_parts.append(
+                f"Top detractor {top_detractor_name} ({top_detractor_contribution:.1f}% drag) offers the clearest room for improvement."
+            )
+
+        if information_ratio is not None:
+            if information_ratio >= 0.5:
+                info_text = "shows active bets have added value"
+            elif information_ratio >= 0:
+                info_text = "suggests active bets are only modestly additive"
+            else:
+                info_text = "suggests active bets have not been consistently rewarded"
+            opp_parts.append(f"Information ratio of {information_ratio:.2f} {info_text}.")
+
+        opp_text = " ".join(opp_parts)
+
+        if top_detractor_name is not None and top_detractor_contribution is not None:
+            opp_action = (
+                f"Re-underwrite {top_detractor_name} after its {top_detractor_contribution:.1f}% drag."
+            )
+        elif benchmark_sharpe is not None and benchmark_sharpe > 0 and opportunity_sharpe is not None and opportunity_sharpe < benchmark_sharpe:
+            opp_action = "Tighten position sizing and cut weaker exposures to close the Sharpe gap."
+        elif opportunity_sharpe is not None and opportunity_sharpe < 1:
+            opp_action = "Consider rebalancing toward higher-conviction, more efficient exposures."
+        else:
+            opp_action = "Fine-tune position sizing while preserving the strongest risk-adjusted contributors."
+
+        sharpe_for_impact = opportunity_sharpe if opportunity_sharpe is not None else 0.0
+        if sharpe_for_impact > 1.5:
             opp_impact = "low"
-        elif sharpe >= 1:
-            opp_text = "Decent risk-adjusted returns. Consider optimizing for better Sharpe ratio."
-            opp_action = "Fine-tune position sizing"
+        elif sharpe_for_impact >= 1:
             opp_impact = "medium"
         else:
-            opp_text = f"Risk-adjusted returns could be improved (Sharpe {sharpe:.2f}). Consider rebalancing."
-            opp_action = "Consider rebalancing"
+            opp_impact = "high"
+
+        if (
+            benchmark_sharpe is not None
+            and benchmark_sharpe > 0
+            and opportunity_sharpe is not None
+            and opportunity_sharpe < benchmark_sharpe * 0.7
+        ):
             opp_impact = "high"
 
         return {

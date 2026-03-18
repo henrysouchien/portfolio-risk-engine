@@ -1,6 +1,6 @@
 # Plan: Add clickable URLs to Market Intelligence news events
 
-**Status:** Codex review FAIL → v2 (addressing sanitization + test coverage)
+**Status:** DONE — committed `275d4450`, live tested
 
 ## Context
 
