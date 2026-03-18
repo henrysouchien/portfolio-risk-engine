@@ -560,7 +560,49 @@ def compute_monthly_nav(
     if not month_ends:
         return pd.Series(dtype=float)
 
+    def _prepare_lookup(series: pd.Series | None) -> tuple[np.ndarray, np.ndarray] | None:
+        if series is None or len(series) == 0:
+            return None
+        prepared = series.dropna()
+        if prepared.empty:
+            return None
+        if not isinstance(prepared.index, pd.DatetimeIndex):
+            prepared.index = pd.to_datetime(prepared.index)
+        prepared = prepared.sort_index()
+        index_ns = prepared.index.to_numpy(dtype="datetime64[ns]").astype(np.int64, copy=False)
+        return index_ns, prepared.to_numpy(dtype=float, copy=False)
+
+    def _lookup_prepared(
+        prepared: tuple[np.ndarray, np.ndarray] | None,
+        when_ns: int,
+        *,
+        default: float,
+    ) -> float:
+        if prepared is None:
+            return default
+        index_ns, values = prepared
+        if len(index_ns) == 0:
+            return default
+
+        prior_pos = int(np.searchsorted(index_ns, when_ns, side="right")) - 1
+        if prior_pos >= 0:
+            return _helpers._as_float(values[prior_pos], default)
+
+        future_pos = int(np.searchsorted(index_ns, when_ns, side="left"))
+        if future_pos < len(values):
+            return _helpers._as_float(values[future_pos], default)
+
+        return default
+
     month_end_index = pd.DatetimeIndex(pd.to_datetime(month_ends)).sort_values()
+    prepared_price_cache = {
+        ticker: _prepare_lookup(series)
+        for ticker, series in price_cache.items()
+    }
+    prepared_fx_cache = {
+        currency.upper(): _prepare_lookup(series)
+        for currency, series in fx_cache.items()
+    }
 
     events_by_key: Dict[Tuple[str, str, str], List[Tuple[datetime, float]]] = {}
     ptrs: Dict[Tuple[str, str, str], int] = {}
@@ -584,6 +626,7 @@ def compute_monthly_nav(
 
     for month_end in month_end_index:
         me = month_end.to_pydatetime().replace(tzinfo=None)
+        me_ns = month_end.value
 
         while cash_ptr < len(cash_snapshots_sorted) and cash_snapshots_sorted[cash_ptr][0] <= me:
             cash_value = cash_snapshots_sorted[cash_ptr][1]
@@ -605,8 +648,16 @@ def compute_monthly_nav(
             ticker, currency, direction = key
             if futures_keys and key in futures_keys:
                 continue
-            price = _helpers._value_at_or_before(price_cache.get(ticker), me, default=0.0)
-            fx = fx_module._event_fx_rate(currency, me, fx_cache)
+            price = _lookup_prepared(prepared_price_cache.get(ticker), me_ns, default=0.0)
+            fx = (
+                1.0
+                if str(currency or "USD").upper() == "USD"
+                else _lookup_prepared(
+                    prepared_fx_cache.get(str(currency or "USD").upper()),
+                    me_ns,
+                    default=1.0,
+                )
+            )
             sign = -1.0 if direction == "SHORT" else 1.0
             position_value += sign * qty * price * fx
 

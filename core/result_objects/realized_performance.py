@@ -410,6 +410,8 @@ class RealizedPerformanceResult:
     risk_free_rate: float
     monthly_returns: Dict[str, float]
     realized_metadata: RealizedMetadata
+    rolling_sharpe: Optional[Dict[str, float]] = None
+    rolling_volatility: Optional[Dict[str, float]] = None
     warnings: Optional[List[str]] = None
     custom_window: Optional[Dict[str, Any]] = None
 
@@ -428,6 +430,8 @@ class RealizedPerformanceResult:
             risk_free_rate=d.get("risk_free_rate", 0.0),
             monthly_returns=d.get("monthly_returns", {}),
             realized_metadata=RealizedMetadata.from_dict(meta_raw),
+            rolling_sharpe=d.get("rolling_sharpe"),
+            rolling_volatility=d.get("rolling_volatility"),
             warnings=d.get("warnings"),
             custom_window=d.get("custom_window"),
         )
@@ -452,6 +456,8 @@ class RealizedPerformanceResult:
             "monthly_stats": self.monthly_stats,
             "risk_free_rate": self.risk_free_rate,
             "monthly_returns": self.monthly_returns,
+            "rolling_sharpe": self.rolling_sharpe or {},
+            "rolling_volatility": self.rolling_volatility or {},
             "realized_metadata": meta_dict,
             "realized_pnl": self.realized_metadata.realized_pnl,
             "unrealized_pnl": self.realized_metadata.unrealized_pnl,

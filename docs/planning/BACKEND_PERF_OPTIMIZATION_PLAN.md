@@ -1,22 +1,25 @@
 # Backend Performance Optimization Plan
 
 **Status:** ACTIVE  
-**Updated:** 2026-03-16  
-**Primary Goal:** Preserve the now-fast dashboard path and only target the few remaining cold combined-account outliers.  
-**Related Docs:** `docs/planning/PERFORMANCE_BASELINE_2026-03-10.md`, `docs/planning/PERFORMANCE_BASELINE_2026-03-15.md`, `docs/planning/PERFORMANCE_BASELINE_2026-03-16.md`, `docs/planning/REVIEW_FINDINGS.md`
+**Updated:** 2026-03-18  
+**Primary Goal:** Preserve the fast dashboard path, keep the virtual-bootstrap correctness fix in place, and only target any remaining cold-path costs if they matter in practice.  
+**Related Docs:** `docs/planning/PERFORMANCE_BASELINE_2026-03-10.md`, `docs/planning/PERFORMANCE_BASELINE_2026-03-15.md`, `docs/planning/PERFORMANCE_BASELINE_2026-03-16.md`, `docs/planning/PERFORMANCE_BASELINE_2026-03-18.md`, `docs/planning/REVIEW_FINDINGS.md`
 
-## Checkpoint — 2026-03-16
+## Checkpoint — 2026-03-18
 
-The latest authenticated localhost rerun in `docs/planning/PERFORMANCE_BASELINE_2026-03-16.md` is now the source of truth.
+The latest authenticated localhost rerun in `docs/planning/PERFORMANCE_BASELINE_2026-03-18.md` is now the source of truth.
 
 ### Current Outcome
 
-- Single-account dashboard total is now **1.35s cold**, **470.50ms warm p50**, and **486.59ms warm p95**.
-- Combined `CURRENT_PORTFOLIO` dashboard total is now **2.89s cold**, **394.52ms warm p50**, and **407.35ms warm p95**.
-- The original warm-path target is met by a wide margin.
-- The earlier cold-path target is also now met locally.
-- Bootstrap is no longer a meaningful bottleneck.
-- The dashboard no longer needs another broad duplication-removal phase.
+- Single-account dashboard total is now **1.40s cold**, **162.72ms warm p50**, and **216.98ms warm p95**.
+- Combined `CURRENT_PORTFOLIO` dashboard total is now **1.53s cold**, **257.86ms warm p50**, and **349.10ms warm p95**.
+- Combined parallel dashboard wall is now **500.38ms cold** and **178.54ms warm p50**.
+- The original warm-path goal is met by a wide margin.
+- The earlier cold-path target is also still met locally.
+- Virtual portfolio bootstrap is now correctness-aligned with scoped holdings, so the cold bootstrap route intentionally does more real work than the earlier synthetic path.
+- A post-baseline UI validation caught one scoped IBKR regression from the later provider-pruning work: `ibkr` was being dropped when the live gateway probe was unavailable even though cached IBKR rows still existed in the DB.
+- That regression is now fixed, and an authenticated selector smoke confirms bootstrap and holdings totals match for all six listed portfolios.
+- The dashboard still does not need another broad duplication-removal phase.
 
 ### What Landed
 
@@ -33,6 +36,11 @@ The latest authenticated localhost rerun in `docs/planning/PERFORMANCE_BASELINE_
   - longer-lived warm workflow/result snapshot reuse.
   - `compute_factor_exposures()` reuse of in-memory stock returns plus single-pass factor-vol generation.
   - `PositionService` provider pruning, blocked-provider exclusion, cached fallback reuse, shared cached repricing, and batched FMP quote fetches.
+  - short-lived resolved-config caching for repeated `PortfolioData` shaping.
+  - cached holdings payload reuse for burst-local dashboard reads.
+  - income and market-intelligence loader overlap / faster date parsing in the remaining cold widgets.
+  - virtual portfolio bootstrap alignment with the live scoped holdings route, eliminating the old selected-account value mismatch.
+  - scoped `PositionService` provider selection now preserves cached IBKR rows for virtual portfolios when the gateway is unavailable, instead of dropping the selected account to zero.
 
 ## Current Bottlenecks
 
@@ -42,27 +50,25 @@ The remaining work is narrow and cold-path focused.
 
 From the latest authenticated rerun:
 
-- `GET /api/positions/metric-insights`: **2436.05ms**
-- `POST /api/risk-score`: **2393.43ms**
-- `GET /api/positions/ai-recommendations`: **2311.95ms**
-- `GET /api/positions/holdings`: **2309.35ms**
-- `POST /api/analyze`: **2285.45ms**
+- `GET /api/portfolios/{name}`: **994.91ms**
+- `GET /api/income/projection`: **494.93ms**
+- `POST /api/analyze`: **396.65ms**
+- `GET /api/positions/market-intelligence`: **345.50ms**
+- `POST /api/performance`: **336.15ms**
+- `GET /api/risk-settings`: **265.67ms**
+- `GET /api/allocations/target`: **265.61ms**
+- `GET /api/positions/metric-insights`: **248.70ms**
 
-These are now the main candidates if perf work continues.
+These are now the main candidates if perf work continues. The first item is the intentional live-bootstrap correctness path, not a duplicate-work regression.
 
-### Provider-Side Cold Cost
+### Warm Path State
 
-Direct service-level profiling after the latest repricing batch shows:
+The warm path remains comfortably closed:
 
-- `PositionService.get_all_positions(use_cache=True)` at roughly **1.54s** wall for the current user.
-- Cached provider stage timings at roughly:
-  - `schwab`: **805.92ms**
-  - `ibkr`: **365.64ms**
-  - `plaid`: **338.58ms**
-  - `csv`: **1.93ms**
-- The shared cached repricing pass for `40` rows dropped from roughly **1.31s** to roughly **679ms** after batched FMP profile quote fetches.
-
-This is now a concrete local hotspot, but it is much smaller than the old dashboard-wide duplication problem.
+- Warm combined dashboard total is **257.86ms p50 / 349.10ms p95**.
+- Warm combined parallel wall is **178.54ms p50 / 282.08ms p95**.
+- Warm combined auxiliaries are all around **70ms p50**.
+- Warm single-account dashboard total is **162.72ms p50 / 216.98ms p95**.
 
 ## What Is No Longer A Problem
 
@@ -72,27 +78,29 @@ This is now a concrete local hotspot, but it is much smaller than the old dashbo
 - Repeated `get_all_positions()` chains across the main burst.
 - Event-loop blocking in the previously known async routes.
 - `market-intelligence` and `income` as repeat-path offenders.
+- Selected-account virtual bootstrap drift versus scoped holdings.
+- The selected IBKR account collapsing to zero because scoped-provider pruning excluded cached IBKR rows.
 
 ## Success Metrics
 
 | Metric | Current Reference | Practical Target |
 |---|---:|---:|
-| Warm CURRENT_PORTFOLIO dashboard total | 394.52ms p50 / 407.35ms p95 | keep <750ms |
-| Warm single-account dashboard total | 470.50ms p50 / 486.59ms p95 | keep <750ms |
-| Cold CURRENT_PORTFOLIO dashboard total | 2.89s | keep <4s |
-| Warm combined `POST /api/analyze` | 94.04ms p50 / 111.84ms p95 | keep <250ms |
-| Warm combined `POST /api/risk-score` | 94.64ms p50 / 133.74ms p95 | keep <250ms |
-| Warm combined `POST /api/performance` | 90.65ms p50 / 119.25ms p95 | keep <250ms |
-| Warm combined holdings / alerts / income | 51.86ms / 44.91ms / 38.71ms | keep <250ms |
-| Warm combined intelligence endpoints | 41.50ms / 43.59ms / 41.36ms | keep <250ms |
-| Cold direct `get_all_positions()` | ~1.5s | keep <=1.5s |
+| Warm CURRENT_PORTFOLIO dashboard total | 257.86ms p50 / 349.10ms p95 | keep <750ms |
+| Warm single-account dashboard total | 162.72ms p50 / 216.98ms p95 | keep <750ms |
+| Cold CURRENT_PORTFOLIO dashboard total | 1.53s | keep <4s |
+| Warm combined `POST /api/analyze` | 176.41ms p50 / 279.46ms p95 | keep <300ms |
+| Warm combined `POST /api/risk-score` | 109.04ms p50 / 207.12ms p95 | keep <250ms |
+| Warm combined `POST /api/performance` | 110.80ms p50 / 204.99ms p95 | keep <250ms |
+| Warm combined holdings / alerts / income | 41.45ms / 41.79ms / 61.24ms | keep <250ms |
+| Warm combined intelligence endpoints | 72.50ms / 71.52ms / 69.82ms | keep <250ms |
+| Cold virtual bootstrap | ~1.0s | keep <=1.25s unless correctness requires more |
 
 ## Recommendation
 
-If more backend perf work continues after this checkpoint, it should be tactical:
+If more backend perf work continues after this checkpoint, it should stay tactical:
 
-1. Trim the remaining combined cold outliers, especially `metric-insights` and `ai-recommendations`.
-2. Keep watching the provider-side cached repricing path in `PositionService`.
+1. Do not revert the virtual-bootstrap correctness path just to make cold bootstrap appear cheaper.
+2. If more perf work is justified, start with cold bootstrap and `income`, not another broad dashboard caching phase.
 3. Re-measure after each concrete cold-path change instead of reopening another broad dashboard perf phase.
 
 ## Execution Posture
@@ -105,4 +113,4 @@ The repo no longer needs:
 - a large API-shape rewrite for dashboard perf alone
 - another generic “remove duplicate setup” pass
 
-The next changes, if any, should be justified by a specific measured cold endpoint rather than by the older baseline documents.
+The next changes, if any, should be justified by a specific measured cold endpoint or by correctness/UI behavior, not by the older baseline documents.

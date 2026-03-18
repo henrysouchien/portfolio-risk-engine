@@ -64,35 +64,21 @@ Plan: `MULTI_USER_DEPLOYMENT_PLAN.md`. Commits `15138d6e`, `eb8fd989`.
 ### Gateway User Routing — DONE
 Server-side user_id injection into gateway context. Commit `b93a2bd5`.
 
-## Recent Commits (since c73b2866, 2026-03-14/15)
+## Recent Commits (since 88cf97b2, 2026-03-17/18)
 
-- `be993b71` fix: E2E F9/F10 — enrich position names from FMP profile
-- `13bea6de` fix: E2E audit batch 3 — data consistency labels and Settings vol bug
-- `8afbe759` fix: E2E audit batch 4 — final Tier 2 quick fixes
-- `5fafad59` fix: E2E F11+F27 — partial risk score, historical position labels
-- `1f3420c9` fix: E2E audit batch 5 — risk score "Limited data" + hide placeholder t-stats
-- `9fa4c9a2` fix: E2E F3 — clarify Holdings scope vs Dashboard total
-- `4afa533c` fix: E2E F24 — enrich Dashboard Income Projection card
-- `cb06e670` feat: C4 — CSV import from settings page via /import-csv-full endpoint
-- `80480a48` fix: E2E F24 — income projection resolver mapping + top contributor sort
-- `d4bedba8` feat: dev auth bypass — auto-login without Google OAuth for local testing
-- `09a9e311` fix: dev auth — log in as real DB user, not dummy dev@example.com
-- `0f6498cf` fix: dev auth bypass — production guard, DB lookup, and observability
-- `a6cf9124` test: frontend tests for accounts/portfolios feature (75 tests)
-- `2f83eef5` fix: deduplicate portfolio display names when account name includes institution
-- `a2998d7a` feat: account activate/deactivate MCP tools with sync-durable deactivation
-- `861c24b0` fix: E2E N7 scheduler re-auth reset + N5 graceful empty for trading/income
-- `1911fec8` fix: move useMemo above early returns in PortfolioOverviewContainer
-- `98217b77` feat: rebalance execution flow + fix IBKR event loop conflict
-- `6cb901d4` docs: mark rebalance execution DONE, move spec to completed/
-- `3ff6d9cf` fix: E2E re-audit batch 1 — position count excludes cash, margin label
-- `06822618` fix: E2E re-audit — allocation rounding + selector invalidation scope
-- `007a337e` feat: frontend code execution support — map gateway SSE events to chat UI
-- `edd9b8a4` fix: E2E re-audit — alerts portfolio scoping + auth timeout split
-- `e6f0b7dd` fix: E2E re-audit N13 — 401 interceptor for session expiry recovery
-- `fd2a135b` fix: concentration score uses dual-metric (single-position + top-N basket)
+- `8ad517f6` feat: compare Sharpe ratio against benchmark on Overview dashboard
+- `652aa9bf` fix: add IBKR_REQUEST_TIMEOUT to prevent indefinite API hangs
+- `5687a16c` Add portfolio selector scoping smoke test
+- `cb0b27f2` fix: break ibkr import chain to prevent nest_asyncio/uvloop crash on startup
+- `20896865` fix: make NormalizerBuilderPanel StrictMode-safe — 18/18 E2E pass
+- `b36ae314` perf: parallelize metric insights, tune thread pools, defer risk future await
+- `35280369` Add USD-normalized expectancy and profit factor to trading analysis
+- `d7238865` Align selected portfolio summary with scoped holdings
+- `0b277b75` fix: portfolio value shows NAV instead of hypothetical growth curve
+- `2f50037b` Fix IBKR scope matching and nest_asyncio safety
+- `07b9d89b` fix: ensure event loop in IBKR connection paths for worker threads
 
-## E2E Re-Audit (2026-03-14) — In Progress
+## E2E Re-Audit (2026-03-14) — All Resolved
 
 **Findings**: `FRONTEND_E2E_FINDINGS_2026_03_14.md` (16 issues across 2 sessions)
 **Fix plan**: `E2E_REAUDIT_FIX_PLAN.md`
