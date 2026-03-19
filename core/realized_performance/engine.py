@@ -5,6 +5,7 @@ import os
 import re
 import settings
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -69,6 +70,9 @@ from trading_analysis.symbol_utils import parse_option_contract_identity_from_sy
 from services.security_type_service import SecurityTypeService
 
 from . import _helpers, backfill, fx, holdings, mwr as _mwr, nav, pricing, provider_flows, timeline
+
+
+_REALIZED_PRICE_FETCH_WORKERS = max(1, int(os.getenv("REALIZED_PRICE_FETCH_WORKERS", "8")))
 
 
 def _serialize_audit_trail(
@@ -1123,19 +1127,21 @@ def _analyze_realized_performance_single_scope(
         ibkr_priced_symbols: Dict[str, set[str]] = defaultdict(set)
         unpriceable_reason_counts: Counter[str] = Counter()
         unpriceable_reasons: Dict[str, str] = {}
-        for ticker in tickers:
+        def _resolve_price_for_ticker(ticker: str) -> Dict[str, Any]:
             raw_types = ticker_instrument_types.get(ticker, {"equity"})
             instrument_type = min(raw_types, key=lambda t: routing_priority.get(t, 99))
             contract_identity = ticker_contract_identities.get(ticker)
+            ticker_warnings: List[str] = []
             if len(raw_types) > 1:
-                warnings.append(
+                ticker_warnings.append(
                     f"Mixed instrument types for {ticker}: {sorted(raw_types)}; using {instrument_type} for pricing."
                 )
 
             norm = pd.Series(dtype=float)
             unpriceable_reason = "no_price_data"
+            ibkr_instrument_type: str | None = None
             if instrument_type in {"fx_artifact", "unknown"}:
-                warnings.append(
+                ticker_warnings.append(
                     f"Skipping pricing for {ticker}: instrument_type={instrument_type} should have been filtered upstream."
                 )
                 unpriceable_reason = f"filtered_{instrument_type}"
@@ -1143,7 +1149,7 @@ def _analyze_realized_performance_single_scope(
                 flex_series = flex_option_cache.get(ticker)
                 if flex_series is not None and not flex_series.empty:
                     norm = _helpers._series_from_cache(flex_series)
-                    warnings.append(
+                    ticker_warnings.append(
                         f"Priced option {ticker} using IBKR Flex PriorPeriodPosition daily marks "
                         f"({len(norm)} data points)."
                     )
@@ -1182,17 +1188,17 @@ def _analyze_realized_performance_single_scope(
                                 )
                                 if np.isfinite(mult) and mult > 1:
                                     norm = norm * mult
-                                    warnings.append(
+                                    ticker_warnings.append(
                                         f"Applied {mult:.0f}x contract multiplier to {ticker} "
                                         f"FIFO terminal price (non-Flex per-share → per-contract)."
                                     )
                         if option_still_open and option_expired and flat_current_holdings and option_expiry is not None:
-                            warnings.append(
+                            ticker_warnings.append(
                                 f"Priced expired option {ticker} using FIFO close-price terminal heuristic "
                                 f"(expiry {option_expiry.date().isoformat()}, current holdings flat)."
                             )
                         else:
-                            warnings.append(
+                            ticker_warnings.append(
                                 f"Priced option {ticker} using FIFO close-price terminal heuristic."
                             )
                     else:
@@ -1212,18 +1218,21 @@ def _analyze_realized_performance_single_scope(
                             )
                             if np.isfinite(mult) and mult > 1:
                                 norm = norm * mult
-                                warnings.append(
+                                ticker_warnings.append(
                                     f"Applied {mult:.0f}x contract multiplier to {ticker} "
                                     f"price chain prices (per-share → per-contract)."
                                 )
+                        local_ibkr_priced_symbols: Dict[str, set[str]] = defaultdict(set)
                         chain_reason = pricing._emit_pricing_diagnostics(
                             ticker=ticker,
                             instrument_type="option",
                             contract_identity=contract_identity,
                             result=price_result,
-                            warnings=warnings,
-                            ibkr_priced_symbols=ibkr_priced_symbols,
+                            warnings=ticker_warnings,
+                            ibkr_priced_symbols=local_ibkr_priced_symbols,
                         )
+                        if local_ibkr_priced_symbols.get("option"):
+                            ibkr_instrument_type = "option"
                         if norm.empty or norm.dropna().empty:
                             unpriceable_reason = chain_reason
             else:
@@ -1245,7 +1254,7 @@ def _analyze_realized_performance_single_scope(
 
                     has_cusip = isinstance(contract_identity, dict) and contract_identity.get("cusip")
                     if has_ibkr and con_id in (None, "") and not has_cusip:
-                        warnings.append(
+                        ticker_warnings.append(
                             f"No con_id or CUSIP for bond {ticker}; skipping IBKR bond pricing."
                         )
                         unpriceable_reason = "bond_missing_identifiers"
@@ -1260,14 +1269,17 @@ def _analyze_realized_performance_single_scope(
                             fmp_ticker_map=fmp_ticker_map or None,
                         )
                         norm = _helpers._series_from_cache(price_result.series)
+                        local_ibkr_priced_symbols: Dict[str, set[str]] = defaultdict(set)
                         chain_reason = pricing._emit_pricing_diagnostics(
                             ticker=ticker,
                             instrument_type=instrument_type,
                             contract_identity=contract_identity,
                             result=price_result,
-                            warnings=warnings,
-                            ibkr_priced_symbols=ibkr_priced_symbols,
+                            warnings=ticker_warnings,
+                            ibkr_priced_symbols=local_ibkr_priced_symbols,
                         )
+                        if local_ibkr_priced_symbols.get(instrument_type):
+                            ibkr_instrument_type = instrument_type
                         if norm.empty or norm.dropna().empty:
                             unpriceable_reason = chain_reason
                 else:
@@ -1281,22 +1293,65 @@ def _analyze_realized_performance_single_scope(
                         fmp_ticker_map=fmp_ticker_map or None,
                     )
                     norm = _helpers._series_from_cache(price_result.series)
+                    local_ibkr_priced_symbols: Dict[str, set[str]] = defaultdict(set)
                     chain_reason = pricing._emit_pricing_diagnostics(
                         ticker=ticker,
                         instrument_type=instrument_type,
                         contract_identity=contract_identity,
                         result=price_result,
-                        warnings=warnings,
-                        ibkr_priced_symbols=ibkr_priced_symbols,
+                        warnings=ticker_warnings,
+                        ibkr_priced_symbols=local_ibkr_priced_symbols,
                     )
+                    if local_ibkr_priced_symbols.get(instrument_type):
+                        ibkr_instrument_type = instrument_type
                     if norm.empty or norm.dropna().empty:
                         unpriceable_reason = chain_reason
                         if instrument_type == "equity":
                             unpriceable_reason = "equity_no_data"
 
+            return {
+                "ticker": ticker,
+                "series": norm,
+                "warnings": ticker_warnings,
+                "unpriceable_reason": unpriceable_reason,
+                "ibkr_instrument_type": ibkr_instrument_type,
+            }
+
+        price_results_by_ticker: Dict[str, Dict[str, Any]] = {}
+        max_price_workers = min(len(tickers), _REALIZED_PRICE_FETCH_WORKERS)
+        if max_price_workers <= 1:
+            for ticker in tickers:
+                price_results_by_ticker[ticker] = _resolve_price_for_ticker(ticker)
+        else:
+            with ThreadPoolExecutor(max_workers=max_price_workers) as executor:
+                future_to_ticker = {
+                    executor.submit(_resolve_price_for_ticker, ticker): ticker for ticker in tickers
+                }
+                for future in as_completed(future_to_ticker):
+                    ticker = future_to_ticker[future]
+                    try:
+                        price_results_by_ticker[ticker] = future.result()
+                    except Exception as exc:
+                        price_results_by_ticker[ticker] = {
+                            "ticker": ticker,
+                            "series": pd.Series(dtype=float),
+                            "warnings": [f"Price fetch failed for {ticker}: {exc}"],
+                            "unpriceable_reason": "price_fetch_exception",
+                            "ibkr_instrument_type": None,
+                        }
+
+        for ticker in tickers:
+            ticker_result = price_results_by_ticker[ticker]
+            warnings.extend(ticker_result["warnings"])
+            ibkr_instrument_type = ticker_result.get("ibkr_instrument_type")
+            if ibkr_instrument_type:
+                ibkr_priced_symbols[ibkr_instrument_type].add(ticker)
+
+            norm = ticker_result["series"]
             if norm.empty or norm.dropna().empty:
                 warnings.append(f"No monthly prices found for {ticker}; valuing as 0 when unavailable.")
                 unpriceable_symbols.add(ticker)
+                unpriceable_reason = ticker_result["unpriceable_reason"]
                 unpriceable_reasons[ticker] = unpriceable_reason
                 unpriceable_reason_counts[unpriceable_reason] += 1
             price_cache[ticker] = norm

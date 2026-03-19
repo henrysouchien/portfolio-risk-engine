@@ -54,6 +54,15 @@ def generate_performance_flags(snapshot: dict) -> list[dict]:
                 "total_return_pct": round(total_return, 2),
             }
         )
+    elif total_return is not None and total_return > 0:
+        flags.append(
+            {
+                "type": "positive_total_return",
+                "severity": "success",
+                "message": f"Portfolio is up {total_return:.1f}% total",
+                "total_return_pct": round(total_return, 2),
+            }
+        )
 
     if alpha_annual is not None and alpha_annual < -5:
         flags.append(

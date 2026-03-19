@@ -1,6 +1,9 @@
 #Date settings for portfolio analysis are in settings.py
 import os
+from datetime import date
 from pathlib import Path
+
+from dateutil.relativedelta import relativedelta
 
 # Ensure local ".env" is loaded even for direct Python invocations
 # (e.g., scripts/tools that bypass mcp_server.py bootstrapping).
@@ -32,10 +35,12 @@ from utils.user_context import (
     resolve_user_email,
 )
 
-# settings.py  
+# settings.py
+_today = date.today()
+
 PORTFOLIO_DEFAULTS = {
-    "start_date": "2019-01-31", # start date for portfolio analysis
-    "end_date":   "2026-01-29", # end date for portfolio analysis (updated 2026-01-29)
+    "start_date": (_today - relativedelta(years=7)).isoformat(), # start date for portfolio analysis
+    "end_date":   _today.isoformat(), # end date for portfolio analysis
     "normalize_weights": False,  # Global default for portfolio weight normalization
     "worst_case_lookback_years": 10,  # Historical lookback period for worst-case scenario analysis
     "expected_returns_lookback_years": 10,  # Default years of historical data for expected returns estimation
