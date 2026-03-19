@@ -1,5 +1,7 @@
 # A3: Skills System Design
 
+> **STATUS: SUPERSEDED — DO NOT IMPLEMENT.** Both this doc and `docs/specs/skill-loader-spec.md` are superseded. See `docs/planning/WORKFLOW_GUIDES_PLAN.md` for the replacement approach: workflow guides as domain knowledge attached to portfolio-mcp tools, not a standalone skill system.
+
 > **Created**: 2026-03-16
 > **Parent**: `docs/OPEN_SOURCE_LAUNCH_GAPS.md` (item A3)
 > **Goal**: Design the skill system for the open source launch. Builds on existing `docs/specs/skill-loader-spec.md` (Codex-approved) and `docs/planning/WORKFLOW_SKILLS_PLAN.md`.

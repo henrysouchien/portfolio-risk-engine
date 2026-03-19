@@ -519,9 +519,9 @@ class PerformanceResult:
                     perf_sentence += f", driven by {top_sector_name} ({top_sector_contribution:+.1f}%)"
                 perf_parts.append(perf_sentence + ".")
             elif alpha < 0:
-                perf_sentence = f"Portfolio is trailing the benchmark by {abs(alpha):.1f}% alpha"
+                perf_sentence = f"Portfolio trailed the benchmark by {abs(alpha):.1f}%"
                 if top_sector_name is not None and top_sector_contribution is not None:
-                    perf_sentence += f", with {top_sector_name} still adding {top_sector_contribution:+.1f}%"
+                    perf_sentence += f". Top sector contributor was {top_sector_name} ({top_sector_contribution:+.1f}%)"
                 perf_parts.append(perf_sentence + ".")
             else:
                 perf_sentence = "Portfolio is tracking the benchmark closely"
