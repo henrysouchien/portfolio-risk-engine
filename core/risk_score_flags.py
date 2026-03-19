@@ -2,8 +2,24 @@
 
 from __future__ import annotations
 
+import math
+from typing import Any
 
-def generate_risk_score_flags(snapshot: dict) -> list[dict]:
+
+def _to_float(value: Any) -> float | None:
+    """Convert to finite float; return None for missing/invalid values."""
+    if value is None:
+        return None
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(numeric):
+        return None
+    return numeric
+
+
+def generate_risk_score_flags(snapshot: dict, analysis_summary: dict | None = None) -> list[dict]:
     """Generate severity-tagged flags from a risk score snapshot."""
     if not snapshot:
         return _sort_flags(
@@ -116,6 +132,29 @@ def generate_risk_score_flags(snapshot: dict) -> list[dict]:
                     "message": f"Largest position ({ticker}) is {weight}% of portfolio",
                 }
             )
+
+    recommendations = snapshot.get("recommendations", []) if isinstance(snapshot, dict) else []
+    if isinstance(recommendations, list) and recommendations:
+        top_recommendation = str(recommendations[0]).strip()
+        if top_recommendation:
+            flags.append(
+                {
+                    "flag": "top_recommendation",
+                    "severity": "success",
+                    "message": top_recommendation,
+                }
+            )
+
+    idiosyncratic_variance = _to_float((analysis_summary or {}).get("idiosyncratic_variance_pct"))
+    if idiosyncratic_variance is not None and idiosyncratic_variance > 0.50:
+        flags.append(
+            {
+                "flag": "high_idiosyncratic",
+                "severity": "success",
+                "message": f"{idiosyncratic_variance * 100:.0f}% of risk is stock-specific",
+                "idiosyncratic_variance_pct": round(idiosyncratic_variance, 4),
+            }
+        )
 
     if is_compliant and not any(flag.get("flag") == "excellent_risk" for flag in flags):
         flags.append(

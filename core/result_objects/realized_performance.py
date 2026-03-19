@@ -508,12 +508,23 @@ class RealizedPerformanceResult:
         benchmark = self.benchmark_analysis or {}
         benchmark_comp = self.benchmark_comparison or {}
         period = self.analysis_period or {}
+        monthly_returns = self.monthly_returns or {}
 
         years = period.get("years")
         rounded_years = (
             round(float(years), 1)
             if isinstance(years, numbers.Real) and not isinstance(years, bool)
             else 0.0
+        )
+        best_month_date = (
+            max(monthly_returns.items(), key=lambda item: item[1])[0]
+            if monthly_returns
+            else None
+        )
+        worst_month_date = (
+            min(monthly_returns.items(), key=lambda item: item[1])[0]
+            if monthly_returns
+            else None
         )
 
         snapshot: Dict[str, Any] = {
@@ -531,12 +542,17 @@ class RealizedPerformanceResult:
                 "best_month_pct": returns.get("best_month"),
                 "worst_month_pct": returns.get("worst_month"),
                 "win_rate_pct": returns.get("win_rate"),
+                "best_month_date": best_month_date,
+                "worst_month_date": worst_month_date,
             },
             "risk": {
                 "volatility_pct": risk.get("volatility"),
                 "max_drawdown_pct": risk.get("maximum_drawdown"),
+                "tracking_error_pct": risk.get("tracking_error"),
                 "sharpe_ratio": risk_adjusted.get("sharpe_ratio"),
                 "sortino_ratio": risk_adjusted.get("sortino_ratio"),
+                "up_capture_ratio": risk_adjusted.get("up_capture_ratio"),
+                "down_capture_ratio": risk_adjusted.get("down_capture_ratio"),
             },
             "benchmark": {
                 "ticker": benchmark.get("benchmark_ticker", benchmark_ticker),
@@ -545,6 +561,7 @@ class RealizedPerformanceResult:
                 "portfolio_return_pct": benchmark_comp.get("portfolio_total_return"),
                 "benchmark_return_pct": benchmark_comp.get("benchmark_total_return"),
                 "excess_return_pct": benchmark.get("excess_return"),
+                "sharpe_ratio": benchmark_comp.get("benchmark_sharpe"),
             },
             "pnl": {
                 "nav_pnl_usd": meta.nav_pnl_usd,
@@ -555,6 +572,7 @@ class RealizedPerformanceResult:
                 "total": income.total if income else None,
                 "dividends": income.dividends if income else None,
                 "interest": income.interest if income else None,
+                "projected_annual": income.projected_annual if income else None,
                 "yield_on_cost_pct": income.yield_on_cost if income else None,
                 "yield_on_value_pct": income.yield_on_value if income else None,
             },

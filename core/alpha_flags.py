@@ -27,6 +27,9 @@ def generate_alpha_flags(snapshot: dict) -> list[dict]:
     benchmark = snapshot.get("benchmark", {})
     if not isinstance(benchmark, dict):
         return []
+    risk = snapshot.get("risk", {})
+    if not isinstance(risk, dict):
+        risk = {}
 
     alpha_annual = _to_float(benchmark.get("alpha_annual_pct"))
     if alpha_annual is None:
@@ -69,6 +72,44 @@ def generate_alpha_flags(snapshot: dict) -> list[dict]:
                 "severity": "info",
                 "message": f"Alpha is {alpha_annual:.1f}% annually vs {benchmark_ticker}",
                 "alpha_annual_pct": round(alpha_annual, 2),
+            }
+        )
+
+    up_capture = _to_float(risk.get("up_capture_ratio"))
+    down_capture = _to_float(risk.get("down_capture_ratio"))
+    if up_capture is not None and down_capture is not None:
+        if up_capture > 1.0 and down_capture < 1.0:
+            flags.append(
+                {
+                    "type": "asymmetric_capture",
+                    "severity": "success",
+                    "message": f"Captures {up_capture:.2f}x of gains, only {down_capture:.2f}x of losses",
+                    "up_capture_ratio": round(up_capture, 3),
+                    "down_capture_ratio": round(down_capture, 3),
+                }
+            )
+        elif up_capture < 1.0 and down_capture > 1.0:
+            flags.append(
+                {
+                    "type": "unfavorable_capture",
+                    "severity": "success",
+                    "message": f"Captures only {up_capture:.2f}x of gains but {down_capture:.2f}x of losses",
+                    "up_capture_ratio": round(up_capture, 3),
+                    "down_capture_ratio": round(down_capture, 3),
+                }
+            )
+
+    tracking_error = _to_float(risk.get("tracking_error_pct"))
+    if tracking_error is not None and tracking_error > 10:
+        flags.append(
+            {
+                "type": "high_tracking_error",
+                "severity": "success",
+                "message": (
+                    f"High tracking error ({tracking_error:.1f}%) - portfolio diverges "
+                    f"significantly from {benchmark_ticker}"
+                ),
+                "tracking_error_pct": round(tracking_error, 2),
             }
         )
 

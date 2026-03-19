@@ -19,7 +19,11 @@ def _to_float(value: Any) -> float | None:
     return numeric
 
 
-def generate_concentration_flags(risk_snapshot: dict, position_count: int) -> list[dict]:
+def generate_concentration_flags(
+    risk_snapshot: dict,
+    position_count: int,
+    analysis_summary: dict | None = None,
+) -> list[dict]:
     """Generate overview-card concentration flags from the risk snapshot."""
     if position_count <= 0 or not isinstance(risk_snapshot, dict):
         return []
@@ -50,6 +54,34 @@ def generate_concentration_flags(risk_snapshot: dict, position_count: int) -> li
                 "severity": "success",
                 "message": f"Only {position_count} positions, so diversification can shift quickly as holdings move",
                 "position_count": int(position_count),
+            }
+        )
+
+    factor_variance_pct = _to_float((analysis_summary or {}).get("factor_variance_pct"))
+    if factor_variance_pct is not None and factor_variance_pct > 0.70:
+        flags.append(
+            {
+                "type": "factor_dominated",
+                "severity": "success",
+                "message": (
+                    f"{factor_variance_pct * 100:.0f}% of risk from market/sector factors "
+                    f"- diversification reducing stock-specific risk"
+                ),
+                "factor_variance_pct": round(factor_variance_pct, 4),
+            }
+        )
+
+    idiosyncratic_variance_pct = _to_float((analysis_summary or {}).get("idiosyncratic_variance_pct"))
+    if idiosyncratic_variance_pct is not None and idiosyncratic_variance_pct > 0.50:
+        flags.append(
+            {
+                "type": "stock_specific_heavy",
+                "severity": "success",
+                "message": (
+                    f"{idiosyncratic_variance_pct * 100:.0f}% stock-specific risk "
+                    f"- individual holdings drive outcomes"
+                ),
+                "idiosyncratic_variance_pct": round(idiosyncratic_variance_pct, 4),
             }
         )
 
