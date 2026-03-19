@@ -511,68 +511,33 @@ class PerformanceResult:
         top_detractor_name, top_detractor_contribution = self._top_security_detractor()
 
         # --- Performance insight ---
-        perf_parts: List[str] = []
-        if alpha is not None:
-            if alpha > 0:
-                perf_sentence = f"Portfolio generated {alpha:.1f}% alpha"
-                if top_sector_name is not None and top_sector_contribution is not None:
-                    perf_sentence += f", driven by {top_sector_name} ({top_sector_contribution:+.1f}%)"
-                perf_parts.append(perf_sentence + ".")
-            elif alpha < 0:
-                perf_sentence = f"Portfolio trailed the benchmark by {abs(alpha):.1f}%"
-                if top_sector_name is not None and top_sector_contribution is not None:
-                    perf_sentence += f". Top sector contributor was {top_sector_name} ({top_sector_contribution:+.1f}%)"
-                perf_parts.append(perf_sentence + ".")
-            else:
-                perf_sentence = "Portfolio is tracking the benchmark closely"
-                if top_sector_name is not None and top_sector_contribution is not None:
-                    perf_sentence += f", with {top_sector_name} contributing {top_sector_contribution:+.1f}%"
-                perf_parts.append(perf_sentence + ".")
-        elif total_return is not None:
-            perf_sentence = f"Portfolio returned {total_return:.1f}% over the analysis window"
+        if alpha is not None and alpha > 0:
+            perf_text = f"+{alpha:.1f}% alpha vs benchmark."
             if top_sector_name is not None and top_sector_contribution is not None:
-                perf_sentence += f", led by {top_sector_name} ({top_sector_contribution:+.1f}%)"
-            perf_parts.append(perf_sentence + ".")
-        elif top_sector_name is not None and top_sector_contribution is not None:
-            perf_parts.append(
-                f"Performance attribution shows {top_sector_name} as the leading sector contributor ({top_sector_contribution:+.1f}%)."
-            )
-        elif annualized_return is not None:
-            perf_parts.append(f"Annualized return is {annualized_return:.1f}% over the measured period.")
+                perf_text += f" Led by {top_sector_name} ({top_sector_contribution:+.1f}%)."
+        elif alpha is not None and alpha < 0:
+            perf_text = f"Trailing benchmark by {abs(alpha):.1f}%."
+            if top_detractor_name is not None and top_detractor_contribution is not None:
+                perf_text += f" {top_detractor_name} is the biggest drag ({top_detractor_contribution:.1f}%)."
+        elif total_return is not None:
+            perf_text = f"Tracking the benchmark. Return: {total_return:+.1f}%."
         else:
-            perf_parts.append("Performance is available, but benchmark-relative attribution detail is limited.")
+            perf_text = "Performance data available but benchmark comparison limited."
 
         if win_rate is not None and total_months_int is not None:
-            month_label = "month" if total_months_int == 1 else "months"
-            if win_rate >= 60:
-                consistency = "shows consistent execution"
-            elif win_rate >= 50:
-                consistency = "shows mixed consistency"
-            else:
-                consistency = "highlights uneven consistency"
-            perf_parts.append(
-                f"Win rate of {win_rate:.0f}% across {total_months_int} {month_label} {consistency}."
-            )
-        elif win_rate is not None:
-            perf_parts.append(f"Win rate is {win_rate:.0f}% across observed periods.")
-        elif total_months_int is not None:
-            perf_parts.append(f"Analysis spans {total_months_int} months.")
-
-        perf_text = " ".join(perf_parts)
+            perf_text += f" {win_rate:.0f}% win rate over {total_months_int} months."
 
         if alpha is not None and alpha < 0:
             if top_detractor_name is not None and top_detractor_contribution is not None:
-                perf_action = (
-                    f"Review {top_detractor_name}, the largest detractor at {top_detractor_contribution:.1f}%."
-                )
+                perf_action = f"Review {top_detractor_name} ({top_detractor_contribution:.1f}% drag)."
             else:
-                perf_action = "Review the weakest holdings and sector weights driving the alpha shortfall."
+                perf_action = "Identify and trim the weakest holdings."
         elif alpha is not None and alpha > 5:
-            perf_action = "Maintain the current playbook while monitoring whether leadership stays broad."
+            perf_action = "Maintain current strategy; monitor for leadership concentration."
         elif alpha is not None:
-            perf_action = "Keep rebalancing discipline and monitor whether current winners continue to support alpha."
+            perf_action = "Stay disciplined on rebalancing."
         else:
-            perf_action = "Monitor attribution trends as more relative-performance data accumulates."
+            perf_action = "Monitor attribution trends as data accumulates."
 
         alpha_for_impact = alpha if alpha is not None else 0.0
         if alpha_for_impact < 0:
@@ -584,39 +549,18 @@ class PerformanceResult:
 
         # --- Risk insight ---
         dd_magnitude = abs(max_dd) if max_dd is not None else 0.0
-        risk_parts: List[str] = []
+        vol_val = volatility if volatility is not None else 0.0
 
         if volatility is not None and benchmark_vol is not None and benchmark_vol > 0:
-            risk_parts.append(
-                f"Portfolio vol of {volatility:.1f}% is {volatility / benchmark_vol:.1f}x the benchmark ({benchmark_vol:.1f}%), max drawdown {max_dd:.1f}%."
-                if max_dd is not None
-                else f"Portfolio vol of {volatility:.1f}% is {volatility / benchmark_vol:.1f}x the benchmark ({benchmark_vol:.1f}%)."
-            )
-        elif volatility is not None and max_dd is not None:
-            risk_parts.append(f"Portfolio vol is {volatility:.1f}% with max drawdown {max_dd:.1f}%.")
-        elif volatility is not None:
-            risk_parts.append(f"Portfolio vol is {volatility:.1f}%.")
-        elif max_dd is not None:
-            risk_parts.append(f"Max drawdown is {max_dd:.1f}%.")
+            risk_text = f"Volatility of {vol_val:.1f}% is {volatility / benchmark_vol:.1f}x the benchmark, with a max drawdown of {dd_magnitude:.1f}%."
         else:
-            risk_parts.append("Risk data is available, but volatility and drawdown detail is limited.")
-
+            risk_text = f"Volatility of {vol_val:.1f}% with a max drawdown of {dd_magnitude:.1f}%."
         if sortino is not None:
-            if sortino >= 1.5:
-                sortino_text = "shows strong downside management"
-            elif sortino >= 1.0:
-                sortino_text = "indicates balanced downside control"
-            elif sortino >= 0:
-                sortino_text = "points to weaker downside protection"
-            else:
-                sortino_text = "signals downside losses are not being rewarded"
-            risk_parts.append(f"Sortino of {sortino:.1f} {sortino_text}.")
-
+            sortino_verdict = "strong" if sortino >= 1.5 else "adequate" if sortino >= 1.0 else "weak"
+            risk_text += f" Sortino of {sortino:.1f} suggests {sortino_verdict} downside protection."
         if beta is not None and (beta > 1.1 or beta < 0.9):
-            sensitivity = "above-market" if beta > 1.1 else "below-market"
-            risk_parts.append(f"Beta of {beta:.2f} implies {sensitivity} sensitivity.")
-
-        risk_text = " ".join(risk_parts)
+            sensitivity = "above" if beta > 1.1 else "below"
+            risk_text += f" Beta of {beta:.2f} implies {sensitivity}-market sensitivity."
 
         volatility_for_impact = volatility if volatility is not None else 0.0
         beta_for_impact = beta if beta is not None else 0.0
@@ -628,56 +572,36 @@ class PerformanceResult:
             risk_impact = "low"
 
         if volatility_for_impact > 20 or dd_magnitude > 20:
-            risk_action = "Reduce concentration risk and trim the positions driving drawdown."
+            risk_action = "Reduce concentration and trim drawdown drivers."
         elif sortino is not None and sortino < 1:
-            risk_action = "Review downside-heavy exposures and improve hedge discipline."
+            risk_action = "Improve downside protection — review hedges."
         else:
-            risk_action = "Monitor volatility, drawdown, and beta as allocations evolve."
+            risk_action = "Risk within tolerance. Continue monitoring."
 
         # --- Opportunity insight ---
-        opp_parts: List[str] = []
         opportunity_sharpe = portfolio_sharpe
         if opportunity_sharpe is not None and benchmark_sharpe is not None and benchmark_sharpe > 0:
-            comparison = "ahead of" if opportunity_sharpe >= benchmark_sharpe else "trails"
-            opp_parts.append(
-                f"Sharpe of {opportunity_sharpe:.2f} {comparison} the benchmark's {benchmark_sharpe:.2f}."
-            )
+            opp_text = f"Sharpe {opportunity_sharpe:.2f} vs {benchmark_sharpe:.2f} benchmark."
         elif opportunity_sharpe is not None:
-            if opportunity_sharpe > 1.5:
-                opp_parts.append(f"Sharpe of {opportunity_sharpe:.2f} shows strong risk-adjusted returns.")
-            elif opportunity_sharpe >= 1:
-                opp_parts.append(f"Sharpe of {opportunity_sharpe:.2f} is solid but still has room to improve.")
-            else:
-                opp_parts.append(f"Sharpe of {opportunity_sharpe:.2f} leaves room to improve risk-adjusted returns.")
+            opp_text = f"Sharpe {opportunity_sharpe:.2f}."
         else:
-            opp_parts.append("Risk-adjusted opportunity analysis is limited without a reliable Sharpe ratio.")
+            opp_text = "Sharpe ratio unavailable."
 
         if top_detractor_name is not None and top_detractor_contribution is not None:
-            opp_parts.append(
-                f"Top detractor {top_detractor_name} ({top_detractor_contribution:.1f}% drag) offers the clearest room for improvement."
-            )
+            opp_text += f" Biggest drag: {top_detractor_name} ({top_detractor_contribution:.1f}%)."
 
         if information_ratio is not None:
-            if information_ratio >= 0.5:
-                info_text = "shows active bets have added value"
-            elif information_ratio >= 0:
-                info_text = "suggests active bets are only modestly additive"
-            else:
-                info_text = "suggests active bets have not been consistently rewarded"
-            opp_parts.append(f"Information ratio of {information_ratio:.2f} {info_text}.")
-
-        opp_text = " ".join(opp_parts)
+            ir_verdict = "active bets adding value" if information_ratio >= 0.5 else "active bets modestly additive" if information_ratio >= 0 else "active bets not rewarded"
+            opp_text += f" IR {information_ratio:.2f} — {ir_verdict}."
 
         if top_detractor_name is not None and top_detractor_contribution is not None:
-            opp_action = (
-                f"Re-underwrite {top_detractor_name} after its {top_detractor_contribution:.1f}% drag."
-            )
+            opp_action = f"Reassess {top_detractor_name} — is the thesis still intact?"
         elif benchmark_sharpe is not None and benchmark_sharpe > 0 and opportunity_sharpe is not None and opportunity_sharpe < benchmark_sharpe:
-            opp_action = "Tighten position sizing and cut weaker exposures to close the Sharpe gap."
+            opp_action = "Cut weaker exposures to close the Sharpe gap."
         elif opportunity_sharpe is not None and opportunity_sharpe < 1:
-            opp_action = "Consider rebalancing toward higher-conviction, more efficient exposures."
+            opp_action = "Shift toward higher-conviction positions."
         else:
-            opp_action = "Fine-tune position sizing while preserving the strongest risk-adjusted contributors."
+            opp_action = "Fine-tune sizing to preserve efficiency."
 
         sharpe_for_impact = opportunity_sharpe if opportunity_sharpe is not None else 0.0
         if sharpe_for_impact > 1.5:
