@@ -69,6 +69,7 @@ def generate_position_flags(
     total_value: float,
     cache_info: dict,
     *,
+    thresholds: dict | None = None,
     by_sector: dict[str, dict[str, Any]] | None = None,
     monitor_positions: list[dict] | None = None,
     security_types: dict[str, str] | None = None,
@@ -78,6 +79,12 @@ def generate_position_flags(
     all_positions = positions or []
     net_portfolio_total = _to_float(total_value)
     portfolio_total = abs(net_portfolio_total)
+    t = thresholds or {}
+    single_position_pct = _to_float(t.get("position_concentration", 15.0), 15.0)
+    top5_pct = _to_float(t.get("top5_concentration", 60.0), 60.0)
+    sector_pct = _to_float(t.get("sector_concentration", 40.0), 40.0)
+    leverage_info = _to_float(t.get("leverage_warning", 1.1), 1.1)
+    leverage_high = _to_float(t.get("leverage_high", 2.0), 2.0)
 
     non_cash = [
         position
@@ -123,7 +130,7 @@ def generate_position_flags(
         for position in single_issuer:
             ticker = str(position.get("ticker", "UNKNOWN"))
             abs_weight = abs(_to_float(position.get("value", 0))) / gross_non_cash * 100.0
-            if abs_weight > 15.0:
+            if abs_weight > single_position_pct:
                 flags.append(
                     {
                         "type": "single_position_concentration",
@@ -134,7 +141,7 @@ def generate_position_flags(
                     }
                 )
 
-        if leverage > 1.1 and net_portfolio_total > 0:
+        if leverage > leverage_info and net_portfolio_total > 0:
             for position in single_issuer:
                 ticker = str(position.get("ticker", "UNKNOWN"))
                 abs_value = abs(_to_float(position.get("value", 0)))
@@ -163,7 +170,7 @@ def generate_position_flags(
         )
         top5_value = sum(abs(_to_float(position.get("value", 0))) for position in sorted_by_abs[:5])
         top5_weight = top5_value / gross_non_cash * 100.0
-        if top5_weight > 60.0:
+        if top5_weight > top5_pct:
             flags.append(
                 {
                     "type": "top5_concentration",
@@ -187,7 +194,7 @@ def generate_position_flags(
                     }
                 )
 
-    if leverage > 2.0:
+    if leverage > leverage_high:
         flags.append(
             {
                 "type": "high_leverage",
@@ -196,7 +203,7 @@ def generate_position_flags(
                 "leverage": round(leverage, 2),
             }
         )
-    elif leverage > 1.1:
+    elif leverage > leverage_info:
         flags.append(
             {
                 "type": "leveraged",
@@ -394,7 +401,7 @@ def generate_position_flags(
 
         for sector, stats in real_sector_rows:
             weight_pct = _to_float(stats.get("weight_pct"))
-            if weight_pct > 40.0:
+            if weight_pct > sector_pct:
                 flags.append(
                     {
                         "type": "sector_concentration",
