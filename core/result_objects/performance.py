@@ -560,7 +560,7 @@ class PerformanceResult:
             risk_text += f" Sortino of {sortino:.1f} suggests {sortino_verdict} downside protection."
         if beta is not None and (beta > 1.1 or beta < 0.9):
             sensitivity = "above" if beta > 1.1 else "below"
-            risk_text += f" Beta of {beta:.2f} implies {sensitivity}-market sensitivity."
+            risk_text += f" CAPM beta of {beta:.2f} (vs benchmark) implies {sensitivity}-market sensitivity."
 
         volatility_for_impact = volatility if volatility is not None else 0.0
         beta_for_impact = beta if beta is not None else 0.0

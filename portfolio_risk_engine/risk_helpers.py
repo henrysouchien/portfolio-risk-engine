@@ -112,6 +112,57 @@ def get_worst_monthly_factor_losses(
     return worst_losses
 
 
+def _get_worst_dates_for_proxies(
+    stock_factor_proxies: Dict[str, Dict[str, Union[str, List[str]]]],
+    start_date: str,
+    end_date: str,
+    fmp_ticker_map: Dict[str, str] | None = None,
+) -> Dict[str, str]:
+    """Return {proxy: "YYYY-MM"} for the month of worst return per proxy."""
+    allowed_factors = {"market", "momentum", "value", "industry"}
+    unique_proxies = set()
+
+    for proxy_map in stock_factor_proxies.values():
+        for k, v in proxy_map.items():
+            if k not in allowed_factors:
+                continue
+            if isinstance(v, list):
+                unique_proxies.update(v)
+            else:
+                unique_proxies.add(v)
+
+    worst_dates: Dict[str, str] = {}
+
+    for proxy in sorted(unique_proxies):
+        try:
+            try:
+                prices = fetch_monthly_total_return_price(
+                    proxy,
+                    start_date,
+                    end_date,
+                    fmp_ticker_map=fmp_ticker_map,
+                )
+            except Exception:
+                prices = fetch_monthly_close(
+                    proxy,
+                    start_date,
+                    end_date,
+                    fmp_ticker_map=fmp_ticker_map,
+                )
+
+            returns = calc_monthly_returns(prices)
+            if returns.empty:
+                continue
+
+            worst_idx = returns.idxmin()
+            if hasattr(worst_idx, "strftime"):
+                worst_dates[proxy] = worst_idx.strftime("%Y-%m")
+        except Exception as exc:
+            print(f"⚠️ Failed for proxy {proxy}: {exc}")
+
+    return worst_dates
+
+
 # In[ ]:
 
 
@@ -291,6 +342,7 @@ def calc_max_factor_betas(
         empty_analysis = {
             "worst_per_proxy": {},
             "worst_by_factor": {},
+            "worst_factor_dates": {},
             "analysis_period": {"start": None, "end": None, "years": lookback_years},
             "loss_limit": loss_limit,
         }
@@ -313,6 +365,18 @@ def calc_max_factor_betas(
     worst_by_factor = aggregate_worst_losses_by_factor_type(
         proxies, worst_per_proxy
     )
+
+    worst_dates_per_proxy = _get_worst_dates_for_proxies(
+        proxies,
+        start_str,
+        end_str,
+        fmp_ticker_map=fmp_map,
+    )
+    worst_factor_dates: Dict[str, str] = {}
+    for factor_type, (proxy, _) in worst_by_factor.items():
+        worst_date = worst_dates_per_proxy.get(proxy)
+        if worst_date:
+            worst_factor_dates[factor_type] = worst_date
 
     # 5. --- max beta per factor type ----------------------------------------------------
     max_betas = compute_max_betas(
@@ -367,6 +431,7 @@ def calc_max_factor_betas(
     historical_analysis = {
         'worst_per_proxy': worst_per_proxy,
         'worst_by_factor': worst_by_factor,
+        'worst_factor_dates': worst_factor_dates,
         'analysis_period': {
             'start': start_str,
             'end': end_str,
