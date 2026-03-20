@@ -31,7 +31,11 @@ def generate_trading_flags(snapshot: dict) -> list[dict]:
             }
         )
 
-    expectancy = performance.get("expectancy")
+    expectancy = (
+        performance.get("expectancy_usd")
+        if performance.get("expectancy_usd") is not None
+        else performance.get("expectancy")
+    )
     if expectancy is not None and total >= 5 and expectancy < 0:
         flags.append(
             {
@@ -42,13 +46,17 @@ def generate_trading_flags(snapshot: dict) -> list[dict]:
             }
         )
 
-    profit_factor = performance.get("profit_factor")
+    profit_factor = (
+        performance.get("profit_factor_usd")
+        if performance.get("profit_factor_usd") is not None
+        else performance.get("profit_factor")
+    )
     if profit_factor is not None and total >= 5 and profit_factor < 1.0:
         flags.append(
             {
                 "type": "low_profit_factor",
                 "severity": "warning",
-                "message": f"Profit factor is {profit_factor:.2f} (losses exceed wins in dollar terms)",
+                "message": f"Profit factor is {profit_factor:.2f} (losses exceed wins in absolute terms)",
                 "profit_factor": profit_factor,
             }
         )

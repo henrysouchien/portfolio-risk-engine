@@ -7,6 +7,7 @@ This folder tracks implementation plans, active work items, and historical plann
 - [`../TODO.md`](../TODO.md) - canonical active queue for the repo
 - [`completed/PROGRESS.md`](./completed/PROGRESS.md) - completed work log and milestones
 - [`completed/BACKLOG.md`](./completed/BACKLOG.md) - archived backlog (moved 2026-03-19)
+- [`PERFORMANCE_OPTIMIZATION_PLAYBOOK.md`](./PERFORMANCE_OPTIMIZATION_PLAYBOOK.md) - reusable optimization process used during the March 2026 perf pass
 
 ## Folder Layout
 
