@@ -9,12 +9,12 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from portfolio_risk_engine.data_loader import fetch_monthly_close, fetch_monthly_total_return_price
-from portfolio_risk_engine.factor_utils import calc_monthly_returns
+from portfolio_risk_engine.factor_utils import calc_monthly_returns, fetch_excess_return
 
 # In[ ]:
 
 
-from typing import Dict, Union, List, Optional, Any, Tuple
+from typing import Dict, Union, List, Optional, Any, Tuple, Set
 import pandas as pd
 
 
@@ -48,6 +48,35 @@ def _fetch_single_proxy_worst(
         print(f"⚠️ Failed for proxy {proxy}: {exc}")
 
     return proxy, None
+
+
+def _fetch_excess_worst(
+    factor_proxy: str,
+    market_proxy: str,
+    start_date: str,
+    end_date: str,
+    fmp_ticker_map: Dict[str, str] | None = None,
+) -> Tuple[float, str] | None:
+    """Fetch the worst monthly excess return for a factor proxy versus its market proxy."""
+    try:
+        returns = fetch_excess_return(
+            factor_proxy,
+            market_proxy,
+            start_date,
+            end_date,
+            fmp_ticker_map=fmp_ticker_map,
+        )
+        if returns.empty:
+            return None
+
+        worst_idx = returns.idxmin()
+        if not hasattr(worst_idx, "strftime"):
+            return None
+
+        return float(returns.min()), worst_idx.strftime("%Y-%m")
+    except Exception as exc:
+        print(f"⚠️ Failed excess worst fetch for {factor_proxy} vs {market_proxy}: {exc}")
+        return None
 
 
 def get_worst_monthly_factor_losses(
@@ -209,6 +238,84 @@ def aggregate_worst_losses_by_factor_type(
     return factor_worst
 
 
+def compute_factor_stress_impacts(
+    stock_factor_proxies: Dict[str, Dict[str, Union[str, List[str]]]],
+    worst_per_proxy: Dict[str, float],
+    worst_excess_per_proxy: Dict[Tuple[str, str], Dict[str, Any]],
+    df_stock_betas: pd.DataFrame,
+    portfolio_weights: Dict[str, float],
+    factor_types: List[str],
+    cash_tickers: Set[str] | None = None,
+) -> Dict[str, Dict[str, float]]:
+    """Return weighted portfolio stress impact and coverage by factor type."""
+    cash_tickers = cash_tickers or set()
+    non_cash_weights = {
+        str(ticker): float(weight)
+        for ticker, weight in portfolio_weights.items()
+        if str(ticker) not in cash_tickers
+    }
+    total_abs_weight = sum(abs(weight) for weight in non_cash_weights.values())
+
+    if total_abs_weight == 0:
+        return {
+            factor_type: {"impact": 0.0, "coverage": 0.0}
+            for factor_type in factor_types
+        }
+
+    results: Dict[str, Dict[str, float]] = {}
+    empty_series = pd.Series(dtype=float)
+
+    for factor_type in factor_types:
+        impact = 0.0
+        covered_abs_weight = 0.0
+        beta_series = df_stock_betas.get(factor_type, empty_series)
+
+        for ticker, weight in non_cash_weights.items():
+            proxy_map = stock_factor_proxies.get(ticker)
+            if not proxy_map:
+                continue
+
+            proxy = proxy_map.get(factor_type)
+            if not isinstance(proxy, str):
+                continue
+
+            shock: float | None = None
+            if factor_type in {"momentum", "value"}:
+                market_proxy = proxy_map.get("market")
+                if isinstance(market_proxy, str):
+                    excess_entry = worst_excess_per_proxy.get((proxy, market_proxy))
+                    if isinstance(excess_entry, dict) and "loss" in excess_entry:
+                        try:
+                            shock = float(excess_entry["loss"])
+                        except (TypeError, ValueError):
+                            shock = None
+                if shock is None and proxy in worst_per_proxy:
+                    shock = worst_per_proxy[proxy]
+            else:
+                if proxy in worst_per_proxy:
+                    shock = worst_per_proxy[proxy]
+
+            if shock is None:
+                continue
+
+            covered_abs_weight += abs(weight)
+            beta = beta_series.get(ticker, 0.0)
+            try:
+                beta_value = float(beta)
+            except (TypeError, ValueError):
+                beta_value = 0.0
+            if pd.isna(beta_value):
+                beta_value = 0.0
+            impact += weight * beta_value * shock
+
+        results[factor_type] = {
+            "impact": float(impact),
+            "coverage": float(covered_abs_weight / total_abs_weight),
+        }
+
+    return results
+
+
 # In[ ]:
 
 
@@ -341,6 +448,7 @@ def calc_max_factor_betas(
     if not proxies:
         empty_analysis = {
             "worst_per_proxy": {},
+            "worst_excess_per_proxy": {},
             "worst_by_factor": {},
             "worst_factor_dates": {},
             "analysis_period": {"start": None, "end": None, "years": lookback_years},
@@ -360,6 +468,32 @@ def calc_max_factor_betas(
         end_str,
         fmp_ticker_map=fmp_map,
     )
+
+    excess_factors = {"momentum", "value"}
+    worst_excess_per_proxy: Dict[Tuple[str, str], Dict[str, Any]] = {}
+    excess_pairs: Set[Tuple[str, str]] = set()
+    for proxy_map in proxies.values():
+        market_proxy = proxy_map.get("market")
+        if not market_proxy or isinstance(market_proxy, list):
+            continue
+        for factor_type in excess_factors:
+            factor_proxy = proxy_map.get(factor_type)
+            if factor_proxy and isinstance(factor_proxy, str) and factor_proxy in worst_per_proxy:
+                excess_pairs.add((factor_proxy, market_proxy))
+
+    for factor_proxy, market_proxy in sorted(excess_pairs):
+        result = _fetch_excess_worst(
+            factor_proxy,
+            market_proxy,
+            start_str,
+            end_str,
+            fmp_ticker_map=fmp_map,
+        )
+        if result:
+            worst_excess_per_proxy[(factor_proxy, market_proxy)] = {
+                "loss": result[0],
+                "date": result[1],
+            }
 
     # 4. --- worst per factor-type -------------------------------------------
     worst_by_factor = aggregate_worst_losses_by_factor_type(
@@ -430,6 +564,10 @@ def calc_max_factor_betas(
     # Package historical analysis data for CLI and API reporting
     historical_analysis = {
         'worst_per_proxy': worst_per_proxy,
+        'worst_excess_per_proxy': {
+            f"{factor_proxy}|{market_proxy}": value
+            for (factor_proxy, market_proxy), value in worst_excess_per_proxy.items()
+        },
         'worst_by_factor': worst_by_factor,
         'worst_factor_dates': worst_factor_dates,
         'analysis_period': {

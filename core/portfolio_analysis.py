@@ -42,7 +42,7 @@ from core.run_portfolio_risk import (
     evaluate_portfolio_beta_limits,
 )
 from portfolio_risk_engine.portfolio_risk import build_portfolio_view
-from portfolio_risk_engine.risk_helpers import calc_max_factor_betas
+from portfolio_risk_engine.risk_helpers import calc_max_factor_betas, compute_factor_stress_impacts
 from settings import PORTFOLIO_DEFAULTS
 from app_platform.logging.core import log_timing_event
 
@@ -240,6 +240,30 @@ def analyze_portfolio(
             "step_timings_ms": step_timings,
         }
     )
+    worst_by_factor = historical_analysis.get("worst_by_factor", {})
+    raw_excess = historical_analysis.get("worst_excess_per_proxy", {})
+    excess_tuples = {
+        tuple(key.split("|")): value
+        for key, value in raw_excess.items()
+        if "|" in key
+    }
+    allocations_df = getattr(result, "allocations", pd.DataFrame())
+    portfolio_weights = {}
+    if isinstance(allocations_df, pd.DataFrame) and "Portfolio Weight" in allocations_df.columns:
+        portfolio_weights = {
+            str(ticker): float(row["Portfolio Weight"])
+            for ticker, row in allocations_df.iterrows()
+        }
+    factor_stress_impacts = compute_factor_stress_impacts(
+        stock_factor_proxies=config.get("stock_factor_proxies") or {},
+        worst_per_proxy=historical_analysis.get("worst_per_proxy", {}),
+        worst_excess_per_proxy=excess_tuples,
+        df_stock_betas=summary.get("df_stock_betas", pd.DataFrame()),
+        portfolio_weights=portfolio_weights,
+        factor_types=list(worst_by_factor.keys()),
+        cash_tickers=set(get_cash_positions()),
+    )
+    result.historical_analysis["factor_stress_impacts"] = factor_stress_impacts
     step_timings["result_construction"] = round((time.perf_counter() - t4) * 1000, 2)
     step_timings["total"] = round((time.perf_counter() - t0) * 1000, 2)
     if hasattr(result, "analysis_metadata") and isinstance(result.analysis_metadata, dict):

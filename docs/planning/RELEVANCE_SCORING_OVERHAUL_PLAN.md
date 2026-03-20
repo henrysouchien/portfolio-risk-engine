@@ -51,6 +51,12 @@ Portfolio relevance scores in Market Intelligence are inconsistent and confusing
 31. **Fixed:** Economic sort preserves Fed-first priority via tertiary tiebreaker: `(-relevance, 0 if fed else 1, timeframe)`
 32. **Fixed:** Imminence date parsing explicitly defined — `strptime("%Y-%m-%d")`, default `is_imminent=False` on parse failure
 
+## Codex Review Findings (Final round — all addressed)
+33. **Accepted:** Snapshot consistency on `use_cache=False` — both calls happen in the same request, portfolio changes mid-request are not realistic. The asset class helper is called FIRST so both see identical state. Negligible risk accepted
+34. **Fixed:** Sort key cleaned up — economic builder's `timeframe` IS a date string (`"2026-03-19"`) from `row.get("date").split(" ")[0]`, so it sorts correctly. Prose updated for consistency. Sort order: relevance desc → date asc → Fed-first on same day
+35. **Fixed:** Derivatives/unknown excluded from denominator entirely (like margin debt). Prevents dilution of macro sensitivity scores for derivative-heavy portfolios. Filter: `if ac in ("unknown", "derivative"): continue`
+36. **Fixed:** Date parsing reuses the date string already extracted in each builder's flow (e.g., `row.get("date")`), not a second parse of a different field. FMP calendar uses consistent `YYYY-MM-DD` format. `is_imminent` defaults to `False` on any parse exception
+
 ## Plan
 
 **File:** `mcp_tools/news_events.py` (single file, all changes)
@@ -112,6 +118,8 @@ def _compute_asset_class_weights_from_snapshot(
         val = float(pos.get("value") or 0)
         if ac == "cash" and val < 0:
             continue  # Exclude margin debt
+        if ac in ("unknown", "derivative"):
+            continue  # Exclude unclassifiable — prevents dilution
         classified.append((ac, abs(val)))
 
     # Pass 2: normalize
@@ -244,8 +252,8 @@ In `_build_economic_events()`, change the internal sort from date-first to relev
 # AFTER: relevance first, then Fed-first, then date as tiebreaker
 source_events.sort(key=lambda e: (
     -e.get("portfolioRelevance", 0),
-    0 if e.get("type") == "fed" else 1,  # Fed events win ties
-    e.get("timeframe", ""),
+    e.get("timeframe", ""),              # Date second (nearest first within same relevance)
+    0 if e.get("type") == "fed" else 1,  # Fed wins same-day ties
 ))
 ```
 This preserves the existing Fed-first priority within same-relevance events.
