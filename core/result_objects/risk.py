@@ -1170,7 +1170,7 @@ class RiskAnalysisResult:
 
         Purpose:
             Produce a formatted, plain-text report with the exact section order and
-            formatting used in the CLI workflow in `run_risk.py`. This ensures
+            formatting used in the canonical CLI workflow in `core/risk_orchestration.py`. This ensures
             perfect parity between CLI output and programmatic generation.
 
         Sections (conditionally included when data is available):
@@ -1422,7 +1422,7 @@ class RiskAnalysisResult:
         return "\n\n".join(sections)
     
     def _format_risk_checks(self) -> str:
-        """Format risk checks as CLI table - EXACT copy of run_risk.py:335-338"""
+        """Format risk checks using the canonical CLI table layout."""
         lines = ["=== Portfolio Risk Limit Checks ==="]
         for check in self.risk_checks:
             status = "→ PASS" if check["Pass"] else "→ FAIL"
@@ -1430,7 +1430,7 @@ class RiskAnalysisResult:
         return "\n".join(lines)
     
     def _format_beta_checks(self) -> str:
-        """Format beta checks as CLI table - EXACT copy of run_risk.py:342-345"""
+        """Format beta checks using the canonical CLI table layout."""
         lines = ["=== Beta Exposure Checks ==="]
         for check in self.beta_checks:
             status = "→ PASS" if check["pass"] else "→ FAIL"
@@ -2240,8 +2240,9 @@ class RiskScoreResult:
         """
         Generate complete CLI formatted report - IDENTICAL to current output.
         
-        This method produces the exact same CLI output as the current portfolio_risk_score.py
-        implementation, ensuring byte-for-byte compatibility during the refactoring process.
+        This method produces the exact same CLI output as the current
+        `portfolio_risk_engine/portfolio_risk_score.py` implementation,
+        ensuring byte-for-byte compatibility during the refactoring process.
         """
         sections = []
         sections.append(self._format_risk_score_display())
@@ -2253,7 +2254,7 @@ class RiskScoreResult:
     
     def _format_risk_score_display(self) -> str:
         """Format risk score display - EXACT copy of display_portfolio_risk_score()"""
-        # Import generate_score_interpretation from portfolio_risk_score module
+        # Import generate_score_interpretation from the canonical risk-score engine
         from portfolio_risk_engine.portfolio_risk_score import generate_score_interpretation
         
         score = self.risk_score["score"]

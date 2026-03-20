@@ -32,10 +32,15 @@ import requests
 import pandas as pd
 import numpy as np
 import statsmodels.api as sm
+import warnings
+import hashlib
+import json
 from datetime import datetime
 from typing import Optional, Union, List, Dict, Any
 from portfolio_risk_engine.data_loader import fetch_monthly_close, fetch_monthly_total_return_price
 import os
+from fmp.cache import get_timeseries_store
+from utils.ticker_resolver import select_fmp_symbol
 
 # Import logging decorators for factor analysis
 from portfolio_risk_engine._logging import (
@@ -48,6 +53,8 @@ from portfolio_risk_engine._logging import (
 FMP_API_KEY = os.getenv("FMP_API_KEY")
 API_KEY  = FMP_API_KEY
 BASE_URL = "https://financialmodelingprep.com/stable"
+_PEER_MEDIAN_CACHE_VERSION = "v1"
+_PEER_MEDIAN_SERIES_KIND = "peer_median_total_return_me"
 
 
 def calc_monthly_returns(prices: pd.Series) -> pd.Series:
@@ -108,11 +115,147 @@ def compute_regression_metrics(df: pd.DataFrame) -> Dict[str, float]:
 
 
 @log_errors("high")
+def _peer_median_store_key(
+    tickers: List[str],
+    fmp_ticker_map: Optional[Dict[str, str]] = None,
+) -> str:
+    """Build a stable cache key for the resolved peer-basket definition."""
+    resolved = sorted(
+        {
+            select_fmp_symbol(str(ticker).strip(), fmp_ticker_map=fmp_ticker_map)
+            for ticker in tickers
+            if str(ticker).strip()
+        }
+    )
+    payload = json.dumps(
+        {"version": _PEER_MEDIAN_CACHE_VERSION, "symbols": resolved},
+        sort_keys=True,
+    )
+    digest = hashlib.md5(payload.encode()).hexdigest()[:16]
+    return f"peer_median_{_PEER_MEDIAN_CACHE_VERSION}_{digest}"
+
+
+def _compute_peer_median_monthly_returns_uncached(
+    tickers: List[str],
+    start_date: Optional[Union[str, datetime]] = None,
+    end_date: Optional[Union[str, datetime]] = None,
+    fmp_ticker_map: Optional[Dict[str, str]] = None,
+    returns_cache: Optional[Dict[str, pd.Series]] = None,
+) -> pd.Series:
+    """Compute the peer-median monthly return series without store-level caching."""
+    if not tickers:
+        return pd.Series(dtype=float, name="median_returns")
+
+    from portfolio_risk_engine._logging import log_portfolio_operation
+
+    valid_series = []
+    dropped_peers = []
+
+    for ticker in tickers:
+        try:
+            returns = None
+            if returns_cache is not None:
+                returns = returns_cache.get(ticker)
+
+            if returns is None:
+                try:
+                    prices = fetch_monthly_total_return_price(
+                        ticker,
+                        start_date=start_date,
+                        end_date=end_date,
+                        fmp_ticker_map=fmp_ticker_map,
+                    )
+                except Exception:
+                    prices = fetch_monthly_close(
+                        ticker,
+                        start_date=start_date,
+                        end_date=end_date,
+                        fmp_ticker_map=fmp_ticker_map,
+                    )
+
+                returns = calc_monthly_returns(prices)
+                if returns_cache is not None:
+                    returns_cache[ticker] = returns
+
+            if start_date and end_date:
+                analysis_start = pd.to_datetime(start_date)
+                analysis_end = pd.to_datetime(end_date)
+                windowed_returns = returns.loc[analysis_start:analysis_end]
+            else:
+                windowed_returns = returns
+
+            from portfolio_risk_engine.config import DATA_QUALITY_THRESHOLDS
+
+            min_overlap = DATA_QUALITY_THRESHOLDS["min_peer_overlap_observations"]
+
+            if len(windowed_returns) >= min_overlap:
+                valid_series.append(returns.rename(ticker))
+            else:
+                dropped_peers.append(ticker)
+                log_portfolio_operation(
+                    "peer_no_overlap",
+                    {"ticker": ticker, "total_obs": len(returns), "window_obs": len(windowed_returns)},
+                    execution_time=0
+                )
+
+        except Exception as e:
+            dropped_peers.append(ticker)
+            log_portfolio_operation(
+                "peer_fetch_failed",
+                {"ticker": ticker, "error": str(e)},
+                execution_time=0
+            )
+
+    if dropped_peers:
+        log_portfolio_operation(
+            "peer_filtering_summary",
+            {
+                "total_peers": len(tickers),
+                "valid_peers": len(valid_series),
+                "dropped_peers": len(dropped_peers),
+                "dropped_tickers": dropped_peers[:5]
+            },
+            execution_time=0
+        )
+
+    if valid_series:
+        base_index = valid_series[0].index
+        if all(series.index.equals(base_index) for series in valid_series[1:]):
+            peer_values = np.column_stack(
+                [
+                    pd.to_numeric(series, errors="coerce").to_numpy(dtype=float, copy=False)
+                    for series in valid_series
+                ]
+            )
+            result_index = base_index
+        else:
+            df_peers = pd.concat(valid_series, axis=1)
+            peer_values = df_peers.to_numpy(dtype=float, copy=False)
+            result_index = df_peers.index
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            median_values = np.nanmedian(peer_values, axis=1)
+        if peer_values.size:
+            all_nan_rows = np.isnan(peer_values).all(axis=1)
+            if all_nan_rows.any():
+                median_values[all_nan_rows] = np.nan
+        return pd.Series(median_values, index=result_index, name="median_returns")
+
+    log_portfolio_operation(
+        "peer_all_failed",
+        {"attempted_peers": len(tickers)},
+        execution_time=0
+    )
+    return pd.Series(dtype=float, name="median_returns")
+
+
+@log_errors("high")
 def fetch_peer_median_monthly_returns(
     tickers: List[str],
     start_date: Optional[Union[str, datetime]] = None,
     end_date:   Optional[Union[str, datetime]] = None,
     fmp_ticker_map: Optional[Dict[str, str]] = None,
+    returns_cache: Optional[Dict[str, pd.Series]] = None,
 ) -> pd.Series:
     """
     Compute the cross-sectional median of peer tickers' monthly returns.
@@ -133,90 +276,27 @@ def fetch_peer_median_monthly_returns(
         pd.Series: Median of monthly returns across peers.
                    Returns empty Series if no tickers provided or all peers fail.
     """
-    # Handle empty ticker list
     if not tickers:
-        return pd.Series(dtype=float, name='median_returns')
-    
-    from portfolio_risk_engine._logging import log_portfolio_operation
-    
-    valid_series = []
-    dropped_peers = []
-    
-    for ticker in tickers:
-        try:
-            # Prefer total-return prices for peers
-            try:
-                prices = fetch_monthly_total_return_price(
-                    ticker,
-                    start_date=start_date,
-                    end_date=end_date,
-                    fmp_ticker_map=fmp_ticker_map,
-                )
-            except Exception:
-                prices = fetch_monthly_close(
-                    ticker,
-                    start_date=start_date,
-                    end_date=end_date,
-                    fmp_ticker_map=fmp_ticker_map,
-                )
-                
-            returns = calc_monthly_returns(prices)
-            
-            # Filter returns to analysis window to check for actual data overlap
-            if start_date and end_date:
-                analysis_start = pd.to_datetime(start_date)
-                analysis_end = pd.to_datetime(end_date)
-                windowed_returns = returns.loc[analysis_start:analysis_end]
-            else:
-                windowed_returns = returns
-            
-            # Check for actual data overlap in the analysis window using centralized threshold
-            from portfolio_risk_engine.config import DATA_QUALITY_THRESHOLDS
-            min_overlap = DATA_QUALITY_THRESHOLDS["min_peer_overlap_observations"]
-            
-            if len(windowed_returns) >= min_overlap:  # Has sufficient data overlap in analysis window
-                valid_series.append(returns.rename(ticker))  # Use full returns for median calc
-            else:
-                dropped_peers.append(ticker)
-                log_portfolio_operation(
-                    "peer_no_overlap",
-                    {"ticker": ticker, "total_obs": len(returns), "window_obs": len(windowed_returns)},
-                    execution_time=0
-                )
-                
-        except Exception as e:
-            dropped_peers.append(ticker)
-            log_portfolio_operation(
-                "peer_fetch_failed",
-                {"ticker": ticker, "error": str(e)},
-                execution_time=0
-            )
-    
-    # Log summary of peer filtering
-    if dropped_peers:
-        log_portfolio_operation(
-            "peer_filtering_summary",
-            {
-                "total_peers": len(tickers),
-                "valid_peers": len(valid_series), 
-                "dropped_peers": len(dropped_peers),
-                "dropped_tickers": dropped_peers[:5]  # Log first 5 to avoid spam
-            },
-            execution_time=0
-        )
-    
-    if valid_series:
-        # Calculate median with remaining good peers, allowing pandas to handle NaNs
-        df_peers = pd.concat(valid_series, axis=1)
-        return df_peers.median(axis=1, skipna=True)
-    else:
-        # All peers failed
-        log_portfolio_operation(
-            "peer_all_failed",
-            {"attempted_peers": len(tickers)},
-            execution_time=0
-        )
-        return pd.Series(dtype=float, name='median_returns')
+        return pd.Series(dtype=float, name="median_returns")
+
+    store = get_timeseries_store()
+    cache_ticker = _peer_median_store_key(tickers, fmp_ticker_map=fmp_ticker_map)
+    series = store.read_monthly(
+        ticker=cache_ticker,
+        series_kind=_PEER_MEDIAN_SERIES_KIND,
+        start=start_date,
+        end=end_date,
+        loader=lambda s, e: _compute_peer_median_monthly_returns_uncached(
+            tickers,
+            start_date=s,
+            end_date=e,
+            fmp_ticker_map=fmp_ticker_map,
+            returns_cache=returns_cache,
+        ),
+        max_age_days=30,
+    )
+    series.name = "median_returns"
+    return series
 
 
 def fetch_excess_return(

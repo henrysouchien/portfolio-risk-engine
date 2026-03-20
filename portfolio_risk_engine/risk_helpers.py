@@ -6,6 +6,8 @@
 
 # === Imports for Risk Helper Functions ===
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 from portfolio_risk_engine.data_loader import fetch_monthly_close, fetch_monthly_total_return_price
 from portfolio_risk_engine.factor_utils import calc_monthly_returns
 
@@ -14,6 +16,39 @@ from portfolio_risk_engine.factor_utils import calc_monthly_returns
 
 from typing import Dict, Union, List, Optional, Any, Tuple
 import pandas as pd
+
+
+def _fetch_single_proxy_worst(
+    proxy: str,
+    start_date: str,
+    end_date: str,
+    fmp_ticker_map: Dict[str, str] | None = None,
+) -> Tuple[str, float | None]:
+    """Fetch the worst monthly return for a single factor proxy."""
+    try:
+        try:
+            prices = fetch_monthly_total_return_price(
+                proxy,
+                start_date,
+                end_date,
+                fmp_ticker_map=fmp_ticker_map,
+            )
+        except Exception:
+            prices = fetch_monthly_close(
+                proxy,
+                start_date,
+                end_date,
+                fmp_ticker_map=fmp_ticker_map,
+            )
+
+        returns = calc_monthly_returns(prices)
+        if not returns.empty:
+            return proxy, float(returns.min())
+    except Exception as exc:
+        print(f"⚠️ Failed for proxy {proxy}: {exc}")
+
+    return proxy, None
+
 
 def get_worst_monthly_factor_losses(
     stock_factor_proxies: Dict[str, Dict[str, Union[str, List[str]]]],
@@ -43,9 +78,6 @@ def get_worst_monthly_factor_losses(
     # LOGGING: Add mathematical operation logging
     # LOGGING: Add validation step logging
     # LOGGING: Add error context logging
-    from portfolio_risk_engine.data_loader import fetch_monthly_close, fetch_monthly_total_return_price
-    from portfolio_risk_engine.factor_utils import calc_monthly_returns
-
     allowed_factors = {"market", "momentum", "value", "industry"}
     unique_proxies = set()
 
@@ -58,29 +90,24 @@ def get_worst_monthly_factor_losses(
             else:
                 unique_proxies.add(v)
 
-    worst_losses = {}
+    worst_losses: Dict[str, float] = {}
+    max_workers = min(8, len(unique_proxies)) or 1
 
-    for proxy in sorted(unique_proxies):
-        try:
-            try:
-                prices = fetch_monthly_total_return_price(
-                    proxy,
-                    start_date,
-                    end_date,
-                    fmp_ticker_map=fmp_ticker_map,
-                )
-            except Exception:
-                prices = fetch_monthly_close(
-                    proxy,
-                    start_date,
-                    end_date,
-                    fmp_ticker_map=fmp_ticker_map,
-                )
-            returns = calc_monthly_returns(prices)
-            if not returns.empty:
-                worst_losses[proxy] = float(returns.min())
-        except Exception as e:
-            print(f"⚠️ Failed for proxy {proxy}: {e}")
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(
+                _fetch_single_proxy_worst,
+                proxy,
+                start_date,
+                end_date,
+                fmp_ticker_map,
+            ): proxy
+            for proxy in sorted(unique_proxies)
+        }
+        for future in as_completed(futures):
+            proxy, worst = future.result()
+            if worst is not None:
+                worst_losses[proxy] = worst
 
     return worst_losses
 
@@ -145,6 +172,7 @@ def compute_max_betas(
     end_date:   str,
     loss_limit_pct: float,
     fmp_ticker_map: Dict[str, str] | None = None,
+    worst_losses: Dict[str, float] | None = None,
 ) -> Dict[str, float]:
     """
     Pure function – NO YAML reads, NO printing.
@@ -159,18 +187,14 @@ def compute_max_betas(
     -------
     {factor_type: max_beta}
     """
-    from portfolio_risk_engine.risk_helpers import (
-        get_worst_monthly_factor_losses,
-        aggregate_worst_losses_by_factor_type,
-    )
-
-    worst_losses   = get_worst_monthly_factor_losses(
-        proxies,
-        start_date,
-        end_date,
-        fmp_ticker_map=fmp_ticker_map,
-    )
-    worst_by_type  = aggregate_worst_losses_by_factor_type(proxies, worst_losses)
+    if worst_losses is None:
+        worst_losses = get_worst_monthly_factor_losses(
+            proxies,
+            start_date,
+            end_date,
+            fmp_ticker_map=fmp_ticker_map,
+        )
+    worst_by_type = aggregate_worst_losses_by_factor_type(proxies, worst_losses)
 
     return {
         ftype: float("inf") if worst >= 0 else loss_limit_pct / worst
@@ -185,27 +209,9 @@ def compute_max_betas(
 
 from typing import Dict, Tuple, List, Any
 from datetime import datetime
-from pathlib import Path
 import yaml
 import pandas as pd
-
-_PROJECT_ROOT = Path(__file__).resolve().parent
-
-
-def _resolve_yaml_path(path: str) -> Path:
-    """
-    Resolve YAML config paths robustly when server cwd differs from project root.
-    """
-    candidate = Path(path)
-    if candidate.is_absolute():
-        return candidate
-    if candidate.exists():
-        return candidate.resolve()
-
-    project_candidate = _PROJECT_ROOT / candidate
-    if project_candidate.exists():
-        return project_candidate.resolve()
-    return candidate
+from config import resolve_config_path
 
 def calc_max_factor_betas(
     portfolio_yaml: str = "portfolio.yaml",
@@ -257,7 +263,7 @@ def calc_max_factor_betas(
         proxies = stock_factor_proxies
         fmp_map = fmp_ticker_map
     elif portfolio_yaml is not None:
-        resolved_portfolio_yaml = _resolve_yaml_path(portfolio_yaml)
+        resolved_portfolio_yaml = resolve_config_path(portfolio_yaml)
         with open(resolved_portfolio_yaml, "r") as f:
             port_cfg = yaml.safe_load(f)
         proxies = port_cfg["stock_factor_proxies"]
@@ -269,7 +275,7 @@ def calc_max_factor_betas(
     if max_single_factor_loss is not None:
         loss_limit = max_single_factor_loss
     elif risk_yaml is not None:
-        resolved_risk_yaml = _resolve_yaml_path(risk_yaml)
+        resolved_risk_yaml = resolve_config_path(risk_yaml)
         with open(resolved_risk_yaml, "r") as f:
             risk_cfg = yaml.safe_load(f)
         loss_limit = risk_cfg["max_single_factor_loss"]
@@ -315,6 +321,7 @@ def calc_max_factor_betas(
         end_str,
         loss_limit,
         fmp_ticker_map=fmp_map,
+        worst_losses=worst_per_proxy,
     )
 
     # 6. Compute per-industry-proxy max betas

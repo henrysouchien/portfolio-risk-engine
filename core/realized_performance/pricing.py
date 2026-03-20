@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -64,12 +63,6 @@ class PriceResult:
 def _build_default_price_registry() -> ProviderRegistry:
     registry = ProviderRegistry()
     monthly_close_fetcher = fetch_monthly_close
-    if monthly_close_fetcher is _helpers._ORIGINAL_FETCH_MONTHLY_CLOSE:
-        rpa_mod = sys.modules.get("core.realized_performance_analysis")
-        if rpa_mod is not None:
-            fn = getattr(rpa_mod, "fetch_monthly_close", None)
-            if fn is not None and fn is not _helpers._ORIGINAL_FETCH_MONTHLY_CLOSE:
-                monthly_close_fetcher = fn
 
     def _fetch_daily_close_for_registry(*args: Any, **kwargs: Any) -> pd.Series:
         # Preserve monkeypatched test behavior: if this module's

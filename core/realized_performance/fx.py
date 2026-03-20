@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -69,11 +68,6 @@ def get_daily_fx_series(currency: str, start_date=None, end_date=None) -> pd.Ser
     # Preserve monkeypatched test behavior by honoring overridden monthly helper.
     if get_monthly_fx_series is not _helpers._ORIGINAL_GET_MONTHLY_FX_SERIES:
         return get_monthly_fx_series(currency, start_date, end_date)
-    rpa_mod = sys.modules.get("core.realized_performance_analysis")
-    if rpa_mod is not None:
-        fn = getattr(rpa_mod, "get_monthly_fx_series", None)
-        if fn is not None and fn is not _helpers._ORIGINAL_GET_MONTHLY_FX_SERIES:
-            return fn(currency, start_date, end_date)
 
     provider = get_fx_provider()
     getter = getattr(provider, "get_daily_fx_series", None)

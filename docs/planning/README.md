@@ -4,10 +4,9 @@ This folder tracks implementation plans, active work items, and historical plann
 
 ## Start Here
 
-- [`BACKLOG.md`](./BACKLOG.md) - prioritized queue of planned work
-- [`TODO.md`](./TODO.md) - immediate execution checklist
-- [`PROGRESS.md`](./PROGRESS.md) - status updates and recent milestones
-- [`BUGS.md`](./BUGS.md) - active planning-level bug tracker
+- [`../TODO.md`](../TODO.md) - canonical active queue for the repo
+- [`completed/PROGRESS.md`](./completed/PROGRESS.md) - completed work log and milestones
+- [`completed/BACKLOG.md`](./completed/BACKLOG.md) - archived backlog (moved 2026-03-19)
 
 ## Folder Layout
 
@@ -19,6 +18,9 @@ This folder tracks implementation plans, active work items, and historical plann
 
 ## Conventions
 
+- Keep `docs/TODO.md` as the single source of truth for what is active now.
+- There is no active planning-side TODO in this folder; use the linked plan docs directly for implementation context.
+- Historical planning-side handoff notes were archived to [`completed/PLANNING_TODO_REFERENCE_ARCHIVE_2026-03-19.md`](./completed/PLANNING_TODO_REFERENCE_ARCHIVE_2026-03-19.md).
 - Keep in-progress plans in this root folder.
 - Move completed plans to [`completed/`](./completed/) once fully shipped.
 - Prefer descriptive names ending in `_PLAN.md` for implementation plans.

@@ -4,7 +4,6 @@ import json
 import os
 import re
 import settings
-import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
@@ -2321,12 +2320,6 @@ def _analyze_realized_performance_single_scope(
 
         eval_dates = _helpers._business_day_range(inception_date, end_date)
         legacy_monthly_return_path = nav.compute_monthly_returns is not _helpers._ORIGINAL_COMPUTE_MONTHLY_RETURNS
-        if not legacy_monthly_return_path:
-            rpa_mod = sys.modules.get("core.realized_performance_analysis")
-            if rpa_mod is not None:
-                fn = getattr(rpa_mod, "compute_monthly_returns", None)
-                if fn is not None and fn is not _helpers._ORIGINAL_COMPUTE_MONTHLY_RETURNS:
-                    legacy_monthly_return_path = True
         month_end_index = pd.DatetimeIndex(pd.to_datetime(month_ends)).sort_values()
 
         if legacy_monthly_return_path:

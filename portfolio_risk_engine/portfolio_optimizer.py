@@ -13,7 +13,7 @@ import pandas as pd
 
 from portfolio_risk_engine.portfolio_risk import build_portfolio_view, normalize_weights
 try:
-    from run_portfolio_risk import (  # type: ignore
+    from core.run_portfolio_risk import (  # type: ignore
         evaluate_portfolio_risk_limits,
         evaluate_portfolio_beta_limits,
     )
@@ -28,7 +28,7 @@ from portfolio_risk_engine.risk_helpers import (
 )
 
 try:
-    from helpers_display import _drop_factors  # type: ignore
+    from utils.helpers_display import _drop_factors  # type: ignore
 except Exception:
     def _drop_factors(df):
         return df
@@ -44,7 +44,7 @@ from portfolio_risk_engine._logging import (
 def _safe_eval_risk_limits(summary, risk_cfg):
     fn = evaluate_portfolio_risk_limits
     try:
-        from run_portfolio_risk import evaluate_portfolio_risk_limits as runtime_fn  # type: ignore
+        from core.run_portfolio_risk import evaluate_portfolio_risk_limits as runtime_fn  # type: ignore
 
         fn = runtime_fn
     except Exception:
@@ -62,7 +62,7 @@ def _safe_eval_risk_limits(summary, risk_cfg):
 def _safe_eval_beta_limits(portfolio_factor_betas, max_betas, **kwargs):
     fn = evaluate_portfolio_beta_limits
     try:
-        from run_portfolio_risk import evaluate_portfolio_beta_limits as runtime_fn  # type: ignore
+        from core.run_portfolio_risk import evaluate_portfolio_beta_limits as runtime_fn  # type: ignore
 
         fn = runtime_fn
     except Exception:
@@ -756,12 +756,12 @@ def run_what_if_scenario(
     summary_new, risk_new, beta_new, cmp_risk, cmp_beta
     """
     try:
-        from helpers_input import parse_delta  # type: ignore
+        from utils.helpers_input import parse_delta  # type: ignore
     except Exception:
         parse_delta = None
     from portfolio_risk_engine.risk_helpers import calc_max_factor_betas
     try:
-        from helpers_display import (  # type: ignore
+        from utils.helpers_display import (  # type: ignore
             compare_risk_tables,
             compare_beta_tables,
             _drop_factors,
@@ -1145,7 +1145,7 @@ def solve_max_return_with_risk_limits(
         :pyfunc:`risk_helpers.get_worst_monthly_factor_losses`).
     """
     from portfolio_risk_engine.portfolio_risk import build_portfolio_view, normalize_weights          # reuse: get Σ & betas
-    from risk_helpers   import compute_max_betas, get_worst_monthly_factor_losses
+    from portfolio_risk_engine.risk_helpers import compute_max_betas, get_worst_monthly_factor_losses
 
     # ---------- 0. Pre-normalize weights for internal consistency -----------
     # Always work with normalized weights (sum = 1) to ensure risk calculations

@@ -13,6 +13,7 @@ import pandas as pd
 import numpy as np
 from typing import Dict, Any, Optional, List, Tuple, Union
 from datetime import datetime, UTC
+import math
 import os
 from portfolio_risk_engine.constants import DIVERSIFIED_SECURITY_TYPES
 from portfolio_risk_engine.data_objects import PortfolioData, RiskLimitsData
@@ -36,6 +37,48 @@ except ImportError:
     latest_price = None
     RiskScoreResult = None
     SecurityTypeService = None
+
+
+def _safe_finite(value: Any, fallback: float = 0.0) -> float:
+    """Return value if finite non-negative number, else fallback."""
+    if value is None:
+        return fallback
+    try:
+        numeric = float(value)
+        return numeric if math.isfinite(numeric) and numeric >= 0.0 else fallback
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _compute_excess_pct(actual: float, limit: float, use_abs: bool = False) -> float:
+    """Compute normalized excess over a limit, guarding non-finite and zero-limit cases."""
+    try:
+        effective = abs(float(actual)) if use_abs else float(actual)
+        numeric_limit = float(limit)
+    except (TypeError, ValueError):
+        return 0.0
+
+    if not math.isfinite(effective) or not math.isfinite(numeric_limit):
+        return 0.0
+    if numeric_limit > 0:
+        return (effective - numeric_limit) / numeric_limit
+    if effective > 0:
+        return 1.0
+    return 0.0
+
+
+COMPLIANCE_CATEGORY_WEIGHTS = {
+    "concentration": 0.12,
+    "volatility": 0.10,
+    "leverage": 0.08,
+    "factor_beta": 0.06,
+    "variance": 0.05,
+    "industry": 0.05,
+}
+
+MAX_COMPLIANCE_PENALTY_PCT = 0.35
+SEVERITY_NORMALIZATION = 0.50
+COMPLIANCE_CEILING = 89.0
 
 
 # =====================================================================
@@ -220,6 +263,12 @@ def score_excess_ratio(excess_ratio: float) -> float:
         progress = (value - start_x) / (end_x - start_x)
         return start_y + progress * (end_y - start_y)
 
+    try:
+        if not math.isfinite(float(excess_ratio)):
+            return 0.0
+    except (TypeError, ValueError):
+        return 0.0
+
     if excess_ratio <= safe_threshold:
         return 100.0
     if excess_ratio <= caution_threshold:
@@ -254,6 +303,106 @@ def _get_single_issuer_weights(
     if not single_issuer_tickers:
         return weights
     return weights.loc[single_issuer_tickers]
+
+
+def _resolve_crash_scenario(
+    ticker: str,
+    security_types: Optional[Dict[str, str]],
+    portfolio_data=None,
+) -> float:
+    """Resolve the crash scenario for a ticker from its security type."""
+    security_type = "equity"
+    ticker_key = str(ticker) if ticker is not None else ""
+
+    if security_types and ticker in security_types:
+        security_type = security_types[ticker]
+    elif SecurityTypeService and ticker_key and portfolio_data is not None:
+        try:
+            type_lookup = SecurityTypeService.get_security_types([ticker_key], portfolio_data)
+            security_type = type_lookup.get(ticker_key, "equity")
+        except Exception as exc:
+            portfolio_logger.warning(
+                f"Security type lookup failed for {ticker_key}, defaulting to equity: {exc}"
+            )
+
+    if security_type not in SECURITY_TYPE_CRASH_MAPPING:
+        portfolio_logger.warning(f"Unmapped security type '{security_type}' for {ticker}, defaulting to equity crash scenario")
+        security_type = "equity"
+
+    return WORST_CASE_SCENARIOS[SECURITY_TYPE_CRASH_MAPPING[security_type]]
+
+
+def _compute_concentration_loss(
+    check_weights: pd.Series,
+    leverage_ratio: float,
+    security_types: Optional[Dict[str, str]] = None,
+    portfolio_data=None,
+) -> Dict[str, Any]:
+    """Compute concentration loss using the worse of single-position and top-N stress."""
+    if not isinstance(check_weights, pd.Series) or check_weights.empty:
+        return {
+            "loss": 0.0,
+            "top_n_weight": 0.0,
+            "top_n_tickers": [],
+            "concentration_driver": "single_position",
+            "largest_ticker": "",
+            "largest_weight": 0.0,
+        }
+
+    sorted_weights = check_weights.abs().dropna().sort_values(ascending=False)
+    if sorted_weights.empty:
+        return {
+            "loss": 0.0,
+            "top_n_weight": 0.0,
+            "top_n_tickers": [],
+            "concentration_driver": "single_position",
+            "largest_ticker": "",
+            "largest_weight": 0.0,
+        }
+
+    try:
+        top_n_count = int(RISK_ANALYSIS_THRESHOLDS.get("top_n_count", 3))
+        if top_n_count <= 0:
+            raise ValueError
+    except (TypeError, ValueError):
+        top_n_count = 3
+
+    try:
+        dampening = float(RISK_ANALYSIS_THRESHOLDS.get("top_n_dampening", 0.5))
+        if not math.isfinite(dampening) or dampening < 0:
+            raise ValueError
+    except (TypeError, ValueError):
+        dampening = 0.5
+
+    try:
+        leverage = abs(float(leverage_ratio))
+        if not math.isfinite(leverage):
+            raise ValueError
+    except (TypeError, ValueError):
+        leverage = 0.0
+
+    largest_ticker = str(sorted_weights.index[0])
+    max_position = float(sorted_weights.iloc[0])
+
+    single_crash = _resolve_crash_scenario(largest_ticker, security_types, portfolio_data)
+    single_position_loss = max_position * single_crash * leverage
+
+    top_n_series = sorted_weights.head(top_n_count)
+    top_n_weight = float(top_n_series.sum())
+    top_n_stressed_sum = sum(
+        float(weight) * _resolve_crash_scenario(str(ticker), security_types, portfolio_data)
+        for ticker, weight in top_n_series.items()
+    )
+    top_n_loss = top_n_stressed_sum * leverage * dampening
+
+    return {
+        "loss": float(max(single_position_loss, top_n_loss)),
+        "top_n_weight": top_n_weight,
+        "top_n_tickers": [str(ticker) for ticker in top_n_series.index.tolist()],
+        "concentration_driver": "top_n" if top_n_loss > single_position_loss else "single_position",
+        "largest_ticker": largest_ticker,
+        "largest_weight": max_position,
+    }
 
 
 def calculate_factor_risk_loss(summary: Dict[str, Any], leverage_ratio: float, max_betas: Dict[str, float] = None, max_single_factor_loss: float = None) -> float:
@@ -346,7 +495,7 @@ def calculate_concentration_risk_loss(
     security_types: Optional[Dict[str, str]] = None,
 ) -> float:
     """
-    Calculate potential loss from single stock concentration with security-type-aware crash scenarios.
+    Calculate concentration loss with security-type-aware single-position and top-N stress.
     
     ENHANCEMENT: This function now uses SecurityTypeService to apply different crash scenarios
     based on the actual security type rather than treating all securities as individual stocks.
@@ -367,8 +516,8 @@ def calculate_concentration_risk_loss(
     Returns
     -------
     float
-        Potential loss from largest single position using appropriate crash scenario.
-        Values range from 5% (cash) to 80% (individual equity) of position size.
+        Potential concentration loss based on the worse of the largest position
+        and the top-N basket using security-type-aware crash scenarios.
         
     Notes
     -----
@@ -400,36 +549,13 @@ def calculate_concentration_risk_loss(
     """
     weights = summary["allocations"]["Portfolio Weight"]
     check_weights = _get_single_issuer_weights(weights, security_types)
-    if check_weights.empty:
-        return 0.0
-
-    max_position = check_weights.abs().max()
-    largest_ticker = check_weights.abs().idxmax()
-    
-    # Get security types with provider cash preservation
-    if security_types and largest_ticker in security_types:
-        security_type = security_types.get(largest_ticker, "equity")
-    elif SecurityTypeService and largest_ticker:
-        try:
-            tickers = [largest_ticker]
-            type_lookup = SecurityTypeService.get_security_types(tickers, portfolio_data)
-            security_type = type_lookup.get(largest_ticker, "equity")
-        except Exception as e:
-            print(f"Warning: SecurityTypeService failed, using default: {e}")
-            security_type = "equity"
-    else:
-        security_type = "equity"  # Conservative fallback
-    
-    # Apply security-type-specific crash scenario
-    # Use centralized mapping system with built-in 3-tier fallback
-    if security_type not in SECURITY_TYPE_CRASH_MAPPING:
-        portfolio_logger.warning(f"Unmapped security type '{security_type}' for {largest_ticker}, defaulting to equity crash scenario")
-        security_type = "equity"
-    crash_scenario_key = SECURITY_TYPE_CRASH_MAPPING[security_type]
-    crash_scenario = WORST_CASE_SCENARIOS[crash_scenario_key]
-    
-    concentration_loss = max_position * crash_scenario * leverage_ratio
-    return concentration_loss
+    result = _compute_concentration_loss(
+        check_weights,
+        leverage_ratio,
+        security_types=security_types,
+        portfolio_data=portfolio_data,
+    )
+    return result["loss"]
 
 
 def get_crash_scenario_for_security_type(security_type: str) -> float:
@@ -507,8 +633,14 @@ def calculate_volatility_risk_loss(summary: Dict[str, Any], leverage_ratio: floa
     - Caps at configured max_reasonable_volatility (40%)
     - Formula: min(actual_vol, max_reasonable_vol) × leverage_ratio
     """
-    actual_vol = summary["volatility_annual"]
     max_reasonable_vol = WORST_CASE_SCENARIOS["max_reasonable_volatility"]
+    raw_vol = summary.get("volatility_annual")
+    actual_vol = _safe_finite(raw_vol, fallback=max_reasonable_vol)
+    if _safe_finite(raw_vol, fallback=-1.0) < 0.0:
+        portfolio_logger.warning(
+            "volatility_annual is missing/NaN/negative; using max_reasonable_volatility (%.0f%%) as conservative fallback",
+            max_reasonable_vol * 100,
+        )
     
     # Use actual volatility, capped at configured maximum
     volatility_loss = min(actual_vol, max_reasonable_vol) * leverage_ratio
@@ -628,6 +760,7 @@ def analyze_portfolio_risk_limits(
     """
     risk_factors = []
     recommendations = []
+    violation_details = []
     
     # ═══════════════════════════════════════════════════════════════════════════
     # DETAILED RISK LIMITS ANALYSIS
@@ -640,6 +773,12 @@ def analyze_portfolio_risk_limits(
     for factor in ["market", "momentum", "value"]:
         if factor in max_betas and factor in portfolio_betas:
             actual_beta = portfolio_betas[factor]
+            try:
+                actual_beta = float(actual_beta)
+                if not math.isfinite(actual_beta):
+                    actual_beta = 0.0
+            except (TypeError, ValueError):
+                actual_beta = 0.0
             max_beta = max_betas[factor]
             beta_ratio = abs(actual_beta) / max_beta if max_beta > 0 else 0
             
@@ -648,6 +787,13 @@ def analyze_portfolio_risk_limits(
             
             if beta_ratio > beta_violation_ratio:  # Exceeds limit
                 risk_factors.append(f"High {factor} exposure: β={actual_beta:.2f} vs {max_beta:.2f} limit")
+                violation_details.append({
+                    "category": "factor_beta",
+                    "metric": factor,
+                    "actual": actual_beta,
+                    "limit": float(max_beta),
+                    "excess_pct": _compute_excess_pct(actual_beta, max_beta, use_abs=True),
+                })
                 if factor == "market":
                     recommendations.append("Reduce market exposure (sell high-beta stocks or add market hedges)")
                 else:
@@ -664,10 +810,25 @@ def analyze_portfolio_risk_limits(
         industry_betas = summary["industry_variance"].get("per_industry_group_beta", {})
         for proxy, actual_beta in industry_betas.items():
             if proxy in max_proxy_betas and actual_beta != 0:
+                try:
+                    actual_beta = float(actual_beta)
+                    if not math.isfinite(actual_beta):
+                        continue
+                except (TypeError, ValueError):
+                    continue
                 max_beta = max_proxy_betas[proxy]
                 beta_ratio = abs(actual_beta) / max_beta if max_beta > 0 else 0
                 
+                beta_violation_ratio = RISK_ANALYSIS_THRESHOLDS["beta_violation_ratio"]
                 beta_warning_ratio = RISK_ANALYSIS_THRESHOLDS["beta_warning_ratio"]
+                if beta_ratio > beta_violation_ratio:
+                    violation_details.append({
+                        "category": "factor_beta",
+                        "metric": proxy,
+                        "actual": actual_beta,
+                        "limit": float(max_beta),
+                        "excess_pct": _compute_excess_pct(actual_beta, max_beta, use_abs=True),
+                    })
                 if beta_ratio > beta_warning_ratio:  # Flag if >warning ratio of limit
                     risk_factors.append(f"High {proxy} exposure: β={actual_beta:.2f} vs {max_beta:.2f} limit")
                     recommendations.append(f"Reduce exposure to {proxy} sector")
@@ -675,7 +836,9 @@ def analyze_portfolio_risk_limits(
     # ─── 2. Concentration Limit Analysis ──────────────────────────────────────
     weights = summary["allocations"]["Portfolio Weight"]
     check_weights = _get_single_issuer_weights(weights, security_types)
-    max_weight = check_weights.abs().max() if not check_weights.empty else 0.0
+    conc_result = _compute_concentration_loss(check_weights, 1.0, security_types)
+    max_weight = conc_result["largest_weight"]
+    top_n_weight = conc_result["top_n_weight"]
     herfindahl = summary["herfindahl"]
     weight_limit = concentration_limits["max_single_stock_weight"]
     
@@ -683,7 +846,19 @@ def analyze_portfolio_risk_limits(
     concentration_warning_ratio = RISK_ANALYSIS_THRESHOLDS["concentration_warning_ratio"]
     if max_weight > weight_limit:
         risk_factors.append(f"High concentration: {max_weight:.1%} vs {weight_limit:.1%} limit")
+        violation_details.append({
+            "category": "concentration",
+            "metric": "max_weight",
+            "actual": float(max_weight),
+            "limit": float(weight_limit),
+            "excess_pct": _compute_excess_pct(max_weight, weight_limit),
+        })
         recommendations.append("Reduce position size in largest holdings")
+    elif top_n_weight > weight_limit * 2:
+        risk_factors.append(
+            f"High cumulative concentration: top {len(conc_result['top_n_tickers'])} positions = {top_n_weight:.1%}"
+        )
+        recommendations.append("Reduce position sizes in largest holdings to improve diversification")
     elif max_weight > weight_limit * concentration_warning_ratio:  # Approaching limit
         risk_factors.append(f"High concentration: {max_weight:.1%} in single position")
         recommendations.append("Reduce position size in largest holdings")
@@ -695,12 +870,19 @@ def analyze_portfolio_risk_limits(
         recommendations.append("Add more positions to improve diversification")
     
     # ─── 3. Volatility Limit Analysis ─────────────────────────────────────────
-    actual_vol = summary["volatility_annual"]
+    actual_vol = _safe_finite(summary.get("volatility_annual"), fallback=0.0)
     vol_limit = portfolio_limits["max_volatility"]
     
     volatility_warning_ratio = RISK_ANALYSIS_THRESHOLDS["volatility_warning_ratio"]
     if actual_vol > vol_limit:
         risk_factors.append(f"High volatility: {actual_vol:.1%} vs {vol_limit:.1%} limit")
+        violation_details.append({
+            "category": "volatility",
+            "metric": "portfolio_vol",
+            "actual": float(actual_vol),
+            "limit": float(vol_limit),
+            "excess_pct": _compute_excess_pct(actual_vol, vol_limit),
+        })
         recommendations.append("Reduce portfolio volatility through diversification or defensive positions")
     elif actual_vol > vol_limit * volatility_warning_ratio:  # Approaching limit
         risk_factors.append(f"High portfolio volatility ({actual_vol:.1%})")
@@ -708,8 +890,8 @@ def analyze_portfolio_risk_limits(
     
     # ─── 4. Variance Contribution Analysis ────────────────────────────────────
     var_decomp = summary["variance_decomposition"]
-    factor_pct = var_decomp["factor_pct"]
-    market_pct = var_decomp["factor_breakdown_pct"].get("market", 0.0)
+    factor_pct = _safe_finite(var_decomp["factor_pct"], fallback=0.0)
+    market_pct = _safe_finite(var_decomp["factor_breakdown_pct"].get("market", 0.0), fallback=0.0)
     
     # Check factor variance contribution
     factor_limit = variance_limits["max_factor_contribution"]
@@ -717,6 +899,13 @@ def analyze_portfolio_risk_limits(
     
     if factor_pct > factor_limit:
         risk_factors.append(f"High systematic risk: {factor_pct:.1%} vs {factor_limit:.1%} limit")
+        violation_details.append({
+            "category": "variance",
+            "metric": "factor_contribution",
+            "actual": float(factor_pct),
+            "limit": float(factor_limit),
+            "excess_pct": _compute_excess_pct(factor_pct, factor_limit),
+        })
         
         # Identify which specific factors are contributing most to variance
         factor_breakdown = var_decomp["factor_breakdown_pct"]
@@ -748,6 +937,13 @@ def analyze_portfolio_risk_limits(
     market_variance_warning_ratio = RISK_ANALYSIS_THRESHOLDS["market_variance_warning_ratio"]
     if market_pct > market_limit:
         risk_factors.append(f"High market variance contribution: {market_pct:.1%} vs {market_limit:.1%} limit")
+        violation_details.append({
+            "category": "variance",
+            "metric": "market_contribution",
+            "actual": float(market_pct),
+            "limit": float(market_limit),
+            "excess_pct": _compute_excess_pct(market_pct, market_limit),
+        })
         recommendations.append("Reduce market factor exposure")
     elif market_pct > market_limit * market_variance_warning_ratio:  # Approaching limit
         risk_factors.append(f"High market variance contribution: {market_pct:.1%}")
@@ -755,7 +951,10 @@ def analyze_portfolio_risk_limits(
     
     # ─── 5. Industry Variance Contribution Analysis ───────────────────────────
     industry_pct_dict = summary["industry_variance"].get("percent_of_portfolio", {})
-    max_industry_pct = max(industry_pct_dict.values()) if industry_pct_dict else 0.0
+    max_industry_pct = _safe_finite(
+        max(industry_pct_dict.values()) if industry_pct_dict else 0.0,
+        fallback=0.0,
+    )
     industry_limit = variance_limits["max_industry_contribution"]
     
     if max_industry_pct > industry_limit:
@@ -776,24 +975,77 @@ def analyze_portfolio_risk_limits(
                 recommendations.append("Add diversification across multiple industries")
         else:
             recommendations.append("Reduce industry concentration through diversification")
+
+    for ind_name, ind_pct in industry_pct_dict.items():
+        safe_pct = _safe_finite(ind_pct, fallback=0.0)
+        if safe_pct > industry_limit:
+            violation_details.append({
+                "category": "industry",
+                "metric": f"industry_{ind_name}",
+                "actual": float(safe_pct),
+                "limit": float(industry_limit),
+                "excess_pct": _compute_excess_pct(safe_pct, industry_limit),
+            })
     
     # ─── 6. Leverage Analysis ─────────────────────────────────────────────────
     leverage_threshold = RISK_ANALYSIS_THRESHOLDS["leverage_warning_threshold"]
     if leverage_ratio > leverage_threshold:
         risk_factors.append(f"Leverage ({leverage_ratio:.2f}x) amplifies all potential losses")
+        violation_details.append({
+            "category": "leverage",
+            "metric": "leverage",
+            "actual": float(leverage_ratio),
+            "limit": float(leverage_threshold),
+            "excess_pct": _compute_excess_pct(leverage_ratio, leverage_threshold),
+        })
         recommendations.append("Consider reducing leverage to limit downside risk")
-    
+
+    limit_violations = {}
+    for violation in violation_details:
+        category = violation["category"]
+        limit_violations[category] = limit_violations.get(category, 0) + 1
+
     return {
         "risk_factors": risk_factors,
         "recommendations": recommendations,
+        "compliance_violations": violation_details,
         "limit_violations": {
-            "factor_betas": len([f for f in risk_factors if "exposure:" in f and "β=" in f]),
-            "concentration": len([f for f in risk_factors if "concentration" in f.lower()]),
-            "volatility": len([f for f in risk_factors if "volatility" in f.lower()]),
-            "variance_contributions": len([f for f in risk_factors if "variance" in f.lower()]),
-            "leverage": len([f for f in risk_factors if "leverage" in f.lower()])
+            "factor_betas": limit_violations.get("factor_beta", 0),
+            "concentration": limit_violations.get("concentration", 0),
+            "volatility": limit_violations.get("volatility", 0),
+            "variance_contributions": limit_violations.get("variance", 0),
+            "leverage": limit_violations.get("leverage", 0),
+            "industry": limit_violations.get("industry", 0),
         }
     }
+
+
+def calculate_compliance_penalty(violation_details: List[Dict[str, Any]]) -> float:
+    """
+    Compute severity-weighted compliance penalty from structured limit violations.
+
+    Returns a fractional score reduction bounded by ``MAX_COMPLIANCE_PENALTY_PCT``.
+    The final adjusted score is computed as ``raw_score * (1 - penalty)``.
+    """
+    if not violation_details:
+        return 0.0
+
+    total_weighted_severity = 0.0
+    for violation in violation_details:
+        excess_pct = violation.get("excess_pct", 0.0)
+        try:
+            excess_pct = float(excess_pct)
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(excess_pct) or excess_pct <= 0:
+            continue
+
+        severity = min(1.0, excess_pct / SEVERITY_NORMALIZATION)
+        category = violation.get("category", "")
+        weight = COMPLIANCE_CATEGORY_WEIGHTS.get(category, 0.0)
+        total_weighted_severity += severity * weight
+
+    return min(total_weighted_severity, MAX_COMPLIANCE_PENALTY_PCT)
 
 
 def calculate_suggested_risk_limits(
@@ -887,8 +1139,12 @@ def calculate_suggested_risk_limits(
     # =====================================================================
     portfolio_betas = summary["portfolio_factor_betas"]
     weights = summary["allocations"]["Portfolio Weight"]
-    actual_vol = summary["volatility_annual"]
+    actual_vol = _safe_finite(summary.get("volatility_annual"), fallback=0.0)
     industry_pct = summary["industry_variance"].get("percent_of_portfolio", {})
+    max_sector_exposure = _safe_finite(
+        max(industry_pct.values()) if industry_pct else 0.0,
+        fallback=0.0,
+    )
     
     suggestions = {}
     
@@ -962,13 +1218,14 @@ def calculate_suggested_risk_limits(
     # 2. CONCENTRATION LIMIT - Work backwards from single stock scenario
     # =====================================================================
     concentration_weights = _get_single_issuer_weights(weights, security_types)
-    max_position = concentration_weights.abs().max() if not concentration_weights.empty else 0.0
-    largest_ticker = concentration_weights.abs().idxmax() if not concentration_weights.empty else None
-    if security_types is None:
-        concentration_crash = WORST_CASE_SCENARIOS["single_stock_crash"]
-    else:
-        largest_security_type = security_types.get(largest_ticker, "equity") if largest_ticker else "equity"
-        concentration_crash = get_crash_scenario_for_security_type(largest_security_type)
+    conc_result = _compute_concentration_loss(concentration_weights, current_leverage, security_types)
+    max_position = conc_result["largest_weight"]
+    largest_ticker = conc_result["largest_ticker"] or None
+    concentration_crash = (
+        _resolve_crash_scenario(largest_ticker, security_types) if largest_ticker
+        else WORST_CASE_SCENARIOS["single_stock_crash"]
+    )
+    concentration_loss_unleveraged = conc_result["loss"] / current_leverage if current_leverage else 0.0
 
     # max_loss = max_position × concentration_crash × leverage
     # So: max_position ≤ max_loss / (concentration_crash × leverage)
@@ -977,7 +1234,9 @@ def calculate_suggested_risk_limits(
     suggestions["concentration_limit"] = {
         "current_max_position": max_position,
         "suggested_max_position": suggested_max_position,
-        "needs_reduction": max_position > suggested_max_position
+        "needs_reduction": max_position > suggested_max_position,
+        "top_n_weight": round(conc_result["top_n_weight"] * 100, 1),
+        "top_n_tickers": conc_result["top_n_tickers"],
     }
     
     # =====================================================================
@@ -996,8 +1255,6 @@ def calculate_suggested_risk_limits(
     # =====================================================================
     # 4. SECTOR LIMIT - Work backwards from historical worst losses per sector
     # =====================================================================
-    max_sector_exposure = max(industry_pct.values()) if industry_pct else 0.0
-    
     # Use generic sector crash scenario - sector-specific historical data would require
     # individual sector proxy historical analysis which is complex and not always available
     sector_crash = WORST_CASE_SCENARIOS["sector_crash"]
@@ -1034,15 +1291,13 @@ def calculate_suggested_risk_limits(
             worst_unleveraged_loss = max(worst_unleveraged_loss, factor_loss)
     
     # Check concentration scenario without leverage
-    concentration_loss = max_position * concentration_crash
-    worst_unleveraged_loss = max(worst_unleveraged_loss, concentration_loss)
+    worst_unleveraged_loss = max(worst_unleveraged_loss, concentration_loss_unleveraged)
     
     # Check volatility scenario without leverage  
     vol_loss = actual_vol  # Simple proxy
     worst_unleveraged_loss = max(worst_unleveraged_loss, vol_loss)
     
     # Check sector scenario without leverage using generic sector crash
-    max_sector_exposure = max(industry_pct.values()) if industry_pct else 0.0
     sector_loss_unleveraged = max_sector_exposure * WORST_CASE_SCENARIOS["sector_crash"]
     worst_unleveraged_loss = max(worst_unleveraged_loss, sector_loss_unleveraged)
     
@@ -1110,15 +1365,15 @@ def display_suggested_risk_limits(suggestions: Dict[str, Any], max_loss: float):
     print(f"{'='*60}")
     
     # Factor limits
-    factor_limits = suggestions["factor_limits"]
+    factor_limits = suggestions.get("factor_limits", {})
     if factor_limits:
         print(f"\n🎯 Factor Beta Limits: (Beta = sensitivity to market moves)")
         print(f"{'─'*40}")
         for factor, data in factor_limits.items():
-            status = "🔴 REDUCE" if data["needs_reduction"] else "🟢 OK"
+            status = "🔴 REDUCE" if data.get("needs_reduction", False) else "🟢 OK"
             factor_name = factor.replace('_', ' ').title().replace('Beta', 'Exposure')
-            current_val = data['current']
-            suggested_val = data['suggested_max']
+            current_val = data.get("current", 0.0)
+            suggested_val = data.get("suggested_max", 0.0)
             
             # Add note for negative values (hedges)
             note = ""
@@ -1128,38 +1383,56 @@ def display_suggested_risk_limits(suggestions: Dict[str, Any], max_loss: float):
             print(f"{status} {factor_name:<15} Current: {current_val:>6.2f}{note}  →  Max: {suggested_val:>6.2f}")
     
     # Concentration limit
-    conc = suggestions["concentration_limit"]
-    conc_status = "🔴 REDUCE" if conc["needs_reduction"] else "🟢 OK"
-    print(f"\n🎯 Position Size Limit:")
-    print(f"{'─'*40}")
-    print(f"{conc_status} Max Position Size     Current: {conc['current_max_position']:>6.1%}  →  Max: {conc['suggested_max_position']:>6.1%}")
+    conc = suggestions.get("concentration_limit")
+    if conc:
+        conc_status = "🔴 REDUCE" if conc.get("needs_reduction", False) else "🟢 OK"
+        print(f"\n🎯 Position Size Limit:")
+        print(f"{'─'*40}")
+        print(
+            f"{conc_status} Max Position Size     Current: {conc.get('current_max_position', 0.0):>6.1%}  →  "
+            f"Max: {conc.get('suggested_max_position', 0.0):>6.1%}"
+        )
+    else:
+        conc = {"needs_reduction": False}
     
     # Volatility limit
-    vol = suggestions["volatility_limit"]
-    vol_status = "🔴 REDUCE" if vol["needs_reduction"] else "🟢 OK"
-    print(f"\n🎯 Volatility Limit:")
-    print(f"{'─'*40}")
-    print(f"{vol_status} Portfolio Volatility  Current: {vol['current_volatility']:>6.1%}  →  Max: {vol['suggested_max_volatility']:>6.1%}")
+    vol = suggestions.get("volatility_limit")
+    if vol:
+        vol_status = "🔴 REDUCE" if vol.get("needs_reduction", False) else "🟢 OK"
+        print(f"\n🎯 Volatility Limit:")
+        print(f"{'─'*40}")
+        print(
+            f"{vol_status} Portfolio Volatility  Current: {vol.get('current_volatility', 0.0):>6.1%}  →  "
+            f"Max: {vol.get('suggested_max_volatility', 0.0):>6.1%}"
+        )
+    else:
+        vol = {"needs_reduction": False}
     
     # Sector limit
-    sector = suggestions["sector_limit"]
-    sector_status = "🔴 REDUCE" if sector["needs_reduction"] else "🟢 OK"
-    print(f"\n🎯 Sector Concentration Limit:")
-    print(f"{'─'*40}")
-    print(f"{sector_status} Max Sector Exposure   Current: {sector['current_max_sector']:>6.1%}  →  Max: {sector['suggested_max_sector']:>6.1%}")
+    sector = suggestions.get("sector_limit")
+    if sector:
+        sector_status = "🔴 REDUCE" if sector.get("needs_reduction", False) else "🟢 OK"
+        print(f"\n🎯 Sector Concentration Limit:")
+        print(f"{'─'*40}")
+        print(
+            f"{sector_status} Max Sector Exposure   Current: {sector.get('current_max_sector', 0.0):>6.1%}  →  "
+            f"Max: {sector.get('suggested_max_sector', 0.0):>6.1%}"
+        )
+    else:
+        sector = {"needs_reduction": False}
     
     print(f"\n💡 Priority Actions:")
     print(f"{'─'*40}")
     
     # Identify biggest issues
     issues = []
-    if any(data["needs_reduction"] for data in factor_limits.values()):
+    if any(data.get("needs_reduction", False) for data in factor_limits.values()):
         issues.append("Reduce systematic factor exposures")
-    if conc["needs_reduction"]:
+    if conc.get("needs_reduction", False):
         issues.append("Reduce largest position sizes")
-    if vol["needs_reduction"]:
+    if vol.get("needs_reduction", False):
         issues.append("Reduce portfolio volatility")
-    if sector["needs_reduction"]:
+    if sector.get("needs_reduction", False):
         issues.append("Reduce sector concentration")
     
     if not issues:
@@ -1277,6 +1550,10 @@ def calculate_portfolio_risk_score(
     
     The score measures "disruption risk" - how likely the portfolio is to
     exceed the user's maximum acceptable loss in various failure scenarios.
+
+    This function returns the raw score before any compliance penalty or
+    non-compliance ceiling is applied. Use ``run_risk_score_analysis()``
+    for the final adjusted score returned in production flows.
     
     Parameters
     ----------
@@ -1317,12 +1594,15 @@ def calculate_portfolio_risk_score(
     
     # Calculate potential losses under worst-case scenarios
     factor_loss = calculate_factor_risk_loss(summary, leverage_ratio, max_betas, max_single_factor_loss)
-    concentration_loss = calculate_concentration_risk_loss(
-        summary,
+    portfolio_weights = summary["allocations"]["Portfolio Weight"]
+    check_weights = _get_single_issuer_weights(portfolio_weights, security_types)
+    conc_result = _compute_concentration_loss(
+        check_weights,
         leverage_ratio,
         portfolio_data=portfolio_data,
         security_types=security_types,
     )
+    concentration_loss = conc_result["loss"]
     volatility_loss = calculate_volatility_risk_loss(summary, leverage_ratio)
     sector_loss = calculate_sector_risk_loss(summary, leverage_ratio, max_proxy_betas, max_single_factor_loss)
     
@@ -1333,6 +1613,12 @@ def calculate_portfolio_risk_score(
         "volatility_risk": score_excess_ratio(volatility_loss / max_loss),
         "sector_risk": score_excess_ratio(sector_loss / max_loss)
     }
+
+    UNKNOWN_RISK_SCORE = 50.0
+    incomplete_components = []
+    if _safe_finite(summary.get("volatility_annual"), fallback=-1.0) < 0.0:
+        component_scores["volatility_risk"] = UNKNOWN_RISK_SCORE
+        incomplete_components.append("volatility_risk")
     
     # Calculate overall score (weighted average)
     # Weight by importance for portfolio disruption
@@ -1395,6 +1681,14 @@ def calculate_portfolio_risk_score(
         "details": {
             "leverage_ratio": leverage_ratio,
             "max_loss_limit": max_loss,
+            "incomplete_components": incomplete_components,
+            "concentration_metadata": {
+                "top_n_weight": round(conc_result["top_n_weight"] * 100, 1),
+                "top_n_tickers": conc_result["top_n_tickers"],
+                "concentration_driver": conc_result["concentration_driver"],
+                "largest_ticker": conc_result["largest_ticker"],
+                "largest_weight": round(conc_result["largest_weight"] * 100, 1),
+            },
             "excess_ratios": {
                 "factor_risk": factor_loss / max_loss,
                 "concentration_risk": concentration_loss / max_loss,
@@ -1423,12 +1717,14 @@ def display_portfolio_risk_score(risk_score: Dict[str, Any]) -> None:
     This function is designed for interactive CLI / notebook use where
     immediate human readability is valuable.  For programmatic
     consumption (for example in an API) rely on the structured dict
-    returned by ``calculate_portfolio_risk_score``.
+    returned by ``run_risk_score_analysis()`` for the final adjusted
+    score and interpretation.
 
     Parameters
     ----------
     risk_score : Dict[str, Any]
-        The dictionary returned by ``calculate_portfolio_risk_score``.
+        Dictionary from ``run_risk_score_analysis()`` (may include
+        compliance penalty adjustments).
 
     Returns
     -------
@@ -1545,7 +1841,7 @@ def display_portfolio_risk_score(risk_score: Dict[str, Any]) -> None:
     # Score interpretation - action-focused
     print(f"\n📋 Score Interpretation:")
     print(f"{'─'*40}")
-    interpretation = generate_score_interpretation(score)
+    interpretation = risk_score.get("interpretation") or generate_score_interpretation(score)
     print(f"   {interpretation['summary']}")
     for detail in interpretation['details']:
         print(f"      • {detail}")
@@ -1573,7 +1869,8 @@ def _format_risk_score_output(risk_score: Dict[str, Any], limits_analysis: Dict[
     Parameters
     ----------
     risk_score : Dict[str, Any]
-        Dictionary produced by :pyfunc:`calculate_portfolio_risk_score`.
+        Dictionary from :pyfunc:`run_risk_score_analysis` (may include
+        compliance penalty adjustments).
     limits_analysis : Dict[str, Any]
         Dictionary produced by :pyfunc:`analyze_portfolio_risk_limits`.
     suggestions : Dict[str, Any]
@@ -1617,30 +1914,33 @@ def _format_risk_score_output(risk_score: Dict[str, Any], limits_analysis: Dict[
         print("═" * 80)
         
         # Display limit violations summary
-        violations = limits_analysis["limit_violations"]
-        total_violations = sum(violations.values())
+        violations = limits_analysis.get("limit_violations", {})
+        total_violations = sum(violations.values()) if violations else 0
         
         print(f"\n📊 LIMIT VIOLATIONS SUMMARY:")
         print(f"   Total violations: {total_violations}")
-        print(f"   Factor betas: {violations['factor_betas']}")
-        print(f"   Concentration: {violations['concentration']}")
-        print(f"   Volatility: {violations['volatility']}")
-        print(f"   Variance contributions: {violations['variance_contributions']}")
-        print(f"   Leverage: {violations['leverage']}")
+        print(f"   Factor betas: {violations.get('factor_betas', 0)}")
+        print(f"   Concentration: {violations.get('concentration', 0)}")
+        print(f"   Volatility: {violations.get('volatility', 0)}")
+        print(f"   Variance contributions: {violations.get('variance_contributions', 0)}")
+        print(f"   Leverage: {violations.get('leverage', 0)}")
+        industry_count = violations.get("industry", 0)
+        if industry_count > 0:
+            print(f"   Industry: {industry_count}")
         
         # Display detailed risk factors
-        if limits_analysis["risk_factors"]:
+        if limits_analysis.get("risk_factors"):
             print(f"\n⚠️  KEY RISK FACTORS:")
-            for factor in limits_analysis["risk_factors"]:
+            for factor in limits_analysis.get("risk_factors", []):
                 print(f"   • {factor}")
         
         # Display detailed recommendations
-        if limits_analysis["recommendations"]:
+        if limits_analysis.get("recommendations"):
             print(f"\n💡 KEY RECOMMENDATIONS:")
             
             # Filter recommendations to show only beta-based ones (more intuitive for users)
             beta_recommendations = []
-            for rec in limits_analysis["recommendations"]:
+            for rec in limits_analysis.get("recommendations", []):
                 # Skip variance-based recommendations (they're duplicative of beta-based ones)
                 if "factor exposure (contributing" in rec.lower():
                     continue  # Skip "Reduce X factor exposure (contributing Y% to variance)"
@@ -1740,10 +2040,10 @@ def run_risk_score_analysis(
     Examples
     --------
     >>> # CLI usage (prints report)
-    >>> python -m portfolio_risk_score
+    >>> python -m portfolio_risk_engine.portfolio_risk_score
 
     >>> # Programmatic usage
-    >>> from portfolio_risk_score import run_risk_score_analysis
+    >>> from portfolio_risk_engine.portfolio_risk_score import run_risk_score_analysis
     >>> out = run_risk_score_analysis("my_portfolio.yaml", "my_risk.yaml", return_data=True)
     >>> print(out["risk_score"]["score"])
     """
@@ -1886,7 +2186,61 @@ def run_risk_score_analysis(
             leverage_ratio=risk_leverage_ratio,
             security_types=security_types,
         )
-        
+
+        compliance_violations = limits_analysis.get("compliance_violations", [])
+        limit_violations = limits_analysis.get("limit_violations", {})
+        total_limit_violations = (
+            sum(limit_violations.values()) if isinstance(limit_violations, dict) else 0
+        )
+        is_non_compliant = total_limit_violations > 0
+
+        raw_score = risk_score["score"]
+        adjusted_score = raw_score
+
+        compliance_penalty = calculate_compliance_penalty(compliance_violations)
+        if compliance_penalty > 0:
+            adjusted_score = round(raw_score * (1 - compliance_penalty), 1)
+
+        ceiling_applied = False
+        if is_non_compliant and adjusted_score > COMPLIANCE_CEILING:
+            adjusted_score = COMPLIANCE_CEILING
+            ceiling_applied = True
+
+        if adjusted_score < raw_score:
+            if adjusted_score >= 90:
+                category = "Excellent"
+            elif adjusted_score >= 80:
+                category = "Good"
+            elif adjusted_score >= 70:
+                category = "Fair"
+            elif adjusted_score >= 60:
+                category = "Poor"
+            else:
+                category = "Very Poor"
+
+            details = risk_score.get("details")
+            if not isinstance(details, dict):
+                details = {}
+                risk_score["details"] = details
+
+            risk_score["score"] = adjusted_score
+            risk_score["category"] = category
+            risk_score["interpretation"] = generate_score_interpretation(adjusted_score)
+            details["raw_score"] = raw_score
+            details["compliance_penalty_points"] = round(raw_score - adjusted_score, 1)
+            details["compliance_ceiling_applied"] = ceiling_applied
+
+            risk_assessment = risk_score["interpretation"].get("risk_assessment")
+            if not isinstance(risk_assessment, list):
+                risk_assessment = []
+                risk_score["interpretation"]["risk_assessment"] = risk_assessment
+            risk_assessment.insert(
+                0,
+                "Score reduced by "
+                f"{details['compliance_penalty_points']:.1f} points due to "
+                f"{len(compliance_violations)} limit violation(s)",
+            )
+
         # Build result object using new builder method
         result = RiskScoreResult.from_risk_score_analysis(
             risk_score=risk_score,

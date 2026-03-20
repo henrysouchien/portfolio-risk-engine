@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -833,11 +832,6 @@ def compute_twr_monthly_returns(
 def _safe_treasury_rate(start_date: datetime, end_date: datetime) -> float:
     """Fetch mean 3M treasury yield and return annual decimal rate."""
     treasury_fetcher = fetch_monthly_treasury_rates
-    rpa_mod = sys.modules.get("core.realized_performance_analysis")
-    if rpa_mod is not None:
-        fn = getattr(rpa_mod, "fetch_monthly_treasury_rates", None)
-        if callable(fn):
-            treasury_fetcher = fn
     try:
         rates = treasury_fetcher("month3", start_date, end_date)
         rates = _helpers._series_from_cache(rates)

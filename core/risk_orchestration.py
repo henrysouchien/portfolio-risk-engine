@@ -3,7 +3,7 @@
 
 # In[ ]:
 
-# File: run_risk.py
+# File: core/risk_orchestration.py
 
 import argparse
 import yaml
@@ -94,7 +94,7 @@ Every major analysis function follows this pattern:
 CLI Mode (default, return_data=False):
     - Prints formatted analysis directly to stdout
     - Perfect for terminal usage and scripting
-    - Example: python run_risk.py --portfolio portfolio.yaml
+    - Example: python3 -m core.risk_orchestration --portfolio config/portfolio.yaml
 
 API Mode (return_data=True):
     - Returns structured dictionary with analysis data + formatted report
@@ -126,12 +126,12 @@ With dual-mode, there's a single source of truth for business logic and formatti
 🏗️ ARCHITECTURE INTEGRATION
 ============================
 
-CLI Users:           run_risk.py functions → stdout
-Service Layer:       run_risk.py functions → structured data + formatted reports  
+CLI Users:           python3 -m core.risk_orchestration → stdout
+Service Layer:       core.risk_orchestration functions → structured data + formatted reports
 Web APIs:           Service Layer → JSON responses
 Claude AI:          Service Layer → human-readable formatted reports
 
-For detailed architecture documentation, see: architecture.md
+For detailed architecture documentation, see: docs/architecture.md
 """
 
 # ============================================================================
@@ -253,7 +253,7 @@ def run_portfolio(
     High-level "one-click" entry-point for a full portfolio risk run.
 
     Called by:
-    - CLI usage (`run_risk.py`) and service wrappers that need full risk analysis.
+    - CLI usage (`python3 -m core.risk_orchestration`) and service wrappers that need full risk analysis.
 
     Calls into:
     - `core.portfolio_analysis.analyze_portfolio` for core computation.

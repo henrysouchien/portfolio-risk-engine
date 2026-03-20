@@ -846,7 +846,7 @@ class PerformanceResult:
         return "\n".join(sections)
     
     def _format_performance_header(self) -> str:
-        """Format portfolio info header - EXACT copy of run_risk.py:727-733"""
+        """Format the canonical CLI portfolio-performance header."""
         # CRITICAL: Must produce identical output to current implementation
         lines = ["📊 Portfolio Performance Analysis"]
         lines.append("=" * 50)

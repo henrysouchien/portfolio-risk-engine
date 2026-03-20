@@ -3,7 +3,7 @@ pandas>=3.0.0
 numpy>=2.4.0
 plotly>=5.21.0
 statsmodels>=0.14.0
-pyarrow>=23.0.0  # Required for parquet operations in data_loader.py and fmp/cache.py
+pyarrow>=23.0.0  # Required for parquet operations in portfolio_risk_engine/data_loader.py and fmp/cache.py
 
 # Web Framework & API (FastAPI-based)
 fastapi>=0.135.0
@@ -31,12 +31,12 @@ pyyaml>=6.0
 
 # Authentication & Security
 google-auth>=2.48.0  # google.oauth2.id_token + google.auth.transport in services/auth_service.py
-certifi>=2026.0.0  # SSL fix for IBKR Flex (ibkr/flex.py), also used by plaid_loader.py
+certifi>=2026.0.0  # SSL fix for IBKR Flex (ibkr/flex.py), also used by providers/plaid_loader.py
 
 # AI & Language Models
 anthropic>=0.84.0
 openai>=2.26.0
-fastmcp>=3.1.0  # MCP server for Claude Code integration (mcp_server.py, fmp_mcp_server.py, ibkr_mcp_server.py)
+fastmcp>=3.1.0  # MCP server for Claude Code integration (mcp_server.py, fmp/server.py, ibkr/server.py)
 
 # Date Utilities
 python-dateutil>=2.8.0  # relativedelta used in mcp_tools/tax_harvest.py
