@@ -10,6 +10,7 @@ from datetime import datetime
 import pandas as pd
 from typing import Dict, Union, Optional
 
+from core.realized_performance.nav import _safe_treasury_rate
 from portfolio_risk_engine.data_loader import fetch_monthly_close
 from portfolio_risk_engine.factor_utils import (
     calc_monthly_returns,
@@ -66,9 +67,13 @@ def get_stock_risk_profile(
     vol_metrics  = compute_volatility(df_ret["stock"])
     risk_metrics = compute_regression_metrics(df_ret)
 
+    risk_free_rate = _safe_treasury_rate(
+        pd.Timestamp(start_date).to_pydatetime(),
+        pd.Timestamp(end_date).to_pydatetime(),
+    )
     stock_perf = compute_stock_performance_metrics(
         pd.DataFrame({"stock": df_ret["stock"]}),
-        risk_free_rate=0.04,
+        risk_free_rate=risk_free_rate,
         start_date=str(start_date),
         end_date=str(end_date),
     )
