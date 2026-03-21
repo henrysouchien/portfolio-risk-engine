@@ -61,7 +61,8 @@ class PriceResult:
     attempts: list[tuple[str, str, Exception | None]] = field(default_factory=list)
 
 def _build_default_price_registry() -> ProviderRegistry:
-    registry = ProviderRegistry()
+    from providers.bootstrap import build_default_registry
+
     monthly_close_fetcher = fetch_monthly_close
 
     def _fetch_daily_close_for_registry(*args: Any, **kwargs: Any) -> pd.Series:
@@ -74,34 +75,14 @@ def _build_default_price_registry() -> ProviderRegistry:
 
         return _fetch_daily_close(*args, **kwargs)
 
-    ibkr_monthly_fetcher = _helpers._shim_attr("fetch_ibkr_monthly_close", fetch_ibkr_monthly_close)
-    ibkr_fx_fetcher = _helpers._shim_attr("fetch_ibkr_fx_monthly_close", fetch_ibkr_fx_monthly_close)
-    ibkr_bond_fetcher = _helpers._shim_attr("fetch_ibkr_bond_monthly_close", fetch_ibkr_bond_monthly_close)
-    ibkr_option_fetcher = _helpers._shim_attr("fetch_ibkr_option_monthly_mark", fetch_ibkr_option_monthly_mark)
-
-    fmp_provider = FMPPriceProvider(
-        fetcher=monthly_close_fetcher,
-        daily_fetcher=_fetch_daily_close_for_registry,
+    return build_default_registry(
+        fmp_fetcher=monthly_close_fetcher,
+        fmp_daily_fetcher=_fetch_daily_close_for_registry,
+        ibkr_futures_fetcher=_helpers._shim_attr("fetch_ibkr_monthly_close", fetch_ibkr_monthly_close),
+        ibkr_fx_fetcher=_helpers._shim_attr("fetch_ibkr_fx_monthly_close", fetch_ibkr_fx_monthly_close),
+        ibkr_bond_fetcher=_helpers._shim_attr("fetch_ibkr_bond_monthly_close", fetch_ibkr_bond_monthly_close),
+        ibkr_option_fetcher=_helpers._shim_attr("fetch_ibkr_option_monthly_mark", fetch_ibkr_option_monthly_mark),
     )
-    registry.register_price_provider(fmp_provider, priority=10)
-    registry.register_price_provider(
-        IBKRPriceProvider(
-            futures_fetcher=ibkr_monthly_fetcher,
-            fx_fetcher=ibkr_fx_fetcher,
-            bond_fetcher=ibkr_bond_fetcher,
-            option_fetcher=ibkr_option_fetcher,
-        ),
-        priority=20,
-    )
-    if OPTION_BS_FALLBACK_ENABLED:
-        registry.register_price_provider(
-            OptionBSPriceProvider(
-                underlying_fetcher=fmp_provider.fetch_monthly_close,
-                treasury_fetcher=fmp_provider.fetch_monthly_treasury_rates,
-            ),
-            priority=25,
-        )
-    return registry
 
 def _fetch_price_from_chain(
     providers: list[PriceSeriesProvider],

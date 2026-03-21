@@ -38,7 +38,6 @@ import json
 from datetime import datetime
 from typing import Optional, Union, List, Dict, Any
 from portfolio_risk_engine.data_loader import fetch_monthly_close, fetch_monthly_total_return_price
-import os
 from fmp.cache import get_timeseries_store
 from utils.ticker_resolver import select_fmp_symbol
 
@@ -49,10 +48,6 @@ from portfolio_risk_engine._logging import (
     log_errors,
 )
 
-# Configuration
-FMP_API_KEY = os.getenv("FMP_API_KEY")
-API_KEY  = FMP_API_KEY
-BASE_URL = "https://financialmodelingprep.com/stable"
 _PEER_MEDIAN_CACHE_VERSION = "v1"
 _PEER_MEDIAN_SERIES_KIND = "peer_median_total_return_me"
 

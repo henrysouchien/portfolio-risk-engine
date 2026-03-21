@@ -294,23 +294,14 @@ def get_proxy_cache_stats():
 # In[ ]:
 
 
-# file: proxy_builder.py
-
-import requests
-import os
-
-# Load API key
-FMP_API_KEY = os.getenv("FMP_API_KEY")
-BASE_URL = "https://financialmodelingprep.com/stable"
-
 @cache_company_profile
 def fetch_profile(ticker: str) -> dict:
     """
-    Fetches normalized company profile metadata from Financial Modeling Prep (FMP)
-    using the `/stable/profile` endpoint.
+    Fetch company profile metadata through the provider registry.
 
-    Retrieves and parses the profile for a given ticker symbol, returning key
-    fields needed for factor proxy mapping and classification (e.g., exchange, industry, ETF status).
+    Retrieves the normalized profile for a given ticker symbol, returning key
+    fields needed for factor proxy mapping and classification (e.g., exchange,
+    industry, ETF status).
 
     Parameters
     ----------
@@ -320,50 +311,33 @@ def fetch_profile(ticker: str) -> dict:
     Returns
     -------
     dict
-        A dictionary with keys:
-            - 'ticker'     : str  — confirmed symbol (e.g., "AAPL")
-            - 'exchange'   : str  — primary listing exchange (e.g., "NASDAQ")
-            - 'country'    : str  — country code (e.g., "US")
-            - 'industry'   : str  — FMP-defined industry name (e.g., "Consumer Electronics")
-            - 'marketCap'  : int  — latest market cap in USD
-            - 'isEtf'      : bool — True if classified as an ETF
-            - 'isFund'     : bool — True if classified as a mutual fund
-            - 'companyName': str  — full company name (e.g., "BlackRock Debt Strategies Fund, Inc.")
-            - 'description': str  — detailed company/fund description for AI asset classification
+        Provider profile metadata for the symbol. Callers rely on fields such as
+        `symbol`, `exchange`, `country`, `industry`, `marketCap`, `isEtf`,
+        `isFund`, `companyName`, and `description`; the provider may return
+        additional metadata fields as well.
 
     Raises
     ------
     ValueError
-        If the API call fails or returns empty/malformed data.
+        If no profile provider is registered or profile data cannot be fetched.
 
     Notes
     -----
     • Used by proxy construction and GPT peer logic to determine asset type.
     • ETF and fund flags are useful for excluding non-operating entities from peer analysis.
-    • Always returns the requested `ticker` if no symbol is present in payload.
+    • Returned metadata comes from the active registered profile provider.
     """
-    url = f"{BASE_URL}/profile?symbol={ticker}&apikey={FMP_API_KEY}"
-    resp = requests.get(url, timeout=10)
-    if not resp.ok:
-        raise ValueError(f"FMP API error: {resp.status_code} {resp.text}")
+    from providers.bootstrap import get_registry
 
-    data = resp.json()
-    if not isinstance(data, list) or not data:
-        raise ValueError(f"No profile data returned for {ticker}")
+    provider = get_registry().get_profile_provider()
+    if provider is None:
+        raise ValueError("No profile metadata provider registered")
 
-    profile = data[0]
+    profile = provider.fetch_profile(ticker)
+    if not profile:
+        raise ValueError(f"No profile data for {ticker}")
 
-    return {
-        "ticker": profile.get("symbol", ticker),
-        "exchange": profile.get("exchange"),              # e.g. "NASDAQ"
-        "country": profile.get("country"),                # e.g. "US"
-        "industry": profile.get("industry"),              # e.g. "Consumer Electronics"
-        "marketCap": profile.get("marketCap"),            # e.g. 3T
-        "isEtf": profile.get("isEtf", False),
-        "isFund": profile.get("isFund", False),
-        "companyName": profile.get("companyName"),        # e.g. "BlackRock Debt Strategies Fund, Inc."
-        "description": profile.get("description"),        # Rich fund/company description for AI classification
-    }
+    return profile
 
 
 # In[ ]:

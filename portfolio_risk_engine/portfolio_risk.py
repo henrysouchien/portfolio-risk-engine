@@ -2269,41 +2269,24 @@ def _compute_sector_attribution(
         for ticker in eligible_tickers
     }
 
-    # Skip remote profile lookups when API key is unavailable.
-    import os
+    try:
+        from providers.bootstrap import get_registry
 
-    if str(os.getenv("FMP_API_KEY") or "").strip():
-        try:
-            from concurrent.futures import ThreadPoolExecutor
-            from fmp.client import FMPClient
-
-            client = FMPClient()
+        provider = get_registry().get_profile_provider()
+        if provider is not None:
             symbol_to_sector: Dict[str, str] = {}
             unique_symbols = sorted({s for s in ticker_to_symbol.values() if s})
-
-            def _fetch_sector(symbol: str) -> tuple[str, Optional[str]]:
-                try:
-                    profile = client.fetch("profile", symbol=symbol, use_cache=True)
-                    if not profile.empty:
-                        sector = str(profile.iloc[0].get("sector") or "").strip() or None
-                        return symbol, sector
-                except Exception:
-                    return symbol, None
-                return symbol, None
-
-            if unique_symbols:
-                max_workers = min(8, len(unique_symbols))
-                with ThreadPoolExecutor(max_workers=max_workers) as pool:
-                    for symbol, sector in pool.map(_fetch_sector, unique_symbols):
-                        if sector:
-                            symbol_to_sector[symbol] = sector
-
-                for ticker, symbol in ticker_to_symbol.items():
-                    sector = symbol_to_sector.get(symbol)
-                    if sector:
-                        ticker_to_sector[ticker] = sector
-        except Exception:
-            pass
+            profiles = provider.fetch_batch_profiles(unique_symbols, use_cache=True)
+            for symbol, profile in profiles.items():
+                sector = (profile or {}).get("sector")
+                if sector:
+                    symbol_to_sector[symbol] = sector
+            for ticker, symbol in ticker_to_symbol.items():
+                sector = symbol_to_sector.get(symbol)
+                if sector:
+                    ticker_to_sector[ticker] = sector
+    except Exception:
+        pass
 
     grouped: Dict[str, Dict[str, float]] = {}
     for ticker, total_return in ticker_total_returns.items():

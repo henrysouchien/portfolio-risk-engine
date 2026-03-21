@@ -14,6 +14,24 @@ from utils.serialization import make_json_safe
 from portfolio_risk_engine.constants import get_asset_class_color, get_asset_class_display_name
 from ._helpers import (_convert_to_json_serializable, _clean_nan_values, _format_df_as_text, _abbreviate_labels, _DEFAULT_INDUSTRY_ABBR_MAP)
 
+def _safe_finite(v) -> bool:
+    """Check if a value is a finite number (handles non-numeric types safely)."""
+    try:
+        return math.isfinite(float(v))
+    except (TypeError, ValueError):
+        return False
+
+FACTOR_DISPLAY_NAMES = {
+    "market": "Market (Beta)",
+    "interest_rate": "Interest Rate",
+    "momentum": "Momentum",
+    "value": "Value (HML)",
+    "growth": "Growth",
+    "size": "Size (SMB)",
+    "quality": "Quality",
+    "dividend": "Dividend Yield",
+}
+
 @dataclass
 class RiskAnalysisResult:
     """
@@ -213,6 +231,7 @@ class RiskAnalysisResult:
             "herfindahl": self.herfindahl,
             "factor_variance_pct": self.variance_decomposition.get('factor_pct', 0),
             "idiosyncratic_variance_pct": self.variance_decomposition.get('idiosyncratic_pct', 0),
+            "risk_drivers": self._build_risk_drivers()[:5],
         }
     
     def get_factor_exposures(self) -> Dict[str, float]:
@@ -783,6 +802,112 @@ class RiskAnalysisResult:
         # Return the exact data that CLI uses for "Factor Variance (absolute)"
         return self.variance_decomposition.get("factor_breakdown_var", {})
 
+    def _build_risk_drivers(self) -> List[Dict[str, Any]]:
+        """
+        Build a unified, sorted list of all risk drivers (factor + industry)
+        ranked by contribution to portfolio variance.
+
+        Uses a common denominator (factor_var + industry_var + idiosyncratic_var)
+        so factor and industry percentages are directly comparable and consistent
+        with the Factor Exposure tab's Risk Contribution display.
+
+        Returns ALL drivers sorted by contribution — no threshold filtering.
+        Consumers apply their own threshold (e.g., frontend uses 5%).
+        """
+        drivers = []
+
+        # Get absolute variance values for a common denominator
+        vd = self.variance_decomposition or {}
+        factor_var_abs = vd.get("factor_breakdown_var", {})  # excl industry/subindustry
+        idio_var = vd.get("idiosyncratic_variance", 0.0)
+
+        industry_var_abs = {}
+        if self.industry_variance:
+            industry_var_abs = self.industry_variance.get("absolute", {})
+
+        # True total = factor (excl industry) + industry + idiosyncratic
+        total_factor = sum(float(v) for v in factor_var_abs.values() if _safe_finite(v) and float(v) > 0)
+        total_industry = sum(float(v) for v in industry_var_abs.values() if _safe_finite(v) and float(v) > 0)
+        try:
+            total_idio = float(idio_var) if _safe_finite(idio_var) else 0.0
+        except (TypeError, ValueError):
+            total_idio = 0.0
+        true_total = total_factor + total_industry + total_idio
+
+        if true_total <= 0:
+            return []
+
+        # Factor drivers — use absolute variance / true_total for correct percentage
+        pfb = self.portfolio_factor_betas if self.portfolio_factor_betas is not None else {}
+        if hasattr(pfb, "to_dict"):
+            pfb = pfb.to_dict()
+
+        for factor_name, abs_var in factor_var_abs.items():
+            try:
+                num_var = float(abs_var)
+            except (TypeError, ValueError):
+                continue
+            if not math.isfinite(num_var) or num_var <= 0:
+                continue
+
+            pct = num_var / true_total
+
+            beta_val = None
+            try:
+                raw = pfb.get(factor_name) if hasattr(pfb, "get") else None
+                if raw is not None:
+                    raw_float = float(raw)
+                    if math.isfinite(raw_float):
+                        beta_val = round(raw_float, 3)
+            except Exception:
+                pass
+
+            drivers.append(
+                {
+                    "type": "factor",
+                    "label": FACTOR_DISPLAY_NAMES.get(
+                        factor_name, factor_name.replace("_", " ").title()
+                    ),
+                    "raw_key": factor_name,
+                    "percent_of_portfolio": round(pct, 4),
+                    "beta": beta_val,
+                }
+            )
+
+        # Industry drivers — use absolute variance / true_total for same denominator
+        industry_betas = self._build_industry_group_betas_table()
+        beta_lookup = {}
+        for row in industry_betas:
+            ticker = row.get("ticker")
+            if ticker and ticker not in beta_lookup:
+                beta_lookup[ticker] = {
+                    "label": row.get("labeled_etf", ticker),
+                    "beta": row.get("beta"),
+                }
+
+        for industry_key, abs_var in industry_var_abs.items():
+            try:
+                num_var = float(abs_var)
+            except (TypeError, ValueError):
+                continue
+            if not math.isfinite(num_var) or num_var <= 0:
+                continue
+
+            pct = num_var / true_total
+            info = beta_lookup.get(industry_key)
+            drivers.append(
+                {
+                    "type": "industry",
+                    "label": info["label"] if info else industry_key,
+                    "raw_key": industry_key,
+                    "percent_of_portfolio": round(pct, 4),
+                    "beta": info["beta"] if info else None,
+                }
+            )
+
+        drivers.sort(key=lambda d: d.get("percent_of_portfolio", 0), reverse=True)
+        return drivers
+
     def _build_top_stock_variance_euler_table(self) -> List[Dict[str, Any]]:
         """
         Generate top stock variance contributors table from Euler variance percentages.
@@ -1133,6 +1258,7 @@ class RiskAnalysisResult:
             "factor_variance_percentage": self._build_factor_variance_percentage_table(),  # Factor Variance (% of Portfolio, excluding industry)
             "industry_variance_absolute": self._build_industry_variance_absolute_table(),  # Industry Variance (absolute)
             "industry_variance_percentage": self._build_industry_variance_percentage_table(),  # Industry Variance (% of Portfolio)
+            "risk_drivers": self._build_risk_drivers(),  # Unified factor + industry risk drivers
             # Phase 2 cleanup: removed risk_checks, beta_checks (redundant with risk_limit_violations_summary, beta_exposure_checks_table)
             "volatility_annual": self.volatility_annual,  # Volatility Annual   
             "volatility_monthly": self.volatility_monthly,  # Volatility Monthly
@@ -2159,7 +2285,10 @@ class RiskScoreResult:
             "risk_score": _convert_to_json_serializable(self.risk_score),  # Contains: score, category, component_scores, interpretation{summary, details, risk_assessment}
             
             # Violation-based analysis with specific recommendations  
-            "limits_analysis": _convert_to_json_serializable(self.limits_analysis),  # Contains: risk_factors, recommendations (violation-specific), limit_violations
+            "limits_analysis": _convert_to_json_serializable({
+                **self.limits_analysis,
+                "component_insights": self.limits_analysis.get("component_insights", {}),
+            }),  # Contains: risk_factors, recommendations (violation-specific), limit_violations
             
             # Suggested risk limits (backwards-calculated from max loss tolerance)
             "suggested_limits": _convert_to_json_serializable(self.suggested_limits),  # Contains: factor_limits, concentration_limit, volatility_limit, sector_limit

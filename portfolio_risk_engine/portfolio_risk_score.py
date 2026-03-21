@@ -761,6 +761,12 @@ def analyze_portfolio_risk_limits(
     risk_factors = []
     recommendations = []
     violation_details = []
+    per_component = {
+        "factor_risk": {"findings": [], "actions": []},
+        "concentration_risk": {"findings": [], "actions": []},
+        "volatility_risk": {"findings": [], "actions": []},
+        "sector_risk": {"findings": [], "actions": []},
+    }
     
     # ═══════════════════════════════════════════════════════════════════════════
     # DETAILED RISK LIMITS ANALYSIS
@@ -786,7 +792,9 @@ def analyze_portfolio_risk_limits(
             beta_warning_ratio = RISK_ANALYSIS_THRESHOLDS["beta_warning_ratio"]
             
             if beta_ratio > beta_violation_ratio:  # Exceeds limit
-                risk_factors.append(f"High {factor} exposure: β={actual_beta:.2f} vs {max_beta:.2f} limit")
+                finding = f"High {factor} exposure: β={actual_beta:.2f} vs {max_beta:.2f} limit"
+                risk_factors.append(finding)
+                per_component["factor_risk"]["findings"].append(finding)
                 violation_details.append({
                     "category": "factor_beta",
                     "metric": factor,
@@ -795,15 +803,21 @@ def analyze_portfolio_risk_limits(
                     "excess_pct": _compute_excess_pct(actual_beta, max_beta, use_abs=True),
                 })
                 if factor == "market":
-                    recommendations.append("Reduce market exposure (sell high-beta stocks or add market hedges)")
+                    action = "Reduce market exposure (sell high-beta stocks or add market hedges)"
                 else:
-                    recommendations.append(f"Reduce {factor} factor exposure")
+                    action = f"Reduce {factor} factor exposure"
+                recommendations.append(action)
+                per_component["factor_risk"]["actions"].append(action)
             elif beta_ratio > beta_warning_ratio:  # Approaching limit  
-                risk_factors.append(f"High {factor} exposure: β={actual_beta:.2f} vs {max_beta:.2f} limit")
+                finding = f"High {factor} exposure: β={actual_beta:.2f} vs {max_beta:.2f} limit"
+                risk_factors.append(finding)
+                per_component["factor_risk"]["findings"].append(finding)
                 if factor == "market":
-                    recommendations.append("Reduce market exposure (sell high-beta stocks or add market hedges)")
+                    action = "Reduce market exposure (sell high-beta stocks or add market hedges)"
                 else:
-                    recommendations.append(f"Reduce {factor} factor exposure")
+                    action = f"Reduce {factor} factor exposure"
+                recommendations.append(action)
+                per_component["factor_risk"]["actions"].append(action)
     
     # Check industry proxy exposures
     if max_proxy_betas:
@@ -830,8 +844,12 @@ def analyze_portfolio_risk_limits(
                         "excess_pct": _compute_excess_pct(actual_beta, max_beta, use_abs=True),
                     })
                 if beta_ratio > beta_warning_ratio:  # Flag if >warning ratio of limit
-                    risk_factors.append(f"High {proxy} exposure: β={actual_beta:.2f} vs {max_beta:.2f} limit")
-                    recommendations.append(f"Reduce exposure to {proxy} sector")
+                    finding = f"High {proxy} exposure: β={actual_beta:.2f} vs {max_beta:.2f} limit"
+                    action = f"Reduce exposure to {proxy} sector"
+                    risk_factors.append(finding)
+                    per_component["sector_risk"]["findings"].append(finding)
+                    recommendations.append(action)
+                    per_component["sector_risk"]["actions"].append(action)
     
     # ─── 2. Concentration Limit Analysis ──────────────────────────────────────
     weights = summary["allocations"]["Portfolio Weight"]
@@ -845,7 +863,10 @@ def analyze_portfolio_risk_limits(
     # Check position concentration
     concentration_warning_ratio = RISK_ANALYSIS_THRESHOLDS["concentration_warning_ratio"]
     if max_weight > weight_limit:
-        risk_factors.append(f"High concentration: {max_weight:.1%} vs {weight_limit:.1%} limit")
+        finding = f"High concentration: {max_weight:.1%} vs {weight_limit:.1%} limit"
+        action = "Reduce position size in largest holdings"
+        risk_factors.append(finding)
+        per_component["concentration_risk"]["findings"].append(finding)
         violation_details.append({
             "category": "concentration",
             "metric": "max_weight",
@@ -853,21 +874,32 @@ def analyze_portfolio_risk_limits(
             "limit": float(weight_limit),
             "excess_pct": _compute_excess_pct(max_weight, weight_limit),
         })
-        recommendations.append("Reduce position size in largest holdings")
+        recommendations.append(action)
+        per_component["concentration_risk"]["actions"].append(action)
     elif top_n_weight > weight_limit * 2:
-        risk_factors.append(
-            f"High cumulative concentration: top {len(conc_result['top_n_tickers'])} positions = {top_n_weight:.1%}"
-        )
-        recommendations.append("Reduce position sizes in largest holdings to improve diversification")
+        finding = f"High cumulative concentration: top {len(conc_result['top_n_tickers'])} positions = {top_n_weight:.1%}"
+        action = "Reduce position sizes in largest holdings to improve diversification"
+        risk_factors.append(finding)
+        per_component["concentration_risk"]["findings"].append(finding)
+        recommendations.append(action)
+        per_component["concentration_risk"]["actions"].append(action)
     elif max_weight > weight_limit * concentration_warning_ratio:  # Approaching limit
-        risk_factors.append(f"High concentration: {max_weight:.1%} in single position")
-        recommendations.append("Reduce position size in largest holdings")
+        finding = f"High concentration: {max_weight:.1%} in single position"
+        action = "Reduce position size in largest holdings"
+        risk_factors.append(finding)
+        per_component["concentration_risk"]["findings"].append(finding)
+        recommendations.append(action)
+        per_component["concentration_risk"]["actions"].append(action)
     
     # Check diversification
     hhi_threshold = RISK_ANALYSIS_THRESHOLDS["herfindahl_warning_threshold"]
     if herfindahl > hhi_threshold:
-        risk_factors.append(f"Low diversification (HHI: {herfindahl:.3f})")
-        recommendations.append("Add more positions to improve diversification")
+        finding = f"Low diversification (HHI: {herfindahl:.3f})"
+        action = "Add more positions to improve diversification"
+        risk_factors.append(finding)
+        per_component["concentration_risk"]["findings"].append(finding)
+        recommendations.append(action)
+        per_component["concentration_risk"]["actions"].append(action)
     
     # ─── 3. Volatility Limit Analysis ─────────────────────────────────────────
     actual_vol = _safe_finite(summary.get("volatility_annual"), fallback=0.0)
@@ -875,7 +907,10 @@ def analyze_portfolio_risk_limits(
     
     volatility_warning_ratio = RISK_ANALYSIS_THRESHOLDS["volatility_warning_ratio"]
     if actual_vol > vol_limit:
-        risk_factors.append(f"High volatility: {actual_vol:.1%} vs {vol_limit:.1%} limit")
+        finding = f"High volatility: {actual_vol:.1%} vs {vol_limit:.1%} limit"
+        action = "Reduce portfolio volatility through diversification or defensive positions"
+        risk_factors.append(finding)
+        per_component["volatility_risk"]["findings"].append(finding)
         violation_details.append({
             "category": "volatility",
             "metric": "portfolio_vol",
@@ -883,10 +918,15 @@ def analyze_portfolio_risk_limits(
             "limit": float(vol_limit),
             "excess_pct": _compute_excess_pct(actual_vol, vol_limit),
         })
-        recommendations.append("Reduce portfolio volatility through diversification or defensive positions")
+        recommendations.append(action)
+        per_component["volatility_risk"]["actions"].append(action)
     elif actual_vol > vol_limit * volatility_warning_ratio:  # Approaching limit
-        risk_factors.append(f"High portfolio volatility ({actual_vol:.1%})")
-        recommendations.append("Reduce volatility through diversification or defensive positions")
+        finding = f"High portfolio volatility ({actual_vol:.1%})"
+        action = "Reduce volatility through diversification or defensive positions"
+        risk_factors.append(finding)
+        per_component["volatility_risk"]["findings"].append(finding)
+        recommendations.append(action)
+        per_component["volatility_risk"]["actions"].append(action)
     
     # ─── 4. Variance Contribution Analysis ────────────────────────────────────
     var_decomp = summary["variance_decomposition"]
@@ -898,7 +938,9 @@ def analyze_portfolio_risk_limits(
     factor_variance_warning_ratio = RISK_ANALYSIS_THRESHOLDS["factor_variance_warning_ratio"]
     
     if factor_pct > factor_limit:
-        risk_factors.append(f"High systematic risk: {factor_pct:.1%} vs {factor_limit:.1%} limit")
+        finding = f"High systematic risk: {factor_pct:.1%} vs {factor_limit:.1%} limit"
+        risk_factors.append(finding)
+        per_component["factor_risk"]["findings"].append(finding)
         violation_details.append({
             "category": "variance",
             "metric": "factor_contribution",
@@ -916,10 +958,14 @@ def analyze_portfolio_risk_limits(
         for factor, contribution in sorted_factors:
             variance_contribution_threshold = RISK_ANALYSIS_THRESHOLDS["variance_contribution_threshold"] * 100  # Convert to percentage
             if contribution > variance_contribution_threshold:  # Only recommend for factors contributing >threshold%
-                recommendations.append(f"Reduce {factor} factor exposure (contributing {contribution:.1%} to variance)")
+                action = f"Reduce {factor} factor exposure (contributing {contribution:.1%} to variance)"
+                recommendations.append(action)
+                per_component["factor_risk"]["actions"].append(action)
                 
     elif factor_pct > factor_limit * factor_variance_warning_ratio:  # Approaching limit
-        risk_factors.append(f"High systematic risk: {factor_pct:.1%} variance from factors")
+        finding = f"High systematic risk: {factor_pct:.1%} variance from factors"
+        risk_factors.append(finding)
+        per_component["factor_risk"]["findings"].append(finding)
         
         # Identify which specific factors are contributing most to variance
         factor_breakdown = var_decomp["factor_breakdown_pct"]
@@ -930,13 +976,18 @@ def analyze_portfolio_risk_limits(
         for factor, contribution in sorted_factors:
             variance_contribution_threshold = RISK_ANALYSIS_THRESHOLDS["variance_contribution_threshold"] * 100  # Convert to percentage
             if contribution > variance_contribution_threshold:  # Only recommend for factors contributing >threshold%
-                recommendations.append(f"Reduce {factor} factor exposure (contributing {contribution:.1%} to variance)")
+                action = f"Reduce {factor} factor exposure (contributing {contribution:.1%} to variance)"
+                recommendations.append(action)
+                per_component["factor_risk"]["actions"].append(action)
     
     # Check market variance contribution
     market_limit = variance_limits["max_market_contribution"]
     market_variance_warning_ratio = RISK_ANALYSIS_THRESHOLDS["market_variance_warning_ratio"]
     if market_pct > market_limit:
-        risk_factors.append(f"High market variance contribution: {market_pct:.1%} vs {market_limit:.1%} limit")
+        finding = f"High market variance contribution: {market_pct:.1%} vs {market_limit:.1%} limit"
+        action = "Reduce market factor exposure"
+        risk_factors.append(finding)
+        per_component["factor_risk"]["findings"].append(finding)
         violation_details.append({
             "category": "variance",
             "metric": "market_contribution",
@@ -944,10 +995,15 @@ def analyze_portfolio_risk_limits(
             "limit": float(market_limit),
             "excess_pct": _compute_excess_pct(market_pct, market_limit),
         })
-        recommendations.append("Reduce market factor exposure")
+        recommendations.append(action)
+        per_component["factor_risk"]["actions"].append(action)
     elif market_pct > market_limit * market_variance_warning_ratio:  # Approaching limit
-        risk_factors.append(f"High market variance contribution: {market_pct:.1%}")
-        recommendations.append("Reduce market factor exposure")
+        finding = f"High market variance contribution: {market_pct:.1%}"
+        action = "Reduce market factor exposure"
+        risk_factors.append(finding)
+        per_component["factor_risk"]["findings"].append(finding)
+        recommendations.append(action)
+        per_component["factor_risk"]["actions"].append(action)
     
     # ─── 5. Industry Variance Contribution Analysis ───────────────────────────
     industry_pct_dict = summary["industry_variance"].get("percent_of_portfolio", {})
@@ -958,7 +1014,9 @@ def analyze_portfolio_risk_limits(
     industry_limit = variance_limits["max_industry_contribution"]
     
     if max_industry_pct > industry_limit:
-        risk_factors.append(f"High industry concentration: {max_industry_pct:.1%} vs {industry_limit:.1%} limit")
+        finding = f"High industry concentration: {max_industry_pct:.1%} vs {industry_limit:.1%} limit"
+        risk_factors.append(finding)
+        per_component["sector_risk"]["findings"].append(finding)
         
         # Identify which specific industry is causing the concentration
         # Sort industries by contribution (descending)
@@ -967,14 +1025,20 @@ def analyze_portfolio_risk_limits(
         # Generate specific recommendation for the top industry contributor
         if sorted_industries:
             top_industry, top_contribution = sorted_industries[0]
-            recommendations.append(f"Reduce exposure to {top_industry} industry (contributing {top_contribution:.1%} to variance)")
+            action = f"Reduce exposure to {top_industry} industry (contributing {top_contribution:.1%} to variance)"
+            recommendations.append(action)
+            per_component["sector_risk"]["actions"].append(action)
             
             # Also suggest general diversification if there are multiple concentrated industries
             industry_concentration_warning_ratio = RISK_ANALYSIS_THRESHOLDS["industry_concentration_warning_ratio"]
             if len([ind for ind, pct in sorted_industries if pct > industry_limit * industry_concentration_warning_ratio]) > 1:
-                recommendations.append("Add diversification across multiple industries")
+                action = "Add diversification across multiple industries"
+                recommendations.append(action)
+                per_component["sector_risk"]["actions"].append(action)
         else:
-            recommendations.append("Reduce industry concentration through diversification")
+            action = "Reduce industry concentration through diversification"
+            recommendations.append(action)
+            per_component["sector_risk"]["actions"].append(action)
 
     for ind_name, ind_pct in industry_pct_dict.items():
         safe_pct = _safe_finite(ind_pct, fallback=0.0)
@@ -990,7 +1054,10 @@ def analyze_portfolio_risk_limits(
     # ─── 6. Leverage Analysis ─────────────────────────────────────────────────
     leverage_threshold = RISK_ANALYSIS_THRESHOLDS["leverage_warning_threshold"]
     if leverage_ratio > leverage_threshold:
-        risk_factors.append(f"Leverage ({leverage_ratio:.2f}x) amplifies all potential losses")
+        finding = f"Leverage ({leverage_ratio:.2f}x) amplifies all potential losses"
+        action = "Consider reducing leverage to limit downside risk"
+        risk_factors.append(finding)
+        per_component["concentration_risk"]["findings"].append(finding)
         violation_details.append({
             "category": "leverage",
             "metric": "leverage",
@@ -998,7 +1065,12 @@ def analyze_portfolio_risk_limits(
             "limit": float(leverage_threshold),
             "excess_pct": _compute_excess_pct(leverage_ratio, leverage_threshold),
         })
-        recommendations.append("Consider reducing leverage to limit downside risk")
+        recommendations.append(action)
+        per_component["concentration_risk"]["actions"].append(action)
+
+    for comp in per_component.values():
+        comp["findings"] = list(dict.fromkeys(comp["findings"]))
+        comp["actions"] = list(dict.fromkeys(comp["actions"]))
 
     limit_violations = {}
     for violation in violation_details:
@@ -1009,6 +1081,7 @@ def analyze_portfolio_risk_limits(
         "risk_factors": risk_factors,
         "recommendations": recommendations,
         "compliance_violations": violation_details,
+        "component_insights": per_component,
         "limit_violations": {
             "factor_betas": limit_violations.get("factor_beta", 0),
             "concentration": limit_violations.get("concentration", 0),
