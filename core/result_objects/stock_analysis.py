@@ -108,7 +108,10 @@ class StockAnalysisResult:
         """Get stock volatility metrics from run_stock() output."""
         return {
             "monthly_volatility": self.volatility_metrics.get("monthly_vol", 0),
-            "annual_volatility": self.volatility_metrics.get("annual_vol", 0)
+            "annual_volatility": self.volatility_metrics.get("annual_vol", 0),
+            "sharpe_ratio": self.volatility_metrics.get("sharpe_ratio", 0),
+            "sortino_ratio": self.volatility_metrics.get("sortino_ratio", 0),
+            "max_drawdown": self.volatility_metrics.get("max_drawdown", 0),
         }
     
     def get_market_regression(self) -> Dict[str, float]:
@@ -552,4 +555,3 @@ class StockAnalysisResult:
             self.regression_metrics.get("r_squared", 0)
         )
         return hash(key_data)
-
