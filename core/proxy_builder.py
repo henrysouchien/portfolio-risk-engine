@@ -3,7 +3,6 @@
 
 # In[ ]:
 
-from utils.gpt_helpers import generate_subindustry_peers
 from settings import PORTFOLIO_DEFAULTS          # <— central date window
 from brokerage.futures import get_contract_spec
 from utils.ticker_resolver import select_fmp_symbol
@@ -842,6 +841,8 @@ def get_subindustry_peers_from_ticker(
             
         name = profile.get("companyName") or profile.get("name") or ticker
         industry = profile.get("industry", "Unknown")
+
+        from utils.gpt_helpers import generate_subindustry_peers
 
         raw_peers_text = generate_subindustry_peers(ticker=ticker, name=name, industry=industry)
         gpt_logger.debug(f"GPT peers for {ticker}: {raw_peers_text}")
