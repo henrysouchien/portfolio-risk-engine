@@ -89,6 +89,7 @@ class StockAnalysisResult:
         self.regression_metrics = stock_data.get("regression_metrics", {})
         self.factor_summary = stock_data.get("factor_summary")
         self.risk_metrics = stock_data.get("risk_metrics", {})
+        self.variance_attribution = stock_data.get("variance_attribution")
         
         # Enhanced factor analysis data (from analyze_stock improvements)
         self.factor_exposures = stock_data.get("factor_exposures", {})
@@ -246,6 +247,7 @@ class StockAnalysisResult:
                           regression_metrics: Optional[Dict[str, Any]] = None,
                           risk_metrics: Optional[Dict[str, Any]] = None,
                           factor_summary: Optional[Any] = None,
+                          variance_attribution: Optional[Dict[str, float]] = None,
                           factor_exposures: Optional[Dict[str, Any]] = None,
                           factor_proxies: Optional[Dict[str, Any]] = None,
                           analysis_metadata: Dict[str, Any] = None,
@@ -333,6 +335,7 @@ class StockAnalysisResult:
             "regression_metrics": regression_metrics or {},
             "risk_metrics": risk_metrics or {},
             "factor_summary": factor_summary,
+            "variance_attribution": variance_attribution,
             "factor_exposures": factor_exposures or {},
             "factor_proxies": factor_proxies or {},
             "analysis_metadata": analysis_metadata or {}
@@ -355,7 +358,8 @@ class StockAnalysisResult:
             "volatility_metrics": volatility_metrics,
             "regression_metrics": regression_metrics,
             "risk_metrics": risk_metrics,
-            "factor_summary": factor_summary
+            "factor_summary": factor_summary,
+            "variance_attribution": variance_attribution,
         }
         
         return result
@@ -517,7 +521,7 @@ class StockAnalysisResult:
         else:
             factor_summary_dict = {}
 
-        return {
+        response = {
             # 📊 Core identifiers
             "ticker": self.ticker,                                    # Stock symbol (str)
             "analysis_date": self.analysis_date.isoformat(),          # Timestamp (ISO format)
@@ -543,6 +547,9 @@ class StockAnalysisResult:
             "rate_regression_r2": self.rate_regression_r2,
             "key_rate_breakdown": self.key_rate_breakdown,
         }
+        if self.variance_attribution is not None:
+            response["variance_attribution"] = self.variance_attribution
+        return response
 
    
 

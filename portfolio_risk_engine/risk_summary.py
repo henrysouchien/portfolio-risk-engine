@@ -17,6 +17,7 @@ from portfolio_risk_engine.factor_utils import (
     compute_volatility,
     compute_regression_metrics,
     compute_factor_metrics,
+    compute_multifactor_betas,
     fetch_excess_return,
     fetch_peer_median_monthly_returns
 )
@@ -93,6 +94,50 @@ def get_stock_risk_profile(
 
 from typing import List, Dict, Optional, Union
 import pandas as pd
+
+
+def _compute_variance_attribution(
+    stock_returns: pd.Series,
+    factor_df: pd.DataFrame,
+    multifactor_stats: Dict[str, object],
+) -> Optional[Dict[str, float]]:
+    """Compute exact additive variance attribution from a joint OLS fit."""
+    betas = multifactor_stats.get("betas")
+    resid = multifactor_stats.get("resid")
+
+    if not isinstance(betas, dict) or not betas:
+        return None
+    if not isinstance(resid, pd.Series) or resid.empty:
+        return None
+
+    aligned = pd.concat([stock_returns, factor_df], axis=1).dropna()
+    if aligned.empty:
+        return None
+
+    y = aligned.iloc[:, 0]
+    aligned_resid = resid.reindex(y.index)
+    if aligned_resid.isna().any():
+        return None
+
+    stock_var = y.var()
+    if pd.isna(stock_var) or stock_var <= 0:
+        return None
+
+    fitted_values = y - aligned_resid
+    variance_attribution: Dict[str, float] = {}
+
+    for factor_name in factor_df.columns:
+        beta_value = betas.get(factor_name, 0.0)
+        try:
+            beta = float(beta_value)
+        except (TypeError, ValueError):
+            beta = 0.0
+        cov_with_fitted = aligned[factor_name].cov(fitted_values)
+        contribution = (beta * cov_with_fitted) / stock_var
+        variance_attribution[factor_name] = float(contribution)
+
+    variance_attribution["idiosyncratic"] = float(aligned_resid.var() / stock_var)
+    return variance_attribution
 
 def get_detailed_stock_factor_profile(
     ticker: str,
@@ -206,8 +251,19 @@ def get_detailed_stock_factor_profile(
     except Exception:
         pass
 
-    return {
+    factor_df = pd.DataFrame(factor_dict)
+    multifactor_stats = compute_multifactor_betas(stock_returns, factor_df)
+    variance_attribution = _compute_variance_attribution(
+        stock_returns,
+        factor_df,
+        multifactor_stats,
+    )
+
+    profile = {
         "vol_metrics": vol_metrics,
         "regression_metrics": compute_regression_metrics(df_reg),
-        "factor_summary": compute_factor_metrics(stock_returns, factor_dict)
+        "factor_summary": compute_factor_metrics(stock_returns, factor_dict),
     }
+    if variance_attribution is not None:
+        profile["variance_attribution"] = variance_attribution
+    return profile

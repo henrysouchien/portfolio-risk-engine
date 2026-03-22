@@ -80,7 +80,7 @@ def generate_trading_flags(snapshot: dict) -> list[dict]:
             {
                 "type": "high_regret",
                 "severity": "info",
-                "message": f"{total_regret:,.0f} left on table vs optimal exit timing",
+                "message": f"${total_regret:,.0f} left on table vs optimal exit timing",
                 "total_regret": total_regret,
             }
         )

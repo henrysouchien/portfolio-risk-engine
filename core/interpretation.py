@@ -20,6 +20,7 @@ Contract notes:
 from typing import Optional, Dict, Any
 from datetime import datetime, UTC
 
+from providers.completion import get_completion_provider
 from utils.gpt_helpers import interpret_portfolio_risk
 from core.result_objects import InterpretationResult
 
@@ -72,7 +73,9 @@ def analyze_and_interpret(portfolio_yaml: str) -> InterpretationResult:
         analysis_metadata={
             "analysis_date": datetime.now(UTC).isoformat(),
             "portfolio_file": portfolio_yaml,
-            "interpretation_service": "gpt",
+            "interpretation_service": (
+                get_completion_provider().provider_name if get_completion_provider() else "none"
+            ),
             "diagnostics_length": len(diagnostics),
             "interpretation_length": len(summary_txt)
         },
@@ -123,7 +126,9 @@ def interpret_portfolio_data(
         analysis_metadata={
             "analysis_date": datetime.now(UTC).isoformat(),
             "portfolio_file": portfolio_name or "portfolio_output",
-            "interpretation_service": "gpt",
+            "interpretation_service": (
+                get_completion_provider().provider_name if get_completion_provider() else "none"
+            ),
             "diagnostics_length": len(diagnostics),
             "interpretation_length": len(summary_txt)
         },

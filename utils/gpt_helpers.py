@@ -1,34 +1,12 @@
-#!/usr/bin/env python
-# coding: utf-8
-
-# In[ ]:
-
-
-# === OPENAI API Setup ===
-import openai
-from io import StringIO
-from contextlib import redirect_stdout
 import os
 
-# Now access your keys like this
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-client = openai.OpenAI(api_key=OPENAI_API_KEY)
-
-# Import logging decorators for GPT API operations
+from providers.completion import get_completion_provider
 from utils.logging import (
     log_operation,
     log_timing,
     log_errors,
-    log_service_health,
-    log_critical_alert,
     portfolio_logger,
 )
-
-
-# In[ ]:
-
-
-# File: gpt_helpers.py
 
 @log_errors("high")
 @log_operation("ai_interpretation")
@@ -51,32 +29,17 @@ def interpret_portfolio_risk(diagnostics_text: str) -> str:
         f"{diagnostics_text}"
     )
 
-    response = client.chat.completions.create(
-        model="gpt-4.1",  # or "gpt-4o-mini" if desired
-        messages=[
-            {"role": "system", "content": "You are a portfolio risk analysis expert."},
-            {"role": "user", "content": user_prompt}
-        ],
+    provider = get_completion_provider()
+    if provider is None:
+        return "(AI interpretation unavailable)"
+
+    return provider.complete(
+        user_prompt,
+        system="You are a portfolio risk analysis expert.",
+        model=os.getenv("LLM_INTERPRETATION_MODEL") or None,
         max_tokens=2000,
-        temperature=0.5
+        temperature=0.5,
     )
-    # LOGGING: Add OpenAI response logging with token usage here
-
-    return response.choices[0].message.content.strip()
-
-
-# In[ ]:
-
-
-# File: gpt_helpers.py
-
-import os
-from typing import List
-import openai
-
-# ── Load env & set up the shared client ───────────────────────────────
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
 # ── Peer-generator helper ─────────────────────────────────────────────
 @log_errors("high")
@@ -84,7 +47,6 @@ def generate_subindustry_peers(
     ticker: str,
     name: str,
     industry: str,
-    model: str = "gpt-4.1",    # any available chat model
     max_tokens: int = 200,
     temperature: float = 0.2,
 ) -> str:
@@ -104,8 +66,6 @@ def generate_subindustry_peers(
         The full company name (e.g., "NVIDIA Corporation").
     industry : str
         Broad industry classification (e.g., "Semiconductors").
-    model : str, default="gpt-4.1"
-        The OpenAI chat model to use.
     max_tokens : int, default=200
         Max token count for the GPT response.
     temperature : float, default=0.2
@@ -163,18 +123,20 @@ Name: {name}
 Industry: {industry}
 """.strip()
 
+    provider = get_completion_provider()
+    if provider is None:
+        return ""
+
     try:
-        resp = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
+        content = provider.complete(
+            prompt,
+            model=os.getenv("LLM_PEERS_MODEL") or None,
             max_tokens=max_tokens,
             temperature=temperature,
         )
 
-        content = resp.choices[0].message.content.strip()
-
         # Expect something like ["AMD", "INTC", "QCOM", ...]
-        return content 
+        return content
 
     except Exception as e:
         # Log full traceback so the root cause is visible
@@ -242,23 +204,23 @@ Examples:
 - "mixed,0.75" for a target-date fund
 - "unknown,0.30" if insufficient information
 """.strip()
-    
+
+    provider = get_completion_provider()
+    if provider is None:
+        return "mixed,0.50"
+
     try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",  # Use cost-effective model for classification
-            messages=[
-                {"role": "system", "content": "You are a financial asset classification expert."},
-                {"role": "user", "content": prompt}
-            ],
+        content = provider.complete(
+            prompt,
+            system="You are a financial asset classification expert.",
+            model=os.getenv("LLM_CLASSIFICATION_MODEL") or None,
             max_tokens=50,  # Short response expected
             temperature=0.2,  # Low temperature for consistent classification
-            timeout=timeout
+            timeout=timeout,
         )
-        
-        content = response.choices[0].message.content.strip()
         portfolio_logger.debug(f"GPT asset class response for {ticker}: {content}")
         return content
-        
+
     except Exception as e:
         # Log full traceback for debugging
         portfolio_logger.error(f"GPT asset class classification failed for {ticker}: {e}")
