@@ -15,6 +15,7 @@ def generate_trading_flags(snapshot: dict) -> list[dict]:
     grades = snapshot.get("grades", {}) if isinstance(snapshot, dict) else {}
     performance = snapshot.get("performance", {}) if isinstance(snapshot, dict) else {}
     timing = snapshot.get("timing", {}) if isinstance(snapshot, dict) else {}
+    post_exit = snapshot.get("post_exit", {}) if isinstance(snapshot, dict) else {}
     conviction = snapshot.get("conviction", {}) if isinstance(snapshot, dict) else {}
     behavioral = snapshot.get("behavioral", {}) if isinstance(snapshot, dict) else {}
 
@@ -82,6 +83,69 @@ def generate_trading_flags(snapshot: dict) -> list[dict]:
                 "severity": "info",
                 "message": f"${total_regret:,.0f} left on table vs optimal exit timing",
                 "total_regret": total_regret,
+            }
+        )
+
+    # --- Post-exit flags ---
+    winner_count_90d = post_exit.get("winner_count_90d", 0)
+    winner_avg_90d = post_exit.get("winner_avg_post_exit_90d")
+    if winner_count_90d >= 3 and winner_avg_90d is not None and winner_avg_90d > 5:
+        flags.append(
+            {
+                "type": "premature_winner_exit",
+                "severity": "info",
+                "message": (
+                    f"Your winners gained an avg of {winner_avg_90d:.0f}% in the 90 days after you sold "
+                    "— consider holding winners longer"
+                ),
+                "winner_avg_post_exit_90d": winner_avg_90d,
+                "winner_count_90d": winner_count_90d,
+            }
+        )
+
+    loser_count_90d = post_exit.get("loser_count_90d", 0)
+    loser_avg_90d = post_exit.get("loser_avg_post_exit_90d")
+    if loser_count_90d >= 3 and loser_avg_90d is not None and loser_avg_90d < -5:
+        flags.append(
+            {
+                "type": "good_loss_discipline",
+                "severity": "success",
+                "message": (
+                    f"Losers fell an avg of {abs(loser_avg_90d):.0f}% after you cut "
+                    "— good discipline"
+                ),
+                "loser_avg_post_exit_90d": loser_avg_90d,
+                "loser_count_90d": loser_count_90d,
+            }
+        )
+
+    if loser_count_90d >= 3 and loser_avg_90d is not None and loser_avg_90d > 10:
+        flags.append(
+            {
+                "type": "panic_selling",
+                "severity": "warning",
+                "message": (
+                    f"Losers recovered an avg of {loser_avg_90d:.0f}% after you sold "
+                    "— may be selling at bottoms"
+                ),
+                "loser_avg_post_exit_90d": loser_avg_90d,
+                "loser_count_90d": loser_count_90d,
+            }
+        )
+
+    winner_count_12m = post_exit.get("winner_count_12m", 0)
+    winner_avg_12m = post_exit.get("winner_avg_post_exit_12m")
+    if winner_count_12m >= 3 and winner_avg_12m is not None and winner_avg_12m > 15:
+        flags.append(
+            {
+                "type": "strong_thesis_weak_conviction",
+                "severity": "info",
+                "message": (
+                    f"Your winners gained an avg of {winner_avg_12m:.0f}% in the 12 months after you sold "
+                    "— your thesis picks are strong, consider higher conviction holds"
+                ),
+                "winner_avg_post_exit_12m": winner_avg_12m,
+                "winner_count_12m": winner_count_12m,
             }
         )
 
