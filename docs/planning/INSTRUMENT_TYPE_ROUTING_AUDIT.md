@@ -9,7 +9,7 @@
 
 ## Executive Summary
 
-9 instrument types flow through a tiered pricing system (FMP → IBKR → B-S), with exclusion sets for risk analysis and normalizer-driven classification. The routing is **mostly clean** with 8 identified gaps: CEF type disagreement across normalizers, bond pricing silent failure, non-IBKR option contract_identity gaps, legacy price loaders missing instrument_type passthrough, Plaid ISIN-only bond identity, "unknown" inconsistent treatment across pipelines, "unknown" positions vanishing silently, and crypto not classified.
+9 instrument types flow through a tiered pricing system (FMP → IBKR → B-S), with exclusion sets for risk analysis and normalizer-driven classification. The routing is **mostly clean** with 7 actionable gaps (1 originally flagged gap — CEF classification — turned out to be intentional design): bond pricing silent failure, non-IBKR option contract_identity gaps, legacy price loaders missing instrument_type passthrough, Plaid ISIN-only bond identity, "unknown" inconsistent treatment across pipelines, "unknown" positions vanishing silently, and crypto not classified.
 
 ---
 
@@ -170,7 +170,7 @@ See tables above. 9 types × 5 dimensions fully mapped.
 
 | # | Gap | Severity | Impact | Fix |
 |---|-----|----------|--------|-----|
-| 1 | **CEF type disagreement** — SnapTrade=equity, Plaid=mutual_fund for same position (e.g., DSU) | Medium | Different stress scenarios, inconsistent risk treatment across sources | Normalize CEFs: either add `cef` to InstrumentType or enforce one classification across all normalizers |
+| 1 | ~~**CEF type disagreement**~~ | ~~Medium~~ | **NOT A GAP** — intentional design. `instrument_type=equity` (timing analysis included for exchange-traded CEFs) is correct. `security_type=fund` (40% crash, not 80%) handles risk scoring separately. Test `test_infer_position_instrument_type_keeps_cef_as_equity()` verifies this. | No change needed |
 | 2 | **Bond pricing silent failure** — included in filter_price_eligible but FMP has no bond data | Medium | Bonds without IBKR contract_identity get zero historical returns | Add bond warning in agent-format flags; exclude bonds from FMP batch pricing |
 | 3 | **Non-IBKR option contract_identity gaps** — Schwab/SnapTrade/Plaid options may lack full contract_identity | Medium | B-S fallback returns empty Series, no pricing for these options | Audit contract_identity completeness per normalizer |
 | 4 | **Legacy price loaders missing instrument_type** — `portfolio_risk_engine/providers.py:58` defaults missing `instrument_type` to `equity`; callers like `portfolio_config.py:303` and `portfolio_risk.py:718` don't pass instrument_type | Medium | Bonds/FX can silently route through FMP equity path | Thread `instrument_type` through all price loader call sites |

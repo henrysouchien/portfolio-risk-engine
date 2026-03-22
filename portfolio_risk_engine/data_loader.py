@@ -37,7 +37,7 @@ Notes:
 from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable, Callable, Union, Optional
+from typing import Any, Iterable, Callable, Union, Optional
 import hashlib
 import pandas as pd
 from pandas.errors import EmptyDataError, ParserError
@@ -150,6 +150,8 @@ def fetch_monthly_close(
     *,
     fmp_ticker: Optional[str] = None,
     fmp_ticker_map: Optional[dict[str, str]] = None,
+    instrument_type: str | None = None,
+    contract_identity: dict[str, Any] | None = None,
 ) -> pd.Series:
     """
     Fetch month-end closing prices for a given ticker from FMP.
@@ -163,6 +165,8 @@ def fetch_monthly_close(
         end_date   (str|datetime, optional): Latest date (inclusive).
         fmp_ticker (str, optional): FMP-compatible symbol override.
         fmp_ticker_map (dict, optional): Mapping of ticker -> fmp_ticker.
+        instrument_type (str, optional): Canonical instrument type for provider routing.
+        contract_identity (dict, optional): Provider-specific contract metadata.
 
     Returns:
         pd.Series: Month-end close prices indexed by date.
@@ -173,6 +177,8 @@ def fetch_monthly_close(
         end_date,
         fmp_ticker=fmp_ticker,
         fmp_ticker_map=fmp_ticker_map,
+        instrument_type=instrument_type,
+        contract_identity=contract_identity,
     )
 
 
@@ -184,6 +190,8 @@ def fetch_monthly_total_return_price(
     *,
     fmp_ticker: Optional[str] = None,
     fmp_ticker_map: Optional[dict[str, str]] = None,
+    instrument_type: str | None = None,
+    contract_identity: dict[str, Any] | None = None,
 ) -> pd.Series:
     """
     Fetch dividend-adjusted month-end prices (total return) from FMP.
@@ -197,6 +205,8 @@ def fetch_monthly_total_return_price(
         end_date   (str|datetime, optional): Latest date (inclusive).
         fmp_ticker (str, optional): FMP-compatible symbol override.
         fmp_ticker_map (dict, optional): Mapping of ticker -> fmp_ticker.
+        instrument_type (str, optional): Canonical instrument type for provider routing.
+        contract_identity (dict, optional): Provider-specific contract metadata.
     """
     return get_price_provider().fetch_monthly_total_return_price(
         ticker,
@@ -204,6 +214,8 @@ def fetch_monthly_total_return_price(
         end_date,
         fmp_ticker=fmp_ticker,
         fmp_ticker_map=fmp_ticker_map,
+        instrument_type=instrument_type,
+        contract_identity=contract_identity,
     )
 
 

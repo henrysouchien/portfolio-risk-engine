@@ -64,6 +64,15 @@ def _parse_option_expiry(value: Any) -> date | None:
     return None
 
 
+def _position_instrument_type(position: dict[str, Any]) -> str:
+    """Return the best available instrument type label for a position."""
+    return str(
+        position.get("instrument_type")
+        or position.get("type")
+        or ""
+    ).strip().lower()
+
+
 def generate_position_flags(
     positions: list[dict],
     total_value: float,
@@ -105,6 +114,35 @@ def generate_position_flags(
                     "severity": "error",
                     "message": f"{provider}: {info['error']}",
                     "provider": provider,
+                }
+            )
+
+    for position in non_cash:
+        ticker = str(position.get("ticker", "UNKNOWN"))
+        instrument_type = _position_instrument_type(position)
+
+        if instrument_type == "bond":
+            flags.append(
+                {
+                    "type": "bond_pricing_limited",
+                    "severity": "info",
+                    "message": (
+                        "Bond positions use IBKR pricing — historical analysis may be "
+                        "limited without IBKR connection."
+                    ),
+                    "ticker": ticker,
+                }
+            )
+        elif instrument_type == "unknown":
+            flags.append(
+                {
+                    "type": "unknown_instrument_type",
+                    "severity": "warning",
+                    "message": (
+                        f"Position {ticker} has unrecognized instrument type and is "
+                        "excluded from analysis. Verify classification in your brokerage."
+                    ),
+                    "ticker": ticker,
                 }
             )
 

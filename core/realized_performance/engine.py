@@ -66,6 +66,7 @@ from trading_analysis.instrument_meta import (
     coerce_instrument_type,
 )
 from trading_analysis.symbol_utils import parse_option_contract_identity_from_symbol
+from utils.logging import portfolio_logger
 from services.security_type_service import SecurityTypeService
 
 from . import _helpers, backfill, fx, holdings, mwr as _mwr, nav, pricing, provider_flows, timeline
@@ -271,6 +272,11 @@ def _analyze_realized_performance_single_scope(
     ) -> str | None:
         instrument_type = (instrument_type or "").strip().lower()
         if instrument_type in _EXCLUDED_INSTRUMENT_TYPES:
+            if instrument_type == "unknown":
+                portfolio_logger.warning(
+                    "Excluding %s: unknown instrument_type — position excluded from realized performance",
+                    symbol,
+                )
             return None
         if instrument_type == "option":
             return "options"
@@ -1245,6 +1251,9 @@ def _analyze_realized_performance_single_scope(
                     existing_cusip = (
                         isinstance(contract_identity, dict) and contract_identity.get("cusip")
                     )
+                    existing_isin = (
+                        isinstance(contract_identity, dict) and contract_identity.get("isin")
+                    )
                     sec_ids = (current_positions.get(ticker) or {}).get("security_identifiers")
                     if sec_ids and not existing_cusip:
                         enriched = dict(contract_identity) if isinstance(contract_identity, dict) else {}
@@ -1252,9 +1261,10 @@ def _analyze_realized_performance_single_scope(
                         contract_identity = enriched
 
                     has_cusip = isinstance(contract_identity, dict) and contract_identity.get("cusip")
-                    if has_ibkr and con_id in (None, "") and not has_cusip:
+                    has_isin = isinstance(contract_identity, dict) and contract_identity.get("isin")
+                    if has_ibkr and con_id in (None, "") and not (has_cusip or has_isin):
                         ticker_warnings.append(
-                            f"No con_id or CUSIP for bond {ticker}; skipping IBKR bond pricing."
+                            f"No con_id, CUSIP, or ISIN for bond {ticker}; skipping IBKR bond pricing."
                         )
                         unpriceable_reason = "bond_missing_identifiers"
                     else:

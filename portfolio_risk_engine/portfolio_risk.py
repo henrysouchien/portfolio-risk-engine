@@ -608,6 +608,9 @@ def _filter_tickers_by_data_availability(
     def _check_one(ticker: str, weight: float) -> tuple[str, float, int | None, str | None]:
         try:
             instrument_type = _resolve_instrument_type(ticker, instrument_types)
+            contract_identity = (contract_identities or {}).get(
+                str(ticker or "").strip().upper()
+            )
             if instrument_type == "futures":
                 prices = _fetch_futures_prices(
                     ticker,
@@ -620,9 +623,7 @@ def _filter_tickers_by_data_availability(
                     ticker,
                     start_date,
                     end_date,
-                    contract_identity=(contract_identities or {}).get(
-                        str(ticker or "").strip().upper()
-                    ),
+                    contract_identity=contract_identity,
                 )
             else:
                 prices = fetch_monthly_close(
@@ -630,6 +631,8 @@ def _filter_tickers_by_data_availability(
                     start_date=start_date,
                     end_date=end_date,
                     fmp_ticker_map=fmp_ticker_map,
+                    instrument_type=instrument_type or "equity",
+                    contract_identity=contract_identity,
                 )
             returns = calc_monthly_returns(prices)
             months_available = len(returns) if returns is not None else 0
@@ -695,6 +698,9 @@ def _fetch_ticker_returns(
         return {"ticker": ticker, "returns": None, "fx_attribution": None}
 
     instrument_type = _resolve_instrument_type(ticker, instrument_types)
+    contract_identity = (contract_identities or {}).get(
+        str(ticker or "").strip().upper()
+    )
 
     if instrument_type == "futures":
         prices = _fetch_futures_prices(
@@ -708,9 +714,7 @@ def _fetch_ticker_returns(
             ticker,
             start_date,
             end_date,
-            contract_identity=(contract_identities or {}).get(
-                str(ticker or "").strip().upper()
-            ),
+            contract_identity=contract_identity,
         )
     else:
         # Try total return prices first (includes dividends)
@@ -720,6 +724,8 @@ def _fetch_ticker_returns(
                 start_date=start_date,
                 end_date=end_date,
                 fmp_ticker_map=fmp_ticker_map,
+                instrument_type=instrument_type or "equity",
+                contract_identity=contract_identity,
             )
         except Exception:
             # Fall back to close prices (price-only, no dividend adjustment)
@@ -728,6 +734,8 @@ def _fetch_ticker_returns(
                 start_date=start_date,
                 end_date=end_date,
                 fmp_ticker_map=fmp_ticker_map,
+                instrument_type=instrument_type or "equity",
+                contract_identity=contract_identity,
             )
 
     # Calculate returns from prices
