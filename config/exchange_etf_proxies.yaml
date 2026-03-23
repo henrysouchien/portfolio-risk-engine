@@ -124,7 +124,7 @@ TSX:                  # Canada (developed ex-US bucket)
 
 HKEX:                 # Hong Kong (EM sleeve in this framework)
   market: EEM        # iShares MSCI Emerging Markets
-  momentum: EMFM     # Global X MSCI Next EM & Frontier Momentum
+  momentum: EEMO     # was EMFM (stale, no data after 2025-06)
   value: DGS         # WisdomTree EM SmallCap Dividend (Value tilt)
 
 SSE:                  # Shanghai – treat as EM China

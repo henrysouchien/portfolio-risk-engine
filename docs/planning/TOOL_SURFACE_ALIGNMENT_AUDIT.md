@@ -261,11 +261,11 @@ No gap here — the frontend intentionally uses a different rendering path from 
 
 ## Recommendations
 
-### Tier 1 — Registry gaps (should fix)
+### Tier 1 — Registry gaps (**DONE** — `bb882fff`)
 
-| # | Item | Effort |
-|---|------|--------|
-| 1 | Add 9 missing read-only/safe MCP tools to agent registry (`export_holdings`, `list_accounts`, `list_portfolios`, `set/get_target_allocation`, `get_portfolio_news`, `get_portfolio_events_calendar`, `analyze_basket`, `get_action_history`) | 30min |
+| # | Item | Effort | Status |
+|---|------|--------|--------|
+| 1 | Add 9 missing MCP tools to agent registry | 30min | **DONE** — `bb882fff`. Registry: 66→75 functions. |
 
 ### Tier 2 — Cleanup (nice to have)
 

@@ -1,7 +1,7 @@
 # Performance Regression Audit Plan
 
 **Status:** ACTIVE  
-**Updated:** 2026-03-22  
+**Updated:** 2026-03-23  
 **Primary Goal:** Re-run the March 2026 performance optimization playbook against the current frontend/backend stack, with equal emphasis on latency regressions and startup/state bugs that surfaced after recent UI and service changes.  
 **Related Docs:** `docs/planning/PERFORMANCE_OPTIMIZATION_PLAYBOOK.md`, `docs/planning/BACKEND_PERF_OPTIMIZATION_PLAN.md`, `docs/planning/PERFORMANCE_BASELINE_2026-03-19.md`, `docs/TODO.md`
 
@@ -727,6 +727,188 @@ Current stock-lookup conclusion after this slice:
 - the real stock-lookup flow is now materially better than the isolated cold peer baseline
 - when stock and peer requests start together, the peer request now rides the same in-flight work instead of paying a separate ~3.4s cold path
 - when the user reaches peers after the main stock card is already loaded, the peer tab is effectively warm
+
+## March 23 Follow-Up: Stock Lookup Parallelizes Heavy Enrichment
+
+The next stock-lookup slice targeted the remaining direct-stock owner after peer warmup was fixed.
+
+What the breakdown showed:
+
+- `analyze_stock()` itself was only about **130-150ms**
+- the real owner was `StockService.enrich_stock_data()`
+- inside enrichment, the heavy calls were the registry quote-provider batch quote lookup and the technical-analysis summary, both in the **~600ms** class
+
+Changes landed:
+
+- `StockService.enrich_stock_data()` now starts quote enrichment and technical-summary enrichment in parallel
+- the serial profile/sector/fundamental path stays intact, and forward-P/E still waits for quote data before it is derived
+
+Fresh-process validation:
+
+- in-process breakdown:
+  - `analyze_stock()`: **129.87ms**
+  - `enrich_stock_data()`: **1445.15ms**
+  - warm enrichment reuse: **1.83ms**
+- on `127.0.0.1:5050`, sequential stock lookup flow:
+  - `POST /api/direct/stock` for `AAPL`: **1327.94ms**
+  - immediate follow-up `GET /api/direct/stock/AAPL/peers?limit=5`: **1.99ms**
+  - warm repeat `POST /api/direct/stock`: **2.15ms**
+- on `127.0.0.1:5051`, starting stock + peers together:
+  - stock response: **1316.06ms**
+  - peer response: **1316.43ms**
+
+Current stock-lookup conclusion after this slice:
+
+- the default stock lookup card is now materially faster than the earlier `2.5s+` class cold path
+- the peer tab remains aligned with the main stock card in the concurrent flow
+- remaining cold-path work is mostly inside the quote-provider and technical-summary calls themselves rather than in the stock-analysis core or peer coordination
+
+## March 23 Follow-Up: Stock Lookup Reuses Real FMP Technical Cache
+
+The next stock-lookup regression turned out to be a cache miss hidden inside the technical-summary helper itself.
+
+Root cause:
+
+- `get_technical_analysis(..., use_cache=True)` still routed real clients through `fetch_raw()`
+- that bypassed the shared disk-backed FMP cache even when the caller explicitly asked for cached reads
+- warm technical summaries could stay in the `~1s` class instead of collapsing after the first hit
+
+Changes landed:
+
+- real FMP clients now use `FMPClient.fetch(..., use_cache=use_cache)` inside the technical tool
+- mock-based tests stay on the old `fetch_raw()` path so unit fixtures and call assertions remain stable
+
+Validation:
+
+- repeated `get_technical_analysis("AAPL", indicators=["rsi","macd","bollinger"])`
+  - first hit: **1431.02ms**
+  - second hit: **53.26ms**
+  - third hit: **21.99ms**
+
+Conclusion after this slice:
+
+- the technical-summary helper now behaves like the rest of the FMP-backed stock-lookup stack
+- remaining stock-card latency is no longer explained by accidental cache bypass in technical enrichment
+
+## March 23 Follow-Up: Peer Warmup No Longer Starves The Main Stock Card
+
+The next stock-lookup issue was a regression in the opposite direction: starting peer warmup too early could help the peer tab, but it also created pathological main-card stalls for some symbols.
+
+What the repro showed:
+
+- when peer warmup started before the main stock analysis, `AAPL` was acceptable but some names regressed badly
+- fresh-process repros showed:
+  - `POST /api/direct/stock` for `JPM` at `127.0.0.1:5054`: **9207.56ms**
+  - `GET /api/direct/stock/search?query=jpm&limit=8` then `POST /api/direct/stock` for `JPM` at `127.0.0.1:5055`: **1015.89ms** then **8564.78ms**
+- in-process timing for the same symbol showed the stock-analysis core itself was not the problem:
+  - `analyze_stock()`: **131.31ms**
+  - `enrich_stock_data()`: **413.06ms**
+  - isolated technical summary: **63.31ms**
+
+Changes landed:
+
+- `POST /api/direct/stock` now keeps the main stock card first and schedules peer warmup after the response via `BackgroundTasks`
+- the shared FMP metadata provider now keeps short-lived profile snapshots as well as quote snapshots, so `fetch_batch_quotes()` and later `fetch_profile()` can reuse the same profile payload instead of refetching it inside the same stock request
+
+Fresh validation after that route-ordering and provider-cache fix:
+
+- direct stock then immediate peers:
+  - `AAPL`: stock **416.82ms**, peers **270.53ms**
+  - `JPM`: stock **166.16ms**, peers **107.86ms**
+- exact-ticker search-to-select flow:
+  - `GET /api/direct/stock/search?query=aapl&limit=8` then `POST /api/direct/stock`: **348.56ms** then **221.94ms**
+  - `GET /api/direct/stock/search?query=jpm&limit=8` then `POST /api/direct/stock`: **398.62ms** then **111.00ms**
+- isolated enrichment check after the provider-cache reuse:
+  - `AAPL`: **110.18ms**
+  - `JPM`: **108.19ms**
+
+Conclusion after this slice:
+
+- the main stock card is back in the sub-`500ms` class locally instead of suffering symbol-dependent multi-second stalls
+- peer follow-up remains reasonably warm without letting peer work block the first stock card
+- profile reuse is now aligned across search, stock enrichment, and quote fetches
+
+## March 23 Follow-Up: Repeated Stock Search Queries Are Now Effectively Warm
+
+The final stock-lookup slice in this pass targeted the typeahead path itself.
+
+Even after the quote/profile caches warmed, repeated identical search queries still reran search-provider lookup plus quote merge work and stayed around `~100ms`.
+
+Changes landed:
+
+- `StockService.search_stocks()` now keeps a short-lived in-process result cache keyed by normalized query + limit
+- this is intentionally much shorter-lived than the general service cache so search results do not stay stale for long
+
+Validation on repeated identical search queries:
+
+- `aapl`: **314.63ms**, **1.73ms**, **1.20ms**
+- `jpm`: **285.29ms**, **1.48ms**, **1.32ms**
+- `apple`: **280.73ms**, **1.57ms**, **1.14ms**
+
+Current stock-lookup conclusion after the March 23 follow-ups:
+
+- repeated typeahead queries are effectively free after the first hit
+- exact-ticker search-to-select is down into the low hundreds of milliseconds for the stock load itself
+- the earlier slow-symbol regression from eager peer warmup is gone
+- the remaining stock-lookup latency is now mostly just the unavoidable first-hit search/provider/network work for genuinely new symbols
+
+## March 23 Follow-Up: Stock Lookup Frontend State And Retry Semantics
+
+The final stock-lookup slice in this pass was frontend correctness rather than backend timing.
+
+Issues addressed:
+
+- selecting the same ticker again was a no-op in `useStockAnalysis()`, so the user could not re-run the same stock lookup from the search UI without first switching to a different symbol
+- stock-search cache keys were still case-sensitive on the frontend, which meant `AAPL` and `aapl` could split resolver/query reuse even though the backend search path already normalized them
+- a failed stock lookup replaced the whole stock-lookup shell with a retry-only error block, which hid the search header and made it harder to pivot to a different symbol after one bad response
+
+Changes landed:
+
+- `useStockAnalysis()` now refetches when the user selects the currently active ticker again
+- `useStockSearch()` now normalizes query casing before it reaches the resolver/query layer
+- stock lookup errors now render inline inside the normal stock-lookup shell, keeping search available while still exposing retry
+- selecting or clearing a stock now also clears the parent search-term state immediately, which avoids reviving stale typeahead results after the selection is dismissed
+
+Frontend verification:
+
+- focused Vitest run:
+  - `useStockAnalysis`
+  - `useStockSearch`
+  - `usePeerComparison`
+  - `StockLookupContainer`
+  - stock-lookup helpers
+- result: **36 tests passed**
+- `npm run typecheck`: clean
+
+## March 23 Follow-Up: Exact-Ticker Search Now Warms The Direct Stock Payload
+
+One more stock-lookup perf slice targeted the common search-to-select path.
+
+Problem:
+
+- typeahead search had become fast and cache-friendly, but an immediate click on an exact ticker match still had to start the direct stock build from scratch
+- warming that payload blindly on every search was risky; an earlier experiment showed that eager background work can hurt the main request if it races the interactive path
+
+Changes landed:
+
+- exact symbol matches from `GET /api/direct/stock/search` now start a background warm for the default direct-stock payload
+- the warm path uses shared in-flight state, so the follow-up `POST /api/direct/stock` request reuses the same stock build instead of racing a duplicate analysis/enrichment pass
+- non-exact search queries do not start the prewarm path
+
+Validation:
+
+- route and service coverage stayed green after this change:
+  - focused backend pytest: **107 passed**
+- fresh local server on `127.0.0.1:5061`:
+  - `query=aapl` then `POST /api/direct/stock` for `AAPL`: **283.84ms** then **190.05ms**
+  - `query=jpm` then `POST /api/direct/stock` for `JPM`: **292.96ms** then **92.23ms**
+  - non-exact `query=apple` then `POST /api/direct/stock` for `AAPL`: **299.31ms** then **3.24ms** after the earlier exact-match warm path had already populated the caches
+
+Current stock-lookup conclusion after this slice:
+
+- repeated search queries are effectively free
+- exact-ticker search-to-select now has a shared warm path instead of paying a separate stock build after typeahead
+- the remaining first-hit latency is now mostly genuine provider/network cost for truly new symbols and not avoidable duplicate work between search, stock lookup, and peers
 
 ## What Landed In This Slice
 
