@@ -2549,18 +2549,52 @@ def calculate_portfolio_dividend_yield(
             },
         }
 
-    individual_yields: Dict[str, float] = {}
-    failed_tickers: List[str] = []
+    ordered_tickers = list(weights.keys())
+    individual_yield_map: Dict[str, float] = {}
+    failed_ticker_set: set[str] = set()
 
-    for t in weights.keys():
-        try:
-            individual_yields[t] = fetch_current_dividend_yield(
-                t,
-                fmp_ticker_map=fmp_ticker_map,
-            )
-        except Exception:
-            individual_yields[t] = 0.0
-            failed_tickers.append(t)
+    def _load_dividend_yield(ticker: str) -> tuple[str, float]:
+        return (
+            ticker,
+            float(
+                fetch_current_dividend_yield(
+                    ticker,
+                    fmp_ticker_map=fmp_ticker_map,
+                )
+            ),
+        )
+
+    max_workers = max(1, min(len(ordered_tickers), 8))
+    if max_workers == 1:
+        for ticker in ordered_tickers:
+            try:
+                _, dividend_yield = _load_dividend_yield(ticker)
+                individual_yield_map[ticker] = dividend_yield
+            except Exception:
+                individual_yield_map[ticker] = 0.0
+                failed_ticker_set.add(ticker)
+    else:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(_load_dividend_yield, ticker): ticker
+                for ticker in ordered_tickers
+            }
+            for future in as_completed(futures):
+                ticker = futures[future]
+                try:
+                    _, dividend_yield = future.result()
+                    individual_yield_map[ticker] = dividend_yield
+                except Exception:
+                    individual_yield_map[ticker] = 0.0
+                    failed_ticker_set.add(ticker)
+
+    individual_yields: Dict[str, float] = {
+        ticker: individual_yield_map.get(ticker, 0.0)
+        for ticker in ordered_tickers
+    }
+    failed_tickers: List[str] = [
+        ticker for ticker in ordered_tickers if ticker in failed_ticker_set
+    ]
 
     # Weighted portfolio yield (weights as fractions)
     portfolio_yield = 0.0

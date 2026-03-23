@@ -1,7 +1,7 @@
 # Instrument Type Routing Gap Fixes — Implementation Plan
 
 > **Date**: 2026-03-22
-> **Status**: PLAN — pending Codex review
+> **Status**: IMPLEMENTED (`849f4d8d`)
 > **Audit**: `docs/planning/INSTRUMENT_TYPE_ROUTING_AUDIT.md` (Codex-reviewed PASS)
 > **TODO ref**: `docs/TODO.md` line 87
 

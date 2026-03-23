@@ -14,6 +14,7 @@ from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union
 import numpy as np
 import pandas as pd
 
+from app_platform.logging.workflow_timing import WorkflowTimer
 from portfolio_risk_engine.performance_metrics_engine import compute_performance_metrics
 from portfolio_risk_engine.data_loader import fetch_monthly_close, fetch_monthly_treasury_rates
 from portfolio_risk_engine.factor_utils import calc_monthly_returns
@@ -219,6 +220,18 @@ def _analyze_realized_performance_single_scope(
     """
     warnings: List[str] = []
     inception_override = _helpers._to_datetime(inception_override)
+    position_rows_for_stale_checks = list(getattr(getattr(positions, "data", None), "positions", []) or [])
+    allow_stale_existing_transaction_store = True
+    for position_row in position_rows_for_stale_checks:
+        try:
+            raw_value = float(position_row.get("value") or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if not np.isfinite(raw_value):
+            continue
+        if raw_value != 0.0:
+            allow_stale_existing_transaction_store = False
+            break
     fetch_transactions_for_source_fn = _helpers._shim_attr(
         "fetch_transactions_for_source",
         fetch_transactions_for_source,
@@ -261,6 +274,15 @@ def _analyze_realized_performance_single_scope(
         )
     )
     backfill_file_path = _helpers._shim_attr("BACKFILL_FILE_PATH", BACKFILL_FILE_PATH)
+    timing = WorkflowTimer(
+        "realized_aggregation",
+        requested_source=source,
+        requested_segment=segment,
+        institution_scoped=bool(institution),
+        account_scoped=bool(account),
+        include_series=bool(include_series),
+        use_per_symbol_inception=bool(use_per_symbol_inception),
+    )
 
     def _normalize_symbol(value: Any) -> str:
         return str(value or "").strip().upper()
@@ -310,6 +332,7 @@ def _analyze_realized_performance_single_scope(
         institution = (institution or "").strip() or None
         account = (account or "").strip() or None
         if source not in {"all", "snaptrade", "plaid", "ibkr_flex", "ibkr_statement", "schwab", "schwab_csv"}:
+            timing.finish(status="error", error="invalid_source")
             return {
                 "status": "error",
                 "message": (
@@ -322,24 +345,26 @@ def _analyze_realized_performance_single_scope(
             warnings.append(
                 "source filter applies to transactions and holdings are source-scoped when attribution is available."
             )
-            scoped_holdings = holdings._build_source_scoped_holdings(
-                positions,
-                source,
-                warnings,
-                institution=institution,
-                account=account,
-            )
+            with timing.step("build_source_scoped_holdings"):
+                scoped_holdings = holdings._build_source_scoped_holdings(
+                    positions,
+                    source,
+                    warnings,
+                    institution=institution,
+                    account=account,
+                )
             current_positions = scoped_holdings.current_positions
             fmp_ticker_map = dict(scoped_holdings.fmp_ticker_map)
             source_holding_symbols = scoped_holdings.source_holding_symbols
             cross_source_holding_leakage_symbols = scoped_holdings.cross_source_holding_leakage_symbols
             holdings_scope = scoped_holdings.holdings_scope
         else:
-            current_positions, fmp_ticker_map, build_warnings = holdings._build_current_positions(
-                positions,
-                institution=institution,
-                account=account,
-            )
+            with timing.step("build_current_positions"):
+                current_positions, fmp_ticker_map, build_warnings = holdings._build_current_positions(
+                    positions,
+                    institution=institution,
+                    account=account,
+                )
             warnings.extend(build_warnings)
             source_holding_symbols = sorted(current_positions.keys())
             cross_source_holding_leakage_symbols: List[str] = []
@@ -365,7 +390,8 @@ def _analyze_realized_performance_single_scope(
 
         csv_store = CSVTransactionProvider()
         if account_filters is None and csv_store.has_source(user_email, source):
-            store_data = csv_store.load_transactions(user_email, source)
+            with timing.step("load_csv_transactions"):
+                store_data = csv_store.load_transactions(user_email, source)
             fifo_transactions = list(store_data.get("fifo_transactions") or [])
             if settings.EXERCISE_COST_BASIS_ENABLED:
                 from trading_analysis.exercise_linkage import link_option_exercises
@@ -403,26 +429,28 @@ def _analyze_realized_performance_single_scope(
             from utils.user_resolution import resolve_user_id
 
             user_id = resolve_user_id(user_email)
-            ensure_store_fresh(
-                user_id=user_id,
-                user_email=user_email,
-                provider=source,
-                max_age_hours=transaction_store_max_age_hours,
-                retry_cooldown_minutes=transaction_store_retry_cooldown_minutes,
-            )
-            if account_filters:
-                store_data = load_from_store_for_portfolio(
+            with timing.step("load_transaction_store"):
+                ensure_store_fresh(
                     user_id=user_id,
-                    account_filters=account_filters,
-                    source=source,
+                    user_email=user_email,
+                    provider=source,
+                    max_age_hours=transaction_store_max_age_hours,
+                    retry_cooldown_minutes=transaction_store_retry_cooldown_minutes,
+                    allow_stale_existing=allow_stale_existing_transaction_store,
                 )
-            else:
-                store_data = load_from_store(
-                    user_id=user_id,
-                    source=source,
-                    institution=institution,
-                    account=account,
-                )
+                if account_filters:
+                    store_data = load_from_store_for_portfolio(
+                        user_id=user_id,
+                        account_filters=account_filters,
+                        source=source,
+                    )
+                else:
+                    store_data = load_from_store(
+                        user_id=user_id,
+                        source=source,
+                        institution=institution,
+                        account=account,
+                    )
             fifo_transactions = list(store_data.get("fifo_transactions") or [])
             if settings.EXERCISE_COST_BASIS_ENABLED:
                 from trading_analysis.exercise_linkage import link_option_exercises
@@ -451,19 +479,20 @@ def _analyze_realized_performance_single_scope(
             provider_first_mode = True
             provider_fetch_metadata = list(fetch_metadata_rows)
         else:
-            if institution:
-                fetch_result = fetch_transactions_for_source_fn(
-                    user_email=user_email,
-                    source=source,
-                    institution=institution,
-                    account=account,
-                )
-            else:
-                fetch_result = fetch_transactions_for_source_fn(
-                    user_email=user_email,
-                    source=source,
-                    account=account,
-                )
+            with timing.step("fetch_transactions"):
+                if institution:
+                    fetch_result = fetch_transactions_for_source_fn(
+                        user_email=user_email,
+                        source=source,
+                        institution=institution,
+                        account=account,
+                    )
+                else:
+                    fetch_result = fetch_transactions_for_source_fn(
+                        user_email=user_email,
+                        source=source,
+                        account=account,
+                    )
             payload = getattr(fetch_result, "payload", fetch_result)
             fetch_metadata_rows = list(getattr(fetch_result, "fetch_metadata", []) or [])
             warnings.extend(
@@ -480,34 +509,37 @@ def _analyze_realized_performance_single_scope(
                     provider = row.get("provider", "unknown")
                     if provider not in fetch_errors:
                         fetch_errors[provider] = str(err)
-            schwab_security_lookup = get_schwab_security_lookup_fn(
-                user_email=user_email,
-                source=source,
-                payload=payload,
-            )
+            with timing.step("build_schwab_security_lookup"):
+                schwab_security_lookup = get_schwab_security_lookup_fn(
+                    user_email=user_email,
+                    source=source,
+                    payload=payload,
+                )
             provider_first_mode = realized_use_provider_flows
 
             if provider_first_mode:
                 try:
-                    provider_flow_events_raw, provider_fetch_metadata = extract_provider_flow_events_fn(fetch_result)
+                    with timing.step("extract_provider_flow_events"):
+                        provider_flow_events_raw, provider_fetch_metadata = extract_provider_flow_events_fn(fetch_result)
                 except Exception as exc:
                     warnings.append(
                         f"Provider-flow extraction unavailable; using inference-only cash flow reconstruction: {exc}"
                     )
                     provider_first_mode = False
 
-            analyzer = trading_analyzer_cls(
-                plaid_securities=payload.get("plaid_securities", []),
-                plaid_transactions=payload.get("plaid_transactions", []),
-                snaptrade_activities=payload.get("snaptrade_activities", []),
-                ibkr_flex_trades=payload.get("ibkr_flex_trades"),
-                ibkr_flex_cash_rows=payload.get("ibkr_flex_cash_rows"),
-                ibkr_flex_futures_mtm=payload.get("ibkr_flex_futures_mtm"),
-                schwab_transactions=payload.get("schwab_transactions", []),
-                schwab_security_lookup=schwab_security_lookup,
-                use_fifo=True,
-                account_filter=account,
-            )
+            with timing.step("build_trading_analyzer"):
+                analyzer = trading_analyzer_cls(
+                    plaid_securities=payload.get("plaid_securities", []),
+                    plaid_transactions=payload.get("plaid_transactions", []),
+                    snaptrade_activities=payload.get("snaptrade_activities", []),
+                    ibkr_flex_trades=payload.get("ibkr_flex_trades"),
+                    ibkr_flex_cash_rows=payload.get("ibkr_flex_cash_rows"),
+                    ibkr_flex_futures_mtm=payload.get("ibkr_flex_futures_mtm"),
+                    schwab_transactions=payload.get("schwab_transactions", []),
+                    schwab_security_lookup=schwab_security_lookup,
+                    use_fifo=True,
+                    account_filter=account,
+                )
 
             fifo_transactions = list(analyzer.fifo_transactions)
             futures_mtm_events = list(payload.get("ibkr_flex_futures_mtm") or [])
@@ -519,12 +551,13 @@ def _analyze_realized_performance_single_scope(
             for txn in fifo_transactions
             if str(txn.get("transaction_id") or "").strip()
         }
-        backfill_transactions, backfill_metadata, backfill_warnings = backfill._build_backfill_entry_transactions(
-            backfill_path=effective_backfill_path,
-            source_filter=source,
-            existing_transaction_ids=existing_transaction_ids,
-            explicit_path=backfill_path is not None,
-        )
+        with timing.step("build_backfill_entries"):
+            backfill_transactions, backfill_metadata, backfill_warnings = backfill._build_backfill_entry_transactions(
+                backfill_path=effective_backfill_path,
+                source_filter=source,
+                existing_transaction_ids=existing_transaction_ids,
+                explicit_path=backfill_path is not None,
+            )
         warnings.extend(backfill_warnings)
         if backfill_transactions:
             fifo_transactions = backfill_transactions + fifo_transactions
@@ -814,6 +847,7 @@ def _analyze_realized_performance_single_scope(
                     fmp_ticker_map[sym] = futures_map[sym]
 
         if not fifo_transactions and not current_positions:
+            timing.finish(status="error", error="no_transactions_or_positions")
             return {
                 "status": "error",
                 "message": "No transaction history and no current positions available for realized performance analysis.",
@@ -833,7 +867,8 @@ def _analyze_realized_performance_single_scope(
                 "No transaction history found; using 12-month synthetic inception for current holdings."
             )
 
-        income_with_currency = nav._income_with_currency(analyzer, fifo_transactions, current_positions)
+        with timing.step("build_income_rows"):
+            income_with_currency = nav._income_with_currency(analyzer, fifo_transactions, current_positions)
         if institution:
             income_with_currency = [
                 inc
@@ -890,12 +925,13 @@ def _analyze_realized_performance_single_scope(
                     if holdings._match_account(row, account)
                 ]
 
-            provider_flow_events, dedup_diagnostics = provider_flows._deduplicate_provider_flow_events(provider_flow_events)
-            provider_flow_coverage, flow_fallback_reasons = provider_flows._build_provider_flow_authority(
-                provider_flow_events,
-                provider_fetch_metadata,
-                require_coverage=realized_provider_flows_require_coverage,
-            )
+            with timing.step("build_provider_flow_authority"):
+                provider_flow_events, dedup_diagnostics = provider_flows._deduplicate_provider_flow_events(provider_flow_events)
+                provider_flow_coverage, flow_fallback_reasons = provider_flows._build_provider_flow_authority(
+                    provider_flow_events,
+                    provider_fetch_metadata,
+                    require_coverage=realized_provider_flows_require_coverage,
+                )
 
             for event in provider_flow_events:
                 when = _helpers._to_datetime(event.get("timestamp") or event.get("date"))
@@ -980,12 +1016,13 @@ def _analyze_realized_performance_single_scope(
             ccy = str(mtm.get("currency") or "USD").upper()
             if ccy != "USD":
                 currencies.add(ccy)
-        fx_cache = fx._build_fx_cache(
-            currencies=currencies,
-            inception_date=fx_cache_start,
-            end_date=end_date,
-            warnings=warnings,
-        )
+        with timing.step("build_fx_cache"):
+            fx_cache = fx._build_fx_cache(
+                currencies=currencies,
+                inception_date=fx_cache_start,
+                end_date=end_date,
+                warnings=warnings,
+            )
 
         # Delta-gap analysis: identify symbols where short inference should be
         # suppressed because there are missing buys from before the txn window.
@@ -1018,25 +1055,28 @@ def _analyze_realized_performance_single_scope(
 
         # Two-pass FIFO for back-solved cost basis:
         # Pass 1: get observed open lots (no seeded lots).
-        probe_result = fifo_matcher_cls(
-            no_infer_symbols=no_infer_symbols,
-        ).process_transactions(fifo_transactions)
+        with timing.step("fifo_probe"):
+            probe_result = fifo_matcher_cls(
+                no_infer_symbols=no_infer_symbols,
+            ).process_transactions(fifo_transactions)
 
         # Compute seeded lots from broker cost basis (FX-aware for non-USD symbols).
-        seeded_lots, seed_warnings = timeline._build_seed_open_lots(
-            fifo_transactions=fifo_transactions,
-            current_positions=current_positions,
-            observed_open_lots=probe_result.open_lots,
-            inception_date=inception_date,
-            fx_cache=fx_cache,
-        )
+        with timing.step("build_seed_open_lots"):
+            seeded_lots, seed_warnings = timeline._build_seed_open_lots(
+                fifo_transactions=fifo_transactions,
+                current_positions=current_positions,
+                observed_open_lots=probe_result.open_lots,
+                inception_date=inception_date,
+                fx_cache=fx_cache,
+            )
         warnings.extend(seed_warnings)
 
         # Pass 2: re-run with seeded lots (or reuse pass 1 if nothing to seed).
         if seeded_lots:
-            fifo_result = fifo_matcher_cls(
-                no_infer_symbols=no_infer_symbols,
-            ).process_transactions(fifo_transactions, initial_open_lots=seeded_lots)
+            with timing.step("fifo_seeded_pass"):
+                fifo_result = fifo_matcher_cls(
+                    no_infer_symbols=no_infer_symbols,
+                ).process_transactions(fifo_transactions, initial_open_lots=seeded_lots)
         else:
             fifo_result = probe_result
 
@@ -1053,14 +1093,15 @@ def _analyze_realized_performance_single_scope(
             if str(sym).strip()
         )
 
-        position_timeline, synthetic_positions, synthetic_entries, instrument_meta, timeline_warnings = timeline.build_position_timeline(
-            fifo_transactions=fifo_transactions,
-            current_positions=current_positions,
-            inception_date=inception_date,
-            incomplete_trades=fifo_result.incomplete_trades,
-            fmp_ticker_map=fmp_ticker_map or None,
-            use_per_symbol_inception=use_per_symbol_inception,
-        )
+        with timing.step("build_position_timeline"):
+            position_timeline, synthetic_positions, synthetic_entries, instrument_meta, timeline_warnings = timeline.build_position_timeline(
+                fifo_transactions=fifo_transactions,
+                current_positions=current_positions,
+                inception_date=inception_date,
+                incomplete_trades=fifo_result.incomplete_trades,
+                fmp_ticker_map=fmp_ticker_map or None,
+                use_per_symbol_inception=use_per_symbol_inception,
+            )
         warnings.extend(timeline_warnings)
 
         month_ends = _helpers._month_end_range(inception_date, end_date)
@@ -1328,26 +1369,27 @@ def _analyze_realized_performance_single_scope(
 
         price_results_by_ticker: Dict[str, Dict[str, Any]] = {}
         max_price_workers = min(len(tickers), _REALIZED_PRICE_FETCH_WORKERS)
-        if max_price_workers <= 1:
-            for ticker in tickers:
-                price_results_by_ticker[ticker] = _resolve_price_for_ticker(ticker)
-        else:
-            with ThreadPoolExecutor(max_workers=max_price_workers) as executor:
-                future_to_ticker = {
-                    executor.submit(_resolve_price_for_ticker, ticker): ticker for ticker in tickers
-                }
-                for future in as_completed(future_to_ticker):
-                    ticker = future_to_ticker[future]
-                    try:
-                        price_results_by_ticker[ticker] = future.result()
-                    except Exception as exc:
-                        price_results_by_ticker[ticker] = {
-                            "ticker": ticker,
-                            "series": pd.Series(dtype=float),
-                            "warnings": [f"Price fetch failed for {ticker}: {exc}"],
-                            "unpriceable_reason": "price_fetch_exception",
-                            "ibkr_instrument_type": None,
-                        }
+        with timing.step("build_price_cache"):
+            if max_price_workers <= 1:
+                for ticker in tickers:
+                    price_results_by_ticker[ticker] = _resolve_price_for_ticker(ticker)
+            else:
+                with ThreadPoolExecutor(max_workers=max_price_workers) as executor:
+                    future_to_ticker = {
+                        executor.submit(_resolve_price_for_ticker, ticker): ticker for ticker in tickers
+                    }
+                    for future in as_completed(future_to_ticker):
+                        ticker = future_to_ticker[future]
+                        try:
+                            price_results_by_ticker[ticker] = future.result()
+                        except Exception as exc:
+                            price_results_by_ticker[ticker] = {
+                                "ticker": ticker,
+                                "series": pd.Series(dtype=float),
+                                "warnings": [f"Price fetch failed for {ticker}: {exc}"],
+                                "unpriceable_reason": "price_fetch_exception",
+                                "ibkr_instrument_type": None,
+                            }
 
         for ticker in tickers:
             ticker_result = price_results_by_ticker[ticker]
@@ -1400,14 +1442,15 @@ def _analyze_realized_performance_single_scope(
         }
         missing_fx = sorted(ccy for ccy in timeline_currencies if ccy not in fx_cache)
         if missing_fx:
-            fx_cache.update(
-                fx._build_fx_cache(
-                    currencies=missing_fx,
-                    inception_date=inception_date,
-                    end_date=end_date,
-                    warnings=warnings,
+            with timing.step("build_missing_timeline_fx_cache"):
+                fx_cache.update(
+                    fx._build_fx_cache(
+                        currencies=missing_fx,
+                        inception_date=inception_date,
+                        end_date=end_date,
+                        warnings=warnings,
+                    )
                 )
-            )
 
         synthetic_cash_events, synth_cash_warnings = timeline._create_synthetic_cash_events(
             synthetic_entries=synthetic_entries,
@@ -2085,13 +2128,14 @@ def _analyze_realized_performance_single_scope(
                 "inferred": inferred_count if has_fallback_slices else max(0, len(composed_external) - external_authoritative_applied),
             }, inferred_flow_diagnostics, _finalize_replay_diag()
 
-        (
-            cash_snapshots,
-            external_flows,
-            flow_source_breakdown,
-            inferred_flow_diagnostics,
-            cash_replay_diagnostics,
-        ) = _compose_cash_and_external_flows(transactions_for_cash)
+        with timing.step("compose_cash_and_external_flows"):
+            (
+                cash_snapshots,
+                external_flows,
+                flow_source_breakdown,
+                inferred_flow_diagnostics,
+                cash_replay_diagnostics,
+            ) = _compose_cash_and_external_flows(transactions_for_cash)
         if replay_filter_active:
             cash_replay_diagnostics = dict(cash_replay_diagnostics)
             cash_replay_diagnostics.update(
@@ -2332,40 +2376,41 @@ def _analyze_realized_performance_single_scope(
         legacy_monthly_return_path = nav.compute_monthly_returns is not _helpers._ORIGINAL_COMPUTE_MONTHLY_RETURNS
         month_end_index = pd.DatetimeIndex(pd.to_datetime(month_ends)).sort_values()
 
-        if legacy_monthly_return_path:
-            inception_nav_value = float(
-                nav.compute_monthly_nav(
+        with timing.step("build_primary_nav_series"):
+            if legacy_monthly_return_path:
+                inception_nav_value = float(
+                    nav.compute_monthly_nav(
+                        position_timeline=position_timeline,
+                        month_ends=[inception_date],
+                        price_cache=price_cache,
+                        fx_cache=fx_cache,
+                        cash_snapshots=cash_snapshots,
+                        futures_keys=futures_keys,
+                    ).iloc[0]
+                )
+                monthly_nav = nav.compute_monthly_nav(
                     position_timeline=position_timeline,
-                    month_ends=[inception_date],
+                    month_ends=month_ends,
                     price_cache=price_cache,
                     fx_cache=fx_cache,
                     cash_snapshots=cash_snapshots,
                     futures_keys=futures_keys,
-                ).iloc[0]
-            )
-            monthly_nav = nav.compute_monthly_nav(
-                position_timeline=position_timeline,
-                month_ends=month_ends,
-                price_cache=price_cache,
-                fx_cache=fx_cache,
-                cash_snapshots=cash_snapshots,
-                futures_keys=futures_keys,
-            )
-            daily_nav = monthly_nav.copy()
-        else:
-            daily_nav = nav.compute_monthly_nav(
-                position_timeline=position_timeline,
-                month_ends=eval_dates,
-                price_cache=price_cache,
-                fx_cache=fx_cache,
-                cash_snapshots=cash_snapshots,
-                futures_keys=futures_keys,
-            )
-            monthly_nav = pd.Series(
-                [_helpers._value_at_or_before(daily_nav, ts, default=np.nan) for ts in month_end_index],
-                index=month_end_index,
-                dtype=float,
-            ).dropna()
+                )
+                daily_nav = monthly_nav.copy()
+            else:
+                daily_nav = nav.compute_monthly_nav(
+                    position_timeline=position_timeline,
+                    month_ends=eval_dates,
+                    price_cache=price_cache,
+                    fx_cache=fx_cache,
+                    cash_snapshots=cash_snapshots,
+                    futures_keys=futures_keys,
+                )
+                monthly_nav = pd.Series(
+                    [_helpers._value_at_or_before(daily_nav, ts, default=np.nan) for ts in month_end_index],
+                    index=month_end_index,
+                    dtype=float,
+                ).dropna()
 
         net_flows, tw_flows = nav.compute_monthly_external_flows(
             external_flows=external_flows,
@@ -2408,30 +2453,31 @@ def _analyze_realized_performance_single_scope(
                 observed_only_cash_anchor_offset_usd = observed_back_solved_start
                 observed_anchor_snapshot = [(inception_date, observed_back_solved_start)]
                 observed_cash_snapshots = _apply_cash_anchor(observed_cash_snapshots, observed_anchor_snapshot)
-        if legacy_monthly_return_path:
-            observed_monthly_nav = nav.compute_monthly_nav(
-                position_timeline=observed_position_timeline,
-                month_ends=month_ends,
-                price_cache=price_cache,
-                fx_cache=fx_cache,
-                cash_snapshots=observed_cash_snapshots,
-                futures_keys=futures_keys,
-            )
-            observed_daily_nav = observed_monthly_nav.copy()
-        else:
-            observed_daily_nav = nav.compute_monthly_nav(
-                position_timeline=observed_position_timeline,
-                month_ends=eval_dates,
-                price_cache=price_cache,
-                fx_cache=fx_cache,
-                cash_snapshots=observed_cash_snapshots,
-                futures_keys=futures_keys,
-            )
-            observed_monthly_nav = pd.Series(
-                [_helpers._value_at_or_before(observed_daily_nav, ts, default=np.nan) for ts in month_end_index],
-                index=month_end_index,
-                dtype=float,
-            ).dropna()
+        with timing.step("build_observed_nav_series"):
+            if legacy_monthly_return_path:
+                observed_monthly_nav = nav.compute_monthly_nav(
+                    position_timeline=observed_position_timeline,
+                    month_ends=month_ends,
+                    price_cache=price_cache,
+                    fx_cache=fx_cache,
+                    cash_snapshots=observed_cash_snapshots,
+                    futures_keys=futures_keys,
+                )
+                observed_daily_nav = observed_monthly_nav.copy()
+            else:
+                observed_daily_nav = nav.compute_monthly_nav(
+                    position_timeline=observed_position_timeline,
+                    month_ends=eval_dates,
+                    price_cache=price_cache,
+                    fx_cache=fx_cache,
+                    cash_snapshots=observed_cash_snapshots,
+                    futures_keys=futures_keys,
+                )
+                observed_monthly_nav = pd.Series(
+                    [_helpers._value_at_or_before(observed_daily_nav, ts, default=np.nan) for ts in month_end_index],
+                    index=month_end_index,
+                    dtype=float,
+                ).dropna()
         observed_net_flows, observed_tw_flows = nav.compute_monthly_external_flows(
             external_flows=observed_external_flows,
             month_ends=month_ends,
@@ -2443,19 +2489,20 @@ def _analyze_realized_performance_single_scope(
                 "inference used for non-authoritative partitions."
             )
 
-        if legacy_monthly_return_path:
-            monthly_returns, return_warnings = nav.compute_monthly_returns(
-                monthly_nav=monthly_nav,
-                net_flows=net_flows,
-                time_weighted_flows=tw_flows,
-                inception_nav=inception_nav_value,
-            )
-        else:
-            monthly_returns, return_warnings = nav.compute_twr_monthly_returns(
-                daily_nav=daily_nav,
-                external_flows=twr_external_flows,
-                month_ends=month_ends,
-            )
+        with timing.step("build_monthly_returns"):
+            if legacy_monthly_return_path:
+                monthly_returns, return_warnings = nav.compute_monthly_returns(
+                    monthly_nav=monthly_nav,
+                    net_flows=net_flows,
+                    time_weighted_flows=tw_flows,
+                    inception_nav=inception_nav_value,
+                )
+            else:
+                monthly_returns, return_warnings = nav.compute_twr_monthly_returns(
+                    daily_nav=daily_nav,
+                    external_flows=twr_external_flows,
+                    month_ends=month_ends,
+                )
         warnings.extend(return_warnings)
 
         total_cost_basis_usd = 0.0
@@ -2609,6 +2656,7 @@ def _analyze_realized_performance_single_scope(
 
         monthly_returns = monthly_returns.replace([np.inf, -np.inf], np.nan).dropna()
         if monthly_returns.empty:
+            timing.finish(status="error", error="no_valid_monthly_returns")
             return {
                 "status": "error",
                 "message": "No valid monthly return observations available after NAV/flow reconstruction.",
@@ -2621,13 +2669,14 @@ def _analyze_realized_performance_single_scope(
             .to_pydatetime()
             .replace(tzinfo=None)
         )
-        benchmark_prices = fetch_monthly_close_fn(
-            benchmark_ticker,
-            start_date=benchmark_start,
-            end_date=end_date,
-            fmp_ticker_map=fmp_ticker_map or None,
-        )
-        benchmark_returns = calc_monthly_returns_fn(benchmark_prices)
+        with timing.step("build_benchmark_returns"):
+            benchmark_prices = fetch_monthly_close_fn(
+                benchmark_ticker,
+                start_date=benchmark_start,
+                end_date=end_date,
+                fmp_ticker_map=fmp_ticker_map or None,
+            )
+            benchmark_returns = calc_monthly_returns_fn(benchmark_prices)
         benchmark_returns = _helpers._series_from_cache(benchmark_returns)
         monthly_returns = _helpers._normalize_monthly_index(monthly_returns)
         benchmark_returns = _helpers._normalize_monthly_index(benchmark_returns)
@@ -2640,6 +2689,7 @@ def _analyze_realized_performance_single_scope(
         ).dropna()
 
         if aligned.empty:
+            timing.finish(status="error", error="no_benchmark_overlap")
             return {
                 "status": "error",
                 "message": f"No overlapping monthly returns between portfolio and benchmark {benchmark_ticker}.",
@@ -2861,15 +2911,16 @@ def _analyze_realized_performance_single_scope(
         start_iso = selected_aligned.index.min().date().isoformat()
         end_iso = selected_aligned.index.max().date().isoformat()
 
-        performance_metrics = compute_performance_metrics_fn(
-            portfolio_returns=selected_aligned["portfolio"],
-            benchmark_returns=selected_aligned["benchmark"],
-            risk_free_rate=risk_free_rate,
-            benchmark_ticker=benchmark_ticker,
-            start_date=start_iso,
-            end_date=end_iso,
-            min_capm_observations=min_capm,
-        )
+        with timing.step("compute_performance_metrics"):
+            performance_metrics = compute_performance_metrics_fn(
+                portfolio_returns=selected_aligned["portfolio"],
+                benchmark_returns=selected_aligned["benchmark"],
+                risk_free_rate=risk_free_rate,
+                benchmark_ticker=benchmark_ticker,
+                start_date=start_iso,
+                end_date=end_iso,
+                min_capm_observations=min_capm,
+            )
 
         mwr_value, mwr_status = _mwr.compute_mwr(
             external_flows=external_flows,
@@ -3190,10 +3241,20 @@ def _analyze_realized_performance_single_scope(
         performance_metrics["money_weighted_return"] = realized_metadata["money_weighted_return"]
         performance_metrics["net_contributions_definition"] = realized_metadata["net_contributions_definition"]
 
+        timing.finish(
+            status="success",
+            transaction_count=len(fifo_transactions),
+            holding_count=len(current_positions),
+            ticker_count=len(tickers),
+            month_count=len(month_ends),
+            provider_first_mode=provider_first_mode,
+            fallback_slice_count=len(flow_fallback_reasons),
+        )
         from core.result_objects import RealizedPerformanceResult
         return RealizedPerformanceResult.from_analysis_dict(performance_metrics)
 
     except Exception as exc:
+        timing.finish(status="exception", error_type=type(exc).__name__)
         return {
             "status": "error",
             "message": f"Realized performance analysis failed: {exc}",

@@ -12,6 +12,7 @@ from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union
 import numpy as np
 import pandas as pd
 
+from app_platform.logging.workflow_timing import WorkflowTimer
 from portfolio_risk_engine.performance_metrics_engine import compute_performance_metrics
 from portfolio_risk_engine.data_loader import fetch_monthly_close, fetch_monthly_treasury_rates
 from portfolio_risk_engine.factor_utils import calc_monthly_returns
@@ -98,6 +99,13 @@ def derive_cash_and_external_flows(
         replay_diagnostics.setdefault("income_flow_overlap_alias_mismatch_samples", [])
         replay_diagnostics.setdefault("futures_inception_margin_usd", 0.0)
         replay_diagnostics.setdefault("futures_inception_trade_date", None)
+    timing = WorkflowTimer(
+        "realized_cash_replay",
+        transaction_count=len(fifo_transactions or []),
+        income_count=len(income_with_currency or []),
+        provider_flow_count=len(provider_flow_events or []),
+        futures_mtm_count=len(futures_mtm_events or []),
+    )
     _suppress_symbols = {
         str(symbol).strip().upper()
         for symbol in (suppress_symbols or set())
@@ -540,6 +548,12 @@ def derive_cash_and_external_flows(
             else:
                 replay_diagnostics["futures_inception_trade_date"] = min(existing_date, _futures_inception_date)
 
+    timing.add_details(
+        event_count=len(events),
+        provider_mode=provider_mode,
+        inference_enabled=inference_enabled,
+    )
+    timing.finish()
     return cash_snapshots, external_flows
 
 def compute_monthly_nav(
@@ -558,6 +572,13 @@ def compute_monthly_nav(
     """
     if not month_ends:
         return pd.Series(dtype=float)
+    timing = WorkflowTimer(
+        "realized_nav_build",
+        position_key_count=len(position_timeline or {}),
+        date_count=len(month_ends or []),
+        cash_snapshot_count=len(cash_snapshots or []),
+        futures_key_count=len(futures_keys or set()),
+    )
 
     def _prepare_lookup(series: pd.Series | None) -> tuple[np.ndarray, np.ndarray] | None:
         if series is None or len(series) == 0:
@@ -593,75 +614,128 @@ def compute_monthly_nav(
 
         return default
 
+    def _lookup_prepared_many(
+        prepared: tuple[np.ndarray, np.ndarray] | None,
+        when_ns: np.ndarray,
+        *,
+        default: float,
+        allow_forward_fill: bool,
+    ) -> np.ndarray:
+        if len(when_ns) == 0:
+            return np.array([], dtype=float)
+        if prepared is None:
+            return np.full(len(when_ns), default, dtype=float)
+
+        index_ns, values = prepared
+        if len(index_ns) == 0:
+            return np.full(len(when_ns), default, dtype=float)
+
+        result = np.full(len(when_ns), default, dtype=float)
+        prior_pos = np.searchsorted(index_ns, when_ns, side="right") - 1
+        has_prior = prior_pos >= 0
+        if np.any(has_prior):
+            result[has_prior] = values[prior_pos[has_prior]]
+
+        if allow_forward_fill:
+            needs_future = ~has_prior
+            if np.any(needs_future):
+                future_pos = np.searchsorted(index_ns, when_ns[needs_future], side="left")
+                has_future = future_pos < len(values)
+                if np.any(has_future):
+                    target_idx = np.flatnonzero(needs_future)[has_future]
+                    result[target_idx] = values[future_pos[has_future]]
+
+        return result
+
     month_end_index = pd.DatetimeIndex(pd.to_datetime(month_ends)).sort_values()
-    prepared_price_cache = {
-        ticker: _prepare_lookup(series)
-        for ticker, series in price_cache.items()
-    }
-    prepared_fx_cache = {
-        currency.upper(): _prepare_lookup(series)
-        for currency, series in fx_cache.items()
-    }
+    month_end_ns = month_end_index.to_numpy(dtype="datetime64[ns]").astype(np.int64, copy=False)
+    with timing.step("prepare_lookups"):
+        prepared_price_cache = {
+            ticker: _prepare_lookup(series)
+            for ticker, series in price_cache.items()
+        }
+        prepared_fx_cache = {
+            currency.upper(): _prepare_lookup(series)
+            for currency, series in fx_cache.items()
+        }
 
-    events_by_key: Dict[Tuple[str, str, str], List[Tuple[datetime, float]]] = {}
-    ptrs: Dict[Tuple[str, str, str], int] = {}
-    quantities: Dict[Tuple[str, str, str], float] = {}
+    nav_values = np.zeros(len(month_end_index), dtype=float)
+    with timing.step("apply_cash_snapshots"):
+        if cash_snapshots:
+            cash_snapshot_rows = sorted(
+                (
+                    pd.Timestamp(d).to_pydatetime().replace(tzinfo=None),
+                    _helpers._as_float(v, 0.0),
+                )
+                for d, v in cash_snapshots
+            )
+            cash_dates_ns = np.array(
+                [pd.Timestamp(d).to_datetime64() for d, _ in cash_snapshot_rows],
+                dtype="datetime64[ns]",
+            ).astype(np.int64, copy=False)
+            cash_values = np.array(
+                [value for _, value in cash_snapshot_rows],
+                dtype=float,
+            )
+            cash_pos = np.searchsorted(cash_dates_ns, month_end_ns, side="right") - 1
+            has_cash = cash_pos >= 0
+            if np.any(has_cash):
+                nav_values[has_cash] = cash_values[cash_pos[has_cash]]
 
-    for key, events in position_timeline.items():
-        normalized = [(pd.Timestamp(d).to_pydatetime().replace(tzinfo=None), _helpers._as_float(q, 0.0)) for d, q in events]
-        normalized.sort(key=lambda x: x[0])
-        events_by_key[key] = normalized
-        ptrs[key] = 0
-        quantities[key] = 0.0
+    with timing.step("value_positions"):
+        for key, events in position_timeline.items():
+            if futures_keys and key in futures_keys:
+                continue
 
-    cash_snapshots_sorted = sorted(
-        [(pd.Timestamp(d).to_pydatetime().replace(tzinfo=None), _helpers._as_float(v, 0.0)) for d, v in cash_snapshots],
-        key=lambda x: x[0],
-    )
-    cash_ptr = 0
-    cash_value = 0.0
+            normalized_events = sorted(
+                (
+                    pd.Timestamp(d).to_pydatetime().replace(tzinfo=None),
+                    _helpers._as_float(q, 0.0),
+                )
+                for d, q in events
+            )
+            if not normalized_events:
+                continue
 
-    nav_values: List[float] = []
+            event_dates_ns = np.array(
+                [pd.Timestamp(d).to_datetime64() for d, _ in normalized_events],
+                dtype="datetime64[ns]",
+            ).astype(np.int64, copy=False)
+            cumulative_quantities = np.cumsum(
+                np.array([qty for _, qty in normalized_events], dtype=float)
+            )
+            quantity_pos = np.searchsorted(event_dates_ns, month_end_ns, side="right") - 1
+            active_mask = quantity_pos >= 0
+            if not np.any(active_mask):
+                continue
 
-    for month_end in month_end_index:
-        me = month_end.to_pydatetime().replace(tzinfo=None)
-        me_ns = month_end.value
-
-        while cash_ptr < len(cash_snapshots_sorted) and cash_snapshots_sorted[cash_ptr][0] <= me:
-            cash_value = cash_snapshots_sorted[cash_ptr][1]
-            cash_ptr += 1
-
-        position_value = 0.0
-
-        for key, events in events_by_key.items():
-            ptr = ptrs[key]
-            while ptr < len(events) and events[ptr][0] <= me:
-                quantities[key] += events[ptr][1]
-                ptr += 1
-            ptrs[key] = ptr
-
-            qty = quantities[key]
-            if abs(qty) < 1e-9:
+            quantity_values = np.zeros(len(month_end_ns), dtype=float)
+            quantity_values[active_mask] = cumulative_quantities[quantity_pos[active_mask]]
+            nonzero_mask = np.abs(quantity_values) >= 1e-9
+            if not np.any(nonzero_mask):
                 continue
 
             ticker, currency, direction = key
-            if futures_keys and key in futures_keys:
-                continue
-            price = _lookup_prepared(prepared_price_cache.get(ticker), me_ns, default=0.0)
-            fx = (
-                1.0
-                if str(currency or "USD").upper() == "USD"
-                else _lookup_prepared(
-                    prepared_fx_cache.get(str(currency or "USD").upper()),
-                    me_ns,
-                    default=1.0,
-                )
+            price_values = _lookup_prepared_many(
+                prepared_price_cache.get(ticker),
+                month_end_ns[nonzero_mask],
+                default=0.0,
+                allow_forward_fill=True,
             )
+            if str(currency or "USD").upper() == "USD":
+                fx_values = np.ones(np.count_nonzero(nonzero_mask), dtype=float)
+            else:
+                fx_values = _lookup_prepared_many(
+                    prepared_fx_cache.get(str(currency or "USD").upper()),
+                    month_end_ns[nonzero_mask],
+                    default=1.0,
+                    allow_forward_fill=True,
+                )
+
             sign = -1.0 if direction == "SHORT" else 1.0
-            position_value += sign * qty * price * fx
+            nav_values[nonzero_mask] += sign * quantity_values[nonzero_mask] * price_values * fx_values
 
-        nav_values.append(position_value + cash_value)
-
+    timing.finish()
     return pd.Series(nav_values, index=month_end_index, dtype=float)
 
 def compute_monthly_external_flows(

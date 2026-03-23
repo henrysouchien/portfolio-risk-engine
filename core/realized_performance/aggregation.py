@@ -57,6 +57,7 @@ from . import _helpers, engine, holdings, mwr as _mwr, nav
 
 def _prefetch_fifo_transactions(
     *,
+    positions,
     user_email: str,
     source: str,
     institution: Optional[str],
@@ -64,6 +65,17 @@ def _prefetch_fifo_transactions(
     account_filters: Optional[list[tuple[str, str, str | None]]] = None,
 ) -> List[Dict[str, Any]]:
     """Fetch and normalize FIFO transactions once for account discovery."""
+    allow_stale_existing_transaction_store = True
+    for position_row in list(getattr(getattr(positions, "data", None), "positions", []) or []):
+        try:
+            raw_value = float(position_row.get("value") or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if not np.isfinite(raw_value):
+            continue
+        if raw_value != 0.0:
+            allow_stale_existing_transaction_store = False
+            break
     transaction_store_read = bool(_helpers._shim_attr("TRANSACTION_STORE_READ", TRANSACTION_STORE_READ))
     transaction_store_max_age_hours = _helpers._shim_attr(
         "TRANSACTION_STORE_MAX_AGE_HOURS",
@@ -106,6 +118,7 @@ def _prefetch_fifo_transactions(
             provider=source,
             max_age_hours=transaction_store_max_age_hours,
             retry_cooldown_minutes=transaction_store_retry_cooldown_minutes,
+            allow_stale_existing=allow_stale_existing_transaction_store,
         )
         if account_filters:
             store_data = load_from_store_for_portfolio(
@@ -1281,6 +1294,7 @@ def _analyze_realized_performance_account_aggregated(
 
     try:
         prefetch_fifo = _prefetch_fifo_transactions(
+            positions=positions,
             user_email=user_email,
             source=source,
             institution=institution,

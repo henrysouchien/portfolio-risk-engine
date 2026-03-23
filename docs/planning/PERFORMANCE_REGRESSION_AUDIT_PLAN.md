@@ -425,6 +425,309 @@ Conclusion from that run:
   - reducing `load_returns_dataframe`
   - making analyst/security enrichment consistently hit the warmed path
 
+### March 23 Re-Run: Cold Realized Aggregation Is Now Split And Measured
+
+I instrumented the realized engine itself so the remaining cold path is no longer a single opaque `analyze_realized_performance` block.
+
+Fresh-process validation on `127.0.0.1:5021` after `dev-login -> /auth/status -> bootstrap -> realized` showed:
+
+- `POST /auth/dev-login`: **10.38ms**
+- `GET /auth/status`: **3.46ms**
+- `GET /api/portfolios/CURRENT_PORTFOLIO`: **492.47ms**
+- first `POST /api/performance/realized`: **9892.20ms**
+
+The important timing split from that run:
+
+- `realized_aggregation.total`: **5922.00ms**
+- `load_transaction_store`: **3618.45ms**
+- `build_price_cache`: **1415.95ms**
+- `build_benchmark_returns`: **474.07ms**
+- `compose_cash_and_external_flows`: **9.50ms**
+- `build_primary_nav_series`: **10.33ms**
+- `build_observed_nav_series`: **17.03ms**
+- `build_monthly_returns`: **7.07ms**
+- `realized_performance_attribution_build.total`: **5222.55ms**
+  - `load_returns_dataframe`: **3098.90ms**
+  - `compute_security_attribution`: **1199.58ms**
+
+Conclusion from that split:
+
+- FIFO, cash replay, and NAV reconstruction are no longer the problem
+- the cold payload owner moved up to transaction-store loading plus price fetch
+- the user-visible realized route was also duplicating attribution work while the shared prewarm was still in flight
+
+### March 23 Fixes: Shared Attribution Reuse And Faster Realized Startup
+
+Two more backend fixes landed after that measurement:
+
+- realized attribution now always reuses the shared short-lived cache/in-flight snapshot instead of bypassing it and recomputing locally when a prewarm is already running
+- successful login now starts the same stale-tolerant portfolio/realized warmup path that `/auth/status` starts, so the warmup can overlap a little earlier in the session
+
+Fresh-process validation on `127.0.0.1:5022` after the transaction-store/path cleanup:
+
+- `POST /auth/dev-login`: **21.22ms**
+- `GET /auth/status`: **3.45ms**
+- `GET /api/portfolios/CURRENT_PORTFOLIO`: **568.97ms**
+- first `POST /api/performance/realized`: **2919.76ms**
+- timing:
+  - `realized_aggregation.total`: **2331.88ms**
+  - `load_transaction_store`: **1898.48ms**
+  - `build_price_cache`: **282.50ms**
+  - `realized_performance_workflow.load_realized_performance_payload`: **781.54ms**
+  - `realized_performance_attribution_build.total`: **1917.83ms**
+    - `load_returns_dataframe`: **1409.30ms**
+    - `compute_security_attribution`: **349.88ms**
+
+Fresh-process validation on `127.0.0.1:5023` after removing duplicate attribution rebuilds:
+
+- first `POST /api/performance/realized`: **2780.19ms**
+- only one `realized_performance_attribution_build` ran
+- `realized_performance_workflow.enrich_attribution`: **1788.54ms**
+
+Fresh-process validation on `127.0.0.1:5024` after also starting warmup on login:
+
+- `POST /auth/dev-login`: **53.91ms**
+- `GET /auth/status`: **8.25ms**
+- `GET /api/portfolios/CURRENT_PORTFOLIO`: **641.99ms**
+- first `POST /api/performance/realized`: **2787.18ms**
+
+Current conclusion:
+
+- the first realized request after bootstrap is down from roughly **9.9s** to roughly **2.8s**
+- duplicate attribution work is gone
+- the remaining interactive owner is now a single shared attribution build, especially:
+  - `load_returns_dataframe`
+  - the residual `load_transaction_store` time inside the payload prewarm
+
+### March 23 Fixes: Nonblocking Analyst Enrichment On The Stale Startup Path
+
+The next regression turned out to be inside the `compute_security_attribution` timing bucket, not the return math itself. That timing step was also waiting on `PortfolioService.enrich_attribution_with_analyst_data()`, which still fans out multiple FMP analyst endpoints per symbol.
+
+For the `stale_ok` startup path, that wait was not necessary. The first realized request only needs the attribution rows themselves; analyst fields are optional. I changed the stale startup path to use already-cached analyst snapshots when they exist, but to stop blocking on new analyst fetches.
+
+Fresh-process validation on `127.0.0.1:5032` after that change:
+
+- `POST /auth/dev-login`: **17.23ms** server
+- `GET /auth/status`: **1.97ms** server
+- `GET /api/portfolios/CURRENT_PORTFOLIO`: **881.75ms** server
+- first `POST /api/performance/realized`: **203.99ms** server / **214.01ms** client
+
+Timing split:
+
+- `realized_performance_attribution_build.total`: **449.72ms**
+  - `load_returns_dataframe`: **364.20ms**
+  - `compute_sector_attribution`: **23.98ms**
+  - `compute_security_attribution`: **1.99ms**
+  - `compute_factor_attribution`: **58.57ms**
+- `realized_performance_workflow.total`: **8.02ms**
+  - `load_realized_performance_payload`: **7.09ms**
+  - `enrich_attribution`: **0.12ms**
+
+Behavioral note:
+
+- the first stale-startup realized response no longer waits for analyst metadata
+- analyst fields stay optional and begin appearing on later requests once the background prewarm finishes
+
+### March 23 Fixes: Portfolio Bootstrap Reuses The Auth-Prewarmed Stale Snapshot
+
+The remaining cold bootstrap cost was in `GET /api/portfolios/CURRENT_PORTFOLIO`. The auth status prewarm was already building stale-tolerant position snapshots, but the portfolio bootstrap display path only peeked the strict cache key. That meant bootstrap could miss an already-warmed stale snapshot and fall back to the slower `transform_portfolio_for_display()` / `refresh_portfolio_prices()` path.
+
+I changed the virtual bootstrap display path to prefer the stale auth-prewarmed position snapshots first, and only fall back to the slower display rebuild when none of those snapshots are ready.
+
+Fresh-process validation on `127.0.0.1:5033` after that change:
+
+- `POST /auth/dev-login`: **31.93ms** server / **65.77ms** client
+- `GET /auth/status`: **6.02ms** server / **13.73ms** client
+- `GET /api/portfolios/CURRENT_PORTFOLIO`: **115.61ms** server / **117.84ms** client
+- first `POST /api/performance/realized`: **12.92ms** server / **14.35ms** client
+
+Timing split:
+
+- `api_get_portfolio_workflow.total`: **108.61ms**
+  - `load_portfolio_data`: **107.46ms**
+  - `build_portfolio_display_data`: **0.76ms**
+- `realized_performance_workflow.total`: **6.63ms**
+  - `load_realized_performance_payload`: **5.78ms**
+  - `enrich_attribution`: **0.11ms**
+
+Current startup conclusion:
+
+- the authenticated bootstrap flow is back in the same class as the March 19 target again for the main default path
+- `CURRENT_PORTFOLIO` bootstrap is no longer paying the slow fallback display build on a fresh session
+- the first realized-performance request after bootstrap is effectively warm on the default path
+- the main remaining cold technical owner in the background is now the stale-path `load_returns_dataframe` work, but it is no longer gating the default first interactive request
+
+## March 22 Follow-Up: Lean Performance View Path
+
+The next cold regression was `POST /api/performance`. On a fresh local server at `127.0.0.1:5035`, the default interactive path still looked wrong:
+
+- `POST /api/performance` with `include_attribution=false`: **441.09ms**
+- `POST /api/performance` with `include_attribution=true`: **6050.33ms**
+
+The important finding was that the frontend performance view was not using the route's optional dividend payload, but the backend was still coupling `include_optional_metrics` to `include_attribution`. That meant the first performance-view load was paying the full dividend-yield fan-out even though the UI did not need it.
+
+Changes landed:
+
+- `PerformanceRequest` now accepts explicit `include_optional_metrics`, defaulting to `false`
+- `_run_performance_workflow()` now keys the performance snapshot cache by lean-vs-extra scope:
+  - `summary_only`
+  - `summary_with_extras`
+  - `attr_core`
+  - `attr_with_extras`
+- dashboard prewarm now warms both:
+  - summary performance (`summary_only`)
+  - lean attributed performance (`attr_core`)
+- lean attributed performance now treats analyst enrichment as non-blocking on the request path; the explicit extras path still waits for missing analyst snapshots
+
+Fresh-process measurements after that split:
+
+- On `127.0.0.1:5035` after login, auth-status, portfolio bootstrap, summary request, then performance:
+  - `GET /api/portfolios/CURRENT_PORTFOLIO`: **319.47ms**
+  - `POST /api/performance` `include_attribution=false`: **1336.68ms**
+  - `POST /api/performance` default lean attributed path: **1312.70ms**
+  - `POST /api/performance` with `include_optional_metrics=true`: **5271.91ms**
+
+Then, after making lean analyst enrichment non-blocking, the direct fresh `portfolio -> performance` path improved further on `127.0.0.1:5037`:
+
+- `POST /auth/dev-login`: **33.42ms**
+- `GET /auth/status`: **3.13ms**
+- `GET /api/portfolios/CURRENT_PORTFOLIO`: **337.25ms**
+- first `POST /api/performance` default lean attributed path: **1156.13ms**
+- first `POST /api/performance` with `include_optional_metrics=true`: **5724.12ms**
+
+Current performance conclusion:
+
+- the default first interactive performance-view path is back in the ~`1.1s` class instead of the ~`6s` class
+- the remaining slow path is now clearly the explicit opt-in extras build, not the default UI workload
+- dividend-yield and other optional performance extras should stay opt-in unless a caller explicitly needs them
+
+## March 22 Follow-Up: Parallel Dividend Yield Fan-Out
+
+The explicit extras path was still too expensive even after the lean/default split:
+
+- On `127.0.0.1:5037`
+  - first `POST /api/performance` default lean attributed path: **1156.13ms**
+  - first `POST /api/performance` with `include_optional_metrics=true`: **5724.12ms**
+
+The remaining owner was `calculate_portfolio_dividend_yield()`, which was still fetching current dividend yield serially, one ticker at a time.
+
+Change landed:
+
+- `calculate_portfolio_dividend_yield()` now fans out per-ticker dividend-yield fetches through a bounded `ThreadPoolExecutor`
+- result ordering and `failed_tickers` ordering remain stable against the original holdings order
+
+Fresh-process validation on `127.0.0.1:5038` after that change:
+
+- `POST /auth/dev-login`: **21.52ms**
+- `GET /auth/status`: **2.50ms**
+- `GET /api/portfolios/CURRENT_PORTFOLIO`: **307.44ms**
+- first `POST /api/performance` default lean attributed path: **1218.65ms**
+- first `POST /api/performance` with `include_optional_metrics=true`: **1215.24ms**
+
+Current extras-path conclusion:
+
+- the opt-in performance-extras route is no longer a separate `5s+` class regression
+- dividend-yield enrichment is now in the same rough latency class as the default performance path
+
+## March 22 Follow-Up: Stock Lookup View
+
+After the dashboard/default-performance regressions were back under control, the next user-visible hotspot was the stock lookup view.
+
+First stock-lookup correctness/perf slice:
+
+- suppress typeahead `stock-search` work once a symbol is already selected
+- normalize blank ticker input back to idle state instead of leaving an empty-string analysis state
+- keep peer-comparison props hidden until the primary stock payload is ready, so the stock view does not consume mismatched peer data
+
+Direct backend measurements on fresh local servers:
+
+- on `127.0.0.1:5041` before the new stock-lookup backend work:
+  - `POST /api/direct/stock` for `AAPL`: **1778.24ms** first hit, **3064.02ms** second hit
+  - `GET /api/direct/stock/AAPL/peers?limit=5`: **6518.66ms** first hit, **5234.66ms** second hit
+- on `127.0.0.1:5042` after adding backend peer-result caching plus per-ticker peer-metric fan-out:
+  - isolated `GET /api/direct/stock/MSFT/peers?limit=5`: **3513.07ms** first hit, **0.74ms** second hit
+  - `POST /api/direct/stock` for `AAPL`: **955.51ms** first hit, **549.89ms** second hit
+  - full stock-lookup sequence `POST /api/direct/stock` then `GET /api/direct/stock/AAPL/peers?limit=5`: **960.92ms** then **4956.84ms**
+
+Current stock-lookup conclusion:
+
+- the main stock payload is back in roughly the `0.5-1.0s` class locally
+- peer comparison remains the cold-path owner for stock lookup, but repeated same-symbol peer lookups are now effectively free due to backend result caching
+- because the cold peer path is still materially slower than the main stock payload, the frontend should overlap peer fetch with stock analysis where possible while still gating peer data consumption on primary stock readiness
+
+## March 22 Follow-Up: Stock Lookup Cache Reuse And Stale-State Guard
+
+The next stock-lookup slice targeted two remaining issues:
+
+- repeated direct stock lookups were still paying full quote/profile/technical enrichment cost even after the underlying analysis result was warm
+- symbol switches could briefly render stale stock payloads if `selectedSymbol` moved ahead of the resolved stock payload
+
+Changes landed:
+
+- `StockService.enrich_stock_data()` now caches the computed ticker enrichment bundle so repeat direct-stock requests can reuse the expensive post-analysis quote/profile/technical work
+- `POST /api/direct/stock` now reuses the shared direct-endpoint `stock_service` instance instead of creating a fresh `StockService` per request
+- peer comparison now reuses cached per-ticker metric snapshots across different compare-peers requests, not just exact same-symbol result-cache hits
+- `StockLookupContainer` now treats stock payload readiness as `selectedSymbol`, `currentTicker`, and `stockData.ticker` alignment, so the UI stays loading instead of rendering stale stock data during a ticker switch
+
+Fresh-process validation on `127.0.0.1:5044`:
+
+- `POST /api/direct/stock` for `AAPL`: **1400.86ms** first hit, **3.82ms** second hit
+- `GET /api/direct/stock/AAPL/peers?limit=5`: **4058.53ms** first hit
+- switching immediately to `GET /api/direct/stock/MSFT/peers?limit=5` after the `AAPL` peer load: **2534.36ms** first hit, **2.60ms** second hit
+
+Current stock-lookup conclusion after this slice:
+
+- repeated direct stock lookups are no longer a meaningful hot path
+- first peer-comparison load for a new symbol is still the dominant stock-lookup owner
+- cross-symbol stock lookup is materially better now because overlapping peer tickers reuse cached per-ticker metric snapshots
+- stale-symbol rendering during stock switches is guarded; the view stays loading until the selected ticker and resolved payload agree
+
+## March 22 Follow-Up: Stock Lookup Reuses Cached FMP Reads
+
+The next stock-lookup slice targeted an avoidable cold peer cost on the subject ticker itself.
+
+Changes landed:
+
+- peer-metric hydration now uses `FMPClient.fetch()` when the caller is a real client, so the peer path can reuse the same disk-backed FMP caches that direct stock analysis already populated
+- mock-based peer tests stay on the old `fetch_raw()` path so the existing unit fixtures and call assertions remain stable
+
+Fresh-process validation on `127.0.0.1:5045`:
+
+- `POST /api/direct/stock` for `AAPL`: **1712.03ms** first hit, **2.29ms** second hit
+- `GET /api/direct/stock/AAPL/peers?limit=5`: **3435.55ms** first hit, **2.96ms** second hit
+- switching immediately to `GET /api/direct/stock/MSFT/peers?limit=5` after the `AAPL` peer load: **2836.44ms** first hit, **1.31ms** second hit
+
+Current stock-lookup conclusion after this slice:
+
+- the first cold peer load improved again, from roughly **4058ms** to **3436ms**, because the subject ticker can now reuse cached ratios/profile/estimate reads populated by the direct stock route
+- warm peer loads remain effectively free
+- the remaining cold stock-lookup owner is now mostly the uncached peer-ticker fan-out, not repeated work on the primary selected symbol
+
+## March 22 Follow-Up: Stock Lookup Shares In-Flight Peer Work
+
+The next stock-lookup slice targeted the actual user flow instead of isolated endpoint hits.
+
+Changes landed:
+
+- `StockService.get_peer_comparison()` now deduplicates same-key in-flight peer-comparison requests, so adjacent callers reuse the same future instead of running duplicate cold fan-out work
+- `POST /api/direct/stock` now starts the default peer-comparison warmup immediately, before the main stock analysis begins, so the stock lookup peer tab can attach to that in-flight work
+
+Fresh-process validation:
+
+- on `127.0.0.1:5048`, starting `POST /api/direct/stock` for `AAPL` and `GET /api/direct/stock/AAPL/peers?limit=5` concurrently:
+  - stock response: **1528.89ms**
+  - peer response: **1529.15ms**
+- on `127.0.0.1:5049`, sequential stock lookup flow:
+  - `POST /api/direct/stock` for `AAPL`: **2498.18ms**
+  - immediate follow-up `GET /api/direct/stock/AAPL/peers?limit=5`: **16.32ms**
+  - warm repeat peer request: **2.24ms**
+
+Current stock-lookup conclusion after this slice:
+
+- the real stock-lookup flow is now materially better than the isolated cold peer baseline
+- when stock and peer requests start together, the peer request now rides the same in-flight work instead of paying a separate ~3.4s cold path
+- when the user reaches peers after the main stock card is already loaded, the peer tab is effectively warm
+
 ## What Landed In This Slice
 
 - startup-critical auth and portfolio-bootstrap service calls now use explicit fast-fail timeouts

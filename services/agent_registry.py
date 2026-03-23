@@ -57,7 +57,7 @@ def _build_registry() -> None:
     """Build the lazy Phase 1 allowlist registry."""
     AGENT_FUNCTIONS.clear()
 
-    from mcp_tools.positions import get_positions
+    from mcp_tools.positions import export_holdings, get_positions
     from mcp_tools.risk import (
         get_leverage_capacity,
         get_risk_analysis,
@@ -80,26 +80,37 @@ def _build_registry() -> None:
         transaction_coverage,
     )
     from mcp_tools.hedge_monitor import monitor_hedge_positions
-    from mcp_tools.baskets import get_basket, list_baskets
+    from mcp_tools.baskets import analyze_basket, get_basket, list_baskets
     from mcp_tools.compare import compare_scenarios
     from mcp_tools.factor_intelligence import (
         get_factor_analysis,
         get_factor_recommendations,
     )
+    from mcp_tools.allocation import get_target_allocation, set_target_allocation
     from mcp_tools.rebalance import generate_rebalance_trades
     from mcp_tools.signals import check_exit_signals
     from mcp_tools.trading import get_orders
     from mcp_tools.basket_trading import preview_basket_trade, execute_basket_trade
     from mcp_tools.futures_roll import preview_futures_roll, execute_futures_roll
     from mcp_tools.multi_leg_options import preview_option_trade, execute_option_trade
+    from mcp_tools.news_events import (
+        get_portfolio_events_calendar,
+        get_portfolio_news,
+    )
     from mcp_tools.portfolio_management import (
         account_activate,
         account_deactivate,
         create_portfolio,
         delete_portfolio,
+        list_accounts,
+        list_portfolios,
         update_portfolio_accounts,
     )
-    from mcp_tools.audit import record_workflow_action, update_action_status
+    from mcp_tools.audit import (
+        get_action_history,
+        record_workflow_action,
+        update_action_status,
+    )
     from mcp_tools.stock import analyze_stock
     from mcp_tools.quote import get_quote
     from mcp_tools.futures_curve import get_futures_curve
@@ -128,6 +139,7 @@ def _build_registry() -> None:
     )
 
     _register("get_positions", get_positions, category="positions")
+    _register("export_holdings", export_holdings, category="positions")
     _register("get_risk_score", get_risk_score, category="risk")
     _register("get_risk_analysis", get_risk_analysis, category="risk")
     _register("get_leverage_capacity", get_leverage_capacity, category="risk")
@@ -149,16 +161,27 @@ def _build_registry() -> None:
     _register("monitor_hedge_positions", monitor_hedge_positions, category="risk")
     _register("list_baskets", list_baskets, category="baskets")
     _register("get_basket", get_basket, category="baskets")
+    _register("analyze_basket", analyze_basket, category="baskets")
     _register("compare_scenarios", compare_scenarios, category="scenarios")
     _register("get_factor_analysis", get_factor_analysis, category="analysis")
     _register("get_factor_recommendations", get_factor_recommendations, category="analysis")
+    _register("get_target_allocation", get_target_allocation, category="analysis")
     _register("generate_rebalance_trades", generate_rebalance_trades, category="analysis")
     _register("check_exit_signals", check_exit_signals, category="analysis")
     _register("get_orders", get_orders, category="trading")
+    _register("list_accounts", list_accounts, category="portfolio_mgmt")
+    _register("list_portfolios", list_portfolios, category="portfolio_mgmt")
+    _register("get_action_history", get_action_history, category="audit")
 
     _register("analyze_stock", analyze_stock, category="analysis")
     _register("get_quote", get_quote, category="market")
     _register("get_futures_curve", get_futures_curve, category="market")
+    _register("get_portfolio_news", get_portfolio_news, category="market")
+    _register(
+        "get_portfolio_events_calendar",
+        get_portfolio_events_calendar,
+        category="market",
+    )
     _register("analyze_option_chain", analyze_option_chain, category="options")
     _register("analyze_option_strategy", analyze_option_strategy, category="options")
 
@@ -230,6 +253,12 @@ def _build_registry() -> None:
         account_deactivate,
         read_only=False,
         category="portfolio_mgmt",
+    )
+    _register(
+        "set_target_allocation",
+        set_target_allocation,
+        read_only=False,
+        category="analysis",
     )
     _register("set_risk_profile", set_risk_profile, read_only=False, category="risk")
     _register("create_basket", create_basket, read_only=False, category="baskets")
