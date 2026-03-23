@@ -88,7 +88,7 @@ def _infer_instrument_type_from_transaction(txn: Dict[str, Any]) -> str:
     """Infer instrument_type for legacy transactions that lack explicit tags."""
     explicit = txn.get("instrument_type")
     if explicit:
-        return coerce_instrument_type(explicit)
+        return coerce_instrument_type(explicit, default="equity")
 
     trade_type = str(txn.get("type") or "").strip().upper()
     if trade_type in ("DIVIDEND", "INTEREST"):
@@ -125,7 +125,7 @@ def _infer_position_instrument_type(position: Dict[str, Any]) -> str:
     """Infer instrument_type from current-position row fields."""
     explicit = position.get("instrument_type")
     if explicit:
-        return coerce_instrument_type(explicit)
+        return coerce_instrument_type(explicit, default="equity")
 
     ticker = str(position.get("ticker") or "").strip().upper()
     if ticker.startswith("UNKNOWN"):

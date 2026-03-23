@@ -1,9 +1,9 @@
 # Trading Score V2 Alignment — Unify Per-Trade Grading Under V2 Methodology
 
-> **Status**: PLAN v4 — addressing Codex round 3 findings (3 issues)
+> **Status**: PLAN v5 — addressing Codex round 4 findings (4 issues)
 > **Created**: 2026-03-23
 > **Depends on**: V2 scorecard (shipped `67be9af2`), timing shorts+all instruments (`9c6d1633`), sizing futures margin (`849ef5ba`)
-> **Codex review**: R1 FAIL (5), R2 FAIL (5), R3 FAIL (3). This revision addresses all 13.
+> **Codex review**: R1 FAIL (5), R2 FAIL (5), R3 FAIL (3), R4 FAIL (4). This revision addresses all 17.
 
 ## Problem
 
@@ -47,8 +47,14 @@ Where `ordinal` is a per-(symbol, currency, direction, entry_date, exit_date) co
 ```python
 # In RoundTrip.from_lots():
 import hashlib
-lot_keys = sorted(f"{lot.entry_date}_{lot.exit_date}_{lot.quantity}_{lot.entry_price}" for lot in lots)
-round_trip_id = hashlib.md5(f"{symbol}_{currency}_{direction}_{'|'.join(lot_keys)}".encode()).hexdigest()[:12]
+# Use transaction IDs (already on ClosedTrade at fifo_matcher.py:75) for collision safety
+lot_keys = sorted(
+    f"{lot.entry_transaction_id}_{lot.exit_transaction_id}_{lot.quantity}"
+    for lot in lots
+)
+round_trip_id = hashlib.md5(
+    f"{symbol}_{currency}_{direction}_{'|'.join(lot_keys)}".encode()
+).hexdigest()[:12]
 ```
 
 **Threading the ID through 5 sites**:
@@ -89,7 +95,7 @@ round_trip_id = hashlib.md5(f"{symbol}_{currency}_{direction}_{'|'.join(lot_keys
 | option | ≥ 20% | ≥ 8% | ≥ 0% | ≥ -10% | < -10% |
 | futures | ≥ 8% | ≥ 3% | ≥ 0% | ≥ -5% | < -5% |
 
-**Input**: `RoundTrip.pnl_percent` + `instrument_type` (mapped to class via existing `_INSTRUMENT_CLASS_MAP`).
+**Input**: `RoundTrip.pnl_percent` + `instrument_type` (mapped to class via existing `_edge_instrument_class()`).
 
 **Always available**: Every non-synthetic, non-excluded round trip gets an Edge grade.
 
@@ -170,10 +176,8 @@ When `use_fifo=False`, `round_trips` is empty. All per-trade v2 grades are N/A, 
 
 1. `round_trip_id: str` on `ClosedTrade`, `RoundTrip`, and `TradeResult`
 
-2. `revenge_round_trip_ids: set[str]` on `BehavioralAnalysis` (alongside existing `revenge_trades: List[Dict]` for backward compat)
-
-3. `compute_per_trade_grades()` function in `analyzer.py`:
-   - Takes: list of `RoundTrip` objects, timing results dict (keyed by `round_trip_id`), revenge `round_trip_id` set, instrument class map, sizing capitals list (USD/margin-normalized with FX context from existing `_compute_sizing_capitals()`)
+2. `compute_per_trade_grades()` function in `analyzer.py`:
+   - Takes: list of `RoundTrip` objects, timing results dict (keyed by `round_trip_id`), revenge `round_trip_id` set, instrument class map, sizing capitals list (USD/margin-normalized with FX context from existing `_get_sizing_capital()`)
    - Returns: dict mapping `round_trip_id` → `PerTradeGrades`
 
 4. `PerTradeGrades` dataclass in `models.py`:
@@ -240,11 +244,19 @@ c) `analyzer.py`:
 
 **File**: `trading_analysis/analyzer.py`
 
+**FIFO path** (~line 951+):
 - Call `compute_per_trade_grades()` after timing analysis and revenge detection
 - Build `round_trip_id` → `PerTradeGrades` lookup
 - Assign per-trade grades to each `TradeResult` via matching `round_trip_id`
-- Remove `calculate_win_score()` calls (FIFO path ~line 971, legacy path ~line 1079)
-- Remove `avg_win_score` computation (~line 1513)
+- Remove `calculate_win_score()` calls (~line 971)
+
+**Averaged path** (~line 1012+, `use_fifo=False`):
+- `TradeResult`s are created directly (no `RoundTrip`, no `ClosedTrade`)
+- Initialize all per-trade v2 fields to defaults: `grade="N/A"`, `edge_grade="N/A"`, `timing_grade="N/A"`, `is_revenge=False`, `size_percentile=None`, `round_trip_id=""`
+- Remove `calculate_win_score()` calls (~line 1079)
+
+**Common** (~line 1513+):
+- Remove `avg_win_score` computation
 - Replace sort-by-`win_score` with sort-by-`pnl_percent`
 
 ### Step 4: Remove legacy scoring functions
@@ -259,11 +271,11 @@ c) `analyzer.py`:
 **Files**:
 - `trading_analysis/models.py`:
   - `TradeResult.to_dict()` — v2 grades instead of win_score
-  - `FullAnalysisResult.to_api_response()` — remove `avg_win_score`, remove legacy grade distribution
+  - `FullAnalysisResult.to_api_response()` — remove `avg_win_score` from `summary` dict
   - `FullAnalysisResult.to_summary()` — remove `avg_win_score`
   - `FullAnalysisResult.to_cli_report()` — remove `Avg Win Score` line, update per-trade scorecard table columns
   - `FullAnalysisResult.filter_by_date_range()` — remove `avg_win_score` recomputation
-  - `get_agent_snapshot()` — include per-trade v2 grades in trade scorecard entries
+  - `get_agent_snapshot()` — per-trade grades already excluded from snapshot (snapshot uses portfolio-level v2 grades only). No changes needed here.
   - `_GRADE_VERDICT` — prune unused A-/B+/B-/C+/C- entries, keep map for `verdict` field
 - `trading_analysis/main.py`:
   - CLI JSON output — remove `avg_win_score`, update per-trade entries
@@ -357,3 +369,11 @@ c) `analyzer.py`:
 | 1 | — | Timing lookup underspecified — `TimingResult` has no `round_trip_id`, `analyze_timing()` returns `List[TimingResult]` | `TimingResult` gets `round_trip_id` field, set inside the per-round-trip loop at analyzer.py line 1261 (RoundTrip object is directly available). `_build_timing_lookup()` helper creates `dict[str, TimingResult]`. Return type of `analyze_timing()` unchanged. |
 | 2 | — | `detect_revenge_trades()` contract split unresolved | Dual return: `tuple[List[Dict], set[str]]`. Existing consumers use index [0] (unchanged). Per-trade grades use index [1]. No new BehavioralAnalysis field needed — ID set is used only internally in `run_full_analysis()`. |
 | 3 | — | round_trip_id ownership ambiguous (from_lots vs matcher) | Single owner: `RoundTrip.from_lots()` generates content-addressed hash from lot keys. No matcher state needed. |
+
+### Round 4 Findings
+| # | Severity | Finding | Resolution |
+|---|----------|---------|------------|
+| 1 | High | Hash uses dates/qty/price, not transaction IDs — collisions possible | Fixed: hash now uses `entry_transaction_id` + `exit_transaction_id` from `ClosedTrade` (available at `fifo_matcher.py:75`) |
+| 2 | Medium | Revenge contract contradictory — plan adds field to BehavioralAnalysis in one place, says "no change needed" in another | Fixed: removed stale `revenge_round_trip_ids` on BehavioralAnalysis. ID set is internal to `run_full_analysis()` only. |
+| 3 | Medium | `use_fifo=False` averaged path creates TradeResults with no round trips — needs explicit N/A initialization | Fixed: Step 3 now has explicit averaged-path section initializing all v2 fields to defaults |
+| 4 | Medium | Source mismatches — `_INSTRUMENT_CLASS_MAP` (doesn't exist), `_compute_sizing_capitals()` (doesn't exist), grade distribution claim, trade scorecard entries claim | Fixed: corrected to `_edge_instrument_class()`, `_get_sizing_capital()`. Removed incorrect grade distribution and trade scorecard claims from serialization steps. |

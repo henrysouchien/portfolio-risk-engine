@@ -395,7 +395,7 @@ def build_position_timeline(
         raw_instrument_type: Any,
         raw_contract_identity: Any,
     ) -> None:
-        normalized_instrument_type = coerce_instrument_type(raw_instrument_type)
+        normalized_instrument_type = coerce_instrument_type(raw_instrument_type, default="equity")
         contract_identity = raw_contract_identity if isinstance(raw_contract_identity, dict) else None
         existing = instrument_meta.get(key)
         if existing is None:
@@ -405,7 +405,7 @@ def build_position_timeline(
             }
             return
 
-        existing_type = coerce_instrument_type(existing.get("instrument_type"))
+        existing_type = coerce_instrument_type(existing.get("instrument_type"), default="equity")
         if existing_type != normalized_instrument_type:
             warn_key = (key, existing_type, normalized_instrument_type)
             if warn_key not in conflict_warning_keys:

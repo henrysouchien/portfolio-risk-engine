@@ -698,6 +698,8 @@ def _fetch_ticker_returns(
         return {"ticker": ticker, "returns": None, "fx_attribution": None}
 
     instrument_type = _resolve_instrument_type(ticker, instrument_types)
+    if instrument_type == "unknown":
+        return {"ticker": ticker, "returns": None, "fx_attribution": None}
     contract_identity = (contract_identities or {}).get(
         str(ticker or "").strip().upper()
     )

@@ -1132,7 +1132,7 @@ def _analyze_realized_performance_single_scope(
 
         futures_keys: set[tuple[str, str, str]] = {
             key for key, meta in instrument_meta.items()
-            if coerce_instrument_type(meta.get("instrument_type")) == "futures"
+            if coerce_instrument_type(meta.get("instrument_type"), default="equity") == "futures"
         }
 
         def _has_usable_mtm(events: list) -> bool:
@@ -2353,9 +2353,10 @@ def _analyze_realized_performance_single_scope(
             else:
                 observed_end_cash, _cash_anchor_matched_rows = _cash_anchor_offset_from_positions()
                 cash_anchor_source = "snaptrade_cur"
-            back_solved_start_cash = observed_end_cash - replay_final_cash
-            raw_observed_cash_anchor_offset = back_solved_start_cash
-            cash_anchor_available = abs(raw_observed_cash_anchor_offset) > 1e-9
+            if statement_info is not None or _cash_anchor_matched_rows > 0:
+                back_solved_start_cash = observed_end_cash - replay_final_cash
+                raw_observed_cash_anchor_offset = back_solved_start_cash
+                cash_anchor_available = abs(raw_observed_cash_anchor_offset) > 1e-9
 
         # --- Apply anchor (shared path, gated on flag + availability) ---
         _anchor_date = _futures_margin_anchor_date if _futures_margin_available else inception_date
