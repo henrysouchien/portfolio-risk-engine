@@ -342,6 +342,7 @@ class WhatIfResult:
             },
             "top_position_changes": position_changes,
             "top_factor_deltas": factor_deltas,
+            "resolved_weights": getattr(self.scenario_metrics, "portfolio_weights", None) or {},
         }
 
         return snapshot
@@ -683,6 +684,7 @@ class WhatIfResult:
             "new_portfolio_industry_checks": self.get_new_portfolio_industry_checks_table(), # List[Dict]: Industry checks with decimal formatting
             "risk_comparison": self.get_risk_comparison_table(),        # List[Dict]: Before/after risk with % formatting
             "factor_comparison": self.get_factor_comparison_table(),    # List[Dict]: Before/after factors with decimal formatting
+            "factor_exposures_comparison": self.get_factor_exposures_comparison(),  # Dict: Before/after actual factor exposures
             
             # === HUMAN-READABLE REPORT (Primary Claude/AI input) ===
             "formatted_report": self.to_formatted_report()             # str: Complete CLI-style text report for natural language processing

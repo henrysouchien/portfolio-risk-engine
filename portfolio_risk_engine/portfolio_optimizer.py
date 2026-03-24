@@ -41,7 +41,7 @@ from portfolio_risk_engine._logging import (
 )
 
 
-def _safe_eval_risk_limits(summary, risk_cfg):
+def _safe_eval_risk_limits(summary, risk_cfg, **kwargs):
     fn = evaluate_portfolio_risk_limits
     try:
         from core.run_portfolio_risk import evaluate_portfolio_risk_limits as runtime_fn  # type: ignore
@@ -55,6 +55,7 @@ def _safe_eval_risk_limits(summary, risk_cfg):
             risk_cfg.get("portfolio_limits", {}),
             risk_cfg.get("concentration_limits", {}),
             risk_cfg.get("variance_limits", {}),
+            **kwargs,
         )
     return pd.DataFrame()
 
@@ -107,6 +108,8 @@ def simulate_portfolio_change(
     proxies: Dict[str, Dict[str, Any]],
     fmp_ticker_map: Dict[str, str] | None = None,
     instrument_types: Dict[str, str] | None = None,
+    asset_classes: Dict[str, str] | None = None,
+    security_types: Dict[str, str] | None = None,
 ):
     """
     Build a *new* summary after applying `edits` (delta-weights).
@@ -132,11 +135,13 @@ def simulate_portfolio_change(
         end,
         expected_returns=None,
         stock_factor_proxies=proxies,
+        asset_classes=asset_classes,
         fmp_ticker_map=fmp_ticker_map,
         instrument_types=instrument_types,
+        security_types=security_types,
     )
 
-    df_risk = _safe_eval_risk_limits(summary, risk_cfg)
+    df_risk = _safe_eval_risk_limits(summary, risk_cfg, security_types=security_types)
 
     max_betas = compute_max_betas(
         proxies, 
@@ -429,6 +434,8 @@ def run_what_if(
     factor_proxies: Dict[str, Dict],
     fmp_ticker_map: Dict[str, str] | None = None,
     instrument_types: Dict[str, str] | None = None,
+    asset_classes: Dict[str, str] | None = None,
+    security_types: Dict[str, str] | None = None,
     *,           
     verbose: bool = True,
 ) -> Tuple[dict, pd.DataFrame, pd.DataFrame]:
@@ -466,6 +473,8 @@ def run_what_if(
         start_date, end_date, factor_proxies,
         fmp_ticker_map=fmp_ticker_map,
         instrument_types=instrument_types,
+        asset_classes=asset_classes,
+        security_types=security_types,
     )
 
     # 2) optionally pretty-print
@@ -545,6 +554,71 @@ def evaluate_weights(
 
     df_beta = _safe_eval_beta_limits(summary["portfolio_factor_betas"], max_betas)
     return df_risk, df_beta
+
+
+def evaluate_optimized_weights(
+    weights: Dict[str, float],
+    config: Dict[str, Any],
+    risk_config: Dict[str, Any],
+    proxies: Dict[str, Dict[str, Any]],
+    fmp_ticker_map: Dict[str, str] | None = None,
+    instrument_types: Dict[str, str] | None = None,
+    currency_map: Dict[str, str] | None = None,
+    contract_identities: Dict[str, Any] | None = None,
+) -> Tuple[Dict[str, Any], pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Evaluate optimized weights: build portfolio view, run risk/beta/proxy checks.
+
+    Returns (portfolio_summary, risk_table, factor_table, proxy_table).
+    Threads currency_map and contract_identities to build_portfolio_view() for
+    FX-sensitive and derivative portfolios.
+    """
+    from portfolio_risk_engine.portfolio_risk import build_portfolio_view
+    from portfolio_risk_engine.risk_helpers import compute_max_betas, calc_max_factor_betas
+    from portfolio_risk_engine.config import PORTFOLIO_DEFAULTS
+
+    max_single_factor_loss = risk_config.get("max_single_factor_loss") or -0.08
+    summary = build_portfolio_view(
+        weights,
+        start_date=config["start_date"],
+        end_date=config["end_date"],
+        expected_returns=None,
+        stock_factor_proxies=proxies,
+        fmp_ticker_map=fmp_ticker_map,
+        currency_map=currency_map,
+        instrument_types=instrument_types,
+        contract_identities=contract_identities,
+    )
+
+    risk_tbl = _safe_eval_risk_limits(summary, risk_config)
+
+    max_betas = compute_max_betas(
+        proxies,
+        config["start_date"],
+        config["end_date"],
+        loss_limit_pct=max_single_factor_loss,
+        fmp_ticker_map=fmp_ticker_map,
+    )
+    lookback_years = PORTFOLIO_DEFAULTS.get("worst_case_lookback_years", 10)
+    _, max_betas_by_proxy, _ = calc_max_factor_betas(
+        lookback_years=lookback_years,
+        echo=False,
+        stock_factor_proxies=proxies,
+        fmp_ticker_map=fmp_ticker_map,
+        max_single_factor_loss=max_single_factor_loss,
+    )
+
+    df_beta_chk = _safe_eval_beta_limits(
+        summary["portfolio_factor_betas"],
+        max_betas,
+        proxy_betas=summary["industry_variance"]["per_industry_group_beta"],
+        max_proxy_betas=max_betas_by_proxy,
+    )
+
+    df_factors = df_beta_chk[~df_beta_chk.index.str.startswith("industry_proxy::")]
+    df_proxies = df_beta_chk[df_beta_chk.index.str.startswith("industry_proxy::")].copy()
+    df_proxies.index = df_proxies.index.str.replace("industry_proxy::", "")
+
+    return summary, risk_tbl, df_factors, df_proxies
 
 
 # In[21]:
@@ -704,6 +778,8 @@ def run_what_if_scenario(
     proxies: Dict[str, Any],
     shift_dict: Optional[Dict[str, str]] = None,
     scenario_yaml: Optional[str] = None,
+    asset_classes: Dict[str, str] | None = None,
+    security_types: Dict[str, str] | None = None,
 ):
     """
     Runs a portfolio what-if scenario and returns the full risk report.
@@ -814,8 +890,10 @@ def run_what_if_scenario(
         summary_new = build_portfolio_view(
             new_weights, config["start_date"], config["end_date"],
             expected_returns=None, stock_factor_proxies=proxies,
+            asset_classes=asset_classes,
             fmp_ticker_map=fmp_ticker_map,
             instrument_types=instrument_types,
+            security_types=security_types,
         )
     else:
         summary_new, *_ = run_what_if(
@@ -823,6 +901,8 @@ def run_what_if_scenario(
             config["start_date"], config["end_date"], proxies,
             fmp_ticker_map=fmp_ticker_map,
             instrument_types=instrument_types,
+            asset_classes=asset_classes,
+            security_types=security_types,
             verbose=False
         )
 
@@ -830,13 +910,15 @@ def run_what_if_scenario(
     summary_base = build_portfolio_view(
         base_weights, config["start_date"], config["end_date"],
         expected_returns=None, stock_factor_proxies=proxies,
+        asset_classes=asset_classes,
         fmp_ticker_map=fmp_ticker_map,
         instrument_types=instrument_types,
+        security_types=security_types,
     )
 
     # run risk tables
     def get_risk(summary):
-        return _safe_eval_risk_limits(summary, risk_config)
+        return _safe_eval_risk_limits(summary, risk_config, security_types=security_types)
 
     def get_betas(summary):
         from portfolio_risk_engine.risk_helpers import compute_max_betas
@@ -1306,9 +1388,6 @@ def run_max_return_portfolio(
         - Proxy-level beta check table
     """
     from portfolio_risk_engine.portfolio_optimizer import solve_max_return_with_risk_limits
-    from portfolio_risk_engine.portfolio_risk import build_portfolio_view
-    from portfolio_risk_engine.risk_helpers import compute_max_betas, calc_max_factor_betas
-    max_single_factor_loss = risk_config.get("max_single_factor_loss") or -0.08
 
     # 1. Optimise weights
     w_opt = solve_max_return_with_risk_limits(
@@ -1322,50 +1401,16 @@ def run_max_return_portfolio(
         instrument_types     = instrument_types,
     )
 
-    # 2. Build full summary
-    summary = build_portfolio_view(
-        w_opt,
-        start_date           = config["start_date"],
-        end_date             = config["end_date"],
-        expected_returns     = None,
-        stock_factor_proxies = proxies,
-        fmp_ticker_map       = fmp_ticker_map,
-        instrument_types     = instrument_types,
-    )
-
-    # 3. Run risk checks
-    risk_tbl = _safe_eval_risk_limits(summary, risk_config)
-
-    # 4. Compute β caps
-    max_betas = compute_max_betas(
-        proxies,
-        config["start_date"],
-        config["end_date"],
-        loss_limit_pct = max_single_factor_loss,
-        fmp_ticker_map = fmp_ticker_map,
-    )
-    from portfolio_risk_engine.config import PORTFOLIO_DEFAULTS
-    lookback_years = PORTFOLIO_DEFAULTS.get('worst_case_lookback_years', 10)
-    _, max_betas_by_proxy, _ = calc_max_factor_betas(
-        lookback_years = lookback_years,
-        echo = False,
-        stock_factor_proxies=proxies,
+    summary, risk_tbl, df_factors, df_proxies = evaluate_optimized_weights(
+        weights=w_opt,
+        config=config,
+        risk_config=risk_config,
+        proxies=proxies,
         fmp_ticker_map=fmp_ticker_map,
-        max_single_factor_loss=max_single_factor_loss,
+        instrument_types=instrument_types,
+        currency_map=config.get("currency_map"),
+        contract_identities=config.get("contract_identities"),
     )
-
-    # 5. Run beta check with proxy caps
-    df_beta_chk = _safe_eval_beta_limits(
-        summary["portfolio_factor_betas"],
-        max_betas,
-        proxy_betas     = summary["industry_variance"]["per_industry_group_beta"],
-        max_proxy_betas = max_betas_by_proxy,
-    )
-
-    # 6. Split factor vs proxy
-    df_factors = df_beta_chk[~df_beta_chk.index.str.startswith("industry_proxy::")]
-    df_proxies = df_beta_chk[df_beta_chk.index.str.startswith("industry_proxy::")].copy()
-    df_proxies.index = df_proxies.index.str.replace("industry_proxy::", "")
 
     return w_opt, summary, risk_tbl, df_factors, df_proxies
 

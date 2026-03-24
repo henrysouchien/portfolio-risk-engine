@@ -123,6 +123,7 @@ class BacktestResult:
                     "warning_count": len(self.warnings),
                 },
                 "warnings": self.warnings,
+                "resolved_weights": self.weights,
             }
         )
 
@@ -144,4 +145,3 @@ class BacktestResult:
                 "portfolio_name": self.portfolio_name,
             }
         )
-

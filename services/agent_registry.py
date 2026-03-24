@@ -20,6 +20,23 @@ BLOCKED_PARAMS = {
     "debug_inference": False,
 }
 
+# ──────────────────────────────────────────────────────────────────────
+# INTENTIONAL EXCLUSIONS — MCP tools deliberately NOT in the registry.
+# Update this block when adding/removing MCP tools.
+#
+# get_mcp_context           — Internal diagnostic (PID, cwd). Leaks server internals.
+# import_portfolio          — file_path param: filesystem-backed mutator (read + DB write)
+# import_transactions       — file_path param: filesystem-backed mutator (read + DB write)
+# normalizer_sample_csv     — file_path param: arbitrary filesystem read
+# normalizer_stage          — Writes Python code to disk (code injection vector)
+# normalizer_test           — Executes staged Python + file_path param (code exec + fs read)
+# normalizer_activate       — Moves files in staging directory
+# normalizer_list           — Returns local directory paths (path-leak, fs coupling)
+# manage_instrument_config  — Admin-only, not user-scoped, changes ephemeral (seed_all)
+# initiate_brokerage_connection   — External OAuth requiring interactive browser auth
+# complete_brokerage_connection   — Completes OAuth; needs browser-provided tokens
+# ──────────────────────────────────────────────────────────────────────
+
 AGENT_FUNCTIONS: dict[str, AgentFunction] = {}
 
 
@@ -111,6 +128,7 @@ def _build_registry() -> None:
         record_workflow_action,
         update_action_status,
     )
+    from mcp_tools.connections import list_supported_brokerages
     from mcp_tools.stock import analyze_stock
     from mcp_tools.quote import get_quote
     from mcp_tools.futures_curve import get_futures_curve
@@ -125,6 +143,7 @@ def _build_registry() -> None:
     )
     from mcp_tools.trading import cancel_order, execute_trade, preview_trade
     from mcp_tools.transactions import ingest_transactions, refresh_transactions
+    from mcp_tools.user_overrides import manage_ticker_config
     from services.agent_building_blocks import (
         compute_metrics,
         fetch_fmp_data,
@@ -165,13 +184,18 @@ def _build_registry() -> None:
     _register("compare_scenarios", compare_scenarios, category="scenarios")
     _register("get_factor_analysis", get_factor_analysis, category="analysis")
     _register("get_factor_recommendations", get_factor_recommendations, category="analysis")
-    _register("get_target_allocation", get_target_allocation, category="analysis")
+    _register("get_target_allocation", get_target_allocation, category="allocation")
     _register("generate_rebalance_trades", generate_rebalance_trades, category="analysis")
     _register("check_exit_signals", check_exit_signals, category="analysis")
     _register("get_orders", get_orders, category="trading")
     _register("list_accounts", list_accounts, category="portfolio_mgmt")
     _register("list_portfolios", list_portfolios, category="portfolio_mgmt")
     _register("get_action_history", get_action_history, category="audit")
+    _register(
+        "list_supported_brokerages",
+        list_supported_brokerages,
+        category="connections",
+    )
 
     _register("analyze_stock", analyze_stock, category="analysis")
     _register("get_quote", get_quote, category="market")
@@ -258,7 +282,7 @@ def _build_registry() -> None:
         "set_target_allocation",
         set_target_allocation,
         read_only=False,
-        category="analysis",
+        category="allocation",
     )
     _register("set_risk_profile", set_risk_profile, read_only=False, category="risk")
     _register("create_basket", create_basket, read_only=False, category="baskets")
@@ -293,6 +317,12 @@ def _build_registry() -> None:
         refresh_transactions,
         read_only=False,
         category="transactions",
+    )
+    _register(
+        "manage_ticker_config",
+        manage_ticker_config,
+        read_only=False,
+        category="config",
     )
 
     _register("get_price_series", get_price_series, tier="building_block", category="data")

@@ -50,8 +50,11 @@ import hashlib
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-
-from portfolio_risk_engine.data_loader import fetch_monthly_close, fetch_monthly_total_return_price, fetch_current_dividend_yield
+from fmp.compat import (
+    fetch_monthly_close as _compat_fetch_monthly_close,
+    fetch_monthly_total_return_price as _compat_fetch_monthly_total_return_price,
+)
+from portfolio_risk_engine.data_loader import fetch_current_dividend_yield
 from portfolio_risk_engine.factor_utils import (
     calc_monthly_returns,
     fetch_excess_return,
@@ -63,7 +66,7 @@ from portfolio_risk_engine.factor_utils import (
     fetch_monthly_treasury_yield_levels,
 )
 
-from portfolio_risk_engine.config import PORTFOLIO_DEFAULTS
+from portfolio_risk_engine.config import PORTFOLIO_DEFAULTS, RATE_FACTOR_CONFIG
 from portfolio_risk_engine.constants import DIVERSIFIED_SECURITY_TYPES
 from settings import OPTION_PRICING_PORTFOLIO_ENABLED
 
@@ -75,6 +78,54 @@ from portfolio_risk_engine._logging import (
 )
 
 MIN_WEIGHT_COVERAGE = 0.5
+_RATE_MATURITY_COL_MAP = {
+    k: f"rate_{k.replace('UST', '').lower()}"
+    for k in RATE_FACTOR_CONFIG["default_maturities"]
+}
+_RATE_MATURITY_COLS = set(_RATE_MATURITY_COL_MAP.values())
+_VARIANCE_EXCLUDED_COLS = {"industry", "subindustry"} | _RATE_MATURITY_COLS
+
+
+def fetch_monthly_close(
+    ticker: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    *,
+    fmp_ticker: Optional[str] = None,
+    fmp_ticker_map: Optional[dict[str, str]] = None,
+    instrument_type: str | None = None,
+    contract_identity: dict[str, Any] | None = None,
+) -> pd.Series:
+    """Internal hot-path wrapper that preserves the legacy call signature."""
+    del instrument_type, contract_identity
+    return _compat_fetch_monthly_close(
+        ticker,
+        start_date=start_date,
+        end_date=end_date,
+        fmp_ticker=fmp_ticker,
+        fmp_ticker_map=fmp_ticker_map,
+    )
+
+
+def fetch_monthly_total_return_price(
+    ticker: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    *,
+    fmp_ticker: Optional[str] = None,
+    fmp_ticker_map: Optional[dict[str, str]] = None,
+    instrument_type: str | None = None,
+    contract_identity: dict[str, Any] | None = None,
+) -> pd.Series:
+    """Internal hot-path wrapper that preserves the legacy call signature."""
+    del instrument_type, contract_identity
+    return _compat_fetch_monthly_total_return_price(
+        ticker,
+        start_date=start_date,
+        end_date=end_date,
+        fmp_ticker=fmp_ticker,
+        fmp_ticker_map=fmp_ticker_map,
+    )
 
 def normalize_weights(weights: Dict[str, float], normalize: Optional[bool] = None) -> Dict[str, float]:
     """
@@ -338,7 +389,10 @@ def compute_portfolio_variance_breakdown(
     # Factor variance (sum of weighted factor variance matrix)
     factor_var_matrix = (
         weighted_factor_var
-        .drop(columns=["industry", "subindustry"], errors="ignore")  # REMOVE
+        .drop(
+            columns=[c for c in _VARIANCE_EXCLUDED_COLS if c in weighted_factor_var.columns],
+            errors="ignore",
+        )
         .fillna(0.0)
     )
     
@@ -813,6 +867,7 @@ def get_returns_dataframe(
     min_observations: Optional[int] = None,
     instrument_types: Optional[Dict[str, str]] = None,
     fx_attribution_out: Optional[Dict[str, Dict[str, Any]]] = None,
+    raw_returns_out: Optional[Dict[str, pd.Series]] = None,
     contract_identities: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> pd.DataFrame:
     """
@@ -914,6 +969,8 @@ def get_returns_dataframe(
                     excluded_insufficient.append((t, len(ticker_returns)))
                 else:
                     rets[t] = ticker_returns
+                    if raw_returns_out is not None:
+                        raw_returns_out[t] = ticker_returns
             except Exception as e:
                 # Ticker has no data available for the requested date range
                 # This commonly happens with newly IPO'd stocks
@@ -1432,6 +1489,7 @@ def compute_factor_exposures(
     start_date: str,
     end_date: str,
     fmp_ticker_map: Optional[Dict[str, str]] = None,
+    stock_return_cache: Optional[Dict[str, pd.Series]] = None,
 ) -> Dict[str, Any]:
     """
     Compute stock-level factor exposures and weighted factor variance.
@@ -1440,7 +1498,30 @@ def compute_factor_exposures(
     idio_var_dict: Dict[str, float] = {}
     factor_vols_by_ticker: Dict[str, Dict[str, float]] = {}
     proxy_cache: Dict[object, pd.Series] = {}
-    stock_return_cache = _build_stock_return_cache(df_ret, list(weights.keys()))
+    if stock_return_cache is None:
+        # df_ret is globally trimmed by dropna() so all columns share the
+        # shortest history. Fetch each ticker independently to preserve the
+        # full per-name return window for factor regression.
+        stock_return_cache = {}
+        for ticker in weights:
+            try:
+                result = _fetch_ticker_returns(
+                    ticker=ticker,
+                    start_date=start_date,
+                    end_date=end_date,
+                    fmp_ticker_map=fmp_ticker_map,
+                )
+                series = result["returns"]
+                if series is not None and not series.empty:
+                    stock_return_cache[ticker] = series
+            except Exception:
+                pass
+    else:
+        stock_return_cache = {
+            str(ticker): pd.to_numeric(series, errors="coerce").dropna()
+            for ticker, series in stock_return_cache.items()
+            if series is not None
+        }
 
     from portfolio_risk_engine._logging import portfolio_logger
 
@@ -1499,6 +1580,9 @@ def compute_factor_exposures(
 
                 if "interest_rate" not in df_stock_betas.columns:
                     df_stock_betas["interest_rate"] = 0.0
+                for col in _RATE_MATURITY_COL_MAP.values():
+                    if col not in df_stock_betas.columns:
+                        df_stock_betas[col] = 0.0
 
                 try:
                     from portfolio_risk_engine.config import RATE_FACTOR_CONFIG
@@ -1512,6 +1596,8 @@ def compute_factor_exposures(
                 for ticker in weights.keys():
                     if asset_classes.get(ticker) not in eligible_classes:
                         df_stock_betas.loc[ticker, "interest_rate"] = 0.0
+                        for col in _RATE_MATURITY_COL_MAP.values():
+                            df_stock_betas.loc[ticker, col] = 0.0
                         continue
 
                     stock_ret = stock_return_cache.get(ticker)
@@ -1529,6 +1615,8 @@ def compute_factor_exposures(
 
                     if stock_ret is None or stock_ret.empty:
                         df_stock_betas.loc[ticker, "interest_rate"] = 0.0
+                        for col in _RATE_MATURITY_COL_MAP.values():
+                            df_stock_betas.loc[ticker, col] = 0.0
                         continue
 
                     idx = stock_ret.index
@@ -1545,11 +1633,17 @@ def compute_factor_exposures(
                     ]
                     if rate_factor_df.empty or len(rate_factor_df) < min_obs:
                         df_stock_betas.loc[ticker, "interest_rate"] = 0.0
+                        for col in _RATE_MATURITY_COL_MAP.values():
+                            df_stock_betas.loc[ticker, col] = 0.0
                         continue
 
                     aligned_s = stock_ret.reindex(rate_factor_df.index)
                     rate_res = compute_multifactor_betas(aligned_s, rate_factor_df, hac_lags=3)
                     rate_betas = rate_res.get("betas", {})
+                    for mat_key, beta_val in rate_betas.items():
+                        col = _RATE_MATURITY_COL_MAP.get(mat_key)
+                        if col:
+                            df_stock_betas.loc[ticker, col] = float(beta_val)
                     interest_rate_beta = float(sum(rate_betas.values())) if rate_betas else 0.0
                     df_stock_betas.loc[ticker, "interest_rate"] = interest_rate_beta
                     try:
@@ -1819,6 +1913,7 @@ def _build_portfolio_view_computation(
 
     # Stage 0: Portfolio return setup
     fx_attribution: Dict[str, Dict[str, Any]] = {}
+    raw_return_cache: Dict[str, pd.Series] = {}
     df_ret = get_returns_dataframe(
         weights,
         start_date,
@@ -1827,6 +1922,7 @@ def _build_portfolio_view_computation(
         currency_map=currency_map,
         instrument_types=instrument_types,
         fx_attribution_out=fx_attribution,
+        raw_returns_out=raw_return_cache,
         contract_identities=contract_identities,
     )
     fx_attribution = {ticker: value for ticker, value in fx_attribution.items() if ticker in df_ret.columns}
@@ -1878,6 +1974,7 @@ def _build_portfolio_view_computation(
         start_date=start_date,
         end_date=end_date,
         fmp_ticker_map=fmp_ticker_map,
+        stock_return_cache=raw_return_cache,
     )
     _bpv_steps["factor_exposures"] = round((time.perf_counter() - _bpv_t2) * 1000, 2)
 

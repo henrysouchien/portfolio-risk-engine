@@ -29,7 +29,7 @@
 # =============
 # **Primary Usage - Factor Analysis:**
 # - core.proxy_builder.load_exchange_proxy_map() (loads from exchange_proxies database table)
-# - DatabaseClient.get_exchange_mappings() (retrieves 42 mappings from database)
+# - DatabaseClient.get_exchange_mappings() (retrieves 51 mappings from database)
 # - core.proxy_builder.map_exchange_proxies() (gets factor ETFs for exchange)
 # - Factor regression models use these ETFs as exchange exposure proxies
 # - Risk analysis calculates portfolio geographic exposures via exchange proxies
@@ -46,7 +46,7 @@
 # DATABASE SYNCHRONIZATION:
 # ========================
 # This file follows the 3-tier architecture pattern:
-# 1. DATABASE (Primary): exchange_proxies table - live production data (42 mappings)
+# 1. DATABASE (Primary): exchange_proxies table - live production data (51 mappings)
 # 2. YAML (Source of Truth): This file - configuration management and development
 # 3. HARDCODED (Ultimate): Built-in mappings in core/proxy_builder.py
 #
@@ -57,7 +57,7 @@
 # 3. **Production Use**: Database serves all runtime requests
 #
 # CURRENT STATUS: Database is PRIMARY for runtime, YAML is SOURCE OF TRUTH for config
-# - exchange_proxies table: 42 rows (14 exchanges × 3 factors: market, momentum, value)
+# - exchange_proxies table: 51 rows (17 exchanges × 3 factors: market, momentum, value)
 # - This YAML file: Configuration source and development workspace
 # - Database includes factor_type column for structured factor mappings
 #
@@ -161,6 +161,22 @@ TADAWUL:              # Saudi Arabia (GCC / EM)
   market: KSA        # iShares MSCI Saudi Arabia
   momentum: EEMO     # Invesco S&P Emerging Markets Momentum ETF
   value: EMVL.L        # iShares Edge MSCI EM Value Factor UCITS ETF
+
+# FMP full-name variants that fail substring match against abbreviation keys
+"New York Stock Exchange":   # same as NYSE
+  market: SPY
+  momentum: MTUM
+  value: IWD
+
+"London Stock Exchange":     # same as LSE
+  market: EWU
+  momentum: IMTM
+  value: EFV
+
+"New York Stock Exchange Arca":  # same as NYSE/AMEX
+  market: SPY
+  momentum: MTUM
+  value: IWD
 
 DEFAULT:              # Fallback for any other exchange
   market: ACWX       # iShares MSCI ACWI ex USA

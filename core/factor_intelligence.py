@@ -52,7 +52,7 @@ def _get_ticker_source_file(ticker: str, category: str) -> str:
 
 from portfolio_risk_engine.portfolio_risk import calculate_portfolio_performance_metrics
 
-from portfolio_risk_engine.data_loader import (
+from fmp.compat import (
     fetch_monthly_total_return_price,
     fetch_monthly_close,
 )
@@ -230,11 +230,7 @@ def _build_factor_returns_panel_cached(
                 ticker_to_category[tu] = cat
                 tickers.append(tu)
 
-    def _load_returns(ticker: str) -> Optional[pd.Series]:
-        # Determine source category for better error reporting
-        ticker_category = ticker_to_category.get(ticker, "unknown")
-        source_file = _get_ticker_source_file(ticker, ticker_category)
-
+    def _load_returns(ticker: str) -> tuple[str, Optional[pd.Series], str | None]:
         try:
             prices = (
                 fetch_monthly_total_return_price(
@@ -251,10 +247,6 @@ def _build_factor_returns_panel_cached(
                     fmp_ticker_map=fmp_ticker_map,
                 )
             )
-            # LOG: Check if API returned empty data
-            if prices.empty:
-                log_critical_alert("factor_empty_api_data", "high", f"EMPTY API DATA: Ticker={ticker}, Category={ticker_category}, Source={source_file}, Shape={prices.shape}", "Check ticker validity and API access")
-                return None
         except Exception:
             try:
                 prices = fetch_monthly_close(
@@ -263,42 +255,68 @@ def _build_factor_returns_panel_cached(
                     end_date,
                     fmp_ticker_map=fmp_ticker_map,
                 )
-                # LOG: Check if fallback API returned empty data
-                if prices.empty:
-                    log_critical_alert("factor_empty_api_data", "high", f"EMPTY FALLBACK API DATA: Ticker={ticker}, Category={ticker_category}, Source={source_file}, Shape={prices.shape}", "Check ticker validity and API access")
-                    return None
-            except Exception as e:
-                log_critical_alert("factor_api_fetch_failed", "high", f"API FETCH FAILED: Ticker={ticker}, Category={ticker_category}, Source={source_file}, Error={str(e)}", "Check ticker validity and API access")
-                return None
+            except Exception:
+                return ticker, None, "fetch_failed"
+
+        if prices.empty:
+            return ticker, None, "empty_prices"
+
         try:
             rets = calc_monthly_returns(prices)
             if not isinstance(rets, pd.Series) or rets.empty:
-                log_critical_alert("factor_returns_calc_empty", "medium", f"RETURNS CALCULATION EMPTY: Ticker={ticker}, Category={ticker_category}, Source={source_file}, PriceLength={len(prices)}", "Check price data quality")
-                return None
-            return rets
-        except Exception as e:
-            log_critical_alert("factor_returns_calc_failed", "medium", f"RETURNS CALCULATION FAILED: Ticker={ticker}, Category={ticker_category}, Source={source_file}, Error={str(e)}", "Check price data format")
-            return None
+                return ticker, None, "empty_returns"
+            return ticker, rets, None
+        except Exception:
+            return ticker, None, "returns_failed"
 
     series_map: Dict[str, pd.Series] = {}
-    failed_tickers = []
+    failed_tickers: list[dict[str, str]] = []
 
     if tickers:
         with ThreadPoolExecutor(max_workers=max_workers) as ex:
             futures = {ex.submit(_load_returns, t): t for t in tickers}
             for fut in as_completed(futures):
-                tkr = futures[fut]
-                ser = fut.result()
+                tkr, ser, failure_reason = fut.result()
                 if ser is not None and len(ser) >= 2:
                     series_map[tkr] = ser.rename(tkr)
                 else:
-                    failed_tickers.append(tkr)
                     ticker_category = ticker_to_category.get(tkr, "unknown")
                     source_file = _get_ticker_source_file(tkr, ticker_category)
-                    log_critical_alert("factor_ticker_failed", "medium", f"TICKER FAILED: Ticker={tkr}, Category={ticker_category}, Source={source_file}, DataLength={len(ser) if ser is not None else 0}", "Check ticker validity or replace with working ticker")
+                    failed_tickers.append(
+                        {
+                            "ticker": tkr,
+                            "category": ticker_category,
+                            "source": source_file,
+                            "reason": failure_reason or "unknown",
+                            "data_length": str(len(ser) if ser is not None else 0),
+                        }
+                    )
+
+    if failed_tickers:
+        reason_counts: Dict[str, int] = {}
+        for item in failed_tickers:
+            reason = item["reason"]
+            reason_counts[reason] = reason_counts.get(reason, 0) + 1
+        sample = failed_tickers[:5]
+        log_portfolio_operation(
+            "factor_panel_ticker_failures",
+            {
+                "failed_count": len(failed_tickers),
+                "reason_counts": reason_counts,
+                "sample": sample,
+            },
+            execution_time=0,
+        )
 
 
     if not series_map:
+        log_critical_alert(
+            "factor_panel_empty",
+            "high",
+            f"Factor panel build returned no usable series for {len(tickers)} tickers "
+            f"between {start_date} and {end_date}.",
+            "Check factor universe coverage and upstream market data availability",
+        )
         return pd.DataFrame()
 
     # LOG: Analyze individual ticker date ranges for the analysis period

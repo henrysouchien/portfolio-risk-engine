@@ -24,6 +24,10 @@ def _safe_finite(v) -> bool:
 FACTOR_DISPLAY_NAMES = {
     "market": "Market (Beta)",
     "interest_rate": "Interest Rate",
+    "rate_2y": "Rate 2Y",
+    "rate_5y": "Rate 5Y",
+    "rate_10y": "Rate 10Y",
+    "rate_30y": "Rate 30Y",
     "momentum": "Momentum",
     "value": "Value (HML)",
     "growth": "Growth",

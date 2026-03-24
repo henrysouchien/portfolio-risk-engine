@@ -37,7 +37,10 @@ import hashlib
 import json
 from datetime import datetime
 from typing import Optional, Union, List, Dict, Any
-from portfolio_risk_engine.data_loader import fetch_monthly_close, fetch_monthly_total_return_price
+from fmp.compat import (
+    fetch_monthly_close,
+    fetch_monthly_total_return_price,
+)
 from fmp.cache import get_timeseries_store
 from utils.ticker_resolver import select_fmp_symbol
 

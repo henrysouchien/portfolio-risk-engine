@@ -318,10 +318,19 @@ class OptimizationResult:
             },
             "top_positions": {k: round(v * 100, 2) for k, v in top_positions.items()},
             "weight_changes": weight_changes,
+            "resolved_weights": {k: round(v, 6) for k, v in self.optimized_weights.items()},
         }
 
         if portfolio_metrics is not None:
             snapshot["portfolio_metrics"] = portfolio_metrics
+
+        sharpe_from_metadata = self.optimization_metadata.get("sharpe_ratio")
+        if sharpe_from_metadata is not None:
+            snapshot["sharpe_ratio"] = round(sharpe_from_metadata, 4)
+
+        target_vol = self.optimization_metadata.get("target_volatility")
+        if target_vol is not None:
+            snapshot["target_volatility_pct"] = round(target_vol * 100, 2)
 
         return snapshot
 

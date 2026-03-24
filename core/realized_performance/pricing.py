@@ -16,6 +16,9 @@ from portfolio_risk_engine.data_loader import fetch_monthly_close, fetch_monthly
 from portfolio_risk_engine.factor_utils import calc_monthly_returns
 from ibkr.compat import (
     fetch_ibkr_bond_monthly_close,
+    fetch_ibkr_daily_close_bond,
+    fetch_ibkr_daily_close_fx,
+    fetch_ibkr_daily_close_futures,
     fetch_ibkr_fx_monthly_close,
     fetch_ibkr_monthly_close,
     fetch_ibkr_option_monthly_mark,
@@ -54,6 +57,13 @@ from trading_analysis.symbol_utils import parse_option_contract_identity_from_sy
 
 from . import _helpers
 
+_ORIGINAL_FETCH_IBKR_MONTHLY_CLOSE = fetch_ibkr_monthly_close
+_ORIGINAL_FETCH_IBKR_FX_MONTHLY_CLOSE = fetch_ibkr_fx_monthly_close
+_ORIGINAL_FETCH_IBKR_BOND_MONTHLY_CLOSE = fetch_ibkr_bond_monthly_close
+_ORIGINAL_FETCH_IBKR_DAILY_CLOSE_FUTURES = fetch_ibkr_daily_close_futures
+_ORIGINAL_FETCH_IBKR_DAILY_CLOSE_FX = fetch_ibkr_daily_close_fx
+_ORIGINAL_FETCH_IBKR_DAILY_CLOSE_BOND = fetch_ibkr_daily_close_bond
+
 @dataclass
 class PriceResult:
     series: pd.Series
@@ -64,6 +74,13 @@ def _build_default_price_registry() -> ProviderRegistry:
     from providers.bootstrap import build_default_registry
 
     monthly_close_fetcher = fetch_monthly_close
+    ibkr_futures_fetcher = _helpers._shim_attr("fetch_ibkr_monthly_close", fetch_ibkr_monthly_close)
+    ibkr_fx_fetcher = _helpers._shim_attr("fetch_ibkr_fx_monthly_close", fetch_ibkr_fx_monthly_close)
+    ibkr_bond_fetcher = _helpers._shim_attr("fetch_ibkr_bond_monthly_close", fetch_ibkr_bond_monthly_close)
+    ibkr_option_fetcher = _helpers._shim_attr("fetch_ibkr_option_monthly_mark", fetch_ibkr_option_monthly_mark)
+    ibkr_futures_daily_fetcher = _helpers._shim_attr("fetch_ibkr_daily_close_futures", fetch_ibkr_daily_close_futures)
+    ibkr_fx_daily_fetcher = _helpers._shim_attr("fetch_ibkr_daily_close_fx", fetch_ibkr_daily_close_fx)
+    ibkr_bond_daily_fetcher = _helpers._shim_attr("fetch_ibkr_daily_close_bond", fetch_ibkr_daily_close_bond)
 
     def _fetch_daily_close_for_registry(*args: Any, **kwargs: Any) -> pd.Series:
         # Preserve monkeypatched test behavior: if this module's
@@ -75,13 +92,34 @@ def _build_default_price_registry() -> ProviderRegistry:
 
         return _fetch_daily_close(*args, **kwargs)
 
+    if (
+        ibkr_futures_daily_fetcher is _ORIGINAL_FETCH_IBKR_DAILY_CLOSE_FUTURES
+        and ibkr_futures_fetcher is not _ORIGINAL_FETCH_IBKR_MONTHLY_CLOSE
+    ):
+        ibkr_futures_daily_fetcher = ibkr_futures_fetcher
+
+    if (
+        ibkr_fx_daily_fetcher is _ORIGINAL_FETCH_IBKR_DAILY_CLOSE_FX
+        and ibkr_fx_fetcher is not _ORIGINAL_FETCH_IBKR_FX_MONTHLY_CLOSE
+    ):
+        ibkr_fx_daily_fetcher = ibkr_fx_fetcher
+
+    if (
+        ibkr_bond_daily_fetcher is _ORIGINAL_FETCH_IBKR_DAILY_CLOSE_BOND
+        and ibkr_bond_fetcher is not _ORIGINAL_FETCH_IBKR_BOND_MONTHLY_CLOSE
+    ):
+        ibkr_bond_daily_fetcher = ibkr_bond_fetcher
+
     return build_default_registry(
         fmp_fetcher=monthly_close_fetcher,
         fmp_daily_fetcher=_fetch_daily_close_for_registry,
-        ibkr_futures_fetcher=_helpers._shim_attr("fetch_ibkr_monthly_close", fetch_ibkr_monthly_close),
-        ibkr_fx_fetcher=_helpers._shim_attr("fetch_ibkr_fx_monthly_close", fetch_ibkr_fx_monthly_close),
-        ibkr_bond_fetcher=_helpers._shim_attr("fetch_ibkr_bond_monthly_close", fetch_ibkr_bond_monthly_close),
-        ibkr_option_fetcher=_helpers._shim_attr("fetch_ibkr_option_monthly_mark", fetch_ibkr_option_monthly_mark),
+        ibkr_futures_fetcher=ibkr_futures_fetcher,
+        ibkr_fx_fetcher=ibkr_fx_fetcher,
+        ibkr_bond_fetcher=ibkr_bond_fetcher,
+        ibkr_option_fetcher=ibkr_option_fetcher,
+        ibkr_futures_daily_fetcher=ibkr_futures_daily_fetcher,
+        ibkr_fx_daily_fetcher=ibkr_fx_daily_fetcher,
+        ibkr_bond_daily_fetcher=ibkr_bond_daily_fetcher,
     )
 
 def _fetch_price_from_chain(

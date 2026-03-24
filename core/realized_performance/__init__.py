@@ -17,6 +17,9 @@ from portfolio_risk_engine.data_loader import fetch_monthly_close, fetch_monthly
 from portfolio_risk_engine.factor_utils import calc_monthly_returns
 from ibkr.compat import (
     fetch_ibkr_bond_monthly_close,
+    fetch_ibkr_daily_close_bond,
+    fetch_ibkr_daily_close_fx,
+    fetch_ibkr_daily_close_futures,
     fetch_ibkr_fx_monthly_close,
     fetch_ibkr_monthly_close,
     fetch_ibkr_option_monthly_mark,
@@ -68,6 +71,9 @@ __all__ = [
     "calc_monthly_returns",
     "extract_provider_flow_events",
     "fetch_ibkr_bond_monthly_close",
+    "fetch_ibkr_daily_close_bond",
+    "fetch_ibkr_daily_close_fx",
+    "fetch_ibkr_daily_close_futures",
     "fetch_ibkr_fx_monthly_close",
     "fetch_ibkr_monthly_close",
     "fetch_ibkr_option_monthly_mark",

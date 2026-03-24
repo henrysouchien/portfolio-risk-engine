@@ -19,6 +19,23 @@ proxy_by_currency:        # ① Which ETF to use for each ISO currency
   EUR: IBGE.L             #iShares € Govt Bond 0-1yr UCITS ETF
   GBP: ERNS.L             #iShares £ Ultrashort Bond UCITS ETFF  
 
+cash_equivalent_tickers:
+  - SGOV
+  - SHY
+  - BIL
+  - SHV
+  - MINT
+  - JPST
+  - NEAR
+  - ICSH
+  - SCHO
+  - VGSH
+  - GBIL
+  - TFLO
+  - USFR
+  - IBGE.L
+  - ERNS.L
+
 alias_to_currency:        # ② Any broker cash tickers → currency code
   CUR:USD: USD            # Interactive Brokers
   USD CASH: USD
