@@ -888,7 +888,29 @@ def fetch_snaptrade_holdings(user_email: str, client: SnapTrade) -> List[Dict]:
             raise ValueError(f"No SnapTrade user secret found for {user_email}")
             
         # Get all user accounts first (with retry logic)
-        accounts_response = _list_user_accounts_with_retry(client, snaptrade_user_id, user_secret)
+        try:
+            accounts_response = _list_user_accounts_with_retry(client, snaptrade_user_id, user_secret)
+        except ApiException as e:
+            if not is_snaptrade_secret_error(e):
+                raise
+
+            failed_secret = user_secret
+            lock = _get_rotation_lock(user_email)
+            with lock:
+                current_secret = get_snaptrade_user_secret(user_email)
+                if current_secret != failed_secret:
+                    portfolio_logger.info(
+                        "SnapTrade secret already rotated by another caller for user_id=%s",
+                        snaptrade_user_id,
+                    )
+                else:
+                    rotate_snaptrade_user_secret(user_email, client)
+
+            user_secret = get_snaptrade_user_secret(user_email)
+            if not user_secret:
+                raise ValueError(f"No SnapTrade user secret found for {user_email}")
+
+            accounts_response = _list_user_accounts_with_retry(client, snaptrade_user_id, user_secret)
         
         # Extract accounts from API response
         accounts = accounts_response.body if hasattr(accounts_response, 'body') else accounts_response
@@ -2127,10 +2149,12 @@ def load_all_user_snaptrade_holdings(user_email: str, region_name: str = "us-eas
 
 # Backward-compatible re-exports from extracted brokerage.snaptrade package.
 from brokerage.snaptrade._shared import (  # noqa: E402
+    ApiException as _extracted_ApiException,
     _extract_snaptrade_body as _extracted_extract_snaptrade_body,
     _get_snaptrade_identity as _extracted_get_snaptrade_identity,
     _to_float as _extracted_to_float,
     handle_snaptrade_api_exception as _extracted_handle_snaptrade_api_exception,
+    is_snaptrade_secret_error as _extracted_is_snaptrade_secret_error,
     with_snaptrade_retry as _extracted_with_snaptrade_retry,
 )
 from brokerage.snaptrade.client import (  # noqa: E402
@@ -2144,11 +2168,18 @@ from brokerage.snaptrade.client import (  # noqa: E402
     _list_user_accounts_with_retry as _extracted_list_user_accounts_with_retry,
     _login_snap_trade_user_with_retry as _extracted_login_snap_trade_user_with_retry,
     _place_order_with_retry as _extracted_place_order_with_retry,
+    _reset_snap_trade_user_secret_with_retry as _extracted_reset_snap_trade_user_secret_with_retry,
     _register_snap_trade_user_with_retry as _extracted_register_snap_trade_user_with_retry,
     _remove_brokerage_authorization_with_retry as _extracted_remove_brokerage_authorization_with_retry,
     _symbol_search_user_account_with_retry as _extracted_symbol_search_user_account_with_retry,
     get_snaptrade_client as _extracted_get_snaptrade_client,
     snaptrade_client as _extracted_snaptrade_client,
+)
+from brokerage.snaptrade.recovery import (  # noqa: E402
+    _get_rotation_lock as _extracted_get_rotation_lock,
+    _try_rotate_secret as _extracted_try_rotate_secret,
+    recover_snaptrade_auth as _extracted_recover_snaptrade_auth,
+    rotate_snaptrade_user_secret as _extracted_rotate_snaptrade_user_secret,
 )
 from brokerage.snaptrade.connections import (  # noqa: E402
     check_snaptrade_connection_health as _extracted_check_snaptrade_connection_health,
@@ -2193,6 +2224,8 @@ check_snaptrade_connection_health = _extracted_check_snaptrade_connection_health
 remove_snaptrade_connection = _extracted_remove_snaptrade_connection
 handle_snaptrade_api_exception = _extracted_handle_snaptrade_api_exception
 with_snaptrade_retry = _extracted_with_snaptrade_retry
+is_snaptrade_secret_error = _extracted_is_snaptrade_secret_error
+ApiException = _extracted_ApiException
 _register_snap_trade_user_with_retry = _extracted_register_snap_trade_user_with_retry
 _login_snap_trade_user_with_retry = _extracted_login_snap_trade_user_with_retry
 _list_user_accounts_with_retry = _extracted_list_user_accounts_with_retry
@@ -2201,6 +2234,7 @@ _get_user_account_positions_with_retry = _extracted_get_user_account_positions_w
 _get_user_account_balance_with_retry = _extracted_get_user_account_balance_with_retry
 _remove_brokerage_authorization_with_retry = _extracted_remove_brokerage_authorization_with_retry
 _delete_snap_trade_user_with_retry = _extracted_delete_snap_trade_user_with_retry
+_reset_snap_trade_user_secret_with_retry = _extracted_reset_snap_trade_user_secret_with_retry
 _symbol_search_user_account_with_retry = _extracted_symbol_search_user_account_with_retry
 _get_order_impact_with_retry = _extracted_get_order_impact_with_retry
 _place_order_with_retry = _extracted_place_order_with_retry
@@ -2209,6 +2243,10 @@ _cancel_order_with_retry = _extracted_cancel_order_with_retry
 _extract_snaptrade_body = _extracted_extract_snaptrade_body
 _get_snaptrade_identity = _extracted_get_snaptrade_identity
 _to_float = _extracted_to_float
+_get_rotation_lock = _extracted_get_rotation_lock
+_try_rotate_secret = _extracted_try_rotate_secret
+rotate_snaptrade_user_secret = _extracted_rotate_snaptrade_user_secret
+recover_snaptrade_auth = _extracted_recover_snaptrade_auth
 search_snaptrade_symbol = _extracted_search_snaptrade_symbol
 preview_snaptrade_order = _extracted_preview_snaptrade_order
 place_snaptrade_checked_order = _extracted_place_snaptrade_checked_order

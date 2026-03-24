@@ -33,6 +33,8 @@ BLOCKED_PARAMS = {
 # normalizer_activate       — Moves files in staging directory
 # normalizer_list           — Returns local directory paths (path-leak, fs coupling)
 # manage_instrument_config  — Admin-only, not user-scoped, changes ephemeral (seed_all)
+# manage_proxy_cache        — Admin-only cache inspection/invalidation tool
+# manage_stress_scenarios   — Admin-only scenario catalog management (CLI agent only)
 # initiate_brokerage_connection   — External OAuth requiring interactive browser auth
 # complete_brokerage_connection   — Completes OAuth; needs browser-provided tokens
 # ──────────────────────────────────────────────────────────────────────
