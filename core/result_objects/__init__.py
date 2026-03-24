@@ -19,6 +19,7 @@ from .positions import PositionResult
 from .risk import RiskAnalysisResult, RiskScoreResult
 from .performance import PerformanceResult
 from .backtest import BacktestResult
+from .monte_carlo import MonteCarloResult
 from .realized_performance import (
     RealizedIncomeMetrics,
     RealizedPnlBasis,
@@ -52,6 +53,7 @@ __all__ = [
     "RiskScoreResult",
     "PerformanceResult",
     "BacktestResult",
+    "MonteCarloResult",
     "RealizedIncomeMetrics",
     "RealizedPnlBasis",
     "RealizedMetadata",
