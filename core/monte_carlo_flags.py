@@ -38,6 +38,8 @@ def generate_monte_carlo_flags(snapshot: dict) -> list[dict]:
     bootstrap_sample_size = _to_float(simulation.get("bootstrap_sample_size"))
     distribution_params = simulation.get("distribution_params", {}) or {}
     df = _to_float(distribution_params.get("df"))
+    drift_model = simulation.get("drift_model")
+    drift_overrides_count = _to_float(simulation.get("drift_overrides_count"))
 
     initial_value = _to_float(snapshot.get("initial_value"))
     var_95 = _to_float(terminal.get("var_95"))
@@ -53,6 +55,37 @@ def generate_monte_carlo_flags(snapshot: dict) -> list[dict]:
                     f"Requested {requested_distribution} but fell back to {distribution}: "
                     f"{fallback_reason or 'no reason provided'}"
                 ),
+            }
+        )
+
+    if drift_model == "zero":
+        flags.append(
+            {
+                "type": "zero_drift",
+                "severity": "info",
+                "message": "Zero drift — simulation shows pure risk with no return expectation",
+            }
+        )
+
+    if drift_model == "risk_free":
+        flags.append(
+            {
+                "type": "risk_free_drift",
+                "severity": "info",
+                "message": "Risk-free drift — all assets drift at the treasury rate",
+            }
+        )
+
+    if drift_overrides_count is not None and drift_overrides_count > 0:
+        flags.append(
+            {
+                "type": "drift_overrides",
+                "severity": "info",
+                "message": (
+                    "Custom drift overrides applied to "
+                    f"{int(drift_overrides_count)} ticker(s)"
+                ),
+                "drift_overrides_count": int(drift_overrides_count),
             }
         )
 

@@ -22,6 +22,8 @@ class MonteCarloResult:
     requested_distribution: str = "normal"
     distribution_fallback_reason: Optional[str] = None
     distribution_params: Dict[str, Any] = field(default_factory=dict)
+    drift_model: str = "historical"
+    drift_overrides_count: int = 0
     vol_scale: float = 1.0
     weights_overridden: bool = False
     resolved_weights: Optional[Dict[str, float]] = None
@@ -48,6 +50,8 @@ class MonteCarloResult:
             requested_distribution=str(data.get("requested_distribution", "normal")),
             distribution_fallback_reason=data.get("distribution_fallback_reason"),
             distribution_params=data.get("distribution_params", {}) or {},
+            drift_model=str(data.get("drift_model", "historical")),
+            drift_overrides_count=int(data.get("drift_overrides_count", 0) or 0),
             vol_scale=float(data.get("vol_scale", 1.0)),
             weights_overridden=bool(data.get("weights_overridden", False)),
             resolved_weights=data.get("resolved_weights"),
@@ -68,6 +72,8 @@ class MonteCarloResult:
                 "requested_distribution": self.requested_distribution,
                 "distribution_fallback_reason": self.distribution_fallback_reason,
                 "distribution_params": self.distribution_params,
+                "drift_model": self.drift_model,
+                "drift_overrides_count": self.drift_overrides_count,
                 "vol_scale": self.vol_scale,
                 "weights_overridden": self.weights_overridden,
                 "resolved_weights": self.resolved_weights,
@@ -97,6 +103,8 @@ class MonteCarloResult:
                     "requested_distribution": self.requested_distribution,
                     "distribution_fallback_reason": self.distribution_fallback_reason,
                     "distribution_params": self.distribution_params,
+                    "drift_model": self.drift_model,
+                    "drift_overrides_count": self.drift_overrides_count,
                     "vol_scale": self.vol_scale,
                     "bootstrap_sample_size": self.bootstrap_sample_size,
                 },
@@ -134,6 +142,8 @@ class MonteCarloResult:
                 "requested_distribution": self.requested_distribution,
                 "distribution_fallback_reason": self.distribution_fallback_reason,
                 "distribution_params": self.distribution_params,
+                "drift_model": self.drift_model,
+                "drift_overrides_count": self.drift_overrides_count,
                 "vol_scale": self.vol_scale,
                 "weights_overridden": self.weights_overridden,
                 "resolved_weights": self.resolved_weights,
