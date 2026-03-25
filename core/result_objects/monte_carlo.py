@@ -18,6 +18,7 @@ class MonteCarloResult:
     initial_value: float
     percentile_paths: Dict[str, List[float]]
     terminal_distribution: Dict[str, float]
+    histogram: Optional[Dict[str, Any]] = None
     distribution: str = "normal"
     requested_distribution: str = "normal"
     distribution_fallback_reason: Optional[str] = None
@@ -46,6 +47,7 @@ class MonteCarloResult:
             initial_value=float(data.get("initial_value", 0.0)),
             percentile_paths=data.get("percentile_paths", {}) or {},
             terminal_distribution=data.get("terminal_distribution", {}) or {},
+            histogram=data.get("histogram"),
             distribution=str(data.get("distribution", "normal")),
             requested_distribution=str(data.get("requested_distribution", "normal")),
             distribution_fallback_reason=data.get("distribution_fallback_reason"),
@@ -138,6 +140,7 @@ class MonteCarloResult:
                 "initial_value": self.initial_value,
                 "percentile_paths": self.percentile_paths,
                 "terminal_distribution": self.terminal_distribution,
+                "histogram": self.histogram,
                 "distribution": self.distribution,
                 "requested_distribution": self.requested_distribution,
                 "distribution_fallback_reason": self.distribution_fallback_reason,

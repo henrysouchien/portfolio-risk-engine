@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Dict, List, Optional
@@ -89,6 +90,17 @@ class BacktestResult:
         benchmark = self.performance_metrics.get("benchmark_comparison", {})
         risk = self.performance_metrics.get("risk_metrics", {})
         risk_adjusted = self.performance_metrics.get("risk_adjusted_returns", {})
+        annual_alpha_values: list[float] = []
+
+        for row in self.annual_breakdown:
+            if not isinstance(row, dict):
+                continue
+            try:
+                alpha = float(row.get("alpha"))
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(alpha):
+                annual_alpha_values.append(alpha)
 
         portfolio_total = benchmark.get("portfolio_total_return", returns.get("total_return"))
         benchmark_total = benchmark.get("benchmark_total_return")
@@ -97,6 +109,8 @@ class BacktestResult:
             if portfolio_total is not None and benchmark_total is not None
             else None
         )
+        annual_alpha_positive_count = sum(1 for alpha in annual_alpha_values if alpha > 0)
+        annual_alpha_total = len(annual_alpha_values)
 
         return make_json_safe(
             {
@@ -117,6 +131,11 @@ class BacktestResult:
                     "max_drawdown_pct": risk.get("maximum_drawdown"),
                     "sharpe_ratio": risk_adjusted.get("sharpe_ratio"),
                 },
+                "volatility": risk.get("volatility"),
+                "sortino_ratio": risk_adjusted.get("sortino_ratio"),
+                "down_capture_ratio": risk_adjusted.get("down_capture_ratio"),
+                "annual_alpha_positive_count": annual_alpha_positive_count,
+                "annual_alpha_total": annual_alpha_total,
                 "data_quality": {
                     "excluded_tickers": self.excluded_tickers,
                     "excluded_count": len(self.excluded_tickers),

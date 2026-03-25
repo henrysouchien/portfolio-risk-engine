@@ -1,7 +1,7 @@
 # Repo Cleanup Plan
 
 **Created:** 2026-03-24
-**Status:** In Progress
+**Status:** Phases 1-2 complete, Phase 5 deferred post-deploy
 
 ---
 
@@ -109,13 +109,53 @@ Most of these are already ignored (`backup/`, `cache/`, `logs/`, `playwright-rep
 
 ## Phase 2 — Dead Tracked Code (needs git commit)
 
-These are tracked files/dirs with zero or near-zero importers.
+### Step 1: Delete `risk_client/` + its test (3 files)
+```bash
+git rm -r risk_client/
+git rm tests/test_risk_client.py
+```
+- Dead HTTP client package — no production importers (only its own test file)
+- Contains `__init__.py` (RiskClient class) + `pyproject.toml`
+- `tests/test_risk_client.py` exercises the client — must be deleted with the package
+- `.gitignore` already ignores `risk_client/risk_client.egg-info/`
 
-| Item | Tracked files | Importers | What it is | Action |
-|------|--------------|-----------|-----------|--------|
-| `risk_client/` | 2 (`__init__.py`, `pyproject.toml`) | 0 | Dead client package — never imported anywhere | Delete, commit |
-| `options/models 2.py` | 1 | 0 | Duplicate of old pre-refactor `models.py` (has space in filename) | Delete, commit |
-| `models/` | ~28 files | 2 (only `factor_intelligence_models.py` is imported, by `baskets.py` + `factor_intelligence.py`) | Legacy response model classes from pre-REST era | Move `factor_intelligence_models.py` to a better home, delete the rest |
+### Step 2: Delete `options/models 2.py` (1 file)
+```bash
+git rm "options/models 2.py"
+```
+- Duplicate of the old pre-refactor `models.py` (has space in filename)
+- Zero importers — the live `options/models.py` is a shim that re-exports from `data_objects` + `result_objects`
+
+### Step 3: Delete 24 dead files from `models/` (keep 3 live)
+```bash
+git rm models/analyzeresponse.py models/currentportfolioresponse.py \
+  models/directinterpretresponse.py models/directoptimizemaxretresponse.py \
+  models/directoptimizeminvarresponse.py models/directperformanceresponse.py \
+  models/directportfolioresponse.py models/directstockresponse.py \
+  models/directwhatifresponse.py models/factoranalysisresponse.py \
+  models/generated_factorcorrelationresponse.py \
+  models/generated_factorperformanceresponse.py \
+  models/generated_offsetrecommendationresponse.py \
+  models/healthresponse.py models/interpretresponse.py \
+  models/maxreturnresponse.py models/minvarianceresponse.py \
+  models/performanceresponse.py models/portfolioanalysisresponse.py \
+  models/portfolioslistresponse.py models/riskscoreresponse.py \
+  models/risksettingsresponse.py models/whatifresponse.py \
+  models/usage_example.py
+```
+- Original one-class-per-file pattern, superseded by consolidated `response_models.py`
+- Zero importers on all 24 files
+- **Keep** (3 live files):
+  - `models/__init__.py` — re-exports used by `app.py`
+  - `models/response_models.py` — all API Pydantic models
+  - `models/factor_intelligence_models.py` — used by `mcp_tools/baskets.py` + `routes/factor_intelligence.py`
+
+### Verification
+1. `git status` to confirm only intended files staged for deletion
+2. `python3 -c "from models import HealthResponse; print('OK')"` — confirm live models still import
+3. `python3 -c "from models.factor_intelligence_models import FactorCorrelationRequest; print('OK')"` — confirm factor models still import
+4. `python3 -c "import app; print('OK')"` — confirm app.py model import surface intact
+5. `python3 -m pytest tests/routes/test_baskets_api.py tests/mcp_tools/test_factor_intelligence.py -x -q` — run tests adjacent to kept model files
 
 ---
 
