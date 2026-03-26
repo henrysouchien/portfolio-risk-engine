@@ -577,6 +577,7 @@ def evaluate_optimized_weights(
     from portfolio_risk_engine.config import PORTFOLIO_DEFAULTS
 
     max_single_factor_loss = risk_config.get("max_single_factor_loss") or -0.08
+    expected_returns = config.get("expected_returns") or None
     summary = build_portfolio_view(
         weights,
         start_date=config["start_date"],
@@ -588,6 +589,29 @@ def evaluate_optimized_weights(
         instrument_types=instrument_types,
         contract_identities=contract_identities,
     )
+
+    if expected_returns:
+        expected_return = sum(
+            float(weights.get(ticker, 0.0)) * float(expected_returns.get(ticker, 0.0))
+            for ticker in weights
+        )
+        summary["expected_return"] = expected_return
+
+        risk_free_rate = 0.04
+        try:
+            from datetime import datetime
+            from core.realized_performance.nav import _safe_treasury_rate
+
+            risk_free_rate = _safe_treasury_rate(
+                datetime.fromisoformat(config["start_date"]),
+                datetime.fromisoformat(config["end_date"]),
+            )
+        except Exception:
+            risk_free_rate = 0.04
+
+        volatility_annual = float(summary.get("volatility_annual", 0.0) or 0.0)
+        if volatility_annual > 0:
+            summary["sharpe_ratio"] = (expected_return - risk_free_rate) / volatility_annual
 
     risk_tbl = _safe_eval_risk_limits(summary, risk_config)
 
