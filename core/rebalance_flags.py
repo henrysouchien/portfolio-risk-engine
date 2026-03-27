@@ -5,6 +5,8 @@ from __future__ import annotations
 import math
 from typing import Any, Dict, List
 
+from portfolio_risk_engine.constants import get_asset_class_display_name
+
 
 def _to_float(value: Any) -> float | None:
     if value is None:
@@ -31,6 +33,12 @@ def _sort_flags(flags: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     severity_order = {"error": 0, "warning": 1, "info": 2, "success": 3}
     flags.sort(key=lambda flag: severity_order.get(flag.get("severity"), 9))
     return flags
+
+
+def _format_pct(value: float, *, decimals: int = 0) -> str:
+    if decimals <= 0:
+        return f"{value:.0f}%"
+    return f"{value:.{decimals}f}%"
 
 
 def generate_rebalance_flags(snapshot: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -196,6 +204,104 @@ def generate_rebalance_flags(snapshot: Dict[str, Any]) -> List[Dict[str, Any]]:
                 "severity": "success",
                 "message": f"{trade_count} rebalance trade(s) generated and ready",
                 "trade_count": trade_count,
+            }
+        )
+
+    return _sort_flags(flags)
+
+
+def generate_rebalance_diagnostic_flags(
+    risk_contributions: List[Dict[str, Any]],
+    factor_betas: Dict[str, Dict[str, float]],
+    compliance_summary: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    """Generate pre-rebalance diagnostic flags from cached risk analysis outputs."""
+    flags: List[Dict[str, Any]] = []
+
+    for row in risk_contributions if isinstance(risk_contributions, list) else []:
+        ratio = _to_float(row.get("risk_weight_ratio"))
+        if ratio is None or ratio <= 1.2:
+            continue
+
+        asset_class = str(row.get("asset_class") or "unknown").strip().lower() or "unknown"
+        risk_pct = _to_float(row.get("risk_pct")) or 0.0
+        weight_pct = _to_float(row.get("weight_pct")) or 0.0
+        severity = "warning" if ratio > 1.5 else "info"
+        flags.append(
+            {
+                "type": "risk_weight_imbalance",
+                "severity": severity,
+                "message": (
+                    f"{get_asset_class_display_name(asset_class)} contributes "
+                    f"{_format_pct(risk_pct)} of risk at {_format_pct(weight_pct)} weight "
+                    f"({ratio:.1f}x ratio)"
+                ),
+                "asset_class": asset_class,
+                "risk_pct": round(risk_pct, 2),
+                "weight_pct": round(weight_pct, 2),
+                "risk_weight_ratio": round(ratio, 2),
+            }
+        )
+
+    systemic_factors = {"market", "interest_rate", "rate_2y", "rate_5y", "rate_10y", "rate_30y"}
+    weight_lookup = {
+        str(row.get("asset_class") or "").strip().lower(): (_to_float(row.get("weight_pct")) or 0.0) / 100.0
+        for row in risk_contributions
+        if isinstance(row, dict)
+    }
+    factor_scores: Dict[str, List[Dict[str, float | str]]] = {}
+    for asset_class, exposures in factor_betas.items() if isinstance(factor_betas, dict) else []:
+        asset_class_key = str(asset_class or "").strip().lower()
+        class_weight = weight_lookup.get(asset_class_key, 0.0)
+        if class_weight <= 0 or not isinstance(exposures, dict):
+            continue
+        for factor, raw_beta in exposures.items():
+            beta = _to_float(raw_beta)
+            if beta is None or abs(beta) < 0.5:
+                continue
+            factor_scores.setdefault(str(factor), []).append(
+                {
+                    "asset_class": asset_class_key,
+                    "beta": beta,
+                    "score": abs(beta) * class_weight,
+                }
+            )
+
+    for factor, rows in factor_scores.items():
+        total_score = sum(float(row.get("score") or 0.0) for row in rows)
+        if total_score <= 0:
+            continue
+        dominant = max(rows, key=lambda row: float(row.get("score") or 0.0))
+        dominant_share = float(dominant.get("score") or 0.0) / total_score
+        dominant_beta = _to_float(dominant.get("beta"))
+        asset_class = str(dominant.get("asset_class") or "unknown")
+        if dominant_share < 0.6 or dominant_beta is None:
+            continue
+
+        flags.append(
+            {
+                "type": "factor_exposure_driver",
+                "severity": "warning" if factor in systemic_factors else "info",
+                "message": (
+                    f"{get_asset_class_display_name(asset_class)} drives "
+                    f"{_format_pct(dominant_share * 100)} of {factor} exposure "
+                    f"(beta {dominant_beta:.1f})"
+                ),
+                "asset_class": asset_class,
+                "factor": factor,
+                "dominance_pct": round(dominant_share * 100, 2),
+                "beta": round(dominant_beta, 4),
+            }
+        )
+
+    violation_count = _to_int((compliance_summary or {}).get("violation_count")) or 0
+    if violation_count > 0:
+        flags.append(
+            {
+                "type": "compliance_driven_rebalance",
+                "severity": "error",
+                "message": f"Rebalancing needed to resolve {violation_count} compliance violation(s)",
+                "violation_count": violation_count,
             }
         )
 

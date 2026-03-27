@@ -52,6 +52,7 @@ class RebalanceTradeResult:
     portfolio_value: float = 0.0
     residual_cash: float = 0.0
     skipped_trades: List[Dict[str, Any]] = field(default_factory=list)
+    diagnostic_flags: List[Dict[str, Any]] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
 
     def get_agent_snapshot(self) -> Dict[str, Any]:
@@ -70,6 +71,7 @@ class RebalanceTradeResult:
             "unmanaged_positions": list(self.summary.get("unmanaged_positions") or []),
             "trades": [leg.to_dict() for leg in self.trades],
             "skipped_trades": list(self.skipped_trades or []),
+            "diagnostic_flags": list(self.diagnostic_flags or []),
             "warnings": list(self.warnings or []),
         }
         return make_json_safe(snapshot)
@@ -82,6 +84,7 @@ class RebalanceTradeResult:
             "summary": dict(self.summary or {}),
             "trades": [leg.to_dict() for leg in self.trades],
             "skipped_trades": list(self.skipped_trades or []),
+            "diagnostic_flags": list(self.diagnostic_flags or []),
             "residual_cash": float(self.residual_cash or 0.0),
             "warnings": list(self.warnings or []),
         }

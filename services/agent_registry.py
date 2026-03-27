@@ -105,7 +105,11 @@ def _build_registry() -> None:
         get_factor_analysis,
         get_factor_recommendations,
     )
-    from mcp_tools.allocation import get_target_allocation, set_target_allocation
+    from mcp_tools.allocation import (
+        get_allocation_presets,
+        get_target_allocation,
+        set_target_allocation,
+    )
     from mcp_tools.rebalance import generate_rebalance_trades
     from mcp_tools.signals import check_exit_signals
     from mcp_tools.trading import get_orders
@@ -187,6 +191,7 @@ def _build_registry() -> None:
     _register("get_factor_analysis", get_factor_analysis, category="analysis")
     _register("get_factor_recommendations", get_factor_recommendations, category="analysis")
     _register("get_target_allocation", get_target_allocation, category="allocation")
+    _register("get_allocation_presets", get_allocation_presets, category="allocation")
     _register("generate_rebalance_trades", generate_rebalance_trades, category="analysis")
     _register("check_exit_signals", check_exit_signals, category="analysis")
     _register("get_orders", get_orders, category="trading")

@@ -293,6 +293,114 @@ class RiskAnalysisResult:
             )
         return rows
 
+    def get_asset_class_risk_contributions(
+        self,
+        top_n_contributors: int = 3,
+    ) -> List[Dict[str, Any]]:
+        """Aggregate position-level Euler variance into asset-class risk buckets."""
+        asset_classes = (self.analysis_metadata or {}).get("asset_classes", {}) or {}
+        if not asset_classes or self.euler_variance_pct is None or len(self.euler_variance_pct) == 0:
+            return []
+
+        weights = self._get_analysis_weights()
+        grouped: Dict[str, Dict[str, Any]] = {}
+
+        for ticker, raw_risk_pct in self.euler_variance_pct.items():
+            asset_class = str(asset_classes.get(ticker) or "unknown")
+            risk_pct = self._safe_num(raw_risk_pct, default=0.0)
+            weight_pct = self._safe_num(weights.get(ticker), default=0.0)
+
+            bucket = grouped.setdefault(
+                asset_class,
+                {
+                    "risk_pct": 0.0,
+                    "weight_pct": 0.0,
+                    "contributors": [],
+                },
+            )
+            bucket["risk_pct"] += risk_pct
+            bucket["weight_pct"] += weight_pct
+            bucket["contributors"].append(
+                {
+                    "ticker": str(ticker),
+                    "risk_pct": risk_pct,
+                }
+            )
+
+        rows: List[Dict[str, Any]] = []
+        for asset_class, bucket in grouped.items():
+            weight_pct = self._safe_num(bucket.get("weight_pct"), default=0.0)
+            risk_pct = self._safe_num(bucket.get("risk_pct"), default=0.0)
+            ratio = (risk_pct / weight_pct) if weight_pct > 0 else None
+            top_contributors = sorted(
+                bucket.get("contributors", []),
+                key=lambda contributor: self._safe_num(contributor.get("risk_pct"), default=0.0),
+                reverse=True,
+            )[: max(int(top_n_contributors or 0), 0)]
+
+            rows.append(
+                {
+                    "asset_class": asset_class,
+                    "risk_pct": round(risk_pct * 100, 2),
+                    "weight_pct": round(weight_pct * 100, 2),
+                    "risk_weight_ratio": round(ratio, 2) if ratio is not None else None,
+                    "top_contributors": [
+                        {
+                            "ticker": contributor["ticker"],
+                            "risk_pct": round(
+                                self._safe_num(contributor.get("risk_pct"), default=0.0) * 100,
+                                2,
+                            ),
+                        }
+                        for contributor in top_contributors
+                    ],
+                }
+            )
+
+        rows.sort(key=lambda row: self._safe_num(row.get("risk_pct"), default=0.0), reverse=True)
+        return rows
+
+    def get_asset_class_factor_betas(self) -> Dict[str, Dict[str, float]]:
+        """Return weight-averaged factor betas by asset class."""
+        asset_classes = (self.analysis_metadata or {}).get("asset_classes", {}) or {}
+        if not asset_classes or self.stock_betas is None or self.stock_betas.empty:
+            return {}
+
+        weights = self._get_analysis_weights()
+        factor_betas: Dict[str, Dict[str, float]] = {}
+
+        for asset_class in sorted({str(value or "unknown") for value in asset_classes.values()}):
+            class_tickers = [
+                ticker
+                for ticker, ticker_asset_class in asset_classes.items()
+                if str(ticker_asset_class or "unknown") == asset_class
+                and ticker in self.stock_betas.index
+            ]
+            if not class_tickers:
+                continue
+
+            class_factor_betas: Dict[str, float] = {}
+            for factor in self.stock_betas.columns:
+                numerator = 0.0
+                denominator = 0.0
+                for ticker in class_tickers:
+                    weight = self._safe_num(weights.get(ticker), default=0.0)
+                    if weight <= 0:
+                        continue
+                    beta = self.stock_betas.loc[ticker, factor]
+                    if not pd.notna(beta):
+                        continue
+                    numerator += weight * float(beta)
+                    denominator += weight
+
+                if denominator > 0:
+                    class_factor_betas[str(factor)] = round(numerator / denominator, 4)
+
+            if class_factor_betas:
+                factor_betas[asset_class] = class_factor_betas
+
+        return factor_betas
+
     def get_compliance_summary(self) -> Dict[str, Any]:
         """Get a unified compliance summary from risk and beta checks."""
         violations: List[Dict[str, Any]] = []
@@ -335,6 +443,15 @@ class RiskAnalysisResult:
             {"industry": industry, "variance_pct": round(self._safe_num(val, 0.0) * 100, 2)}
             for industry, val in sorted_industries
         ]
+
+    def _get_analysis_weights(self) -> Dict[str, float]:
+        """Return analysis weights using metadata first, then allocation weights."""
+        metadata_weights = (self.analysis_metadata or {}).get("weights", {}) or {}
+        selected = metadata_weights if metadata_weights else (self.portfolio_weights or {})
+        return {
+            str(ticker): self._safe_num(weight, default=0.0)
+            for ticker, weight in selected.items()
+        }
 
     def _get_weight(self, ticker: str) -> float:
         """Extract portfolio weight for a ticker from the allocations DataFrame."""
@@ -1286,6 +1403,10 @@ class RiskAnalysisResult:
                 "target_allocation": (self.analysis_metadata or {}).get("target_allocation"),
             },
             "asset_allocation": self._build_asset_allocation_breakdown(),  # NEW: Asset allocation breakdown for frontend charts
+            "asset_class_risk": {
+                "risk_contributions": self.get_asset_class_risk_contributions(),
+                "factor_betas": self.get_asset_class_factor_betas(),
+            },
             "formatted_report": self.to_cli_report(),  # Formatted Report
             "risk_limit_violations_summary": self._get_risk_limit_violations_summary(),  # Risk Limit Violations Summary
             "beta_exposure_checks_table": self._get_beta_exposure_checks_table()  # Beta Exposure Checks Formatted Table

@@ -1083,20 +1083,77 @@ class PortfolioOffsetRecommendationResult:
     ----------
     drivers : List[Dict[str, Any]]
         Detected risk drivers (e.g., industries/factors) with metrics.
-    recommendations : List[Dict[str, Any]]
-        Recommended hedges with correlation, Sharpe, category, suggested_weight, and rationale.
+    diagnosis : Dict[str, Any]
+        Portfolio factor diagnosis reused from the risk view.
+    recommendations : Dict[str, Dict[str, List[Dict[str, Any]]]]
+        Grouped recommendations keyed by driver label and recommendation type.
     analysis_metadata : Dict[str, Any]
         Portfolio snapshot and configuration used for analysis.
     """
 
-    def __init__(self, drivers: List[Dict[str, Any]], recommendations: List[Dict[str, Any]], analysis_metadata: Dict[str, Any]):
+    def __init__(
+        self,
+        drivers: List[Dict[str, Any]],
+        diagnosis: Dict[str, Any],
+        recommendations: Dict[str, Dict[str, List[Dict[str, Any]]]],
+        analysis_metadata: Dict[str, Any],
+    ):
         self.drivers = drivers or []
-        self.recommendations = recommendations or []
+        self.diagnosis = diagnosis or {}
+        self.recommendations = recommendations or {}
         self.analysis_metadata = analysis_metadata or {}
+
+    def _flatten_recommendations(self) -> List[Dict[str, Any]]:
+        flattened: List[Dict[str, Any]] = []
+        type_priority = {
+            "direct_offset": 0,
+            "beta_alternatives": 1,
+            "correlation_alternatives": 2,
+        }
+        for driver_label, grouped in (self.recommendations or {}).items():
+            if not isinstance(grouped, dict):
+                continue
+            for rec_type, items in grouped.items():
+                if not isinstance(items, list):
+                    continue
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    flattened.append(
+                        {
+                            **item,
+                            "driver_label": item.get("driver_label") or driver_label,
+                            "recommendation_type": rec_type,
+                        }
+                    )
+        flattened.sort(
+            key=lambda item: (
+                type_priority.get(item.get("recommendation_type"), 9),
+                item.get("correlation", 1.0) if item.get("correlation") is not None else 1.0,
+                -(item.get("sharpe_ratio", 0.0) or 0.0),
+            )
+        )
+        return flattened
+
+    def _recommendation_counts_by_type(self) -> Dict[str, int]:
+        grouped = self.recommendations or {}
+        counts = {
+            "direct_offset": 0,
+            "beta_alternatives": 0,
+            "correlation_alternatives": 0,
+        }
+        for rec_groups in grouped.values():
+            if not isinstance(rec_groups, dict):
+                continue
+            for key in counts:
+                items = rec_groups.get(key) or []
+                counts[key] += len(items) if isinstance(items, list) else 0
+        return counts
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             'drivers': self.drivers,
+            'diagnosis': self.diagnosis,
             'recommendations': self.recommendations,
             'analysis_metadata': self.analysis_metadata,
         }
@@ -1104,6 +1161,7 @@ class PortfolioOffsetRecommendationResult:
     def to_api_response(self) -> Dict[str, Any]:
         return {
             'drivers': _convert_to_json_serializable(self.drivers),
+            'diagnosis': _convert_to_json_serializable(self.diagnosis),
             'recommendations': _convert_to_json_serializable(self.recommendations),
             'analysis_metadata': _convert_to_json_serializable(self.analysis_metadata),
             'formatted_report': self.to_cli_report(),
@@ -1125,16 +1183,17 @@ class PortfolioOffsetRecommendationResult:
                 return default
 
         drivers = self.drivers or []
+        diagnosis = self.diagnosis or {}
         top_drivers = []
         for d in drivers[:3]:
             top_drivers.append({
                 "label": d.get("label") or d.get("id") or "unknown",
                 "percent_of_portfolio": _safe_float(d.get("percent_of_portfolio") or d.get("factor_pct")),
-                "driver_type": d.get("driver_type", "unknown"),
+                "driver_type": d.get("driver_type") or d.get("type") or "unknown",
                 "market_beta": _safe_float(d.get("market_beta")),
             })
 
-        recs = self.recommendations or []
+        recs = self._flatten_recommendations()
         top_recs = []
         for r in recs[:5]:
             top_recs.append({
@@ -1143,10 +1202,13 @@ class PortfolioOffsetRecommendationResult:
                 "sharpe_ratio": _safe_float(r.get("sharpe_ratio")),
                 "category": r.get("category", "unknown"),
                 "suggested_weight": _safe_float(r.get("suggested_weight")),
+                "recommendation_type": r.get("recommendation_type", "unknown"),
+                "driver_label": r.get("driver_label", "unknown"),
             })
 
         driver_count = len(drivers)
         rec_count = len(recs)
+        recommendation_counts_by_type = self._recommendation_counts_by_type()
         if driver_count > 0 and rec_count > 0:
             top_driver = top_drivers[0]["label"]
             verdict = f"Portfolio has {driver_count} risk driver{'s' if driver_count != 1 else ''} (top: {top_driver}), {rec_count} hedge{'s' if rec_count != 1 else ''} available"
@@ -1155,35 +1217,111 @@ class PortfolioOffsetRecommendationResult:
         else:
             verdict = "No significant risk drivers detected in portfolio"
 
+        industry_variance_share = diagnosis.get("industry_variance_share")
+        if hasattr(industry_variance_share, "to_dict"):
+            try:
+                industry_variance_share = industry_variance_share.to_dict()
+            except Exception:
+                industry_variance_share = {}
+        if not isinstance(industry_variance_share, dict):
+            industry_variance_share = {}
+        sorted_variance_share = sorted(
+            (
+                {
+                    "label": str(label),
+                    "variance_share": _safe_float(value),
+                }
+                for label, value in industry_variance_share.items()
+            ),
+            key=lambda item: item.get("variance_share", 0.0),
+            reverse=True,
+        )
+        diagnosis_summary = {
+            "market_beta": _safe_float(diagnosis.get("market_beta")),
+            "portfolio_volatility": _safe_float(diagnosis.get("portfolio_volatility")),
+            "variance_decomposition": diagnosis.get("variance_decomposition") if isinstance(diagnosis.get("variance_decomposition"), dict) else {},
+            "top_variance_drivers": sorted_variance_share[:3],
+        }
+
         return {
             "mode": "portfolio",
             "verdict": verdict,
             "driver_count": driver_count,
             "top_drivers": top_drivers,
             "recommendation_count": rec_count,
+            "recommendation_counts_by_type": recommendation_counts_by_type,
+            "diagnosis_summary": diagnosis_summary,
             "top_recommendations": top_recs,
         }
 
     def to_cli_report(self, top_n: int = 10) -> str:
         lines: List[str] = []
         lines.append("PORTFOLIO-AWARE OFFSET RECOMMENDATIONS")
+        if self.diagnosis:
+            lines.append("\nDiagnosis:")
+            market_beta = self.diagnosis.get("market_beta")
+            portfolio_vol = self.diagnosis.get("portfolio_volatility")
+            if market_beta is not None:
+                lines.append(f"  • Market beta: {market_beta}")
+            if portfolio_vol is not None:
+                lines.append(f"  • Portfolio volatility: {portfolio_vol}")
+            top_variance = self.diagnosis.get("industry_variance_share") or {}
+            if hasattr(top_variance, "to_dict"):
+                try:
+                    top_variance = top_variance.to_dict()
+                except Exception:
+                    top_variance = {}
+            if isinstance(top_variance, dict) and top_variance:
+                ranked = sorted(top_variance.items(), key=lambda item: item[1], reverse=True)[:3]
+                for label, share in ranked:
+                    lines.append(f"  • {label}: {share} of portfolio risk")
         if self.drivers:
             lines.append("\nTop risk drivers:")
             for d in self.drivers:
                 lab = d.get('label') or d.get('id')
                 pct = d.get('percent_of_portfolio') or d.get('factor_pct')
                 lines.append(f"  • {lab}: {pct!s}")
-        recs = (self.recommendations or [])[:top_n]
-        lines.append("\nRecommended hedges:")
-        if not recs:
+        grouped = self.recommendations or {}
+        flattened = self._flatten_recommendations()
+        if not flattened:
+            lines.append("\nRecommended hedges:")
             lines.append("  (none)")
             return "\n".join(lines)
-        for i, r in enumerate(recs, 1):
-            lab = r.get('label') or r.get('ticker')
-            cat = r.get('category')
-            corr = r.get('correlation')
-            sh = r.get('sharpe_ratio')
-            w = r.get('suggested_weight')
-            lines.append(f"  {i:>2}. {lab:<10}  Cat={cat!s:<10} Corr={corr!s:<6} Sharpe={sh!s:<6} Wgt={w!s:<6}")
-        return "\n".join(lines)
 
+        lines.append("\nRecommendations by driver:")
+        shown = 0
+        for driver_label, rec_groups in grouped.items():
+            if shown >= top_n:
+                break
+            lines.append(f"  • {driver_label}")
+            direct_offsets = rec_groups.get("direct_offset") or []
+            if direct_offsets:
+                for rec in direct_offsets:
+                    if shown >= top_n:
+                        break
+                    lines.append(
+                        f"      Direct offset: {rec.get('ticker') or rec.get('label')} "
+                        f"Wgt={rec.get('suggested_weight')} BetaRed={rec.get('beta_reduction')}"
+                    )
+                    shown += 1
+            beta_alts = rec_groups.get("beta_alternatives") or []
+            if beta_alts:
+                for rec in beta_alts:
+                    if shown >= top_n:
+                        break
+                    lines.append(
+                        f"      Beta alt: {rec.get('ticker') or rec.get('label')} "
+                        f"Beta={rec.get('factor_beta')} Sharpe={rec.get('sharpe_ratio')} Wgt={rec.get('suggested_weight')}"
+                    )
+                    shown += 1
+            corr_alts = rec_groups.get("correlation_alternatives") or []
+            if corr_alts:
+                for rec in corr_alts:
+                    if shown >= top_n:
+                        break
+                    lines.append(
+                        f"      Diversifier: {rec.get('ticker') or rec.get('label')} "
+                        f"Corr={rec.get('correlation')} Sharpe={rec.get('sharpe_ratio')} Wgt={rec.get('suggested_weight')}"
+                    )
+                    shown += 1
+        return "\n".join(lines)

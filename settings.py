@@ -296,7 +296,7 @@ FACTOR_INTELLIGENCE_DEFAULTS = {
         "industry_granularity": "industry",
     },
     "portfolio_offsets": {
-        "correlation_threshold": 0.3,    # positive: "least correlated" diversifiers (equity sectors rarely have negative correlations)
+        "correlation_threshold": -0.2,    # max correlation for diversifier candidates; more negative = stricter
         "max_recs_per_driver": 5,
         "industry_granularity": DEFAULT_INDUSTRY_GRANULARITY,
         "driver_budget": 0.06,
