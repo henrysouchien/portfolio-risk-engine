@@ -65,6 +65,7 @@ from portfolio_risk_engine.factor_utils import (
     compute_multifactor_betas,
     fetch_monthly_treasury_yield_levels,
 )
+from providers.ticker_resolver import AliasMapResolver
 
 from portfolio_risk_engine.config import PORTFOLIO_DEFAULTS, RATE_FACTOR_CONFIG
 from portfolio_risk_engine.constants import DIVERSIFIED_SECURITY_TYPES
@@ -91,19 +92,23 @@ def fetch_monthly_close(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     *,
-    fmp_ticker: Optional[str] = None,
-    fmp_ticker_map: Optional[dict[str, str]] = None,
+    ticker_alias: Optional[str] = None,
+    ticker_alias_map: Optional[dict[str, str]] = None,
     instrument_type: str | None = None,
     contract_identity: dict[str, Any] | None = None,
 ) -> pd.Series:
     """Internal hot-path wrapper that preserves the legacy call signature."""
     del instrument_type, contract_identity
+    resolver = None
+    if isinstance(ticker_alias, str) and ticker_alias.strip():
+        resolver = AliasMapResolver({ticker: ticker_alias})
+    elif ticker_alias_map:
+        resolver = AliasMapResolver(ticker_alias_map)
     return _compat_fetch_monthly_close(
         ticker,
         start_date=start_date,
         end_date=end_date,
-        fmp_ticker=fmp_ticker,
-        fmp_ticker_map=fmp_ticker_map,
+        ticker_resolver=resolver,
     )
 
 
@@ -112,19 +117,23 @@ def fetch_monthly_total_return_price(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     *,
-    fmp_ticker: Optional[str] = None,
-    fmp_ticker_map: Optional[dict[str, str]] = None,
+    ticker_alias: Optional[str] = None,
+    ticker_alias_map: Optional[dict[str, str]] = None,
     instrument_type: str | None = None,
     contract_identity: dict[str, Any] | None = None,
 ) -> pd.Series:
     """Internal hot-path wrapper that preserves the legacy call signature."""
     del instrument_type, contract_identity
+    resolver = None
+    if isinstance(ticker_alias, str) and ticker_alias.strip():
+        resolver = AliasMapResolver({ticker: ticker_alias})
+    elif ticker_alias_map:
+        resolver = AliasMapResolver(ticker_alias_map)
     return _compat_fetch_monthly_total_return_price(
         ticker,
         start_date=start_date,
         end_date=end_date,
-        fmp_ticker=fmp_ticker,
-        fmp_ticker_map=fmp_ticker_map,
+        ticker_resolver=resolver,
     )
 
 def normalize_weights(weights: Dict[str, float], normalize: Optional[bool] = None) -> Dict[str, float]:
@@ -446,7 +455,7 @@ def _cached_build_portfolio_view(
     stock_factor_proxies_json: Optional[str] = None,
     bond_mask_json: Optional[str] = "[]",
     cache_version: str = "rbeta_v2",
-    fmp_ticker_map_json: Optional[str] = None,
+    ticker_alias_map_json: Optional[str] = None,
     currency_map_json: Optional[str] = None,
     instrument_types_json: Optional[str] = None,
     security_types_json: Optional[str] = None,
@@ -469,7 +478,7 @@ def _cached_build_portfolio_view(
     weights = json.loads(weights_json)
     expected_returns = json.loads(expected_returns_json) if expected_returns_json else None
     stock_factor_proxies = json.loads(stock_factor_proxies_json) if stock_factor_proxies_json else None
-    fmp_ticker_map = json.loads(fmp_ticker_map_json) if fmp_ticker_map_json else None
+    ticker_alias_map = json.loads(ticker_alias_map_json) if ticker_alias_map_json else None
     currency_map = json.loads(currency_map_json) if currency_map_json else None
     instrument_types = json.loads(instrument_types_json) if instrument_types_json else None
     security_types = json.loads(security_types_json) if security_types_json else None
@@ -489,7 +498,7 @@ def _cached_build_portfolio_view(
         expected_returns,
         stock_factor_proxies,
         asset_classes,
-        fmp_ticker_map,
+        ticker_alias_map,
         currency_map,
         instrument_types,
         security_types,
@@ -548,7 +557,7 @@ def compute_euler_variance_percent(
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional, Any, Union, Tuple
-from providers.price_service import filter_fmp_eligible
+from providers.price_service import filter_price_eligible
 
 def _resolve_instrument_type(
     ticker: str,
@@ -571,7 +580,7 @@ def _fetch_futures_prices(
     ticker: str,
     start_date: str,
     end_date: str,
-    fmp_ticker_map: Optional[Dict[str, str]] = None,
+    ticker_alias_map: Optional[Dict[str, str]] = None,
 ) -> pd.Series:
     """Fetch month-end futures prices using the configured futures pricing chain."""
     from brokerage.futures import get_contract_spec
@@ -580,18 +589,18 @@ def _fetch_futures_prices(
     normalized_ticker = str(ticker or "").strip().upper()
     spec = get_contract_spec(normalized_ticker)
 
-    fmp_symbol = (fmp_ticker_map or {}).get(ticker)
-    if fmp_symbol is None and normalized_ticker != str(ticker or "").strip():
-        fmp_symbol = (fmp_ticker_map or {}).get(normalized_ticker)
-    if not fmp_symbol and spec and spec.fmp_symbol:
-        fmp_symbol = spec.fmp_symbol
+    data_symbol = (ticker_alias_map or {}).get(ticker)
+    if data_symbol is None and normalized_ticker != str(ticker or "").strip():
+        data_symbol = (ticker_alias_map or {}).get(normalized_ticker)
+    if not data_symbol and spec and spec.data_symbol:
+        data_symbol = spec.data_symbol
 
     chain = get_default_pricing_chain()
     return chain.fetch_monthly_close(
         normalized_ticker,
         start_date,
         end_date,
-        alt_symbol=fmp_symbol,
+        alt_symbol=data_symbol,
     )
 
 
@@ -635,7 +644,7 @@ def _filter_tickers_by_data_availability(
     start_date: str,
     end_date: str,
     min_months: int = 12,
-    fmp_ticker_map: Optional[Dict[str, str]] = None,
+    ticker_alias_map: Optional[Dict[str, str]] = None,
     instrument_types: Optional[Dict[str, str]] = None,
     contract_identities: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> Tuple[Dict[str, float], List[str], List[str]]:
@@ -670,7 +679,7 @@ def _filter_tickers_by_data_availability(
                     ticker,
                     start_date,
                     end_date,
-                    fmp_ticker_map=fmp_ticker_map,
+                    ticker_alias_map=ticker_alias_map,
                 )
             elif instrument_type == "option" and OPTION_PRICING_PORTFOLIO_ENABLED:
                 prices = _fetch_option_prices(
@@ -684,7 +693,7 @@ def _filter_tickers_by_data_availability(
                     ticker,
                     start_date=start_date,
                     end_date=end_date,
-                    fmp_ticker_map=fmp_ticker_map,
+                    ticker_alias_map=ticker_alias_map,
                     instrument_type=instrument_type or "equity",
                     contract_identity=contract_identity,
                 )
@@ -741,7 +750,7 @@ def _fetch_ticker_returns(
     ticker: str,
     start_date: str,
     end_date: str,
-    fmp_ticker_map: Optional[Dict[str, str]] = None,
+    ticker_alias_map: Optional[Dict[str, str]] = None,
     currency_map: Optional[Dict[str, str]] = None,
     instrument_types: Optional[Dict[str, str]] = None,
     include_fx_attribution: bool = False,
@@ -763,7 +772,7 @@ def _fetch_ticker_returns(
             ticker,
             start_date,
             end_date,
-            fmp_ticker_map=fmp_ticker_map,
+            ticker_alias_map=ticker_alias_map,
         )
     elif instrument_type == "option" and OPTION_PRICING_PORTFOLIO_ENABLED:
         prices = _fetch_option_prices(
@@ -779,7 +788,7 @@ def _fetch_ticker_returns(
                 ticker,
                 start_date=start_date,
                 end_date=end_date,
-                fmp_ticker_map=fmp_ticker_map,
+                ticker_alias_map=ticker_alias_map,
                 instrument_type=instrument_type or "equity",
                 contract_identity=contract_identity,
             )
@@ -789,7 +798,7 @@ def _fetch_ticker_returns(
                 ticker,
                 start_date=start_date,
                 end_date=end_date,
-                fmp_ticker_map=fmp_ticker_map,
+                ticker_alias_map=ticker_alias_map,
                 instrument_type=instrument_type or "equity",
                 contract_identity=contract_identity,
             )
@@ -811,15 +820,15 @@ def _fetch_ticker_returns(
                 currency = inferred
         except Exception:
             pass
-    if not currency and fmp_ticker_map and ticker in fmp_ticker_map:
+    if not currency and ticker_alias_map and ticker in ticker_alias_map:
         # Infer currency from FMP profile (same fallback as latest_price())
         try:
-            from portfolio_risk_engine._ticker import infer_fmp_currency, normalize_fmp_price
-            fmp_currency = infer_fmp_currency(
-                fmp_ticker_map[ticker],
+            from portfolio_risk_engine._ticker import infer_currency, normalize_minor_currency_price
+            fmp_currency = infer_currency(
+                ticker_alias_map[ticker],
                 instrument_type=instrument_type,
             )
-            _, currency = normalize_fmp_price(0, fmp_currency)
+            _, currency = normalize_minor_currency_price(0, fmp_currency)
         except Exception:
             pass
     if currency and currency.upper() != "USD":
@@ -862,7 +871,7 @@ def get_returns_dataframe(
     weights: Dict[str, float],
     start_date: str,
     end_date: str,
-    fmp_ticker_map: Optional[Dict[str, str]] = None,
+    ticker_alias_map: Optional[Dict[str, str]] = None,
     currency_map: Optional[Dict[str, str]] = None,
     min_observations: Optional[int] = None,
     instrument_types: Optional[Dict[str, str]] = None,
@@ -901,7 +910,7 @@ def get_returns_dataframe(
         weights (Dict[str, float]): Portfolio weights (tickers as keys).
         start_date (str): Start date in 'YYYY-MM-DD' format.
         end_date (str): End date in 'YYYY-MM-DD' format.
-        fmp_ticker_map (Optional[Dict[str, str]]): Mapping of display tickers to FMP tickers
+        ticker_alias_map (Optional[Dict[str, str]]): Mapping of display tickers to FMP tickers
             for international stocks (e.g., {'AT': 'AT.L'}).
         currency_map (Optional[Dict[str, str]]): Mapping of ticker -> ISO currency code
             for non-USD tickers (used to FX-adjust returns).
@@ -950,7 +959,7 @@ def get_returns_dataframe(
                 ticker=t,
                 start_date=start_date,
                 end_date=end_date,
-                fmp_ticker_map=fmp_ticker_map,
+                ticker_alias_map=ticker_alias_map,
                 currency_map=currency_map,
                 instrument_types=instrument_types,
                 include_fx_attribution=include_fx_attribution,
@@ -1167,7 +1176,7 @@ def _prefetch_proxy_returns(
     stock_factor_proxies: Dict[str, Dict[str, Union[str, List[str]]]],
     start_date: str,
     end_date: str,
-    fmp_ticker_map: Optional[Dict[str, str]] = None,
+    ticker_alias_map: Optional[Dict[str, str]] = None,
     stock_return_cache: Optional[Dict[str, pd.Series]] = None,
 ) -> Dict[object, pd.Series]:
     """Pre-fetch monthly returns for all unique proxy tickers in parallel.
@@ -1210,11 +1219,11 @@ def _prefetch_proxy_returns(
             if isinstance(job_value, str):
                 try:
                     prices = fetch_monthly_total_return_price(
-                        job_value, start_date, end_date, fmp_ticker_map=fmp_ticker_map,
+                        job_value, start_date, end_date, ticker_alias_map=ticker_alias_map,
                     )
                 except Exception:
                     prices = fetch_monthly_close(
-                        job_value, start_date, end_date, fmp_ticker_map=fmp_ticker_map,
+                        job_value, start_date, end_date, ticker_alias_map=ticker_alias_map,
                     )
                 return job_key, calc_monthly_returns(prices)
 
@@ -1222,7 +1231,7 @@ def _prefetch_proxy_returns(
                 job_value,
                 start_date,
                 end_date,
-                fmp_ticker_map=fmp_ticker_map,
+                ticker_alias_map=ticker_alias_map,
                 returns_cache=cache,
             )
         except Exception:
@@ -1290,7 +1299,7 @@ def _compute_single_ticker_factors(
     proxies: Dict[str, Union[str, List[str]]],
     start_date: str,
     end_date: str,
-    fmp_ticker_map: Optional[Dict[str, str]] = None,
+    ticker_alias_map: Optional[Dict[str, str]] = None,
     proxy_cache: Optional[Dict[object, pd.Series]] = None,
     stock_returns: Optional[pd.Series] = None,
 ) -> Optional[Dict[str, Any]]:
@@ -1301,7 +1310,7 @@ def _compute_single_ticker_factors(
             ticker,
             start_date=start_date,
             end_date=end_date,
-            fmp_ticker_map=fmp_ticker_map,
+            ticker_alias_map=ticker_alias_map,
         )
         stock_ret = calc_monthly_returns(prices)
     if stock_ret.empty:
@@ -1319,12 +1328,12 @@ def _compute_single_ticker_factors(
             try:
                 mkt_prices = fetch_monthly_total_return_price(
                     mkt_t, start_date=start_date, end_date=end_date,
-                    fmp_ticker_map=fmp_ticker_map,
+                    ticker_alias_map=ticker_alias_map,
                 )
             except Exception:
                 mkt_prices = fetch_monthly_close(
                     mkt_t, start_date=start_date, end_date=end_date,
-                    fmp_ticker_map=fmp_ticker_map,
+                    ticker_alias_map=ticker_alias_map,
                 )
             mkt_ret = calc_monthly_returns(mkt_prices).reindex(idx).dropna()
         fac_dict["market"] = mkt_ret
@@ -1337,7 +1346,7 @@ def _compute_single_ticker_factors(
         else:
             fac_dict["momentum"] = fetch_excess_return(
                 mom_t, mkt_t, start_date, end_date,
-                fmp_ticker_map=fmp_ticker_map,
+                ticker_alias_map=ticker_alias_map,
             ).reindex(idx).dropna()
 
     val_t = proxies.get("value")
@@ -1348,7 +1357,7 @@ def _compute_single_ticker_factors(
         else:
             fac_dict["value"] = fetch_excess_return(
                 val_t, mkt_t, start_date, end_date,
-                fmp_ticker_map=fmp_ticker_map,
+                ticker_alias_map=ticker_alias_map,
             ).reindex(idx).dropna()
 
     for facname in ("industry", "subindustry"):
@@ -1360,7 +1369,7 @@ def _compute_single_ticker_factors(
                 if ser is None:
                     ser = fetch_peer_median_monthly_returns(
                         proxy, start_date, end_date,
-                        fmp_ticker_map=fmp_ticker_map,
+                        ticker_alias_map=ticker_alias_map,
                     )
             elif proxy in _pc:
                 ser = _pc[proxy]
@@ -1368,12 +1377,12 @@ def _compute_single_ticker_factors(
                 try:
                     p = fetch_monthly_total_return_price(
                         proxy, start_date=start_date, end_date=end_date,
-                        fmp_ticker_map=fmp_ticker_map,
+                        ticker_alias_map=ticker_alias_map,
                     )
                 except Exception:
                     p = fetch_monthly_close(
                         proxy, start_date=start_date, end_date=end_date,
-                        fmp_ticker_map=fmp_ticker_map,
+                        ticker_alias_map=ticker_alias_map,
                     )
                 ser = calc_monthly_returns(p)
             fac_dict[facname] = ser.reindex(idx).dropna()
@@ -1386,12 +1395,12 @@ def _compute_single_ticker_factors(
             try:
                 commodity_prices = fetch_monthly_total_return_price(
                     commodity_proxy, start_date=start_date, end_date=end_date,
-                    fmp_ticker_map=fmp_ticker_map,
+                    ticker_alias_map=ticker_alias_map,
                 )
             except Exception:
                 commodity_prices = fetch_monthly_close(
                     commodity_proxy, start_date=start_date, end_date=end_date,
-                    fmp_ticker_map=fmp_ticker_map,
+                    ticker_alias_map=ticker_alias_map,
                 )
             fac_dict["commodity"] = calc_monthly_returns(commodity_prices).reindex(idx).dropna()
 
@@ -1488,7 +1497,7 @@ def compute_factor_exposures(
     asset_classes: Optional[Dict[str, str]],
     start_date: str,
     end_date: str,
-    fmp_ticker_map: Optional[Dict[str, str]] = None,
+    ticker_alias_map: Optional[Dict[str, str]] = None,
     stock_return_cache: Optional[Dict[str, pd.Series]] = None,
 ) -> Dict[str, Any]:
     """
@@ -1509,7 +1518,7 @@ def compute_factor_exposures(
                     ticker=ticker,
                     start_date=start_date,
                     end_date=end_date,
-                    fmp_ticker_map=fmp_ticker_map,
+                    ticker_alias_map=ticker_alias_map,
                 )
                 series = result["returns"]
                 if series is not None and not series.empty:
@@ -1538,7 +1547,7 @@ def compute_factor_exposures(
         # Pre-fetch all unique proxy returns once (deduplicates across tickers and phases)
         proxy_cache = _prefetch_proxy_returns(
             eligible_tickers, stock_factor_proxies, start_date, end_date,
-            fmp_ticker_map=fmp_ticker_map,
+            ticker_alias_map=ticker_alias_map,
             stock_return_cache=stock_return_cache,
         )
 
@@ -1553,7 +1562,7 @@ def compute_factor_exposures(
                     proxies=stock_factor_proxies[ticker],
                     start_date=start_date,
                     end_date=end_date,
-                    fmp_ticker_map=fmp_ticker_map,
+                    ticker_alias_map=ticker_alias_map,
                     proxy_cache=proxy_cache,
                     stock_returns=stock_return_cache.get(ticker),
                 )
@@ -1607,7 +1616,7 @@ def compute_factor_exposures(
                                 ticker,
                                 start_date=start_date,
                                 end_date=end_date,
-                                fmp_ticker_map=fmp_ticker_map,
+                                ticker_alias_map=ticker_alias_map,
                             )
                             stock_ret = calc_monthly_returns(prices)
                     except Exception:
@@ -1844,7 +1853,7 @@ def build_portfolio_view(
     expected_returns: Optional[Dict[str, float]] = None,
     stock_factor_proxies: Optional[Dict[str, Dict[str, Union[str, List[str]]]]] = None,
     asset_classes: Optional[Dict[str, str]] = None,
-    fmp_ticker_map: Optional[Dict[str, str]] = None,
+    ticker_alias_map: Optional[Dict[str, str]] = None,
     currency_map: Optional[Dict[str, str]] = None,
     instrument_types: Optional[Dict[str, str]] = None,
     security_types: Optional[Dict[str, str]] = None,
@@ -1876,7 +1885,7 @@ def build_portfolio_view(
     weights_json = serialize_for_cache(weights)
     expected_returns_json = serialize_for_cache(expected_returns)
     stock_factor_proxies_json = serialize_for_cache(stock_factor_proxies)
-    fmp_ticker_map_json = serialize_for_cache(fmp_ticker_map)
+    ticker_alias_map_json = serialize_for_cache(ticker_alias_map)
     currency_map_json = serialize_for_cache(currency_map)
     instrument_types_json = serialize_for_cache(instrument_types)
     security_types_json = serialize_for_cache(security_types)
@@ -1889,7 +1898,7 @@ def build_portfolio_view(
     # Return cached computation keyed by bond mask and version
     return _cached_build_portfolio_view(
         weights_json, start_date, end_date, expected_returns_json, stock_factor_proxies_json,
-        bond_mask_json, cache_version, fmp_ticker_map_json, currency_map_json, instrument_types_json,
+        bond_mask_json, cache_version, ticker_alias_map_json, currency_map_json, instrument_types_json,
         security_types_json, contract_identities_json
     )
 
@@ -1901,7 +1910,7 @@ def _build_portfolio_view_computation(
     expected_returns: Optional[Dict[str, float]] = None,
     stock_factor_proxies: Optional[Dict[str, Dict[str, Union[str, List[str]]]]] = None,
     asset_classes: Optional[Dict[str, str]] = None,
-    fmp_ticker_map: Optional[Dict[str, str]] = None,
+    ticker_alias_map: Optional[Dict[str, str]] = None,
     currency_map: Optional[Dict[str, str]] = None,
     instrument_types: Optional[Dict[str, str]] = None,
     security_types: Optional[Dict[str, str]] = None,
@@ -1918,7 +1927,7 @@ def _build_portfolio_view_computation(
         weights,
         start_date,
         end_date,
-        fmp_ticker_map=fmp_ticker_map,
+        ticker_alias_map=ticker_alias_map,
         currency_map=currency_map,
         instrument_types=instrument_types,
         fx_attribution_out=fx_attribution,
@@ -1973,7 +1982,7 @@ def _build_portfolio_view_computation(
         asset_classes=asset_classes,
         start_date=start_date,
         end_date=end_date,
-        fmp_ticker_map=fmp_ticker_map,
+        ticker_alias_map=ticker_alias_map,
         stock_return_cache=raw_return_cache,
     )
     _bpv_steps["factor_exposures"] = round((time.perf_counter() - _bpv_t2) * 1000, 2)
@@ -2067,7 +2076,7 @@ def calculate_portfolio_performance_metrics(
     benchmark_ticker: str = "SPY",
     risk_free_rate: float = None,
     total_value: Optional[float] = None,
-    fmp_ticker_map: Optional[Dict[str, str]] = None,
+    ticker_alias_map: Optional[Dict[str, str]] = None,
     currency_map: Optional[Dict[str, str]] = None,
     instrument_types: Optional[Dict[str, str]] = None,
     include_attribution: bool = True,
@@ -2132,7 +2141,7 @@ def calculate_portfolio_performance_metrics(
         start_date,
         end_date,
         min_months=min_obs,
-        fmp_ticker_map=fmp_ticker_map,
+        ticker_alias_map=ticker_alias_map,
         instrument_types=instrument_types,
     )
     
@@ -2149,7 +2158,7 @@ def calculate_portfolio_performance_metrics(
         filtered_weights,
         start_date,
         end_date,
-        fmp_ticker_map=fmp_ticker_map,
+        ticker_alias_map=ticker_alias_map,
         currency_map=currency_map,
         min_observations=min_obs,
         instrument_types=instrument_types,
@@ -2171,7 +2180,7 @@ def calculate_portfolio_performance_metrics(
             benchmark_ticker,
             start_date,
             end_date,
-            fmp_ticker_map=fmp_ticker_map,
+            ticker_alias_map=ticker_alias_map,
         )
         benchmark_returns = calc_monthly_returns(benchmark_prices)
         
@@ -2206,7 +2215,7 @@ def calculate_portfolio_performance_metrics(
         try:
             from portfolio_risk_engine.performance_metrics_engine import compute_recent_returns
 
-            recent = compute_recent_returns(filtered_weights, benchmark_ticker, fmp_ticker_map)
+            recent = compute_recent_returns(filtered_weights, benchmark_ticker, ticker_alias_map)
             performance_metrics.setdefault("returns", {}).update(recent)
         except Exception:
             pass
@@ -2237,7 +2246,7 @@ def calculate_portfolio_performance_metrics(
             dividend_metrics = calculate_portfolio_dividend_yield(
                 filtered_weights,
                 total_value,
-                fmp_ticker_map=fmp_ticker_map,
+                ticker_alias_map=ticker_alias_map,
             )
             performance_metrics["dividend_metrics"] = dividend_metrics
         except Exception as e:
@@ -2260,7 +2269,7 @@ def calculate_portfolio_performance_metrics(
             performance_metrics["sector_attribution"] = _compute_sector_attribution(
                 df_ret=df_ret,
                 weights=filtered_weights,
-                fmp_ticker_map=fmp_ticker_map,
+                ticker_alias_map=ticker_alias_map,
                 instrument_types=instrument_types,
             )
         except Exception:
@@ -2279,7 +2288,7 @@ def calculate_portfolio_performance_metrics(
                 port_ret=port_ret,
                 start_date=start_date,
                 end_date=end_date,
-                fmp_ticker_map=fmp_ticker_map,
+                ticker_alias_map=ticker_alias_map,
             )
         except Exception:
             performance_metrics["factor_attribution"] = []
@@ -2335,7 +2344,7 @@ def _build_attribution_row(
 
 def _resolve_profile_symbol(
     ticker: str,
-    fmp_ticker_map: Optional[Dict[str, str]] = None,
+    ticker_alias_map: Optional[Dict[str, str]] = None,
 ) -> str:
     """Resolve ticker to profile lookup symbol using explicit mapping first."""
     raw = str(ticker or "").strip()
@@ -2344,10 +2353,10 @@ def _resolve_profile_symbol(
 
     normalized = raw.upper()
     mapped = None
-    if fmp_ticker_map:
-        mapped = fmp_ticker_map.get(raw)
+    if ticker_alias_map:
+        mapped = ticker_alias_map.get(raw)
         if mapped is None:
-            mapped = fmp_ticker_map.get(normalized)
+            mapped = ticker_alias_map.get(normalized)
 
     symbol = str(mapped or normalized).strip()
     if not mapped and "." in symbol:
@@ -2358,7 +2367,7 @@ def _resolve_profile_symbol(
 def _compute_sector_attribution(
     df_ret: pd.DataFrame,
     weights: Dict[str, float],
-    fmp_ticker_map: Optional[Dict[str, str]] = None,
+    ticker_alias_map: Optional[Dict[str, str]] = None,
     instrument_types: Optional[Dict[str, str]] = None,
 ) -> List[Dict[str, Any]]:
     """Compute sector-level attribution from per-ticker total returns and weights."""
@@ -2367,12 +2376,12 @@ def _compute_sector_attribution(
         return []
 
     ticker_to_sector: Dict[str, str] = {ticker: "Unknown" for ticker in ticker_total_returns.keys()}
-    eligible_tickers = filter_fmp_eligible(
+    eligible_tickers = filter_price_eligible(
         ticker_total_returns.keys(),
         instrument_types=instrument_types,
     )
     ticker_to_symbol = {
-        ticker: _resolve_profile_symbol(ticker, fmp_ticker_map=fmp_ticker_map)
+        ticker: _resolve_profile_symbol(ticker, ticker_alias_map=ticker_alias_map)
         for ticker in eligible_tickers
     }
 
@@ -2458,7 +2467,7 @@ def _compute_factor_attribution(
     port_ret: pd.Series,
     start_date: str,
     end_date: str,
-    fmp_ticker_map: Optional[Dict[str, str]] = None,
+    ticker_alias_map: Optional[Dict[str, str]] = None,
 ) -> List[Dict[str, Any]]:
     """Compute portfolio-level factor return attribution via multivariate OLS."""
     if port_ret is None or port_ret.empty:
@@ -2488,7 +2497,7 @@ def _compute_factor_attribution(
             "SPY",
             start_date,
             end_date,
-            fmp_ticker_map=fmp_ticker_map,
+            ticker_alias_map=ticker_alias_map,
         )
         market_returns = calc_monthly_returns(market_prices)
         if not market_returns.empty:
@@ -2502,7 +2511,7 @@ def _compute_factor_attribution(
             "SPY",
             start_date,
             end_date,
-            fmp_ticker_map=fmp_ticker_map,
+            ticker_alias_map=ticker_alias_map,
         )
         if not momentum_returns.empty:
             factor_data["momentum"] = pd.to_numeric(momentum_returns, errors="coerce").dropna()
@@ -2515,7 +2524,7 @@ def _compute_factor_attribution(
             "SPY",
             start_date,
             end_date,
-            fmp_ticker_map=fmp_ticker_map,
+            ticker_alias_map=ticker_alias_map,
         )
         if not value_returns.empty:
             factor_data["value"] = pd.to_numeric(value_returns, errors="coerce").dropna()
@@ -2580,7 +2589,7 @@ def _compute_factor_attribution(
 def calculate_portfolio_dividend_yield(
     weights: Dict[str, float],
     portfolio_value: Optional[float] = None,
-    fmp_ticker_map: Optional[Dict[str, str]] = None,
+    ticker_alias_map: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     """
     Calculate comprehensive portfolio dividend analysis including weighted yield and coverage metrics.
@@ -2658,7 +2667,7 @@ def calculate_portfolio_dividend_yield(
             float(
                 fetch_current_dividend_yield(
                     ticker,
-                    fmp_ticker_map=fmp_ticker_map,
+                    ticker_alias_map=ticker_alias_map,
                 )
             ),
         )

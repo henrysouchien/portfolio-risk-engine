@@ -1,354 +1,193 @@
 # Scenario Tool Chaining Architecture
 
-> **v1** — Codex-reviewed FAIL (6 findings). **STATUS: DEFERRED** — revisit after MC cross-view context plan + individual tool redesigns (backtest, optimization) land. Building bottom-up: let each tool wire its own chaining first, then extract the common protocol from what actually works.
+> **v2** — revised after bottom-up implementation. Re-submitting for Codex review.
 >
-> **Depends on**: `MONTE_CARLO_CROSS_VIEW_CONTEXT_PLAN.md` (frontend threading), `BACKTEST_TOOL_REDESIGN_PLAN.md`, `OPTIMIZATION_TOOL_REDESIGN_PLAN.md`.
->
-> **Codex findings to address on revisit**: (1) MC frontend threading is required, not "zero backend changes"; (2) legacy source strings need compat layer; (3) workflow store `ScenarioWorkflowStepOutput` needs `nextContext` field; (4) context envelope needs provenance metadata (`portfolioId`, `createdAt`); (5) missing Backtest→What-If path; (6) rename discriminant to avoid `mode` collision with `ScenarioToolContractInput`.
+> **v1 Codex review**: FAIL (6 findings). **4 of 6 addressed by shipped code** (MC cross-view `cf7a14c4`, backtest redesign, optimization redesign, what-if redesign). **2 remaining**: workflow `contextFromPrevious` gaps + MC→Optimize exit ramp.
 
 ## Context
 
-The 6 scenario tools (What-If, Optimize, Backtest, Stress Test, Monte Carlo, Hedge) work individually but chain poorly. Today, only the **right half** of the analytical flow works: Optimize -> What-If -> Backtest -> Rebalance (weight passing). The **left half** — where risk intelligence flows from Stress Test/Monte Carlo into downstream tools — is broken: empty contexts, ignored props, missing `contextFromPrevious` in workflows.
+The 6 scenario tools (What-If, Optimize, Backtest, Stress Test, Monte Carlo, Hedge) now chain well for **weight-based flows** but still have gaps in **risk intelligence flows** and **workflow auto-wiring**.
 
-This plan defines a **typed chaining protocol** that each tool redesign adopts incrementally. No big-bang migration — each tool picks up its piece as it gets redesigned.
+### What Works Today (shipped)
 
-**Key finding: zero backend changes needed.** All tools already accept the parameters they need on the backend. The gaps are purely frontend context wiring.
+| Chain | Context Passed | Commit |
+|-------|---------------|--------|
+| Optimize → What-If | `{ weights }` | existing |
+| Optimize → Backtest | `{ weights }` | existing |
+| Optimize → Monte Carlo | `{ weights, source, label }` | `cf7a14c4` |
+| What-If → Backtest | `{ weights }` | existing |
+| What-If → Monte Carlo | `{ weights, source, label }` | `cf7a14c4` |
+| What-If → Rebalance | `{ weights, label, source }` | existing |
+| Backtest → What-If | `{ weights }` | backtest redesign |
+| Backtest → Rebalance | `{ weights, label, source }` | backtest redesign |
+| Hedge → What-If | `{ mode: "deltas", deltas, label, source }` | existing |
+| Stress Test → Monte Carlo | `{ portfolioValue, volScale, distribution, source, label }` | `cf7a14c4` |
+| Stress Test → Hedge | `{ label, source }` (label only) | existing |
+| MC context consumption | Normalizes weights, volScale, distribution, portfolioValue; auto-runs | `cf7a14c4` |
+| "Optimize & Validate" workflow | `contextFromPrevious` wired for all 3 steps | existing |
+| "Rebalance & Execute" workflow | `contextFromPrevious` wired for step 2 | existing |
 
-### Current State Audit
+### What's Still Broken
 
-**What works (weight-based chaining):**
-- Optimize -> What-If: `{ weights }` via `onNavigate`
-- Optimize -> Backtest: `{ weights }` via `onNavigate`
-- What-If -> Backtest: `{ weights }` via `onNavigate`
-- Hedge -> What-If: `{ mode: "deltas", deltas, label, source }` via `onNavigate`
-- All above -> Rebalance: `{ weights, label, source }` via `onNavigate`
-
-**What's broken:**
-- Stress Test -> Hedge: passes `{ label, source }` only — no impact data, no shocks, no weights
-- Stress Test -> Monte Carlo: passes `{}` (empty)
-- Monte Carlo -> Optimize: passes `{}` (empty)
-- Optimize ignores incoming context: `context: _context`
-- Monte Carlo ignores incoming context: `void context`
-- Stress Test ignores incoming context: `context: _context`
-- Workflow `contextFromPrevious`: only "Optimize & Validate" wires context; "Recession Prep" and "Portfolio Checkup" pass nothing
-
-**Backend parameter support:**
-
-| Tool | Accepts weights in? | Returns resolved_weights? | Agent format? | delta_changes? |
-|------|:---:|:---:|:---:|:---:|
-| What-If | `target_weights` / `delta_changes` | Yes | Yes | Yes |
-| Backtest | `weights` / `delta_changes` | Yes | Yes | Yes |
-| Monte Carlo | `resolved_weights` | No (terminal) | Yes | No |
-| Optimization | No | Yes | Yes | No |
-| Stress Test | No | No | No | No |
+1. **Monte Carlo → Optimize**: exit ramp passes `{}` (empty) — no risk finding context
+2. **Stress Test → Hedge**: passes label only — no impact data, shocks, or worst position
+3. **"Recession Prep" workflow**: Stress → Hedge has NO `contextFromPrevious`
+4. **"Portfolio Checkup" workflow**: Stress → MC has NO `contextFromPrevious`
 
 ---
 
-## The Protocol: 4 Context Shapes
+## Remaining Work: 3 Items
 
-Today's `toolContext: Record<string, unknown>` is untyped. The protocol adds a `mode` discriminant that makes contexts self-describing. Backward compatible — tools that check `context.weights` directly keep working.
+### Item 1: Monte Carlo → Optimize exit ramp
 
-### Shape 1: `WeightsContext` (allocation passing)
+**File**: `MonteCarloTool.tsx` (exit ramp section, currently `onNavigate("optimize")`)
+
+Pass risk finding context so Optimize can show "MC identified high risk" banner:
+
 ```typescript
-interface WeightsContext {
-  mode: 'weights';
-  weights: Record<string, number>;
-  label: string;
-  source: ToolChainSource;
-  riskMetrics?: {
-    volatility?: number;
-    sharpe?: number;
-    maxDrawdown?: number;
-  };
-}
+onNavigate("optimize", {
+  source: "monte-carlo",
+  label: "Monte Carlo risk assessment",
+  probabilityOfLoss: terminal?.probability_of_loss,
+  var95: terminal?.var_95,
+  cvar95: terminal?.cvar_95,
+})
 ```
-**Used by:** Optimize/What-If/Backtest -> any tool that accepts weights
 
-### Shape 2: `DeltaContext` (overlay modifications)
+**OptimizeTool.tsx**: Read `context.probabilityOfLoss` etc. to show a context banner and optionally auto-select `min_variance` when risk is high.
+
+### Item 2: Stress Test → Hedge exit ramp enrichment
+
+**File**: `StressTestTool.tsx` (line ~359, `handleHedgeNavigation`)
+
+Currently passes `{ label, source }`. Enrich with impact data:
+
 ```typescript
-interface DeltaContext {
-  mode: 'deltas';
-  deltas: Record<string, string>;
-  label: string;
-  source: ToolChainSource;
-}
+onNavigate("hedge", {
+  label: lastRunScenarioName ?? stressTest.data?.scenarioName ?? "Stress Test",
+  source: "stress-test",
+  impactPct: stressTest.data?.estimatedImpactPct,
+  impactDollar: stressTest.data?.estimatedImpactDollar,
+  scenarioName: lastRunScenarioName,
+})
 ```
-**Used by:** Hedge -> What-If
 
-### Shape 3: `RiskFindingContext` (risk intelligence)
+**HedgeTool.tsx**: Read `context.impactPct` etc. to show "Hedging against [scenario]: [X]% estimated impact" banner.
+
+### Item 3: Wire 2 workflow `contextFromPrevious` callbacks
+
+**File**: `workflows.ts`
+
+**Recession Prep** (Stress → Hedge) — line 38, add `contextFromPrevious`:
 ```typescript
-interface RiskFindingContext {
-  mode: 'risk-finding';
-  label: string;
-  source: ToolChainSource;
-  finding: {
-    severity: 'low' | 'moderate' | 'severe';
-    impactPct?: number;
-    impactDollar?: number;
-    probabilityOfLoss?: number;
-    var95?: number;
-    cvar95?: number;
-    worstPosition?: { ticker: string; impactPct: number };
-    scenarioName?: string;
-    scenarioShocks?: Record<string, number>;
-  };
-  suggestedAction?: string;
-}
+{
+  toolId: 'hedge',
+  label: 'Hedge Analysis',
+  contextFromPrevious: (previousOutput) => {
+    const impactPct = previousOutput?.metrics?.estimatedImpactPct;
+    if (typeof impactPct !== 'number') return {};
+    return {
+      label: previousOutput?.summary ?? 'Stress Test',
+      source: 'stress-test',
+      impactPct,
+      impactDollar: previousOutput?.metrics?.estimatedImpactDollar,
+    };
+  },
+},
 ```
-**Used by:** Stress Test -> Hedge, Monte Carlo -> Optimize
 
-### Shape 4: `SimConfigContext` (simulation parameter hints)
+**Portfolio Checkup** (Stress → MC) — line 106, add `contextFromPrevious`:
 ```typescript
-interface SimConfigContext {
-  mode: 'sim-config';
-  label: string;
-  source: ToolChainSource;
-  weights?: Record<string, number>;
-  simParams?: {
-    portfolioValue?: number;
-    volScale?: number;
-    distribution?: 'normal' | 't' | 'bootstrap';
-  };
-}
-```
-**Used by:** Stress Test -> Monte Carlo, What-If/Optimize -> Monte Carlo
-
-### Helper utilities
-
-```typescript
-type ToolChainSource = 'optimize' | 'what-if' | 'backtest' | 'stress-test' | 'monte-carlo' | 'hedge';
-type ToolChainContext = WeightsContext | DeltaContext | RiskFindingContext | SimConfigContext;
-
-// Type guards
-const isWeightsContext = (ctx: Record<string, unknown>): ctx is WeightsContext => ctx.mode === 'weights' && !!ctx.weights;
-const isDeltaContext = (ctx: Record<string, unknown>): ctx is DeltaContext => ctx.mode === 'deltas' && !!ctx.deltas;
-const isRiskFindingContext = (ctx: Record<string, unknown>): ctx is RiskFindingContext => ctx.mode === 'risk-finding' && !!ctx.finding;
-const isSimConfigContext = (ctx: Record<string, unknown>): ctx is SimConfigContext => ctx.mode === 'sim-config';
-
-// Universal extractors
-const extractWeights = (ctx: Record<string, unknown>): Record<string, number> | null => {
-  if (isWeightsContext(ctx)) return ctx.weights;
-  if (isSimConfigContext(ctx) && ctx.weights) return ctx.weights;
-  return null;
-};
-const extractLabel = (ctx: Record<string, unknown>): string | null => typeof ctx.label === 'string' ? ctx.label : null;
-const extractSource = (ctx: Record<string, unknown>): ToolChainSource | null => typeof ctx.source === 'string' ? ctx.source as ToolChainSource : null;
+{
+  toolId: 'monte-carlo',
+  label: 'Monte Carlo',
+  contextFromPrevious: (previousOutput, session) => {
+    if (!previousOutput) return {};
+    return {
+      source: 'stress-test',
+      label: previousOutput?.summary ?? 'Stress Test',
+      portfolioValue: session.portfolioSnapshot.totalValue ?? undefined,
+    };
+  },
+},
 ```
 
 ---
 
-## Producer/Consumer Contract Per Tool
+## Deferred: Formal Typed Protocol
 
-### Stress Test
-| Role | Today | After |
-|------|-------|-------|
-| **Consumes** | `_context` (ignored) | Nothing (runs on live portfolio — correct) |
-| **Produces -> Hedge** | `{ label, source }` | `RiskFindingContext` with impact data, worst position, scenario shocks |
-| **Produces -> MC** | `{}` (empty) | `SimConfigContext` with portfolio value |
+The original v1 plan proposed 4 typed context shapes (`WeightsContext`, `DeltaContext`, `RiskFindingContext`, `SimConfigContext`) with discriminated union on `mode`. This is **deferred** — the current property-based approach works without friction:
 
-### Monte Carlo
-| Role | Today | After |
-|------|-------|-------|
-| **Consumes** | `void context` (ignored) | `SimConfigContext` (auto-populate weights, volScale, distribution) or `WeightsContext` (weights only) |
-| **Produces -> Optimize** | `{}` (empty) | `RiskFindingContext` with probability_of_loss, VaR, CVaR |
+- Tools check `context.weights`, `context.portfolioValue`, `context.impactPct` directly
+- MonteCarloTool normalizes via `normalizeContextWeights()`, `normalizeContextNumber()`, `normalizeContextDistribution()`
+- No collision issues found in practice
+- Type safety is nice-to-have but not blocking any feature work
 
-### Optimize
-| Role | Today | After |
-|------|-------|-------|
-| **Consumes** | `_context` (ignored) | `WeightsContext` (show comparison), `RiskFindingContext` (suggest optimization goal + banner) |
-| **Produces -> What-If** | `{ weights }` | `WeightsContext` with riskMetrics |
-| **Produces -> Backtest** | `{ weights }` | `WeightsContext` with riskMetrics |
-| **Produces -> MC** | N/A (no exit ramp) | `SimConfigContext` with optimized weights (exit ramp from MC cross-view plan) |
+If we add formal types later, it's additive — a `toolChainContext.ts` file with type guards that wrap existing property checks. No tool code changes needed.
 
-### What-If
-| Role | Today | After |
-|------|-------|-------|
-| **Consumes** | `context.weights`, `context.deltas`, `context.mode`, `context.label` | Same + type guard narrowing, source-aware banner |
-| **Produces -> Backtest** | `{ weights }` | `WeightsContext` |
-| **Produces -> MC** | N/A (no exit ramp) | `SimConfigContext` with scenario weights (exit ramp from MC cross-view plan) |
+### Provenance metadata (portfolioId, createdAt)
 
-### Backtest
-| Role | Today | After |
-|------|-------|-------|
-| **Consumes** | `context.weights` | `WeightsContext` with source-aware banner |
-| **Produces -> Rebalance** | `{ weights, label, source }` | `WeightsContext` |
-
-### Hedge
-| Role | Today | After |
-|------|-------|-------|
-| **Consumes** | `context.label` only | `RiskFindingContext` (show impact data in banner) |
-| **Produces -> What-If** | `{ mode: 'deltas', deltas, label, source }` | `DeltaContext` (same shape, already correct) |
+Also deferred. Low priority — tools currently run against the active portfolio, and stale context is cleared on navigation. Would matter more if we had cross-session context persistence.
 
 ---
 
-## Flow Diagram
+## Flow Diagram (current state)
 
 ```
                     ┌──────────────┐
                     │  Stress Test  │
                     │  (live port.) │
                     └──┬───────┬───┘
-          RiskFinding  │       │  SimConfig
+           label+      │       │  portfolioValue+
+           impact*     │       │  volScale+dist
                        v       v
               ┌────────┐  ┌──────────┐
-              │ Hedge   │  │Monte     │
+              │ Hedge   │  │Monte     │◄── weights from Optimize/WhatIf
               │         │  │Carlo     │
               └───┬─────┘  └───┬──────┘
-          Deltas  │    RiskFinding │
+          Deltas  │     (empty)*│
                   v            v
               ┌────────┐  ┌──────────┐
               │What-If │  │Optimize  │
               │        │  │          │
               └─┬──┬┬──┘  └──┬──┬┬──┘
        Weights  │  ││Weights  │  ││ Weights
-    SimConfig   │  ││         │  ││ SimConfig
+       +simCtx  │  ││         │  ││ +simCtx
                 v  vv         v  vv
            ┌─────┐┌───────┐ ┌─────────┐
            │MC   ││Backtest│ │Rebalance│
            └─────┘└───┬───┘ └─────────┘
                       │ Weights
                       v
-                 ┌─────────┐
-                 │Rebalance│
-                 └─────────┘
+              ┌────────┐  ┌─────────┐
+              │What-If │  │Rebalance│
+              └────────┘  └─────────┘
+
+  ✓ = shipped    * = remaining gap (Items 1-2)
 ```
 
 ---
 
-## Migration Strategy
+## Files to Modify
 
-Each tool redesign picks up its chaining piece independently. No tool depends on another being migrated first (backward compatible via type guards returning `false` for old-style contexts).
+| File | Change | Item |
+|------|--------|------|
+| `MonteCarloTool.tsx` | Pass risk metrics in "Optimize" exit ramp | 1 |
+| `OptimizeTool.tsx` | Read `context.probabilityOfLoss` etc., show banner | 1 |
+| `StressTestTool.tsx` | Enrich Hedge exit ramp with impact data | 2 |
+| `HedgeTool.tsx` | Read `context.impactPct`, show enriched banner | 2 |
+| `workflows.ts` | Add `contextFromPrevious` to Recession Prep + Portfolio Checkup | 3 |
 
-| Phase | Scope | Layered Into |
-|-------|-------|-------------|
-| **A** | Define `ToolChainContext` types + guards + helpers | New file: `connectors/src/features/scenario/toolChainContext.ts` |
-| **B1** | Stress Test exit ramps produce `RiskFindingContext` + `SimConfigContext` | Stress Test redesign plan (when created) |
-| **B2** | Monte Carlo consumes `SimConfigContext`/`WeightsContext`, produces `RiskFindingContext` | MC cross-view context plan (already approved) |
-| **B3** | Optimize consumes `WeightsContext`/`RiskFindingContext` | Optimization redesign plan (already approved) |
-| **C** | What-If, Backtest, Hedge add `mode` to exit ramps, source-aware banners | Individual tool polishes or backtest redesign plan |
-| **D** | Wire workflow `contextFromPrevious` for all 5 workflows | After B1-B3 tools produce typed contexts |
-
----
-
-## Workflow `contextFromPrevious` Updates (Phase D)
-
-**Recession Prep** (Stress -> Hedge) — currently has NO `contextFromPrevious`:
-```typescript
-contextFromPrevious: (prev) => {
-  const impactPct = prev?.metrics?.estimatedImpactPct;
-  if (typeof impactPct !== 'number') return {};
-  return {
-    mode: 'risk-finding',
-    source: 'stress-test',
-    label: prev?.summary ?? 'Stress Test',
-    finding: {
-      severity: impactPct <= -10 ? 'severe' : impactPct <= -5 ? 'moderate' : 'low',
-      impactPct,
-      impactDollar: prev?.metrics?.estimatedImpactDollar,
-    },
-  } satisfies RiskFindingContext;
-}
-```
-
-**Portfolio Checkup** (Stress -> MC) — currently has NO `contextFromPrevious`:
-```typescript
-contextFromPrevious: (prev, session) => {
-  if (!prev) return {};
-  return {
-    mode: 'sim-config',
-    source: 'stress-test',
-    label: prev?.summary ?? 'Stress Test',
-    simParams: {
-      portfolioValue: session.portfolioSnapshot.totalValue,
-    },
-  } satisfies SimConfigContext;
-}
-```
-
-**Optimize & Validate** (Optimize -> What-If -> Backtest) — add `mode` to existing:
-```typescript
-contextFromPrevious: (prev) => {
-  const weights = getWeights(prev);
-  return weights
-    ? { mode: 'weights', weights, label: 'Optimized allocation', source: 'optimize' } satisfies WeightsContext
-    : {};
-}
-```
-
----
-
-## Shared `ContextBanner` Component
-
-Replace the 3+ ad-hoc inline banners (WhatIfTool line ~472, BacktestTool line ~411, HedgeTool line ~211) with a shared component:
-
-**File**: `frontend/packages/ui/src/components/portfolio/scenarios/shared/ContextBanner.tsx`
-
-```typescript
-function ContextBanner({ context }: { context: Record<string, unknown> }) {
-  const label = extractLabel(context);
-  const source = extractSource(context);
-  if (!label) return null;
-
-  const sourceLabel = source ? TOOL_LABELS[source] : undefined;
-  const isRisk = isRiskFindingContext(context);
-  // amber for risk findings, emerald for weight imports, blue for sim configs
-  const colorClasses = isRisk
-    ? 'border-amber-200 bg-amber-50 text-amber-800'
-    : isSimConfigContext(context)
-    ? 'border-blue-200 bg-blue-50 text-blue-800'
-    : 'border-emerald-200 bg-emerald-50 text-emerald-800';
-
-  return (
-    <div className={`rounded-2xl border px-4 py-3 text-sm ${colorClasses}`}>
-      Running with context from {sourceLabel ?? 'previous tool'}: {label}
-    </div>
-  );
-}
-```
-
----
-
-## Files Summary
-
-### New files (2)
-1. `frontend/packages/connectors/src/features/scenario/toolChainContext.ts` — type definitions, guards, helpers
-2. `frontend/packages/ui/src/components/portfolio/scenarios/shared/ContextBanner.tsx` — shared context banner
-
-### Modified per-tool (layered into redesigns)
-- `StressTestTool.tsx` — exit ramp context objects (Phase B1)
-- `MonteCarloTool.tsx` — context consumption + exit ramp production (Phase B2, per MC cross-view plan)
-- `OptimizeTool.tsx` — context consumption + mode on exit ramps (Phase B3)
-- `WhatIfTool.tsx` — add mode to exit ramps, MC exit ramp (Phase C)
-- `BacktestTool.tsx` — add mode to exit ramps, source-aware banner (Phase C)
-- `HedgeTool.tsx` — consume RiskFindingContext for richer banner (Phase C)
-- `workflows.ts` — wire contextFromPrevious for all workflows (Phase D)
-
-### Backend changes
-**None.** All tools already accept the parameters needed for chaining on the backend.
-
----
-
-## What This Enables
-
-After full adoption, these chains work end-to-end:
-
-1. **Stress Test -> Monte Carlo -> Optimize -> Backtest -> Rebalance**
-   Risk identification -> Forward simulation -> Risk mitigation -> Historical validation -> Execution
-
-2. **Stress Test -> Hedge -> What-If -> Backtest**
-   Vulnerability found -> Hedge strategy -> Compliance check -> Historical test
-
-3. **Monte Carlo -> Optimize -> What-If -> Monte Carlo** (loop)
-   High risk detected -> Optimize allocation -> Check risk profile -> Re-simulate to confirm improvement
-
-4. All 5 guided workflows pass meaningful context between every step.
+**Backend changes: None.** All chaining is frontend context wiring.
 
 ---
 
 ## Verification
 
-1. **Type safety**: `tsc --noEmit` clean after each phase
-2. **Backward compat**: Tools that haven't been migrated yet still work (type guards return false for old-style contexts)
-3. **Each phase**: Run the specific tool, verify context banner appears, verify exit ramp passes typed context
-4. **Workflows**: Run each guided workflow end-to-end, verify context propagates through all steps
-5. **Frontend tests**: `cd frontend && npx vitest run --reporter=verbose`
+1. **Item 1**: Run MC → click "Optimize for better outcomes" → Optimize shows "MC found X% probability of loss" banner
+2. **Item 2**: Run Stress Test → click "Find a hedge" → Hedge shows "Hedging against [scenario]: -X% impact" banner
+3. **Item 3a**: Start "Recession Prep" workflow → complete Stress Test → advance → Hedge receives impact data via `contextFromPrevious`
+4. **Item 3b**: Start "Portfolio Checkup" workflow → complete Stress Test → advance → MC receives `portfolioValue` via `contextFromPrevious`, auto-runs
+5. **Type safety**: `tsc --noEmit` clean
+6. **Tests**: `cd frontend && npx vitest run --reporter=verbose`
+7. **E2E chaining**: Run Scenarios 1 and 4 from `SCENARIO_CHAINING_TEST_DESIGN.md` on Frontend surface

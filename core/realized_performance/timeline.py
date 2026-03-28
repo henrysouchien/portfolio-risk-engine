@@ -358,7 +358,7 @@ def build_position_timeline(
     current_positions: Dict[str, Dict[str, Any]],
     inception_date: datetime,
     incomplete_trades: List[IncompleteTrade],
-    fmp_ticker_map: Optional[Dict[str, str]] = None,
+    ticker_alias_map: Optional[Dict[str, str]] = None,
     *,
     use_per_symbol_inception: bool = False,
 ) -> Tuple[
@@ -376,7 +376,7 @@ def build_position_timeline(
     but requires complete transaction history (safe for Schwab; unsafe for IBKR
     whose Flex query window may be limited).
     """
-    del fmp_ticker_map  # Reserved for future use.
+    del ticker_alias_map  # Reserved for future use.
 
     position_events: Dict[Tuple[str, str, str], List[Tuple[datetime, float]]] = defaultdict(list)
     synthetic_positions: List[Dict[str, str]] = []

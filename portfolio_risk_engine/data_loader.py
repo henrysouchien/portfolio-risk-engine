@@ -51,7 +51,7 @@ from portfolio_risk_engine.config import (
     DIVIDEND_LRU_SIZE,
     DIVIDEND_DATA_QUALITY_THRESHOLD,
 )
-from portfolio_risk_engine._ticker import select_fmp_symbol
+from portfolio_risk_engine._ticker import resolve_ticker_alias
 from portfolio_risk_engine.config import DIVIDEND_DEFAULTS
 from portfolio_risk_engine.providers import get_price_provider
 
@@ -148,8 +148,9 @@ def fetch_monthly_close(
     start_date: Optional[Union[str, datetime]] = None,
     end_date:   Optional[Union[str, datetime]] = None,
     *,
-    fmp_ticker: Optional[str] = None,
-    fmp_ticker_map: Optional[dict[str, str]] = None,
+    ticker_alias: Optional[str] = None,
+    ticker_alias_map: Optional[dict[str, str]] = None,
+    ticker_resolver: Any | None = None,
     instrument_type: str | None = None,
     contract_identity: dict[str, Any] | None = None,
 ) -> pd.Series:
@@ -163,8 +164,8 @@ def fetch_monthly_close(
         ticker (str):       Stock or ETF symbol (display/original).
         start_date (str|datetime, optional): Earliest date (inclusive).
         end_date   (str|datetime, optional): Latest date (inclusive).
-        fmp_ticker (str, optional): FMP-compatible symbol override.
-        fmp_ticker_map (dict, optional): Mapping of ticker -> fmp_ticker.
+        ticker_alias (str, optional): FMP-compatible symbol override.
+        ticker_alias_map (dict, optional): Mapping of ticker -> ticker_alias.
         instrument_type (str, optional): Canonical instrument type for provider routing.
         contract_identity (dict, optional): Provider-specific contract metadata.
 
@@ -175,8 +176,9 @@ def fetch_monthly_close(
         ticker,
         start_date,
         end_date,
-        fmp_ticker=fmp_ticker,
-        fmp_ticker_map=fmp_ticker_map,
+        ticker_alias=ticker_alias,
+        ticker_alias_map=ticker_alias_map,
+        ticker_resolver=ticker_resolver,
         instrument_type=instrument_type,
         contract_identity=contract_identity,
     )
@@ -188,8 +190,9 @@ def fetch_monthly_total_return_price(
     start_date: Optional[Union[str, datetime]] = None,
     end_date: Optional[Union[str, datetime]] = None,
     *,
-    fmp_ticker: Optional[str] = None,
-    fmp_ticker_map: Optional[dict[str, str]] = None,
+    ticker_alias: Optional[str] = None,
+    ticker_alias_map: Optional[dict[str, str]] = None,
+    ticker_resolver: Any | None = None,
     instrument_type: str | None = None,
     contract_identity: dict[str, Any] | None = None,
 ) -> pd.Series:
@@ -203,8 +206,8 @@ def fetch_monthly_total_return_price(
         ticker (str):       Stock or ETF symbol (display/original).
         start_date (str|datetime, optional): Earliest date (inclusive).
         end_date   (str|datetime, optional): Latest date (inclusive).
-        fmp_ticker (str, optional): FMP-compatible symbol override.
-        fmp_ticker_map (dict, optional): Mapping of ticker -> fmp_ticker.
+        ticker_alias (str, optional): FMP-compatible symbol override.
+        ticker_alias_map (dict, optional): Mapping of ticker -> ticker_alias.
         instrument_type (str, optional): Canonical instrument type for provider routing.
         contract_identity (dict, optional): Provider-specific contract metadata.
     """
@@ -212,8 +215,9 @@ def fetch_monthly_total_return_price(
         ticker,
         start_date,
         end_date,
-        fmp_ticker=fmp_ticker,
-        fmp_ticker_map=fmp_ticker_map,
+        ticker_alias=ticker_alias,
+        ticker_alias_map=ticker_alias_map,
+        ticker_resolver=ticker_resolver,
         instrument_type=instrument_type,
         contract_identity=contract_identity,
     )
@@ -256,8 +260,9 @@ def fetch_dividend_history(
     start_date: Optional[Union[str, datetime]] = None,
     end_date: Optional[Union[str, datetime]] = None,
     *,
-    fmp_ticker: Optional[str] = None,
-    fmp_ticker_map: Optional[dict[str, str]] = None,
+    ticker_alias: Optional[str] = None,
+    ticker_alias_map: Optional[dict[str, str]] = None,
+    ticker_resolver: Any | None = None,
 ) -> pd.DataFrame:
     """
     Fetch dividend history for a ticker from FMP using frequency-based TTM calculation.
@@ -280,8 +285,8 @@ def fetch_dividend_history(
         ticker (str): Stock ticker symbol (e.g., "STWD", "DSU")
         start_date (Optional[Union[str, datetime]]): Deprecated - kept for compatibility
         end_date (Optional[Union[str, datetime]]): Deprecated - kept for compatibility
-        fmp_ticker (str, optional): FMP-compatible symbol override.
-        fmp_ticker_map (dict, optional): Mapping of ticker -> fmp_ticker.
+        ticker_alias (str, optional): FMP-compatible symbol override.
+        ticker_alias_map (dict, optional): Mapping of ticker -> ticker_alias.
 
     Returns:
         pd.DataFrame: DataFrame indexed by ex-dividend date with columns:
@@ -298,15 +303,16 @@ def fetch_dividend_history(
         ticker,
         start_date,
         end_date,
-        fmp_ticker=fmp_ticker,
-        fmp_ticker_map=fmp_ticker_map,
+        ticker_alias=ticker_alias,
+        ticker_alias_map=ticker_alias_map,
+        ticker_resolver=ticker_resolver,
     )
 
 
 from functools import lru_cache
 
 @lru_cache(maxsize=DIVIDEND_LRU_SIZE)
-def _fetch_current_dividend_yield_lru(fmp_symbol: str) -> float:
+def _fetch_current_dividend_yield_lru(data_symbol: str) -> float:
     """
     Calculate current annualized dividend yield using frequency-based TTM methodology.
 
@@ -326,7 +332,7 @@ def _fetch_current_dividend_yield_lru(fmp_symbol: str) -> float:
     - Annual payers: Last 1 dividend payment
 
     Args:
-        fmp_symbol (str): FMP-compatible ticker symbol (e.g., "STWD", "DSU", "BXMT")
+        data_symbol (str): FMP-compatible ticker symbol (e.g., "STWD", "DSU", "BXMT")
 
     Returns:
         float: Current dividend yield as percentage (e.g., 9.47 for 9.47%)
@@ -347,10 +353,10 @@ def _fetch_current_dividend_yield_lru(fmp_symbol: str) -> float:
         start_month = end_month - pd.DateOffset(months=lookback_months - 1)
 
         div_df = fetch_dividend_history(
-            fmp_symbol,
+            data_symbol,
             start_month,
             end_month,
-            fmp_ticker=fmp_symbol,
+            ticker_alias=data_symbol,
         )
         if isinstance(div_df, pd.Series):
             # Ensure DataFrame form if cache returns a Series unexpectedly
@@ -362,10 +368,10 @@ def _fetch_current_dividend_yield_lru(fmp_symbol: str) -> float:
 
         # Use month-end close aligned to end_month
         prices = fetch_monthly_close(
-            fmp_symbol,
+            data_symbol,
             None,
             end_month.date().isoformat(),
-            fmp_ticker=fmp_symbol,
+            ticker_alias=data_symbol,
         )
         if prices is None or prices.dropna().empty:
             return 0.0
@@ -382,7 +388,7 @@ def _fetch_current_dividend_yield_lru(fmp_symbol: str) -> float:
             log_portfolio_operation(
                 "dividend_yield_data_quality_warning",
                 {
-                "ticker": fmp_symbol,
+                "ticker": data_symbol,
                 "calculated_yield": dividend_yield,
                 "reason": "unusually_high_yield",
                 "threshold_pct": DIVIDEND_DATA_QUALITY_THRESHOLD * 100.0,
@@ -397,7 +403,7 @@ def _fetch_current_dividend_yield_lru(fmp_symbol: str) -> float:
         log_portfolio_operation(
             "dividend_yield_calculation_failed",
             {
-                "ticker": fmp_symbol,
+                "ticker": data_symbol,
                 "error": str(e),
                 "error_type": type(e).__name__
             },
@@ -409,23 +415,23 @@ def _fetch_current_dividend_yield_lru(fmp_symbol: str) -> float:
 def fetch_current_dividend_yield(
     ticker: str,
     *,
-    fmp_ticker: Optional[str] = None,
-    fmp_ticker_map: Optional[dict[str, str]] = None,
+    ticker_alias: Optional[str] = None,
+    ticker_alias_map: Optional[dict[str, str]] = None,
 ) -> float:
     """
     Wrapper that resolves FMP symbol before hitting the cached dividend yield.
     """
-    fmp_symbol = select_fmp_symbol(
+    data_symbol = resolve_ticker_alias(
         ticker,
-        fmp_ticker=fmp_ticker,
-        fmp_ticker_map=fmp_ticker_map,
+        ticker_alias=ticker_alias,
+        ticker_alias_map=ticker_alias_map,
     )
     try:
         return float(
             get_price_provider().fetch_current_dividend_yield(
-                fmp_symbol,
-                fmp_ticker=fmp_symbol,
+                data_symbol,
+                ticker_alias=data_symbol,
             )
         )
     except Exception:
-        return _fetch_current_dividend_yield_lru(fmp_symbol)
+        return _fetch_current_dividend_yield_lru(data_symbol)

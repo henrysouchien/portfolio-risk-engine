@@ -28,7 +28,7 @@ def get_stock_risk_profile(
     start_date: Union[str, pd.Timestamp],
     end_date: Union[str, pd.Timestamp],
     benchmark: str = "SPY",
-    fmp_ticker_map: Optional[Dict[str, str]] = None,
+    ticker_alias_map: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Union[float, Dict[str, float]]]:
     """
     Pulls monthly prices between given dates, computes returns, vol, and regression metrics.
@@ -48,13 +48,13 @@ def get_stock_risk_profile(
         ticker,
         start_date=start_date,
         end_date=end_date,
-        fmp_ticker_map=fmp_ticker_map,
+        ticker_alias_map=ticker_alias_map,
     )
     market_prices = fetch_monthly_close(
         benchmark,
         start_date=start_date,
         end_date=end_date,
-        fmp_ticker_map=fmp_ticker_map,
+        ticker_alias_map=ticker_alias_map,
     )
 
     stock_ret  = calc_monthly_returns(stock_prices)
@@ -145,7 +145,7 @@ def get_detailed_stock_factor_profile(
     end_date: Union[str, pd.Timestamp],
     factor_proxies: Dict[str, Union[str, List[str]]],
     market_ticker: str = "SPY",
-    fmp_ticker_map: Optional[Dict[str, str]] = None,
+    ticker_alias_map: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Union[pd.DataFrame, Dict[str, float]]]:
     """
     Computes full factor risk diagnostics for a stock over a given window,
@@ -169,7 +169,7 @@ def get_detailed_stock_factor_profile(
         ticker,
         start_date=start_date,
         end_date=end_date,
-        fmp_ticker_map=fmp_ticker_map,
+        ticker_alias_map=ticker_alias_map,
     )
     stock_returns = calc_monthly_returns(stock_prices)
 
@@ -184,7 +184,7 @@ def get_detailed_stock_factor_profile(
             market_proxy,
             start_date,
             end_date,
-            fmp_ticker_map=fmp_ticker_map,
+            ticker_alias_map=ticker_alias_map,
         )
     ))
 
@@ -197,7 +197,7 @@ def get_detailed_stock_factor_profile(
             market_ticker,
             start_date,
             end_date,
-            fmp_ticker_map=fmp_ticker_map,
+            ticker_alias_map=ticker_alias_map,
         ))
 
     value_proxy = factor_proxies.get("value")
@@ -207,7 +207,7 @@ def get_detailed_stock_factor_profile(
             market_ticker,
             start_date,
             end_date,
-            fmp_ticker_map=fmp_ticker_map,
+            ticker_alias_map=ticker_alias_map,
         ))
 
     industry_proxy = factor_proxies.get("industry")
@@ -219,7 +219,7 @@ def get_detailed_stock_factor_profile(
             industry_universe,
             start_date,
             end_date,
-            fmp_ticker_map=fmp_ticker_map,
+            ticker_alias_map=ticker_alias_map,
         ))
 
     subindustry_proxy = factor_proxies.get("subindustry")
@@ -231,7 +231,7 @@ def get_detailed_stock_factor_profile(
             subindustry_universe,
             start_date,
             end_date,
-            fmp_ticker_map=fmp_ticker_map,
+            ticker_alias_map=ticker_alias_map,
         ))
 
     # Regression vs market only

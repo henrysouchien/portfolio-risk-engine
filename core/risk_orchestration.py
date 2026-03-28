@@ -342,18 +342,18 @@ def run_portfolio(
                 weights = config.get("weights") or standardize_portfolio_input(config["portfolio_input"], latest_price)["weights"]
                 tickers = list(weights.keys())
                 instrument_types = config.get("instrument_types") or {}
-                fmp_ticker_map = config.get("fmp_ticker_map") or {}
-                if instrument_types or fmp_ticker_map:
+                ticker_alias_map = config.get("ticker_alias_map") or {}
+                if instrument_types or ticker_alias_map:
                     portfolio_data_stub = SimpleNamespace(
                         instrument_types=instrument_types,
-                        fmp_ticker_map=fmp_ticker_map,
+                        ticker_alias_map=ticker_alias_map,
                     )
                 else:
                     portfolio_data_stub = None
             else:
                 tickers = filepath.get_tickers()
                 portfolio_data_stub = filepath if (
-                    hasattr(filepath, "instrument_types") or hasattr(filepath, "fmp_ticker_map")
+                    hasattr(filepath, "instrument_types") or hasattr(filepath, "ticker_alias_map")
                 ) else None
             from services.security_type_service import SecurityTypeService
             full_classification = SecurityTypeService.get_full_classification(

@@ -2142,13 +2142,13 @@ def run_risk_score_analysis(
         
         # Standardize portfolio weights first
         raw_weights = config["portfolio_input"]
-        fmp_ticker_map = config.get("fmp_ticker_map")
+        ticker_alias_map = config.get("ticker_alias_map")
         currency_map = config.get("currency_map")
         instrument_types = config.get("instrument_types")
-        if fmp_ticker_map:
+        if ticker_alias_map:
             price_fetcher = lambda t: latest_price(
                 t,
-                fmp_ticker_map=fmp_ticker_map,
+                ticker_alias_map=ticker_alias_map,
                 currency=currency_map.get(t) if currency_map else None,
                 instrument_types=instrument_types,
             )
@@ -2162,7 +2162,7 @@ def run_risk_score_analysis(
             raw_weights,
             price_fetcher,
             currency_map=currency_map,
-            fmp_ticker_map=fmp_ticker_map,
+            ticker_alias_map=ticker_alias_map,
         )
         weights = standardized["weights"]
         portfolio_data = portfolio if isinstance(portfolio, PortfolioData) else None
@@ -2184,7 +2184,7 @@ def run_risk_score_analysis(
             end_date=config["end_date"],
             expected_returns=config.get("expected_returns"),
             stock_factor_proxies=config.get("stock_factor_proxies"),
-            fmp_ticker_map=fmp_ticker_map,
+            ticker_alias_map=ticker_alias_map,
             currency_map=currency_map,
             instrument_types=instrument_types,
             security_types=security_types,
@@ -2201,7 +2201,7 @@ def run_risk_score_analysis(
             lookback_years=lookback_years,
             echo=False,
             stock_factor_proxies=config.get("stock_factor_proxies"),
-            fmp_ticker_map=fmp_ticker_map,
+            ticker_alias_map=ticker_alias_map,
             max_single_factor_loss=configured_factor_loss,
         )
         

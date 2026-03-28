@@ -531,7 +531,7 @@ def _build_aggregated_result(
     benchmark_ticker: str,
     include_series: bool,
     price_registry: ProviderRegistry | None,
-    fmp_ticker_map: Dict[str, str],
+    ticker_alias_map: Dict[str, str],
 ) -> Union["RealizedPerformanceResult", Dict[str, Any]]:
     del price_registry
     fetch_monthly_close_fn = _helpers._shim_attr("fetch_monthly_close", fetch_monthly_close)
@@ -639,7 +639,7 @@ def _build_aggregated_result(
         benchmark_ticker,
         start_date=benchmark_start,
         end_date=end_date,
-        fmp_ticker_map=fmp_ticker_map or None,
+        ticker_alias_map=ticker_alias_map or None,
     )
     benchmark_returns = calc_monthly_returns_fn(benchmark_prices)
     benchmark_returns = _helpers._series_from_cache(benchmark_returns)
@@ -1273,7 +1273,7 @@ def _analyze_realized_performance_account_aggregated(
     assert institution is not None
 
     account_ids: List[str] = []
-    fmp_ticker_map: Dict[str, str] = {}
+    ticker_alias_map: Dict[str, str] = {}
 
     warnings: List[str] = []
     if source != "all":
@@ -1284,9 +1284,9 @@ def _analyze_realized_performance_account_aggregated(
             institution=institution,
             account=None,
         )
-        fmp_ticker_map = dict(scoped_holdings.fmp_ticker_map)
+        ticker_alias_map = dict(scoped_holdings.ticker_alias_map)
     else:
-        _, fmp_ticker_map, _ = holdings._build_current_positions(
+        _, ticker_alias_map, _ = holdings._build_current_positions(
             positions,
             institution=institution,
             account=None,
@@ -1415,7 +1415,7 @@ def _analyze_realized_performance_account_aggregated(
         benchmark_ticker=benchmark_ticker,
         include_series=include_series,
         price_registry=price_registry,
-        fmp_ticker_map=fmp_ticker_map,
+        ticker_alias_map=ticker_alias_map,
     )
 
 def analyze_realized_performance(

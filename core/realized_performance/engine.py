@@ -354,13 +354,13 @@ def _analyze_realized_performance_single_scope(
                     account=account,
                 )
             current_positions = scoped_holdings.current_positions
-            fmp_ticker_map = dict(scoped_holdings.fmp_ticker_map)
+            ticker_alias_map = dict(scoped_holdings.ticker_alias_map)
             source_holding_symbols = scoped_holdings.source_holding_symbols
             cross_source_holding_leakage_symbols = scoped_holdings.cross_source_holding_leakage_symbols
             holdings_scope = scoped_holdings.holdings_scope
         else:
             with timing.step("build_current_positions"):
-                current_positions, fmp_ticker_map, build_warnings = holdings._build_current_positions(
+                current_positions, ticker_alias_map, build_warnings = holdings._build_current_positions(
                     positions,
                     institution=institution,
                     account=account,
@@ -592,9 +592,9 @@ def _analyze_realized_performance_single_scope(
                 event for event in futures_mtm_events
                 if holdings._match_account(event, account)
             ]
-        # --- Reconcile position keys against transaction symbols via fmp_ticker_map ---
+        # --- Reconcile position keys against transaction symbols via ticker_alias_map ---
         # Position snapshots use raw tickers (e.g. "AT") while Flex transactions use
-        # FMP-resolved symbols (e.g. "AT.L").  fmp_ticker_map has {raw: fmp} entries.
+        # FMP-resolved symbols (e.g. "AT.L").  ticker_alias_map has {raw: fmp} entries.
         # Remap position keys to match transaction symbols when the alias confirms.
         #
         # Evidence is net trade delta keyed by (symbol, currency), not mere symbol presence.
@@ -608,7 +608,7 @@ def _analyze_realized_performance_single_scope(
         # This prevents: false positives from old closed trades, cross-direction remaps
         # (SHORT onto BUY evidence), and cross-currency remaps (GBP position onto USD trades).
         _TRADE_TYPES = {"BUY", "SELL", "SHORT", "COVER"}
-        if fmp_ticker_map and current_positions and fifo_transactions:
+        if ticker_alias_map and current_positions and fifo_transactions:
             # Compute net trade delta per symbol from position-affecting trades only.
             # Positive = net long buys, negative = net short sells.
             # Only symbols with abs(delta) > 0.01 have open-position evidence.
@@ -635,7 +635,7 @@ def _analyze_realized_performance_single_scope(
             _candidates: Dict[str, str] = {}       # {pos_key: candidate}
             _target_sources: Dict[str, list] = {}   # {candidate: [pos_key, ...]}
             for _pos_key in list(current_positions.keys()):
-                _candidate = fmp_ticker_map.get(_pos_key)
+                _candidate = ticker_alias_map.get(_pos_key)
                 if not _candidate or _candidate == _pos_key:
                     continue
                 _pos_data = current_positions[_pos_key]
@@ -838,13 +838,13 @@ def _analyze_realized_performance_single_scope(
                 and sym not in mapped_futures_for_fmp
             ):
                 mapped_futures_for_fmp.add(sym)
-                if sym in fmp_ticker_map or sym in equity_symbols:
+                if sym in ticker_alias_map or sym in equity_symbols:
                     warnings.append(
                         f"Futures symbol {sym} collides with equity ticker; "
                         "futures pricing skipped (equity mapping preserved)."
                     )
                 else:
-                    fmp_ticker_map[sym] = futures_map[sym]
+                    ticker_alias_map[sym] = futures_map[sym]
 
         if not fifo_transactions and not current_positions:
             timing.finish(status="error", error="no_transactions_or_positions")
@@ -1099,7 +1099,7 @@ def _analyze_realized_performance_single_scope(
                 current_positions=current_positions,
                 inception_date=inception_date,
                 incomplete_trades=fifo_result.incomplete_trades,
-                fmp_ticker_map=fmp_ticker_map or None,
+                ticker_alias_map=ticker_alias_map or None,
                 use_per_symbol_inception=use_per_symbol_inception,
             )
         warnings.extend(timeline_warnings)
@@ -1255,7 +1255,7 @@ def _analyze_realized_performance_single_scope(
                             end_date,
                             instrument_type="option",
                             contract_identity=contract_identity,
-                            fmp_ticker_map=fmp_ticker_map or None,
+                            ticker_alias_map=ticker_alias_map or None,
                         )
                         norm = _helpers._series_from_cache(price_result.series)
                         if not norm.empty and OPTION_MULTIPLIER_NAV_ENABLED:
@@ -1316,7 +1316,7 @@ def _analyze_realized_performance_single_scope(
                             end_date,
                             instrument_type=instrument_type,
                             contract_identity=contract_identity,
-                            fmp_ticker_map=fmp_ticker_map or None,
+                            ticker_alias_map=ticker_alias_map or None,
                         )
                         norm = _helpers._series_from_cache(price_result.series)
                         local_ibkr_priced_symbols: Dict[str, set[str]] = defaultdict(set)
@@ -1340,7 +1340,7 @@ def _analyze_realized_performance_single_scope(
                         end_date,
                         instrument_type=instrument_type,
                         contract_identity=contract_identity,
-                        fmp_ticker_map=fmp_ticker_map or None,
+                        ticker_alias_map=ticker_alias_map or None,
                     )
                     norm = _helpers._series_from_cache(price_result.series)
                     local_ibkr_priced_symbols: Dict[str, set[str]] = defaultdict(set)
@@ -2423,7 +2423,7 @@ def _analyze_realized_performance_single_scope(
             current_positions={},
             inception_date=inception_date,
             incomplete_trades=fifo_result.incomplete_trades,
-            fmp_ticker_map=fmp_ticker_map or None,
+            ticker_alias_map=ticker_alias_map or None,
             use_per_symbol_inception=use_per_symbol_inception,
         )
         # Observed-only branch must exclude provider-authoritative flow events so
@@ -2675,7 +2675,7 @@ def _analyze_realized_performance_single_scope(
                 benchmark_ticker,
                 start_date=benchmark_start,
                 end_date=end_date,
-                fmp_ticker_map=fmp_ticker_map or None,
+                ticker_alias_map=ticker_alias_map or None,
             )
             benchmark_returns = calc_monthly_returns_fn(benchmark_prices)
         benchmark_returns = _helpers._series_from_cache(benchmark_returns)

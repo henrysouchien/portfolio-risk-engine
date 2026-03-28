@@ -106,7 +106,7 @@ def simulate_portfolio_change(
     start: str,
     end: str,
     proxies: Dict[str, Dict[str, Any]],
-    fmp_ticker_map: Dict[str, str] | None = None,
+    ticker_alias_map: Dict[str, str] | None = None,
     instrument_types: Dict[str, str] | None = None,
     asset_classes: Dict[str, str] | None = None,
     security_types: Dict[str, str] | None = None,
@@ -136,7 +136,7 @@ def simulate_portfolio_change(
         expected_returns=None,
         stock_factor_proxies=proxies,
         asset_classes=asset_classes,
-        fmp_ticker_map=fmp_ticker_map,
+        ticker_alias_map=ticker_alias_map,
         instrument_types=instrument_types,
         security_types=security_types,
     )
@@ -148,7 +148,7 @@ def simulate_portfolio_change(
         start, 
         end, 
         loss_limit_pct=risk_cfg["max_single_factor_loss"],
-        fmp_ticker_map=fmp_ticker_map,
+        ticker_alias_map=ticker_alias_map,
     )
     
     df_beta = _safe_eval_beta_limits(summary["portfolio_factor_betas"], max_betas)
@@ -165,7 +165,7 @@ def solve_min_variance_with_risk_limits(
     start: str,
     end: str,
     proxies: Dict[str, Dict[str, Any]],
-    fmp_ticker_map: Dict[str, str] | None = None,
+    ticker_alias_map: Dict[str, str] | None = None,
     instrument_types: Dict[str, str] | None = None,
     allow_short: bool = False,
 ):
@@ -241,7 +241,7 @@ def solve_min_variance_with_risk_limits(
         end,
         None,
         proxies,
-        fmp_ticker_map=fmp_ticker_map,
+        ticker_alias_map=ticker_alias_map,
         instrument_types=instrument_types,
     )
 
@@ -270,7 +270,7 @@ def solve_min_variance_with_risk_limits(
         start, 
         end, 
         loss_limit_pct=risk_cfg["max_single_factor_loss"],
-        fmp_ticker_map=fmp_ticker_map,
+        ticker_alias_map=ticker_alias_map,
     )
 
     # Variables
@@ -306,7 +306,7 @@ def solve_min_variance_with_risk_limits(
         proxies,
         start,
         end,
-        fmp_ticker_map=fmp_ticker_map,
+        ticker_alias_map=ticker_alias_map,
     )
     
     proxy_caps = {
@@ -432,7 +432,7 @@ def run_what_if(
     start_date: str,
     end_date: str,
     factor_proxies: Dict[str, Dict],
-    fmp_ticker_map: Dict[str, str] | None = None,
+    ticker_alias_map: Dict[str, str] | None = None,
     instrument_types: Dict[str, str] | None = None,
     asset_classes: Dict[str, str] | None = None,
     security_types: Dict[str, str] | None = None,
@@ -471,7 +471,7 @@ def run_what_if(
     summary, risk_df, beta_df = simulate_portfolio_change(
         base_weights, delta, risk_cfg,
         start_date, end_date, factor_proxies,
-        fmp_ticker_map=fmp_ticker_map,
+        ticker_alias_map=ticker_alias_map,
         instrument_types=instrument_types,
         asset_classes=asset_classes,
         security_types=security_types,
@@ -522,7 +522,7 @@ def evaluate_weights(
     start_date: str,
     end_date: str,
     proxies: Dict[str, Dict[str, Any]],
-    fmp_ticker_map: Dict[str, str] | None = None,
+    ticker_alias_map: Dict[str, str] | None = None,
     instrument_types: Dict[str, str] | None = None,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
@@ -538,7 +538,7 @@ def evaluate_weights(
         end_date,
         expected_returns=None,
         stock_factor_proxies=proxies,
-        fmp_ticker_map=fmp_ticker_map,
+        ticker_alias_map=ticker_alias_map,
         instrument_types=instrument_types,
     )
 
@@ -549,7 +549,7 @@ def evaluate_weights(
         start_date=start_date,
         end_date=end_date,
         loss_limit_pct=risk_cfg["max_single_factor_loss"],
-        fmp_ticker_map=fmp_ticker_map,
+        ticker_alias_map=ticker_alias_map,
     )
 
     df_beta = _safe_eval_beta_limits(summary["portfolio_factor_betas"], max_betas)
@@ -561,7 +561,7 @@ def evaluate_optimized_weights(
     config: Dict[str, Any],
     risk_config: Dict[str, Any],
     proxies: Dict[str, Dict[str, Any]],
-    fmp_ticker_map: Dict[str, str] | None = None,
+    ticker_alias_map: Dict[str, str] | None = None,
     instrument_types: Dict[str, str] | None = None,
     currency_map: Dict[str, str] | None = None,
     contract_identities: Dict[str, Any] | None = None,
@@ -584,7 +584,7 @@ def evaluate_optimized_weights(
         end_date=config["end_date"],
         expected_returns=None,
         stock_factor_proxies=proxies,
-        fmp_ticker_map=fmp_ticker_map,
+        ticker_alias_map=ticker_alias_map,
         currency_map=currency_map,
         instrument_types=instrument_types,
         contract_identities=contract_identities,
@@ -620,14 +620,14 @@ def evaluate_optimized_weights(
         config["start_date"],
         config["end_date"],
         loss_limit_pct=max_single_factor_loss,
-        fmp_ticker_map=fmp_ticker_map,
+        ticker_alias_map=ticker_alias_map,
     )
     lookback_years = PORTFOLIO_DEFAULTS.get("worst_case_lookback_years", 10)
     _, max_betas_by_proxy, _ = calc_max_factor_betas(
         lookback_years=lookback_years,
         echo=False,
         stock_factor_proxies=proxies,
-        fmp_ticker_map=fmp_ticker_map,
+        ticker_alias_map=ticker_alias_map,
         max_single_factor_loss=max_single_factor_loss,
     )
 
@@ -893,7 +893,7 @@ def run_what_if_scenario(
     else:
         delta, new_weights = (shift_dict or {}), None
 
-    fmp_ticker_map = config.get("fmp_ticker_map")
+    ticker_alias_map = config.get("ticker_alias_map")
     instrument_types = config.get("instrument_types")
     max_single_factor_loss = risk_config.get("max_single_factor_loss") or -0.08
 
@@ -904,7 +904,7 @@ def run_what_if_scenario(
         lookback_years=lookback_years,
         echo=False,
         stock_factor_proxies=proxies,
-        fmp_ticker_map=fmp_ticker_map,
+        ticker_alias_map=ticker_alias_map,
         max_single_factor_loss=max_single_factor_loss,
     )
 
@@ -915,7 +915,7 @@ def run_what_if_scenario(
             new_weights, config["start_date"], config["end_date"],
             expected_returns=None, stock_factor_proxies=proxies,
             asset_classes=asset_classes,
-            fmp_ticker_map=fmp_ticker_map,
+            ticker_alias_map=ticker_alias_map,
             instrument_types=instrument_types,
             security_types=security_types,
         )
@@ -923,7 +923,7 @@ def run_what_if_scenario(
         summary_new, *_ = run_what_if(
             base_weights, delta, risk_config,
             config["start_date"], config["end_date"], proxies,
-            fmp_ticker_map=fmp_ticker_map,
+            ticker_alias_map=ticker_alias_map,
             instrument_types=instrument_types,
             asset_classes=asset_classes,
             security_types=security_types,
@@ -935,7 +935,7 @@ def run_what_if_scenario(
         base_weights, config["start_date"], config["end_date"],
         expected_returns=None, stock_factor_proxies=proxies,
         asset_classes=asset_classes,
-        fmp_ticker_map=fmp_ticker_map,
+        ticker_alias_map=ticker_alias_map,
         instrument_types=instrument_types,
         security_types=security_types,
     )
@@ -949,7 +949,7 @@ def run_what_if_scenario(
         max_betas = compute_max_betas(
             proxies, config["start_date"], config["end_date"],
             loss_limit_pct=max_single_factor_loss,
-            fmp_ticker_map=fmp_ticker_map,
+            ticker_alias_map=ticker_alias_map,
         )
         return _safe_eval_beta_limits(
             summary["portfolio_factor_betas"],
@@ -997,7 +997,7 @@ def run_min_var_optimiser(
     start_date: str,
     end_date:   str,
     proxies: Dict[str, Dict[str, Any]],
-    fmp_ticker_map: Dict[str, str] | None = None,
+    ticker_alias_map: Dict[str, str] | None = None,
     instrument_types: Dict[str, str] | None = None,
     echo: bool = True,
 ) -> Dict[str, float]:
@@ -1042,7 +1042,7 @@ def run_min_var_optimiser(
         start_date,
         end_date,
         proxies,
-        fmp_ticker_map=fmp_ticker_map,
+        ticker_alias_map=ticker_alias_map,
         instrument_types=instrument_types,
     )
 
@@ -1071,7 +1071,7 @@ def run_min_var(
     config: Dict[str, Any],
     risk_config: Dict[str, Any],
     proxies: Dict[str, Any],
-    fmp_ticker_map: Dict[str, str] | None = None,
+    ticker_alias_map: Dict[str, str] | None = None,
     instrument_types: Dict[str, str] | None = None,
 ) -> Tuple[Dict[str, float], pd.DataFrame, pd.DataFrame]:
     """
@@ -1099,7 +1099,7 @@ def run_min_var(
         start_date = config["start_date"],
         end_date   = config["end_date"],
         proxies    = proxies,
-        fmp_ticker_map=fmp_ticker_map,
+        ticker_alias_map=ticker_alias_map,
         instrument_types=instrument_types,
         echo       = False,
     )
@@ -1108,7 +1108,7 @@ def run_min_var(
         w_opt, risk_config,
         config["start_date"], config["end_date"],
         proxies,
-        fmp_ticker_map=fmp_ticker_map,
+        ticker_alias_map=ticker_alias_map,
         instrument_types=instrument_types,
     )
     # LOGGING: Add minimum variance optimization completion logging
@@ -1185,7 +1185,7 @@ def solve_max_return_with_risk_limits(
     end_date: str,
     stock_factor_proxies: Dict[str, Dict[str, Union[str, List[str]]]],
     expected_returns: Dict[str, float],
-    fmp_ticker_map: Dict[str, str] | None = None,
+    ticker_alias_map: Dict[str, str] | None = None,
     instrument_types: Dict[str, str] | None = None,
     allow_short: bool = False,
 ) -> Dict[str, float]:
@@ -1262,7 +1262,7 @@ def solve_max_return_with_risk_limits(
         normalized_weights, start_date, end_date,
         expected_returns=None,
         stock_factor_proxies=stock_factor_proxies,
-        fmp_ticker_map=fmp_ticker_map,
+        ticker_alias_map=ticker_alias_map,
         instrument_types=instrument_types,
     )
 
@@ -1295,7 +1295,7 @@ def solve_max_return_with_risk_limits(
         stock_factor_proxies,
         start_date, end_date,
         loss_limit_pct=risk_cfg["max_single_factor_loss"],
-        fmp_ticker_map=fmp_ticker_map,
+        ticker_alias_map=ticker_alias_map,
     )
     agg_caps = {k: all_caps[k] for k in ("market", "momentum", "value")}
 
@@ -1305,7 +1305,7 @@ def solve_max_return_with_risk_limits(
         stock_factor_proxies,
         start_date,
         end_date,
-        fmp_ticker_map=fmp_ticker_map,
+        ticker_alias_map=ticker_alias_map,
     )
     proxy_caps = {
         proxy: (np.inf if loss >= 0 else loss_lim / loss)
@@ -1398,7 +1398,7 @@ def run_max_return_portfolio(
     config: Dict[str, Any],
     risk_config: Dict[str, Any],
     proxies: Dict[str, Any],
-    fmp_ticker_map: Dict[str, str] | None = None,
+    ticker_alias_map: Dict[str, str] | None = None,
     instrument_types: Dict[str, str] | None = None,
 ) -> Tuple[Dict[str, float], Dict[str, Any], pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
@@ -1421,7 +1421,7 @@ def run_max_return_portfolio(
         end_date             = config["end_date"],
         stock_factor_proxies = proxies,
         expected_returns     = config["expected_returns"],
-        fmp_ticker_map       = fmp_ticker_map,
+        ticker_alias_map       = ticker_alias_map,
         instrument_types     = instrument_types,
     )
 
@@ -1430,7 +1430,7 @@ def run_max_return_portfolio(
         config=config,
         risk_config=risk_config,
         proxies=proxies,
-        fmp_ticker_map=fmp_ticker_map,
+        ticker_alias_map=ticker_alias_map,
         instrument_types=instrument_types,
         currency_map=config.get("currency_map"),
         contract_identities=config.get("contract_identities"),

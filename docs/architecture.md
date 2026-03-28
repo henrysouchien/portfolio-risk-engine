@@ -1369,7 +1369,6 @@ components/dashboard/
         ├── PortfolioOverviewContainer.tsx   # Portfolio overview
         ├── RiskAnalysisModernContainer.tsx  # Factor analysis + risk decomposition
         ├── RiskSettingsContainer.tsx        # Risk settings management
-        ├── ScenarioAnalysisContainer.tsx    # What-if scenario modeling
         ├── StockLookupContainer.tsx         # Individual stock research
         └── StrategyBuilderContainer.tsx     # Strategy builder
 ```
@@ -3472,7 +3471,6 @@ frontend/src/
 │   │   │   ├── AssetAllocationContainer.tsx      # Asset allocation
 │   │   │   ├── RiskAnalysisModernContainer.tsx   # Factor analysis + risk
 │   │   │   ├── PerformanceViewContainer.tsx      # Performance analytics
-│   │   │   ├── ScenarioAnalysisContainer.tsx     # What-if scenarios
 │   │   │   ├── StockLookupContainer.tsx          # Stock research
 │   │   │   ├── StrategyBuilderContainer.tsx      # Strategy builder
 │   │   │   └── RiskSettingsContainer.tsx         # Risk settings

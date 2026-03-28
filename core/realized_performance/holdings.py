@@ -65,9 +65,9 @@ def _build_current_positions(
     account: Optional[str] = None,
     rows_override: Optional[List[Dict[str, Any]]] = None,
 ) -> Tuple[Dict[str, Dict[str, Any]], Dict[str, str], List[str]]:
-    """Build ticker->position map and fmp_ticker map from PositionResult."""
+    """Build ticker->position map and ticker_alias map from PositionResult."""
     current_positions: Dict[str, Dict[str, Any]] = {}
-    fmp_ticker_map: Dict[str, str] = {}
+    ticker_alias_map: Dict[str, str] = {}
     warnings: List[str] = []
     filtered_positions = 0
     missing_brokerage_name = 0
@@ -150,9 +150,13 @@ def _build_current_positions(
                 "security_identifiers": security_identifiers or None,
             }
 
-        fmp_ticker = pos.get("fmp_ticker")
-        if isinstance(fmp_ticker, str) and fmp_ticker.strip() and ticker not in fmp_ticker_map:
-            fmp_ticker_map[ticker] = fmp_ticker.strip()
+        ticker_alias = (
+            pos.get("ticker_alias")
+            if "ticker_alias" in pos
+            else pos.get("fmp_ticker")
+        )
+        if isinstance(ticker_alias, str) and ticker_alias.strip() and ticker not in ticker_alias_map:
+            ticker_alias_map[ticker] = ticker_alias.strip()
 
     if institution and filtered_positions:
         warnings.append(
@@ -164,12 +168,12 @@ def _build_current_positions(
             f"Account filter '{account}': excluded {account_filtered_positions} position row(s)."
         )
 
-    return current_positions, fmp_ticker_map, warnings
+    return current_positions, ticker_alias_map, warnings
 
 @dataclass
 class SourceScopedHoldings:
     current_positions: Dict[str, Dict[str, Any]]
-    fmp_ticker_map: Dict[str, str]
+    ticker_alias_map: Dict[str, str]
     source_holding_symbols: List[str]
     source_holding_count: int
     cross_source_holding_leakage_symbols: List[str]
@@ -295,7 +299,7 @@ def _build_source_scoped_holdings(
     if source == "all":
         return SourceScopedHoldings(
             current_positions={},
-            fmp_ticker_map={},
+            ticker_alias_map={},
             source_holding_symbols=[],
             source_holding_count=0,
             cross_source_holding_leakage_symbols=[],
@@ -444,7 +448,7 @@ def _build_source_scoped_holdings(
     symbols = sorted(scoped_positions.keys())
     return SourceScopedHoldings(
         current_positions=scoped_positions,
-        fmp_ticker_map=scoped_fmp_map,
+        ticker_alias_map=scoped_fmp_map,
         source_holding_symbols=symbols,
         source_holding_count=len(symbols),
         cross_source_holding_leakage_symbols=fully_excluded,

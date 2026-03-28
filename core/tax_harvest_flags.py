@@ -33,13 +33,13 @@ def generate_tax_harvest_flags(snapshot: dict) -> list[dict]:
         })
         return _sort_flags(flags)
 
-    # Significant harvesting opportunity (> $3,000 = annual deduction limit)
+    # Significant harvesting opportunity (> $3,000 = ordinary income deduction limit)
     abs_loss = abs(total_loss)
     if abs_loss >= 3000:
         flags.append({
             "flag": "significant_harvest",
             "severity": "info",
-            "message": f"${abs_loss:,.0f} harvestable losses exceed $3,000 annual deduction limit",
+            "message": f"${abs_loss:,.0f} harvestable losses exceed the $3,000 annual ordinary income deduction limit",
         })
 
     # Short-term losses are more valuable (taxed at ordinary income rates)

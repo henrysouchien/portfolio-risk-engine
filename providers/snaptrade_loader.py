@@ -876,7 +876,7 @@ def fetch_snaptrade_holdings(user_email: str, client: SnapTrade) -> List[Dict]:
         Each dict includes: ticker, quantity, value, currency, name, account_id,
         snaptrade_type_code, snaptrade_type_description, security_type
     """
-    from utils.ticker_resolver import resolve_fmp_ticker
+    from utils.ticker_resolver import resolve_ticker_from_exchange
 
     try:
         # Generate SnapTrade user ID from email (privacy-friendly)
@@ -978,16 +978,16 @@ def fetch_snaptrade_holdings(user_email: str, client: SnapTrade) -> List[Dict]:
 
                     currency_code = inner_symbol.get('currency', {}).get('code', 'USD') if inner_symbol.get('currency') else "USD"
 
-                    fmp_ticker = None
+                    ticker_alias = None
                     if ticker and ticker != "UNKNOWN" and our_security_type != "cash" and not ticker.startswith("CUR:"):
-                        fmp_ticker = resolve_fmp_ticker(
+                        ticker_alias = resolve_ticker_from_exchange(
                             ticker=ticker,
                             company_name=inner_symbol.get('description', 'Unknown Security'),
                             currency=currency_code,
                             exchange_mic=exchange_mic,
                         )
                     else:
-                        fmp_ticker = ticker
+                        ticker_alias = ticker
 
                     position_data = {
                         "account_id": account_id,
@@ -995,7 +995,7 @@ def fetch_snaptrade_holdings(user_email: str, client: SnapTrade) -> List[Dict]:
                         "brokerage_name": brokerage_name,
                         "ticker": ticker,
                         "figi": inner_symbol.get("figi_code"),
-                        "fmp_ticker": fmp_ticker,
+                        "ticker_alias": ticker_alias,
                         "name": inner_symbol.get('description', 'Unknown Security'),
                         "quantity": float(position.get('units', 0) or 0),
                         "price": float(position.get('price', 0) or 0),
@@ -1037,7 +1037,7 @@ def fetch_snaptrade_holdings(user_email: str, client: SnapTrade) -> List[Dict]:
                             "account_name": account_name,
                             "brokerage_name": brokerage_name,
                             "ticker": f"CUR:{currency_code}",  # Use currency prefix for cash
-                            "fmp_ticker": f"CUR:{currency_code}",
+                            "ticker_alias": f"CUR:{currency_code}",
                             "name": f"{currency_code} Cash",
                             "quantity": cash_value,  # For cash, quantity = value
                             "price": 1.0,  # Cash price is always 1.0
@@ -1349,7 +1349,7 @@ def convert_snaptrade_holdings_to_portfolio_data(holdings_df: pd.DataFrame, user
         # Convert consolidated DataFrame to holdings dictionary format expected by PortfolioData.from_holdings
         # Mirror Plaid conversion pattern: cash as dollars, non-cash as shares (allow negatives for shorts)
         holdings_dict = {}
-        fmp_ticker_map = {}
+        ticker_alias_map = {}
         
         # Track mixed currencies for logging
         ticker_currencies = {}
@@ -1382,15 +1382,19 @@ def convert_snaptrade_holdings_to_portfolio_data(holdings_df: pd.DataFrame, user
             name = row.get('name') or ticker
             brokerage_name = row.get('brokerage_name')
             account_name = row.get('account_name')
-            fmp_ticker = row.get('fmp_ticker')
+            ticker_alias = (
+                row.get("ticker_alias")
+                if "ticker_alias" in row
+                else row.get("fmp_ticker")
+            )
             # Use security_type from DataFrame (already enhanced in fetch_snaptrade_holdings)
             position_type = row.get('security_type')  # NO hardcoded fallback
 
-            if isinstance(fmp_ticker, str) and fmp_ticker.strip():
-                existing_fmp = fmp_ticker_map.get(ticker)
-                if existing_fmp and existing_fmp != fmp_ticker:
-                    raise ValueError(f"Conflicting fmp_ticker for {ticker}: {existing_fmp} vs {fmp_ticker}")
-                fmp_ticker_map[ticker] = fmp_ticker
+            if isinstance(ticker_alias, str) and ticker_alias.strip():
+                existing_fmp = ticker_alias_map.get(ticker)
+                if existing_fmp and existing_fmp != ticker_alias:
+                    raise ValueError(f"Conflicting ticker_alias for {ticker}: {existing_fmp} vs {ticker_alias}")
+                ticker_alias_map[ticker] = ticker_alias
 
             # Handle cash positions (store as dollars, not shares)
             if position_type == 'cash':
@@ -1407,8 +1411,8 @@ def convert_snaptrade_holdings_to_portfolio_data(holdings_df: pd.DataFrame, user
                     existing_currency = holdings_dict[ticker].get('currency')
                     if existing_currency != currency:
                         holdings_dict[ticker]['currency'] = 'MIXED'
-                    if fmp_ticker_map.get(ticker) and 'fmp_ticker' not in holdings_dict[ticker]:
-                        holdings_dict[ticker]['fmp_ticker'] = fmp_ticker_map[ticker]
+                    if ticker_alias_map.get(ticker) and 'ticker_alias' not in holdings_dict[ticker]:
+                        holdings_dict[ticker]['ticker_alias'] = ticker_alias_map[ticker]
                 else:
                     holdings_dict[ticker] = {
                         'dollars': float(value),  # Store as dollars, not shares
@@ -1419,8 +1423,8 @@ def convert_snaptrade_holdings_to_portfolio_data(holdings_df: pd.DataFrame, user
                         'brokerage_name': brokerage_name,
                         'account_name': account_name
                     }
-                    if fmp_ticker_map.get(ticker):
-                        holdings_dict[ticker]['fmp_ticker'] = fmp_ticker_map[ticker]
+                    if ticker_alias_map.get(ticker):
+                        holdings_dict[ticker]['ticker_alias'] = ticker_alias_map[ticker]
             else:
                 # Handle non-cash positions - sum shares across currencies
                 if ticker in holdings_dict:
@@ -1452,8 +1456,8 @@ def convert_snaptrade_holdings_to_portfolio_data(holdings_df: pd.DataFrame, user
                         holdings_dict[ticker]['brokerage_name'] = brokerage_name
                     if not holdings_dict[ticker].get('account_name') and account_name:
                         holdings_dict[ticker]['account_name'] = account_name
-                    if fmp_ticker_map.get(ticker) and 'fmp_ticker' not in holdings_dict[ticker]:
-                        holdings_dict[ticker]['fmp_ticker'] = fmp_ticker_map[ticker]
+                    if ticker_alias_map.get(ticker) and 'ticker_alias' not in holdings_dict[ticker]:
+                        holdings_dict[ticker]['ticker_alias'] = ticker_alias_map[ticker]
                 else:
                     # Use already-enhanced security type from DataFrame
                     holdings_dict[ticker] = {
@@ -1466,8 +1470,8 @@ def convert_snaptrade_holdings_to_portfolio_data(holdings_df: pd.DataFrame, user
                         'brokerage_name': brokerage_name,
                         'account_name': account_name
                     }
-                    if fmp_ticker_map.get(ticker):
-                        holdings_dict[ticker]['fmp_ticker'] = fmp_ticker_map[ticker]
+                    if ticker_alias_map.get(ticker):
+                        holdings_dict[ticker]['ticker_alias'] = ticker_alias_map[ticker]
         
         # Create PortfolioData object using the standard from_holdings method
         portfolio_data = PortfolioData.from_holdings(
@@ -1476,7 +1480,7 @@ def convert_snaptrade_holdings_to_portfolio_data(holdings_df: pd.DataFrame, user
             end_date=PORTFOLIO_DEFAULTS["end_date"],
             portfolio_name=portfolio_name,
             expected_returns={},
-            fmp_ticker_map=fmp_ticker_map or None,
+            ticker_alias_map=ticker_alias_map or None,
         )
         
         # Add metadata (matching Plaid pattern)

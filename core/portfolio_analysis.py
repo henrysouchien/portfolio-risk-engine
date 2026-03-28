@@ -96,7 +96,7 @@ def analyze_portfolio(
     step_timings["resolve_config"] = round((time.perf_counter() - t0) * 1000, 2)
 
     # Get full standardized portfolio data (including exposure metrics)
-    fmp_ticker_map = config.get("fmp_ticker_map")
+    ticker_alias_map = config.get("ticker_alias_map")
     currency_map = config.get("currency_map")
     instrument_types = config.get("instrument_types")
     contract_identities = config.get("contract_identities")
@@ -108,11 +108,11 @@ def analyze_portfolio(
         normalized_ticker = raw_ticker.upper()
         return contract_identities.get(normalized_ticker) or contract_identities.get(raw_ticker)
 
-    if fmp_ticker_map:
+    if ticker_alias_map:
         def price_fetcher(t: str) -> float:
             contract_identity = _contract_identity_for_ticker(t)
             kwargs: Dict[str, Any] = {
-                "fmp_ticker_map": fmp_ticker_map,
+                "ticker_alias_map": ticker_alias_map,
                 "currency": currency_map.get(t) if currency_map else None,
                 "instrument_types": instrument_types,
             }
@@ -146,7 +146,7 @@ def analyze_portfolio(
             config["portfolio_input"],
             price_fetcher,
             currency_map=currency_map,
-            fmp_ticker_map=fmp_ticker_map,
+            ticker_alias_map=ticker_alias_map,
             instrument_types=instrument_types,
             contract_identities=contract_identities,
         )
@@ -168,7 +168,7 @@ def analyze_portfolio(
             config.get("expected_returns"),
             config.get("stock_factor_proxies"),
             asset_classes=asset_classes,
-            fmp_ticker_map=fmp_ticker_map,
+            ticker_alias_map=ticker_alias_map,
             currency_map=currency_map,
             instrument_types=instrument_types,
             contract_identities=contract_identities,
@@ -179,7 +179,7 @@ def analyze_portfolio(
             lookback_years=lookback_years,
             echo=False,
             stock_factor_proxies=config.get("stock_factor_proxies"),
-            fmp_ticker_map=config.get("fmp_ticker_map"),
+            ticker_alias_map=config.get("ticker_alias_map"),
             max_single_factor_loss=risk_config.get("max_single_factor_loss"),
         )
         summary = future_view.result()
@@ -236,7 +236,7 @@ def analyze_portfolio(
             "asset_classes": asset_classes,
             "security_types": security_types,
             "target_allocation": config.get("target_allocation"),
-            "fmp_ticker_map": fmp_ticker_map,
+            "ticker_alias_map": ticker_alias_map,
             "step_timings_ms": step_timings,
         }
     )

@@ -83,7 +83,7 @@ def normalize_plaid_holdings(holdings: list, securities: list) -> pd.DataFrame:
     • If `security_id` lookup fails, fields from `securities` will be empty in that row
     """
     from utils.logging import log_alert
-    from utils.ticker_resolver import resolve_fmp_ticker
+    from utils.ticker_resolver import resolve_ticker_from_exchange
 
     sec_map = {s["security_id"]: s for s in securities}
     rows = []
@@ -109,20 +109,20 @@ def normalize_plaid_holdings(holdings: list, securities: list) -> pd.DataFrame:
         currency = h.get("iso_currency_code") or s.get("iso_currency_code", "USD")
         position_type = s.get("type")
 
-        fmp_ticker = None
+        ticker_alias = None
         if ticker_symbol and position_type != "cash" and not ticker_symbol.startswith("CUR:"):
-            fmp_ticker = resolve_fmp_ticker(
+            ticker_alias = resolve_ticker_from_exchange(
                 ticker=ticker_symbol,
                 company_name=s.get("name"),
                 currency=currency,
                 exchange_mic=exchange_mic,
             )
         else:
-            fmp_ticker = ticker_symbol
+            ticker_alias = ticker_symbol
 
         rows.append({
             "ticker":     ticker_symbol,
-            "fmp_ticker": fmp_ticker,
+            "ticker_alias": ticker_alias,
             "name":       s.get("name"),
             "quantity":   h.get("quantity"),
             "price":      h.get("institution_price"),
@@ -841,7 +841,7 @@ def convert_plaid_holdings_to_portfolio_data(holdings_df, user_email, portfolio_
     
     # Create portfolio input dictionary
     portfolio_input = {}
-    fmp_ticker_map = {}
+    ticker_alias_map = {}
     
     # Track mixed currencies for logging (same as SnapTrade behavior)
     ticker_currencies = {}
@@ -878,12 +878,16 @@ def convert_plaid_holdings_to_portfolio_data(holdings_df, user_email, portfolio_
         account_name = row.get('account_name')
         position_type = row.get('type')  # NO DEFAULTS! Preserve what Plaid actually said
         
-        fmp_ticker = row.get('fmp_ticker')
-        if isinstance(fmp_ticker, str) and fmp_ticker.strip():
-            existing_fmp = fmp_ticker_map.get(ticker)
-            if existing_fmp and existing_fmp != fmp_ticker:
-                raise ValueError(f"Conflicting fmp_ticker for {ticker}: {existing_fmp} vs {fmp_ticker}")
-            fmp_ticker_map[ticker] = fmp_ticker
+        ticker_alias = (
+            row.get("ticker_alias")
+            if "ticker_alias" in row
+            else row.get("fmp_ticker")
+        )
+        if isinstance(ticker_alias, str) and ticker_alias.strip():
+            existing_fmp = ticker_alias_map.get(ticker)
+            if existing_fmp and existing_fmp != ticker_alias:
+                raise ValueError(f"Conflicting ticker_alias for {ticker}: {existing_fmp} vs {ticker_alias}")
+            ticker_alias_map[ticker] = ticker_alias
 
         # Use Plaid's type classification to identify cash positions
         # This works for any broker format (CUR:USD, CASH_USD, etc.)
@@ -940,8 +944,8 @@ def convert_plaid_holdings_to_portfolio_data(holdings_df, user_email, portfolio_
                     portfolio_input[ticker]['brokerage_name'] = brokerage_name
                 if not portfolio_input[ticker].get('account_name') and account_name:
                     portfolio_input[ticker]['account_name'] = account_name
-                if fmp_ticker_map.get(ticker) and 'fmp_ticker' not in portfolio_input[ticker]:
-                    portfolio_input[ticker]['fmp_ticker'] = fmp_ticker_map[ticker]
+                if ticker_alias_map.get(ticker) and 'ticker_alias' not in portfolio_input[ticker]:
+                    portfolio_input[ticker]['ticker_alias'] = ticker_alias_map[ticker]
             else:
                 portfolio_input[ticker] = {
                     'shares': float(quantity),
@@ -953,8 +957,8 @@ def convert_plaid_holdings_to_portfolio_data(holdings_df, user_email, portfolio_
                     'brokerage_name': brokerage_name,
                     'account_name': account_name
                 }
-                if fmp_ticker_map.get(ticker):
-                    portfolio_input[ticker]['fmp_ticker'] = fmp_ticker_map[ticker]
+                if ticker_alias_map.get(ticker):
+                    portfolio_input[ticker]['ticker_alias'] = ticker_alias_map[ticker]
     
     # Create factor proxies (placeholder - actual assignment handled by analysis components)
     stock_factor_proxies = {}
@@ -970,7 +974,7 @@ def convert_plaid_holdings_to_portfolio_data(holdings_df, user_email, portfolio_
         start_date=PORTFOLIO_DEFAULTS["start_date"],
         end_date=PORTFOLIO_DEFAULTS["end_date"],
         portfolio_name=portfolio_name,
-        fmp_ticker_map=fmp_ticker_map or None,
+        ticker_alias_map=ticker_alias_map or None,
     )
     
     # Set the complex factor proxies structure manually

@@ -169,7 +169,7 @@ def _build_factor_returns_panel_cached(
     end_date: str,
     total_return: bool = True,
     max_workers: int = 8,
-    fmp_ticker_map_json: Optional[str] = None,
+    ticker_alias_map_json: Optional[str] = None,
 ) -> pd.DataFrame:
     """
     Build aligned monthly returns panel using cached computation.
@@ -206,7 +206,7 @@ def _build_factor_returns_panel_cached(
     the tickers involved in each specific analysis, rather than the often much
     smaller global intersection across the entire universe.
     """
-    fmp_ticker_map = json.loads(fmp_ticker_map_json) if fmp_ticker_map_json else None
+    ticker_alias_map = json.loads(ticker_alias_map_json) if ticker_alias_map_json else None
 
     # Reconstruct universe from the cached fetch_factor_universe() function
     universe = fetch_factor_universe()
@@ -237,14 +237,14 @@ def _build_factor_returns_panel_cached(
                     ticker,
                     start_date,
                     end_date,
-                    fmp_ticker_map=fmp_ticker_map,
+                    ticker_alias_map=ticker_alias_map,
                 )
                 if total_return else
                 fetch_monthly_close(
                     ticker,
                     start_date,
                     end_date,
-                    fmp_ticker_map=fmp_ticker_map,
+                    ticker_alias_map=ticker_alias_map,
                 )
             )
         except Exception:
@@ -253,7 +253,7 @@ def _build_factor_returns_panel_cached(
                     ticker,
                     start_date,
                     end_date,
-                    fmp_ticker_map=fmp_ticker_map,
+                    ticker_alias_map=ticker_alias_map,
                 )
             except Exception:
                 return ticker, None, "fetch_failed"
@@ -373,8 +373,8 @@ def _build_factor_returns_panel_cached(
     df_raw.attrs["end_date"] = end_date
     df_raw.attrs["total_return"] = bool(total_return)
     df_raw.attrs["cache_key"] = f"factor_returns_panel_{universe_hash}_{start_date}_{end_date}_{total_return}"
-    if fmp_ticker_map:
-        df_raw.attrs["fmp_ticker_map"] = fmp_ticker_map
+    if ticker_alias_map:
+        df_raw.attrs["ticker_alias_map"] = ticker_alias_map
 
     # Build user-friendly labels for tickers (ticker → display label) using DB-first loaders
     try:
@@ -633,7 +633,7 @@ def build_factor_returns_panel(
     end_date: str,
     total_return: bool = True,
     max_workers: int = 8,
-    fmp_ticker_map: Optional[Dict[str, str]] = None,
+    ticker_alias_map: Optional[Dict[str, str]] = None,
 ) -> pd.DataFrame:
     """
     Build aligned monthly returns panel for the provided ETF universe.
@@ -665,7 +665,7 @@ def build_factor_returns_panel(
     # Compute deterministic hash for caching
     universe_hash = _deterministic_universe_hash(universe)
 
-    fmp_ticker_map_json = json.dumps(fmp_ticker_map, sort_keys=True) if fmp_ticker_map else None
+    ticker_alias_map_json = json.dumps(ticker_alias_map, sort_keys=True) if ticker_alias_map else None
 
     # Delegate to the cached implementation
     return _build_factor_returns_panel_cached(
@@ -674,7 +674,7 @@ def build_factor_returns_panel(
         end_date,
         total_return,
         max_workers,
-        fmp_ticker_map_json,
+        ticker_alias_map_json,
     )
 
 
@@ -1237,7 +1237,7 @@ def compute_market_sensitivity(
     """
     t0 = time.time()
     cats = returns_panel.attrs.get("categories", {})
-    fmp_ticker_map = returns_panel.attrs.get("fmp_ticker_map")
+    ticker_alias_map = returns_panel.attrs.get("ticker_alias_map")
     all_tickers = list(returns_panel.columns)
 
     default_cats = FACTOR_INTELLIGENCE_DEFAULTS.get("default_categories", {}).get("market_sensitivity", ["industry", "style"])
@@ -1259,14 +1259,14 @@ def compute_market_sensitivity(
                 bu,
                 returns_panel.attrs.get("start_date"),
                 returns_panel.attrs.get("end_date"),
-                fmp_ticker_map=fmp_ticker_map,
+                ticker_alias_map=ticker_alias_map,
             )
         except Exception:
             prices = fetch_monthly_close(
                 bu,
                 returns_panel.attrs.get("start_date"),
                 returns_panel.attrs.get("end_date"),
-                fmp_ticker_map=fmp_ticker_map,
+                ticker_alias_map=ticker_alias_map,
             )
         try:
             bench_series[bu] = calc_monthly_returns(prices).rename(bu)

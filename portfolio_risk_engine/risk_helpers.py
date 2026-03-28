@@ -22,7 +22,7 @@ def _fetch_single_proxy_worst(
     proxy: str,
     start_date: str,
     end_date: str,
-    fmp_ticker_map: Dict[str, str] | None = None,
+    ticker_alias_map: Dict[str, str] | None = None,
 ) -> Tuple[str, float | None]:
     """Fetch the worst monthly return for a single factor proxy."""
     try:
@@ -31,14 +31,14 @@ def _fetch_single_proxy_worst(
                 proxy,
                 start_date,
                 end_date,
-                fmp_ticker_map=fmp_ticker_map,
+                ticker_alias_map=ticker_alias_map,
             )
         except Exception:
             prices = fetch_monthly_close(
                 proxy,
                 start_date,
                 end_date,
-                fmp_ticker_map=fmp_ticker_map,
+                ticker_alias_map=ticker_alias_map,
             )
 
         returns = calc_monthly_returns(prices)
@@ -55,7 +55,7 @@ def _fetch_excess_worst(
     market_proxy: str,
     start_date: str,
     end_date: str,
-    fmp_ticker_map: Dict[str, str] | None = None,
+    ticker_alias_map: Dict[str, str] | None = None,
 ) -> Tuple[float, str] | None:
     """Fetch the worst monthly excess return for a factor proxy versus its market proxy."""
     try:
@@ -64,7 +64,7 @@ def _fetch_excess_worst(
             market_proxy,
             start_date,
             end_date,
-            fmp_ticker_map=fmp_ticker_map,
+            ticker_alias_map=ticker_alias_map,
         )
         if returns.empty:
             return None
@@ -83,7 +83,7 @@ def get_worst_monthly_factor_losses(
     stock_factor_proxies: Dict[str, Dict[str, Union[str, List[str]]]],
     start_date: str,
     end_date: str,
-    fmp_ticker_map: Dict[str, str] | None = None,
+    ticker_alias_map: Dict[str, str] | None = None,
 ) -> Dict[str, float]:
     """
     For each unique factor proxy (ETF or peer group), fetch monthly returns over
@@ -129,7 +129,7 @@ def get_worst_monthly_factor_losses(
                 proxy,
                 start_date,
                 end_date,
-                fmp_ticker_map,
+                ticker_alias_map,
             ): proxy
             for proxy in sorted(unique_proxies)
         }
@@ -145,7 +145,7 @@ def _get_worst_dates_for_proxies(
     stock_factor_proxies: Dict[str, Dict[str, Union[str, List[str]]]],
     start_date: str,
     end_date: str,
-    fmp_ticker_map: Dict[str, str] | None = None,
+    ticker_alias_map: Dict[str, str] | None = None,
 ) -> Dict[str, str]:
     """Return {proxy: "YYYY-MM"} for the month of worst return per proxy."""
     allowed_factors = {"market", "momentum", "value", "industry"}
@@ -169,14 +169,14 @@ def _get_worst_dates_for_proxies(
                     proxy,
                     start_date,
                     end_date,
-                    fmp_ticker_map=fmp_ticker_map,
+                    ticker_alias_map=ticker_alias_map,
                 )
             except Exception:
                 prices = fetch_monthly_close(
                     proxy,
                     start_date,
                     end_date,
-                    fmp_ticker_map=fmp_ticker_map,
+                    ticker_alias_map=ticker_alias_map,
                 )
 
             returns = calc_monthly_returns(prices)
@@ -329,7 +329,7 @@ def compute_max_betas(
     start_date: str,
     end_date:   str,
     loss_limit_pct: float,
-    fmp_ticker_map: Dict[str, str] | None = None,
+    ticker_alias_map: Dict[str, str] | None = None,
     worst_losses: Dict[str, float] | None = None,
 ) -> Dict[str, float]:
     """
@@ -350,7 +350,7 @@ def compute_max_betas(
             proxies,
             start_date,
             end_date,
-            fmp_ticker_map=fmp_ticker_map,
+            ticker_alias_map=ticker_alias_map,
         )
     worst_by_type = aggregate_worst_losses_by_factor_type(proxies, worst_losses)
 
@@ -378,7 +378,7 @@ def calc_max_factor_betas(
     echo: bool = True,
     *,
     stock_factor_proxies: Optional[Dict] = None,
-    fmp_ticker_map: Optional[Dict] = None,
+    ticker_alias_map: Optional[Dict] = None,
     max_single_factor_loss: Optional[float] = None,
 ) -> Tuple[Dict[str, float], Dict[str, float], Dict[str, Any]]:
     """
@@ -398,7 +398,7 @@ def calc_max_factor_betas(
         If True, pretty-prints the intermediate tables to stdout.
     stock_factor_proxies : dict, optional
         Direct proxies map (skips reading portfolio_yaml).
-    fmp_ticker_map : dict, optional
+    ticker_alias_map : dict, optional
         Optional ticker mapping for proxy lookups.
     max_single_factor_loss : float, optional
         Direct loss limit (skips reading risk_yaml).
@@ -419,13 +419,17 @@ def calc_max_factor_betas(
     # Resolve proxies: kwarg takes precedence over file
     if stock_factor_proxies is not None:
         proxies = stock_factor_proxies
-        fmp_map = fmp_ticker_map
+        fmp_map = ticker_alias_map
     elif portfolio_yaml is not None:
         resolved_portfolio_yaml = resolve_config_path(portfolio_yaml)
         with open(resolved_portfolio_yaml, "r") as f:
             port_cfg = yaml.safe_load(f)
         proxies = port_cfg["stock_factor_proxies"]
-        fmp_map = port_cfg.get("fmp_ticker_map")
+        fmp_map = (
+            port_cfg.get("ticker_alias_map")
+            if "ticker_alias_map" in port_cfg
+            else port_cfg.get("fmp_ticker_map")
+        )
     else:
         raise ValueError("Must provide stock_factor_proxies or portfolio_yaml")
 
@@ -466,7 +470,7 @@ def calc_max_factor_betas(
         proxies,
         start_str,
         end_str,
-        fmp_ticker_map=fmp_map,
+        ticker_alias_map=fmp_map,
     )
 
     excess_factors = {"momentum", "value"}
@@ -487,7 +491,7 @@ def calc_max_factor_betas(
             market_proxy,
             start_str,
             end_str,
-            fmp_ticker_map=fmp_map,
+            ticker_alias_map=fmp_map,
         )
         if result:
             worst_excess_per_proxy[(factor_proxy, market_proxy)] = {
@@ -504,7 +508,7 @@ def calc_max_factor_betas(
         proxies,
         start_str,
         end_str,
-        fmp_ticker_map=fmp_map,
+        ticker_alias_map=fmp_map,
     )
     worst_factor_dates: Dict[str, str] = {}
     for factor_type, (proxy, _) in worst_by_factor.items():
@@ -518,7 +522,7 @@ def calc_max_factor_betas(
         start_str,
         end_str,
         loss_limit,
-        fmp_ticker_map=fmp_map,
+        ticker_alias_map=fmp_map,
         worst_losses=worst_per_proxy,
     )
 

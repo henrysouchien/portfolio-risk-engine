@@ -403,6 +403,7 @@ from providers.routing_config import (
 
 # Trading Execution Configuration
 TRADING_ENABLED = os.getenv("TRADING_ENABLED", "false").lower() == "true"
+SHORT_SELLING_ENABLED = os.getenv("SHORT_SELLING_ENABLED", "false").lower() == "true"
 
 TRADING_DEFAULTS = {
     "max_order_value": float(os.getenv("MAX_ORDER_VALUE", "100000")),

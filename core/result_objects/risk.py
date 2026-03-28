@@ -198,6 +198,7 @@ class RiskAnalysisResult:
     dollar_exposure: Optional[Dict[str, float]] = None
     notional_leverage: Optional[float] = None
     fx_attribution: Optional[Dict[str, Dict[str, Any]]] = None
+    stock_betas_raw: Optional[pd.DataFrame] = None
     _api_response_cache: Optional[Dict[str, Any]] = field(
         default=None,
         init=False,
@@ -280,6 +281,7 @@ class RiskAnalysisResult:
 
         top_tickers = self.euler_variance_pct.nlargest(n).index.tolist()
         rows: List[Dict[str, Any]] = []
+        diagnostic_betas = self._get_diagnostic_stock_betas()
         for ticker in top_tickers:
             risk_raw = self._safe_num(self.euler_variance_pct.get(ticker), default=0.0)
             rows.append(
@@ -287,7 +289,7 @@ class RiskAnalysisResult:
                     "ticker": ticker,
                     "weight_pct": round(self._get_weight(ticker) * 100, 2),
                     "risk_pct": round(risk_raw * 100, 2),
-                    "beta": self._safe_float(self.stock_betas, ticker, "market"),
+                    "beta": self._safe_float(diagnostic_betas, ticker, "market"),
                     "volatility": self._safe_float(self.asset_vol_summary, ticker, "Vol A"),
                 }
             )
@@ -363,7 +365,8 @@ class RiskAnalysisResult:
     def get_asset_class_factor_betas(self) -> Dict[str, Dict[str, float]]:
         """Return weight-averaged factor betas by asset class."""
         asset_classes = (self.analysis_metadata or {}).get("asset_classes", {}) or {}
-        if not asset_classes or self.stock_betas is None or self.stock_betas.empty:
+        diagnostic_betas = self._get_diagnostic_stock_betas()
+        if not asset_classes or diagnostic_betas is None or diagnostic_betas.empty:
             return {}
 
         weights = self._get_analysis_weights()
@@ -374,20 +377,20 @@ class RiskAnalysisResult:
                 ticker
                 for ticker, ticker_asset_class in asset_classes.items()
                 if str(ticker_asset_class or "unknown") == asset_class
-                and ticker in self.stock_betas.index
+                and ticker in diagnostic_betas.index
             ]
             if not class_tickers:
                 continue
 
             class_factor_betas: Dict[str, float] = {}
-            for factor in self.stock_betas.columns:
+            for factor in diagnostic_betas.columns:
                 numerator = 0.0
                 denominator = 0.0
                 for ticker in class_tickers:
                     weight = self._safe_num(weights.get(ticker), default=0.0)
                     if weight <= 0:
                         continue
-                    beta = self.stock_betas.loc[ticker, factor]
+                    beta = diagnostic_betas.loc[ticker, factor]
                     if not pd.notna(beta):
                         continue
                     numerator += weight * float(beta)
@@ -458,6 +461,12 @@ class RiskAnalysisResult:
         if self.allocations is not None and ticker in self.allocations.index and "Portfolio Weight" in self.allocations.columns:
             return self._safe_num(self.allocations.loc[ticker, "Portfolio Weight"], default=0.0)
         return 0.0
+
+    def _get_diagnostic_stock_betas(self) -> Optional[pd.DataFrame]:
+        """Prefer raw betas for diagnostics/UI, fall back to filled betas for compatibility."""
+        if self.stock_betas_raw is not None and not self.stock_betas_raw.empty:
+            return self.stock_betas_raw
+        return self.stock_betas
 
     def _safe_float(self, df: Optional[pd.DataFrame], ticker: str, col: str) -> Optional[float]:
         """Safely extract a rounded float from a DataFrame."""
@@ -1855,6 +1864,7 @@ class RiskAnalysisResult:
             variance_decomposition=portfolio_summary["variance_decomposition"],
             risk_contributions=portfolio_summary["risk_contributions"],
             stock_betas=portfolio_summary["df_stock_betas"],
+            stock_betas_raw=portfolio_summary.get("df_stock_betas_raw"),
             covariance_matrix=portfolio_summary.get("covariance_matrix", pd.DataFrame()),
             correlation_matrix=portfolio_summary.get("correlation_matrix", pd.DataFrame()),
             allocations=cls._build_allocations_dataframe(portfolio_summary, analysis_metadata),  # Used by to_api_response()

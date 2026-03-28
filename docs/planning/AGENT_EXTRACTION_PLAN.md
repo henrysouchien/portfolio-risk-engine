@@ -3,14 +3,14 @@
 > **Status**: Draft
 > **Created**: 2026-03-19
 > **Parent doc**: `docs/OPEN_SOURCE_LAUNCH_GAPS.md` (item C3)
-> **Source repo**: `AI-excel-addin/` (`api/agent/`, `api/memory/`, `api/tools.py`, `packages/claude-gateway/`)
+> **Source repo**: `AI-excel-addin/` (`api/agent/`, `api/memory/`, `api/tools.py`, `packages/agent-gateway/`)
 > **Target**: Standalone `openclaw-agent` package in this repo
 
 ---
 
 ## 1. Executive Summary
 
-The autonomous analyst agent lives in `AI-excel-addin/api/` as a profile config + orchestration layer on top of the `claude-gateway` package. Extracting it into a standalone package requires:
+The autonomous analyst agent lives in `AI-excel-addin/api/` as a profile config + orchestration layer on top of the `agent-gateway` package. Extracting it into a standalone package requires:
 
 1. **Prerequisite**: Split `api/tools.py` (2,801-line monolith) into focused modules (Phase B refactor — already designed)
 2. **Decouple memory**: Extract protocol interface from SQLite implementation
@@ -19,13 +19,13 @@ The autonomous analyst agent lives in `AI-excel-addin/api/` as a profile config 
 5. **Package the agent runner**: Standalone entry point with CLI and programmatic API
 6. **Configure MCP servers**: Declarative YAML config instead of hardcoded server sets
 
-The `claude-gateway` package is already extracted with a `ModelProvider` protocol (Anthropic + OpenAI implementations), `AgentRunner`, `ToolDispatcher`, `McpClientManager`, and `MemoryStore`. The agent extraction builds on top of this foundation.
+The `agent-gateway` package is already extracted with a `ModelProvider` protocol (Anthropic + OpenAI implementations), `AgentRunner`, `ToolDispatcher`, `McpClientManager`, and `MemoryStore`. The agent extraction builds on top of this foundation.
 
 ---
 
 ## 2. Current Architecture
 
-### What exists in `claude-gateway` (already extracted)
+### What exists in `agent-gateway` (already extracted)
 
 | Module | LOC | Purpose |
 |--------|-----|---------|
@@ -67,12 +67,12 @@ analyst.py (profile config)
   → skill_loader.py (SKILL_STATE_FILE_NAME)
 
 agent/runner.py (AgentRunner subclass)
-  → claude_gateway.runner (base AgentRunner)
-  → claude_gateway.providers (AnthropicProvider, ModelProvider)
+  → agent_gateway.runner (base AgentRunner)
+  → agent_gateway.providers (AnthropicProvider, ModelProvider)
   → tools.py (_execute_memory_tool, _get_cached_tools, get_active_tool_definitions, get_anthropic_config, _execute_run_agent)
 
 agent/autonomous.py (orchestrator)
-  → claude_gateway (AgentRunner, EventLog, ToolDispatcher, AnthropicProvider)
+  → agent_gateway (AgentRunner, EventLog, ToolDispatcher, AnthropicProvider)
   → agent.profiles (ProfileConfig)
   → tools.py (_build_local_tool_handlers, get_active_tool_definitions, get_anthropic_config, make_run_agent_handler)
   → mcp_client.py (mcp_clients global)
@@ -90,12 +90,12 @@ agent/autonomous.py (orchestrator)
 | `ProfileConfig` | `api/agent/profiles/__init__.py` | As-is — clean dataclass |
 | Analyst profile config | `api/agent/profiles/analyst.py` | Generalized — remove hardcoded paths, use YAML for MCP server config |
 | Autonomous runner | `api/agent/autonomous.py` | Core loop extracted; Telegram notify becomes a pluggable notifier |
-| Gateway `AgentRunner` | `claude-gateway` | Used as dependency (pip install) |
-| Gateway `ToolDispatcher` | `claude-gateway` | Used as dependency |
-| Gateway `McpClientManager` | `claude-gateway` | Used as dependency |
-| Gateway `MemoryStore` | `claude-gateway` | Used as dependency; app-level subclass stays in addin |
-| Gateway `SkillLoader` | `claude-gateway` | Used as dependency |
-| Gateway `ModelProvider` | `claude-gateway` | Used as dependency |
+| Gateway `AgentRunner` | `agent-gateway` | Used as dependency (pip install) |
+| Gateway `ToolDispatcher` | `agent-gateway` | Used as dependency |
+| Gateway `McpClientManager` | `agent-gateway` | Used as dependency |
+| Gateway `MemoryStore` | `agent-gateway` | Used as dependency; app-level subclass stays in addin |
+| Gateway `SkillLoader` | `agent-gateway` | Used as dependency |
+| Gateway `ModelProvider` | `agent-gateway` | Used as dependency |
 | Skill state helpers | `api/skill_loader.py` | Thin wrappers over gateway — extract |
 | Embedding providers | `api/memory/embeddings.py` | `OpenAIEmbedder`, `NoOpEmbedder` |
 | Memory init helper | `api/memory/__init__.py` | Rewritten as config-driven factory |
@@ -112,9 +112,9 @@ agent/autonomous.py (orchestrator)
 | `api/main.py` (FastAPI app) | Web app routes |
 | `mcp_servers/excel_mcp_server.py` | Excel-specific MCP relay |
 
-### Shared via `claude-gateway` dependency
+### Shared via `agent-gateway` dependency
 
-The `claude-gateway` package (`packages/claude-gateway/`) is the shared foundation. Both the standalone agent and AI-excel-addin import it. It already contains the core abstractions:
+The `agent-gateway` package (`packages/agent-gateway/`) is the shared foundation. Both the standalone agent and AI-excel-addin import it. It already contains the core abstractions:
 
 - `ModelProvider` protocol + `AnthropicProvider` + `OpenAIProvider`
 - `AgentRunner` (agentic loop, streaming, tool execution, sub-agents)
@@ -174,7 +174,7 @@ agent/
 
 **Key design decisions**:
 
-1. **`claude-gateway` as a pip dependency** — not vendored, not copied. The agent package declares `claude-gateway>=0.x` in its dependencies. This is the same pattern as `app-platform`.
+1. **`agent-gateway` as a pip dependency** — not vendored, not copied. The agent package declares `agent-gateway>=0.x` in its dependencies. This is the same pattern as `app-platform`.
 
 2. **No FastAPI dependency** — the agent package is pure Python + asyncio. It can be embedded in a FastAPI app (as AI-excel-addin does) or run standalone via CLI.
 
@@ -275,7 +275,7 @@ class MemoryStore:
 ```
 
 **What the agent package does**:
-1. Use `MemoryStore` from `claude-gateway` directly
+1. Use `MemoryStore` from `agent-gateway` directly
 2. Provide `memory_factory.py` that creates a store from `AgentConfig`:
    - Reads `memory_db_path` from config
    - Creates `OpenAIEmbedder` or `NoOpEmbedder` based on config
@@ -515,7 +515,7 @@ def skill(skill_name, config):
 
 #### Existing gateway tests
 
-The `claude-gateway` package has its own test suite covering `AgentRunner`, `ToolDispatcher`, `McpClientManager`, `MemoryStore`, and providers. These do NOT move — they stay with the gateway package.
+The `agent-gateway` package has its own test suite covering `AgentRunner`, `ToolDispatcher`, `McpClientManager`, `MemoryStore`, and providers. These do NOT move — they stay with the gateway package.
 
 ---
 
@@ -543,7 +543,7 @@ After extraction, AI-excel-addin should depend on `openclaw-agent` instead of du
 
 ```
 openclaw-agent
-├── claude-gateway (pip)      # AgentRunner, ToolDispatcher, McpClientManager, MemoryStore, providers
+├── agent-gateway (pip)      # AgentRunner, ToolDispatcher, McpClientManager, MemoryStore, providers
 ├── click (pip)               # CLI
 ├── pyyaml (pip)              # Config loading
 └── (optional) openai (pip)   # For OpenAI embedding provider
@@ -583,7 +583,7 @@ No dependency on:
 
 1. **Package name**: `openclaw-agent` vs `portfolio-agent` vs just `agent/` subdirectory in this repo (same pattern as `fmp/`, `ibkr/`)? The in-repo pattern avoids PyPI publish complexity initially.
 
-2. **claude-gateway publish**: The gateway package is currently in AI-excel-addin. It needs to be on PyPI (or vendored) before the agent can depend on it. Should we publish `claude-gateway` to PyPI first, or vendor the relevant modules?
+2. **agent-gateway publish**: The gateway package is currently in AI-excel-addin. It needs to be on PyPI (or vendored) before the agent can depend on it. Should we publish `agent-gateway` to PyPI first, or vendor the relevant modules?
 
 3. **Dev mode**: The analyst profile has an elaborate dev mode (file_write, file_edit, run_bash, custom PYTHONPATH). Does this move to the agent package or stay as an addin-specific feature?
 
@@ -606,4 +606,4 @@ No dependency on:
 
 ---
 
-*This plan covers item C3 from `docs/OPEN_SOURCE_LAUNCH_GAPS.md`. It depends on C1 (Gateway Model Abstraction) being partially complete — specifically, the `ModelProvider` protocol and `OpenAIProvider` already exist in `claude-gateway`. Full model-agnostic support (Gemini, local models) is a separate effort.*
+*This plan covers item C3 from `docs/OPEN_SOURCE_LAUNCH_GAPS.md`. It depends on C1 (Gateway Model Abstraction) being partially complete — specifically, the `ModelProvider` protocol and `OpenAIProvider` already exist in `agent-gateway`. Full model-agnostic support (Gemini, local models) is a separate effort.*

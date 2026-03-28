@@ -5,7 +5,7 @@
 
 from settings import PORTFOLIO_DEFAULTS          # <— central date window
 from brokerage.futures import get_contract_spec
-from utils.ticker_resolver import select_fmp_symbol
+from utils.ticker_resolver import resolve_ticker_alias
 import functools
 import hashlib
 import json
@@ -146,7 +146,7 @@ def _resolve_instrument_type(
     return str(instrument_type).strip().lower()
 
 
-def should_skip_fmp_profile_lookup(
+def should_skip_profile_lookup(
     ticker: str,
     instrument_types: dict[str, str] | None = None,
 ) -> bool:
@@ -219,11 +219,11 @@ def cache_gpt_peers(func):
     - Memory bounded: Max 500 peer lists (~1MB)
     """
     @functools.wraps(func)
-    def wrapper(ticker, start=None, end=None, fmp_ticker_map=None, instrument_types=None):
-        if should_skip_fmp_profile_lookup(ticker, instrument_types=instrument_types):
+    def wrapper(ticker, start=None, end=None, ticker_alias_map=None, instrument_types=None):
+        if should_skip_profile_lookup(ticker, instrument_types=instrument_types):
             return []
 
-        # Create cache key from all parameters (fmp_ticker_map not included - it's for resolution, not caching)
+        # Create cache key from all parameters (ticker_alias_map not included - it's for resolution, not caching)
         cache_data = {
             'ticker': ticker.upper(),
             'start': str(start) if start else None,
@@ -243,7 +243,7 @@ def cache_gpt_peers(func):
             ticker,
             start,
             end,
-            fmp_ticker_map=fmp_ticker_map,
+            ticker_alias_map=ticker_alias_map,
             instrument_types=instrument_types,
         )
 
@@ -480,7 +480,7 @@ def build_proxy_for_ticker(
     ticker: str,
     exchange_map: dict,
     industry_map: dict,
-    fmp_ticker_map: dict[str, str] | None = None,
+    ticker_alias_map: dict[str, str] | None = None,
     instrument_types: dict[str, str] | None = None,
 ) -> dict:
     """
@@ -533,14 +533,14 @@ def build_proxy_for_ticker(
     • If the FMP profile fetch fails, the function returns None.
     • Unrecognized industries default to industry_map['DEFAULT'], if defined.
     """
-    if should_skip_fmp_profile_lookup(ticker, instrument_types=instrument_types):
+    if should_skip_profile_lookup(ticker, instrument_types=instrument_types):
         return build_futures_skip_proxy()
 
     # LOGGING: Add proxy building start logging with ticker and timing
     from utils.logging import log_critical_alert
-    fmp_symbol = select_fmp_symbol(ticker, fmp_ticker_map=fmp_ticker_map)
+    data_symbol = resolve_ticker_alias(ticker, ticker_alias_map=ticker_alias_map)
     try:
-        profile = fetch_profile(fmp_symbol)
+        profile = fetch_profile(data_symbol)
     except Exception as e:
         # LOGGING: Add profile fetch error logging with ticker and error details
         log_critical_alert(
@@ -548,7 +548,7 @@ def build_proxy_for_ticker(
             "medium",
             f"Profile fetch failed for {ticker}",
             "Check ticker validity and API connectivity",
-            details={"ticker": ticker, "fmp_ticker": fmp_symbol, "error": str(e)},
+            details={"ticker": ticker, "ticker_alias": data_symbol, "error": str(e)},
         )
         gpt_logger.warning(f"⚠️ {ticker}: profile fetch failed — {e}")
         return None
@@ -631,7 +631,11 @@ def inject_proxies_into_portfolio_yaml(path: str = "portfolio.yaml") -> None:
     tickers = list(cfg.get("portfolio_input", {}).keys())
     if not tickers:
         raise ValueError("portfolio_input is empty or missing")
-    fmp_ticker_map = cfg.get("fmp_ticker_map") or {}
+    ticker_alias_map = (
+        cfg.get("ticker_alias_map")
+        if "ticker_alias_map" in cfg
+        else cfg.get("fmp_ticker_map")
+    ) or {}
     instrument_types = cfg.get("instrument_types") or {}
 
     # Load reference maps
@@ -645,7 +649,7 @@ def inject_proxies_into_portfolio_yaml(path: str = "portfolio.yaml") -> None:
             t,
             exchange_map,
             industry_map,
-            fmp_ticker_map=fmp_ticker_map,
+            ticker_alias_map=ticker_alias_map,
             instrument_types=instrument_types,
         )
         if proxy:
@@ -676,7 +680,7 @@ def filter_valid_tickers(
     target_ticker: str,
     start: pd.Timestamp | None = None,
     end:   pd.Timestamp | None = None,
-    fmp_ticker_map: dict[str, str] | None = None,
+    ticker_alias_map: dict[str, str] | None = None,
 ) -> List[str]:
     """
     Return only those peer tickers that have *at least* as many monthly
@@ -710,7 +714,7 @@ def filter_valid_tickers(
         target_ticker,
         start,
         end,
-        fmp_ticker_map=fmp_ticker_map,
+        ticker_alias_map=ticker_alias_map,
     )
     target_obs  = len(target_prices)
 
@@ -722,7 +726,7 @@ def filter_valid_tickers(
                 sym,
                 start,
                 end,
-                fmp_ticker_map=fmp_ticker_map,
+                ticker_alias_map=ticker_alias_map,
             )
 
             # Basic validation: sufficient prices for returns calculation
@@ -757,7 +761,7 @@ def get_subindustry_peers_from_ticker(
     ticker: str,
     start: pd.Timestamp | None = None,
     end:   pd.Timestamp | None = None,
-    fmp_ticker_map: dict[str, str] | None = None,
+    ticker_alias_map: dict[str, str] | None = None,
     instrument_types: dict[str, str] | None = None,
 ) -> list[str]:
     """
@@ -806,7 +810,7 @@ def get_subindustry_peers_from_ticker(
     
     ticker = ticker.upper()
 
-    if should_skip_fmp_profile_lookup(ticker, instrument_types=instrument_types):
+    if should_skip_profile_lookup(ticker, instrument_types=instrument_types):
         return []
 
     # ─── 1. Try database first (same pattern as load_exchange_proxy_map) ────────────────
@@ -824,8 +828,8 @@ def get_subindustry_peers_from_ticker(
 
     # ─── 2. Generate fresh peers via GPT (original logic) ────────────────
     try:
-        fmp_symbol = select_fmp_symbol(ticker, fmp_ticker_map=fmp_ticker_map)
-        profile = fetch_profile(fmp_symbol)
+        data_symbol = resolve_ticker_alias(ticker, ticker_alias_map=ticker_alias_map)
+        profile = fetch_profile(data_symbol)
 
         # Skip peer generation for ETFs and funds
         if profile.get("isEtf") or profile.get("isFund"):
@@ -858,7 +862,7 @@ def get_subindustry_peers_from_ticker(
             target_ticker=ticker,
             start=start,
             end=end,
-            fmp_ticker_map=fmp_ticker_map,
+            ticker_alias_map=ticker_alias_map,
         )
 
         # ─── 3. Cache result for future use (same pattern as factor_proxy_service) ────────────────
@@ -927,13 +931,17 @@ def inject_subindustry_peers_into_yaml(
 
     tickers_to_process = tickers or list(config.get("portfolio_input", {}).keys())
     stock_proxies = config.get("stock_factor_proxies", {})
-    fmp_ticker_map = config.get("fmp_ticker_map") or {}
+    ticker_alias_map = (
+        config.get("ticker_alias_map")
+        if "ticker_alias_map" in config
+        else config.get("fmp_ticker_map")
+    ) or {}
     instrument_types = config.get("instrument_types") or {}
 
     for tkr in tickers_to_process:
         peers = get_subindustry_peers_from_ticker(
             tkr,
-            fmp_ticker_map=fmp_ticker_map,
+            ticker_alias_map=ticker_alias_map,
             instrument_types=instrument_types,
         )
         if tkr not in stock_proxies:
@@ -1010,7 +1018,11 @@ def inject_all_proxies(
     tickers = list(config.get("portfolio_input", {}).keys())
     if not tickers:
         raise ValueError("No portfolio_input found in YAML.")
-    fmp_ticker_map = config.get("fmp_ticker_map") or {}
+    ticker_alias_map = (
+        config.get("ticker_alias_map")
+        if "ticker_alias_map" in config
+        else config.get("fmp_ticker_map")
+    ) or {}
     instrument_types = config.get("instrument_types") or {}
 
     start_date = pd.to_datetime(config.get("start_date", PORTFOLIO_DEFAULTS["start_date"]))
@@ -1025,7 +1037,7 @@ def inject_all_proxies(
             tkr,
             exchange_map,
             industry_map,
-            fmp_ticker_map=fmp_ticker_map,
+            ticker_alias_map=ticker_alias_map,
             instrument_types=instrument_types,
         )
         if proxy:
@@ -1047,7 +1059,7 @@ def inject_all_proxies(
                 tkr,
                 start=start_date,
                 end=end_date,
-                fmp_ticker_map=fmp_ticker_map,
+                ticker_alias_map=ticker_alias_map,
                 instrument_types=instrument_types,
             )
             stock_proxies[tkr]["subindustry"] = peers

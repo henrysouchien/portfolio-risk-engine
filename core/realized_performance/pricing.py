@@ -35,6 +35,7 @@ from providers.normalizers.schwab import get_schwab_security_lookup
 from providers.registry import ProviderRegistry
 from providers.routing import get_canonical_provider, resolve_provider_token
 from providers.routing_config import resolve_account_aliases
+from providers.ticker_resolver import AliasMapResolver, TickerResolver
 from settings import (
     BACKFILL_FILE_PATH,
     DATA_QUALITY_THRESHOLDS,
@@ -130,9 +131,12 @@ def _fetch_price_from_chain(
     *,
     instrument_type: str,
     contract_identity: dict[str, Any] | None,
-    fmp_ticker_map: dict[str, str] | None,
+    ticker_alias_map: dict[str, str] | None,
+    ticker_resolver: TickerResolver | None = None,
 ) -> PriceResult:
     result = PriceResult(series=pd.Series(dtype=float))
+    if ticker_resolver is None:
+        ticker_resolver = AliasMapResolver(ticker_alias_map)
     for provider in providers:
         if (
             instrument_type == "option"
@@ -151,7 +155,7 @@ def _fetch_price_from_chain(
                     end_date,
                     instrument_type=instrument_type,
                     contract_identity=contract_identity,
-                    fmp_ticker_map=fmp_ticker_map,
+                    ticker_resolver=ticker_resolver,
                 )
             else:
                 series = provider.fetch_monthly_close(
@@ -160,7 +164,7 @@ def _fetch_price_from_chain(
                     end_date,
                     instrument_type=instrument_type,
                     contract_identity=contract_identity,
-                    fmp_ticker_map=fmp_ticker_map,
+                    ticker_resolver=ticker_resolver,
                 )
             if not isinstance(series, pd.Series):
                 series = pd.Series(dtype=float)

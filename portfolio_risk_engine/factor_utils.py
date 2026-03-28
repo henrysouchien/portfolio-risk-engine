@@ -42,7 +42,7 @@ from fmp.compat import (
     fetch_monthly_total_return_price,
 )
 from fmp.cache import get_timeseries_store
-from utils.ticker_resolver import select_fmp_symbol
+from utils.ticker_resolver import resolve_ticker_alias
 
 # Import logging decorators for factor analysis
 from portfolio_risk_engine._logging import (
@@ -115,12 +115,12 @@ def compute_regression_metrics(df: pd.DataFrame) -> Dict[str, float]:
 @log_errors("high")
 def _peer_median_store_key(
     tickers: List[str],
-    fmp_ticker_map: Optional[Dict[str, str]] = None,
+    ticker_alias_map: Optional[Dict[str, str]] = None,
 ) -> str:
     """Build a stable cache key for the resolved peer-basket definition."""
     resolved = sorted(
         {
-            select_fmp_symbol(str(ticker).strip(), fmp_ticker_map=fmp_ticker_map)
+            resolve_ticker_alias(str(ticker).strip(), ticker_alias_map=ticker_alias_map)
             for ticker in tickers
             if str(ticker).strip()
         }
@@ -137,7 +137,7 @@ def _compute_peer_median_monthly_returns_uncached(
     tickers: List[str],
     start_date: Optional[Union[str, datetime]] = None,
     end_date: Optional[Union[str, datetime]] = None,
-    fmp_ticker_map: Optional[Dict[str, str]] = None,
+    ticker_alias_map: Optional[Dict[str, str]] = None,
     returns_cache: Optional[Dict[str, pd.Series]] = None,
 ) -> pd.Series:
     """Compute the peer-median monthly return series without store-level caching."""
@@ -161,14 +161,14 @@ def _compute_peer_median_monthly_returns_uncached(
                         ticker,
                         start_date=start_date,
                         end_date=end_date,
-                        fmp_ticker_map=fmp_ticker_map,
+                        ticker_alias_map=ticker_alias_map,
                     )
                 except Exception:
                     prices = fetch_monthly_close(
                         ticker,
                         start_date=start_date,
                         end_date=end_date,
-                        fmp_ticker_map=fmp_ticker_map,
+                        ticker_alias_map=ticker_alias_map,
                     )
 
                 returns = calc_monthly_returns(prices)
@@ -252,7 +252,7 @@ def fetch_peer_median_monthly_returns(
     tickers: List[str],
     start_date: Optional[Union[str, datetime]] = None,
     end_date:   Optional[Union[str, datetime]] = None,
-    fmp_ticker_map: Optional[Dict[str, str]] = None,
+    ticker_alias_map: Optional[Dict[str, str]] = None,
     returns_cache: Optional[Dict[str, pd.Series]] = None,
 ) -> pd.Series:
     """
@@ -278,7 +278,7 @@ def fetch_peer_median_monthly_returns(
         return pd.Series(dtype=float, name="median_returns")
 
     store = get_timeseries_store()
-    cache_ticker = _peer_median_store_key(tickers, fmp_ticker_map=fmp_ticker_map)
+    cache_ticker = _peer_median_store_key(tickers, ticker_alias_map=ticker_alias_map)
     series = store.read_monthly(
         ticker=cache_ticker,
         series_kind=_PEER_MEDIAN_SERIES_KIND,
@@ -288,7 +288,7 @@ def fetch_peer_median_monthly_returns(
             tickers,
             start_date=s,
             end_date=e,
-            fmp_ticker_map=fmp_ticker_map,
+            ticker_alias_map=ticker_alias_map,
             returns_cache=returns_cache,
         ),
         max_age_days=30,
@@ -302,7 +302,7 @@ def fetch_excess_return(
     market_ticker: str = "SPY",
     start_date: Optional[Union[str, datetime]] = None,
     end_date: Optional[Union[str, datetime]] = None,
-    fmp_ticker_map: Optional[Dict[str, str]] = None,
+    ticker_alias_map: Optional[Dict[str, str]] = None,
 ) -> pd.Series:
     """
     Compute style-factor excess returns: ETF minus market, aligned by index.
@@ -325,28 +325,28 @@ def fetch_excess_return(
             etf_ticker,
             start_date,
             end_date,
-            fmp_ticker_map=fmp_ticker_map,
+            ticker_alias_map=ticker_alias_map,
         )
     except Exception:
         etf_prices = fetch_monthly_close(
             etf_ticker,
             start_date,
             end_date,
-            fmp_ticker_map=fmp_ticker_map,
+            ticker_alias_map=ticker_alias_map,
         )
     try:
         mkt_prices = fetch_monthly_total_return_price(
             market_ticker,
             start_date,
             end_date,
-            fmp_ticker_map=fmp_ticker_map,
+            ticker_alias_map=ticker_alias_map,
         )
     except Exception:
         mkt_prices = fetch_monthly_close(
             market_ticker,
             start_date,
             end_date,
-            fmp_ticker_map=fmp_ticker_map,
+            ticker_alias_map=ticker_alias_map,
         )
 
     etf_ret    = calc_monthly_returns(etf_prices)

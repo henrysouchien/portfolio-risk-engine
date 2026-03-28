@@ -422,7 +422,7 @@ def evaluate_portfolio_risk_limits(
     # LOGGING: Add volatility check logging with actual vs limit values
     # 1. Volatility Check
     actual_vol = summary["volatility_annual"]
-    vol_limit = portfolio_limits["max_volatility"]
+    vol_limit = portfolio_limits.get("max_volatility", float("inf"))
     results.append({
         "Metric": "Volatility",
         "Actual": actual_vol,
@@ -441,7 +441,7 @@ def evaluate_portfolio_risk_limits(
     else:
         check_weights = weights
     max_weight = check_weights.abs().max() if not check_weights.empty else 0.0
-    weight_limit = concentration_limits["max_single_stock_weight"]
+    weight_limit = concentration_limits.get("max_single_stock_weight", 1.0)
     results.append({
         "Metric": "Max Weight",
         "Actual": max_weight,
@@ -452,7 +452,7 @@ def evaluate_portfolio_risk_limits(
     # 3. Factor Variance Contribution
     var_decomp = summary["variance_decomposition"]
     factor_pct = var_decomp["factor_pct"]
-    factor_limit = variance_limits["max_factor_contribution"]
+    factor_limit = variance_limits.get("max_factor_contribution", 1.0)
     results.append({
         "Metric": "Factor Var %",
         "Actual": factor_pct,
@@ -462,7 +462,7 @@ def evaluate_portfolio_risk_limits(
 
     # 4. Market Variance Contribution
     market_pct = var_decomp["factor_breakdown_pct"].get("market", 0.0)
-    market_limit = variance_limits["max_market_contribution"]
+    market_limit = variance_limits.get("max_market_contribution", 1.0)
     results.append({
         "Metric": "Market Var %",
         "Actual": market_pct,
@@ -473,7 +473,7 @@ def evaluate_portfolio_risk_limits(
     # 5. Top Industry Exposure
     industry_pct_dict = summary["industry_variance"].get("percent_of_portfolio", {})
     max_industry_pct = max(industry_pct_dict.values()) if industry_pct_dict else 0.0
-    industry_limit = variance_limits["max_industry_contribution"]
+    industry_limit = variance_limits.get("max_industry_contribution", 1.0)
     results.append({
         "Metric": "Max Industry Var %",
         "Actual": max_industry_pct,
