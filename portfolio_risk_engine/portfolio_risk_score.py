@@ -2188,6 +2188,7 @@ def run_risk_score_analysis(
             currency_map=currency_map,
             instrument_types=instrument_types,
             security_types=security_types,
+            security_identities=getattr(portfolio_data, "security_identities", None),
         )
         
         # Calculate max betas

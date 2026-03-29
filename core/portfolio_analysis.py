@@ -173,6 +173,7 @@ def analyze_portfolio(
             instrument_types=instrument_types,
             contract_identities=contract_identities,
             security_types=security_types,
+            security_identities=config.get("security_identities"),
         )
         future_betas = executor.submit(
             calc_max_factor_betas,

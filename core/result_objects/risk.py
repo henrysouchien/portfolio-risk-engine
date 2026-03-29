@@ -9,6 +9,7 @@ from datetime import datetime, UTC
 import json
 import numpy as np
 from dataclasses import dataclass, field
+from core.coverage_tracking import PortfolioCoverage
 from portfolio_risk_engine.allocation_drift import compute_allocation_drift
 from utils.serialization import make_json_safe
 from portfolio_risk_engine.constants import get_asset_class_color, get_asset_class_display_name
@@ -199,6 +200,7 @@ class RiskAnalysisResult:
     notional_leverage: Optional[float] = None
     fx_attribution: Optional[Dict[str, Dict[str, Any]]] = None
     stock_betas_raw: Optional[pd.DataFrame] = None
+    coverage: Optional[PortfolioCoverage] = None
     _api_response_cache: Optional[Dict[str, Any]] = field(
         default=None,
         init=False,
@@ -238,6 +240,19 @@ class RiskAnalysisResult:
             "idiosyncratic_variance_pct": self.variance_decomposition.get('idiosyncratic_pct', 0),
             "risk_drivers": self._build_risk_drivers()[:5],
         }
+
+    def get_agent_snapshot(self) -> Dict[str, Any]:
+        """Compact risk-analysis snapshot for agent consumers."""
+        snapshot = {
+            "summary": self.get_summary(),
+            "portfolio_factor_betas": _convert_to_json_serializable(self.portfolio_factor_betas),
+            "variance_decomposition": _convert_to_json_serializable(self.variance_decomposition),
+            "risk_limit_violations_summary": self._get_risk_limit_violations_summary(),
+            "beta_exposure_checks_table": self._get_beta_exposure_checks_table(),
+        }
+        if self.coverage is not None:
+            snapshot["coverage"] = self.coverage.to_dict()
+        return make_json_safe(snapshot)
     
     def get_factor_exposures(self) -> Dict[str, float]:
         """
@@ -1420,6 +1435,8 @@ class RiskAnalysisResult:
             "risk_limit_violations_summary": self._get_risk_limit_violations_summary(),  # Risk Limit Violations Summary
             "beta_exposure_checks_table": self._get_beta_exposure_checks_table()  # Beta Exposure Checks Formatted Table
         }
+        if self.coverage is not None:
+            payload["coverage"] = self.coverage.to_dict()
         self._api_response_cache = payload
         return payload.copy()
     
@@ -1881,6 +1898,7 @@ class RiskAnalysisResult:
             dollar_exposure=portfolio_summary.get("dollar_exposure"),  # Used by to_api_response()
             notional_leverage=portfolio_summary.get("notional_leverage"),
             fx_attribution=portfolio_summary.get("fx_attribution"),
+            coverage=portfolio_summary.get("coverage"),
             # New structured fields from parameters
             risk_checks=risk_checks,
             beta_checks=beta_checks, 

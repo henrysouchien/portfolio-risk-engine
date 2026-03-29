@@ -50,6 +50,12 @@ import hashlib
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from core.coverage_tracking import (
+    FactorCoverage,
+    ModelingStatus,
+    PortfolioCoverage,
+    SecurityCoverage,
+)
 from fmp.compat import (
     fetch_monthly_close as _compat_fetch_monthly_close,
     fetch_monthly_total_return_price as _compat_fetch_monthly_total_return_price,
@@ -85,6 +91,89 @@ _RATE_MATURITY_COL_MAP = {
 }
 _RATE_MATURITY_COLS = set(_RATE_MATURITY_COL_MAP.values())
 _VARIANCE_EXCLUDED_COLS = {"industry", "subindustry"} | _RATE_MATURITY_COLS
+
+
+def _identity_value(identity: Any, field: str, default: Any = None) -> Any:
+    """Read a field from an identity-like object or dict."""
+    if identity is None:
+        return default
+    if isinstance(identity, dict):
+        return identity.get(field, default)
+    return getattr(identity, field, default)
+
+
+def _coverage_security_key(
+    ticker: str,
+    security_identities: Optional[Dict[str, Any]] = None,
+) -> str:
+    identity = (security_identities or {}).get(ticker)
+    return str(_identity_value(identity, "security_key", ticker) or ticker)
+
+
+def _is_cash_coverage_ticker(
+    ticker: str,
+    security_identities: Optional[Dict[str, Any]] = None,
+) -> bool:
+    identity = (security_identities or {}).get(ticker)
+    if str(_identity_value(identity, "instrument_category", "")).lower() == "cash":
+        return True
+
+    from portfolio_risk_engine.portfolio_config import is_cash_ticker
+
+    return is_cash_ticker(ticker)
+
+
+def _build_factor_coverage_for_ticker(
+    proxies: Dict[str, Union[str, List[str]]],
+    betas: Dict[str, float],
+) -> dict[str, FactorCoverage]:
+    applicable_factors = {
+        str(name)
+        for name, proxy in (proxies or {}).items()
+        if not str(name).startswith("_") and proxy
+    }
+    applicable_factors.update(str(name) for name in betas.keys())
+
+    factors: dict[str, FactorCoverage] = {}
+    for factor_name in sorted(applicable_factors):
+        modeled = factor_name in betas
+        factors[factor_name] = FactorCoverage(
+            modeled=modeled,
+            detail=None if modeled else "factor beta unavailable",
+        )
+    return factors
+
+
+def _serialize_security_identities_for_cache(
+    security_identities: Optional[Dict[str, Any]],
+) -> Optional[str]:
+    if not security_identities:
+        return None
+
+    serializable: dict[str, dict[str, Any]] = {}
+    for ticker, identity in security_identities.items():
+        if identity is None:
+            continue
+        if hasattr(identity, "to_dict"):
+            serializable[ticker] = identity.to_dict()
+            continue
+        if isinstance(identity, dict):
+            serializable[ticker] = dict(identity)
+            continue
+        serializable[ticker] = {
+            "security_key": _identity_value(identity, "security_key"),
+            "source_symbol": _identity_value(identity, "source_symbol"),
+            "portfolio_symbol": _identity_value(identity, "portfolio_symbol"),
+            "data_symbol": _identity_value(identity, "data_symbol"),
+            "instrument_category": _identity_value(identity, "instrument_category"),
+            "exchange_mic": _identity_value(identity, "exchange_mic"),
+            "currency": _identity_value(identity, "currency"),
+            "cusip": _identity_value(identity, "cusip"),
+            "isin": _identity_value(identity, "isin"),
+            "figi": _identity_value(identity, "figi"),
+            "resolution_method": _identity_value(identity, "resolution_method"),
+        }
+    return json.dumps(serializable, sort_keys=True)
 
 
 def fetch_monthly_close(
@@ -460,6 +549,7 @@ def _cached_build_portfolio_view(
     instrument_types_json: Optional[str] = None,
     security_types_json: Optional[str] = None,
     contract_identities_json: Optional[str] = None,
+    security_identities_json: Optional[str] = None,
 ):
     """
     LRU-cached version of build_portfolio_view.
@@ -483,6 +573,7 @@ def _cached_build_portfolio_view(
     instrument_types = json.loads(instrument_types_json) if instrument_types_json else None
     security_types = json.loads(security_types_json) if security_types_json else None
     contract_identities = json.loads(contract_identities_json) if contract_identities_json else None
+    security_identities = json.loads(security_identities_json) if security_identities_json else None
 
     try:
         bond_list = json.loads(bond_mask_json or "[]")
@@ -503,6 +594,7 @@ def _cached_build_portfolio_view(
         instrument_types,
         security_types,
         contract_identities,
+        security_identities,
     )
 
 def clear_portfolio_view_cache():
@@ -758,7 +850,47 @@ def _fetch_ticker_returns(
 ) -> Dict[str, Any]:
     """Fetch a single ticker return series and optional FX attribution details."""
     if isinstance(ticker, str) and ticker.startswith("CUR:"):
-        return {"ticker": ticker, "returns": None, "fx_attribution": None}
+        idx = pd.date_range(start_date, end_date, freq="ME")
+        currency = ticker.split(":", 1)[1].upper()
+        if currency == "USD":
+            rng = np.random.default_rng(seed=42)
+            local_returns = pd.Series(rng.normal(0, 1e-6, len(idx)), index=idx, name=ticker)
+        else:
+            local_returns = pd.Series(0.0, index=idx, name=ticker)
+
+        fx_attribution = None
+        if currency != "USD":
+            try:
+                from portfolio_risk_engine.providers import get_fx_provider
+
+                fx_provider = get_fx_provider()
+                if include_fx_attribution:
+                    fx_result = fx_provider.adjust_returns_for_fx(
+                        local_returns,
+                        currency,
+                        start_date=start_date,
+                        end_date=end_date,
+                        decompose=True,
+                    )
+                    local_returns = fx_result["usd_returns"]
+                    fx_attribution = {
+                        "currency": currency,
+                        "local_returns": fx_result["local_returns"],
+                        "fx_returns": fx_result["fx_returns"],
+                    }
+                else:
+                    local_returns = fx_provider.adjust_returns_for_fx(
+                        local_returns,
+                        currency,
+                        start_date=start_date,
+                        end_date=end_date,
+                    )
+            except Exception:
+                stable_seed = int(hashlib.md5(ticker.encode()).hexdigest()[:8], 16)
+                rng = np.random.default_rng(seed=stable_seed)
+                local_returns = pd.Series(rng.normal(0, 1e-6, len(idx)), index=idx, name=ticker)
+
+        return {"ticker": ticker, "returns": local_returns, "fx_attribution": fx_attribution}
 
     instrument_type = _resolve_instrument_type(ticker, instrument_types)
     if instrument_type == "unknown":
@@ -1499,6 +1631,8 @@ def compute_factor_exposures(
     end_date: str,
     ticker_alias_map: Optional[Dict[str, str]] = None,
     stock_return_cache: Optional[Dict[str, pd.Series]] = None,
+    security_identities: Optional[Dict[str, Any]] = None,
+    coverage: Optional[PortfolioCoverage] = None,
 ) -> Dict[str, Any]:
     """
     Compute stock-level factor exposures and weighted factor variance.
@@ -1507,6 +1641,8 @@ def compute_factor_exposures(
     idio_var_dict: Dict[str, float] = {}
     factor_vols_by_ticker: Dict[str, Dict[str, float]] = {}
     proxy_cache: Dict[object, pd.Series] = {}
+    proxy_map = stock_factor_proxies or {}
+    coverage = coverage or PortfolioCoverage()
     if stock_return_cache is None:
         # df_ret is globally trimmed by dropna() so all columns share the
         # shortest history. Fetch each ticker independently to preserve the
@@ -1534,19 +1670,47 @@ def compute_factor_exposures(
 
     from portfolio_risk_engine._logging import portfolio_logger
 
-    if stock_factor_proxies:
-        missing_proxy_tickers = [t for t in weights if t not in stock_factor_proxies]
-        if missing_proxy_tickers:
-            portfolio_logger.warning(
-                f"Skipping factor analysis for {len(missing_proxy_tickers)} ticker(s) "
-                f"with no proxy configuration: [{', '.join(sorted(missing_proxy_tickers))}]. "
-                f"Run proxy builder or add entries to stock_factor_proxies."
+    eligible_tickers: List[str] = []
+    missing_proxy_tickers: List[str] = []
+    for ticker in weights.keys():
+        if _is_cash_coverage_ticker(ticker, security_identities=security_identities):
+            coverage.add(
+                SecurityCoverage(
+                    security_key=_coverage_security_key(
+                        ticker,
+                        security_identities=security_identities,
+                    ),
+                    factors={},
+                    overall_status=ModelingStatus.EXCLUDED_CASH,
+                    excluded_at="cash",
+                )
             )
-        eligible_tickers = [ticker for ticker in weights.keys() if ticker in stock_factor_proxies]
-
+            continue
+        if ticker in proxy_map:
+            eligible_tickers.append(ticker)
+            continue
+        missing_proxy_tickers.append(ticker)
+        coverage.add(
+            SecurityCoverage(
+                security_key=_coverage_security_key(
+                    ticker,
+                    security_identities=security_identities,
+                ),
+                factors={},
+                overall_status=ModelingStatus.EXCLUDED_NO_PROXY,
+                excluded_at="proxy",
+            )
+        )
+    if stock_factor_proxies is not None and missing_proxy_tickers:
+        portfolio_logger.warning(
+            f"Skipping factor analysis for {len(missing_proxy_tickers)} ticker(s) "
+            f"with no proxy configuration: [{', '.join(sorted(missing_proxy_tickers))}]. "
+            f"Run proxy builder or add entries to stock_factor_proxies."
+        )
+    if eligible_tickers:
         # Pre-fetch all unique proxy returns once (deduplicates across tickers and phases)
         proxy_cache = _prefetch_proxy_returns(
-            eligible_tickers, stock_factor_proxies, start_date, end_date,
+            eligible_tickers, proxy_map, start_date, end_date,
             ticker_alias_map=ticker_alias_map,
             stock_return_cache=stock_return_cache,
         )
@@ -1559,7 +1723,7 @@ def compute_factor_exposures(
                 futures_by_ticker[ticker] = executor.submit(
                     _compute_single_ticker_factors,
                     ticker=ticker,
-                    proxies=stock_factor_proxies[ticker],
+                    proxies=proxy_map[ticker],
                     start_date=start_date,
                     end_date=end_date,
                     ticker_alias_map=ticker_alias_map,
@@ -1569,14 +1733,65 @@ def compute_factor_exposures(
 
             for ticker in eligible_tickers:
                 ticker_factor_result = futures_by_ticker[ticker].result()
-                if ticker_factor_result is None:
-                    continue
-                betas = ticker_factor_result["betas"]
-                df_stock_betas.loc[ticker, betas.keys()] = pd.Series(betas)
-                factor_vols = ticker_factor_result.get("factor_vols") or {}
-                if factor_vols:
-                    factor_vols_by_ticker[ticker] = factor_vols
-                idio_var_dict[ticker] = ticker_factor_result["annual_idio_var"]
+                betas = ticker_factor_result["betas"] if ticker_factor_result else {}
+                if ticker_factor_result is not None:
+                    df_stock_betas.loc[ticker, betas.keys()] = pd.Series(betas)
+                    factor_vols = ticker_factor_result.get("factor_vols") or {}
+                    if factor_vols:
+                        factor_vols_by_ticker[ticker] = factor_vols
+                    idio_var_dict[ticker] = ticker_factor_result["annual_idio_var"]
+
+                proxies = proxy_map[ticker]
+                if proxies.get("_futures_skip") is True:
+                    factors = {
+                        factor_name: FactorCoverage(modeled=True)
+                        for factor_name in ("market", "momentum", "value")
+                    }
+                    factors.update(
+                        {
+                            factor_name: FactorCoverage(
+                                modeled=False,
+                                detail="industry classification unavailable for futures",
+                            )
+                            for factor_name in ("industry", "subindustry")
+                        }
+                    )
+                    overall_status = ModelingStatus.PARTIALLY_MODELED
+                else:
+                    factors = _build_factor_coverage_for_ticker(proxies, betas)
+                    modeled_factor_count = sum(
+                        1 for factor_coverage in factors.values() if factor_coverage.modeled
+                    )
+                    if factors and modeled_factor_count == len(factors):
+                        overall_status = ModelingStatus.FULLY_MODELED
+                    elif modeled_factor_count > 0:
+                        overall_status = ModelingStatus.PARTIALLY_MODELED
+                    else:
+                        overall_status = ModelingStatus.PARTIALLY_MODELED
+
+                if (
+                    str(
+                        _identity_value(
+                            (security_identities or {}).get(ticker),
+                            "resolution_method",
+                            "",
+                        )
+                    ).lower()
+                    == "unresolved"
+                    and overall_status == ModelingStatus.FULLY_MODELED
+                ):
+                    overall_status = ModelingStatus.UNRESOLVED_IDENTITY
+
+                coverage.add(
+                    SecurityCoverage(
+                        security_key=_coverage_security_key(
+                            ticker,
+                            security_identities=security_identities,
+                        ),
+                        factors=factors,
+                        overall_status=overall_status,
+                    )
+                )
 
     interest_rate_vol: Optional[float] = None
     if asset_classes:
@@ -1700,7 +1915,7 @@ def compute_factor_exposures(
     df_factor_vols = pd.DataFrame(index=df_stock_betas.index, columns=df_stock_betas.columns)
     weighted_factor_var = pd.DataFrame(index=df_stock_betas.index, columns=df_stock_betas.columns)
 
-    if stock_factor_proxies:
+    if proxy_map:
         if factor_vols_by_ticker:
             computed_factor_vols = pd.DataFrame.from_dict(factor_vols_by_ticker, orient="index")
             df_factor_vols = df_factor_vols.combine_first(computed_factor_vols)
@@ -1741,6 +1956,7 @@ def compute_factor_exposures(
         "weighted_factor_var": weighted_factor_var,
         "interest_rate_vol": interest_rate_vol,
         "portfolio_factor_betas": portfolio_factor_betas,
+        "coverage": coverage,
     }
 
 
@@ -1858,6 +2074,7 @@ def build_portfolio_view(
     instrument_types: Optional[Dict[str, str]] = None,
     security_types: Optional[Dict[str, str]] = None,
     contract_identities: Optional[Dict[str, Dict[str, Any]]] = None,
+    security_identities: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Build comprehensive portfolio view with LRU caching.
@@ -1890,16 +2107,17 @@ def build_portfolio_view(
     instrument_types_json = serialize_for_cache(instrument_types)
     security_types_json = serialize_for_cache(security_types)
     contract_identities_json = serialize_for_cache(contract_identities)
+    security_identities_json = _serialize_security_identities_for_cache(security_identities)
 
     # Rate beta cache mask and version
     bond_mask_json = _build_bond_injection_mask(asset_classes, weights)
-    cache_version = "rbeta_v2"
+    cache_version = "rbeta_v3"
 
     # Return cached computation keyed by bond mask and version
     return _cached_build_portfolio_view(
         weights_json, start_date, end_date, expected_returns_json, stock_factor_proxies_json,
         bond_mask_json, cache_version, ticker_alias_map_json, currency_map_json, instrument_types_json,
-        security_types_json, contract_identities_json
+        security_types_json, contract_identities_json, security_identities_json
     )
 
 @log_errors("high")
@@ -1915,6 +2133,7 @@ def _build_portfolio_view_computation(
     instrument_types: Optional[Dict[str, str]] = None,
     security_types: Optional[Dict[str, str]] = None,
     contract_identities: Optional[Dict[str, Dict[str, Any]]] = None,
+    security_identities: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Build a complete portfolio risk profile."""
     _bpv_t0 = time.perf_counter()
@@ -1939,6 +2158,16 @@ def _build_portfolio_view_computation(
 
     valid_tickers = set(df_ret.columns)
     excluded_tickers = [t for t in weights if t not in valid_tickers]
+    coverage = PortfolioCoverage()
+    for ticker in excluded_tickers:
+        coverage.add(
+            SecurityCoverage(
+                security_key=ticker,
+                factors={},
+                overall_status=ModelingStatus.EXCLUDED_NO_HISTORY,
+                excluded_at="returns",
+            )
+        )
 
     if excluded_tickers:
         from portfolio_risk_engine._logging import portfolio_logger
@@ -1984,6 +2213,8 @@ def _build_portfolio_view_computation(
         end_date=end_date,
         ticker_alias_map=ticker_alias_map,
         stock_return_cache=raw_return_cache,
+        security_identities=security_identities,
+        coverage=coverage,
     )
     _bpv_steps["factor_exposures"] = round((time.perf_counter() - _bpv_t2) * 1000, 2)
 
@@ -2042,6 +2273,7 @@ def _build_portfolio_view_computation(
         "variance_decomposition": var_result["variance_decomposition"],
         "industry_variance": var_result["industry_variance"],
         "fx_attribution": fx_attribution,
+        "coverage": factor_result["coverage"],
     }
 
 

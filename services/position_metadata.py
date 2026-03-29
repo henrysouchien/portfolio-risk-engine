@@ -7,7 +7,7 @@ Focuses on cash position detection and simple formatting utilities.
 """
 
 from typing import Dict, Optional, Set, Any
-from portfolio_risk_engine.portfolio_config import get_cash_positions
+from portfolio_risk_engine.portfolio_config import get_cash_positions, is_cash_ticker
 
 
 # Note: The user-specific metadata function is kept for potential future use
@@ -55,7 +55,7 @@ def enrich_with_cash_fallbacks(metadata: Dict[str, Dict[str, str]], tickers: Set
     
     for ticker in tickers:
         if ticker not in metadata:
-            if ticker in cash_positions:
+            if is_cash_position(ticker, cash_positions):
                 metadata[ticker] = {"type": "cash", "source": "calculated"}
             else:
                 metadata[ticker] = {"type": "equity", "source": "unknown"}
@@ -74,7 +74,8 @@ def is_cash_position(ticker: str, cash_positions: Set[str]) -> bool:
     Returns:
         True if ticker is a cash position
     """
-    return ticker in cash_positions
+    del cash_positions
+    return is_cash_ticker(ticker)
 
 
 # Simplified formatting helpers for future use if needed

@@ -219,7 +219,14 @@ def cache_gpt_peers(func):
     - Memory bounded: Max 500 peer lists (~1MB)
     """
     @functools.wraps(func)
-    def wrapper(ticker, start=None, end=None, ticker_alias_map=None, instrument_types=None):
+    def wrapper(
+        ticker,
+        start=None,
+        end=None,
+        ticker_alias_map=None,
+        instrument_types=None,
+        data_symbol=None,
+    ):
         if should_skip_profile_lookup(ticker, instrument_types=instrument_types):
             return []
 
@@ -227,7 +234,8 @@ def cache_gpt_peers(func):
         cache_data = {
             'ticker': ticker.upper(),
             'start': str(start) if start else None,
-            'end': str(end) if end else None
+            'end': str(end) if end else None,
+            'data_symbol': str(data_symbol).strip().upper() if data_symbol else None,
         }
 
         # Hash the cache data to create unique key
@@ -245,6 +253,7 @@ def cache_gpt_peers(func):
             end,
             ticker_alias_map=ticker_alias_map,
             instrument_types=instrument_types,
+            data_symbol=data_symbol,
         )
 
         # Store result in LFU cache
@@ -482,6 +491,7 @@ def build_proxy_for_ticker(
     industry_map: dict,
     ticker_alias_map: dict[str, str] | None = None,
     instrument_types: dict[str, str] | None = None,
+    data_symbol: str | None = None,
 ) -> dict:
     """
     Constructs a stock_factor_proxies dictionary entry for a single ticker.
@@ -538,7 +548,7 @@ def build_proxy_for_ticker(
 
     # LOGGING: Add proxy building start logging with ticker and timing
     from utils.logging import log_critical_alert
-    data_symbol = resolve_ticker_alias(ticker, ticker_alias_map=ticker_alias_map)
+    data_symbol = data_symbol or resolve_ticker_alias(ticker, ticker_alias_map=ticker_alias_map)
     try:
         profile = fetch_profile(data_symbol)
     except Exception as e:
@@ -574,6 +584,7 @@ def build_proxy_for_ticker(
         proxies["industry"] = map_industry_etf(industry, industry_map) if industry else ""
         proxies["subindustry"] = []
 
+    proxies["_data_symbol"] = data_symbol
     return proxies
 
 
@@ -763,6 +774,7 @@ def get_subindustry_peers_from_ticker(
     end:   pd.Timestamp | None = None,
     ticker_alias_map: dict[str, str] | None = None,
     instrument_types: dict[str, str] | None = None,
+    data_symbol: str | None = None,
 ) -> list[str]:
     """
     Gets subindustry peer tickers with database-first caching, following the same pattern
@@ -828,7 +840,7 @@ def get_subindustry_peers_from_ticker(
 
     # ─── 2. Generate fresh peers via GPT (original logic) ────────────────
     try:
-        data_symbol = resolve_ticker_alias(ticker, ticker_alias_map=ticker_alias_map)
+        data_symbol = data_symbol or resolve_ticker_alias(ticker, ticker_alias_map=ticker_alias_map)
         profile = fetch_profile(data_symbol)
 
         # Skip peer generation for ETFs and funds
@@ -848,7 +860,7 @@ def get_subindustry_peers_from_ticker(
 
         from utils.gpt_helpers import generate_subindustry_peers
 
-        raw_peers_text = generate_subindustry_peers(ticker=ticker, name=name, industry=industry)
+        raw_peers_text = generate_subindustry_peers(ticker=data_symbol, name=name, industry=industry)
         gpt_logger.debug(f"GPT peers for {ticker}: {raw_peers_text}")
 
         peer_list = ast.literal_eval(raw_peers_text)
@@ -859,7 +871,7 @@ def get_subindustry_peers_from_ticker(
         # ▶ pass dates through so peer data screening uses **same window**
         filtered_peers = filter_valid_tickers(
             peer_list, 
-            target_ticker=ticker,
+            target_ticker=data_symbol,
             start=start,
             end=end,
             ticker_alias_map=ticker_alias_map,
