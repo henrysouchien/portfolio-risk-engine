@@ -28,6 +28,7 @@ class MonteCarloResult:
     vol_scale: float = 1.0
     weights_overridden: bool = False
     resolved_weights: Optional[Dict[str, float]] = None
+    dropped_tickers: List[str] = field(default_factory=list)
     scenario_conditioning: Optional[Dict[str, Any]] = None
     bootstrap_sample_size: Optional[int] = None
     warnings: List[str] = field(default_factory=list)
@@ -58,6 +59,7 @@ class MonteCarloResult:
             vol_scale=float(data.get("vol_scale", 1.0)),
             weights_overridden=bool(data.get("weights_overridden", False)),
             resolved_weights=data.get("resolved_weights"),
+            dropped_tickers=list(data.get("dropped_tickers", []) or []),
             scenario_conditioning=data.get("scenario_conditioning"),
             bootstrap_sample_size=data.get("bootstrap_sample_size"),
             warnings=list(data.get("warnings", []) or []),
@@ -81,6 +83,7 @@ class MonteCarloResult:
                 "vol_scale": self.vol_scale,
                 "weights_overridden": self.weights_overridden,
                 "resolved_weights": self.resolved_weights,
+                "dropped_tickers": self.dropped_tickers,
                 "scenario_conditioning": self.scenario_conditioning,
                 "bootstrap_sample_size": self.bootstrap_sample_size,
                 "mean_terminal_value": terminal.get("mean", 0.0),
@@ -128,6 +131,7 @@ class MonteCarloResult:
                 "conditioning": {
                     "weights_overridden": self.weights_overridden,
                     "resolved_weights": self.resolved_weights,
+                    "dropped_tickers": self.dropped_tickers,
                     "vol_scale": self.vol_scale,
                     "scenario_conditioning": self.scenario_conditioning,
                 },
@@ -154,6 +158,7 @@ class MonteCarloResult:
                 "vol_scale": self.vol_scale,
                 "weights_overridden": self.weights_overridden,
                 "resolved_weights": self.resolved_weights,
+                "dropped_tickers": self.dropped_tickers,
                 "scenario_conditioning": self.scenario_conditioning,
                 "bootstrap_sample_size": self.bootstrap_sample_size,
                 "warnings": self.warnings,

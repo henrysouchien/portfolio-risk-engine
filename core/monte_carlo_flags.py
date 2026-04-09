@@ -29,6 +29,7 @@ def generate_monte_carlo_flags(snapshot: dict) -> list[dict]:
     terminal = snapshot.get("terminal", {}) or {}
     conditioning = snapshot.get("conditioning", {}) or {}
     warnings = list(snapshot.get("warnings") or [])
+    dropped_tickers = list(conditioning.get("dropped_tickers") or [])
 
     distribution = simulation.get("distribution")
     requested_distribution = simulation.get("requested_distribution")
@@ -86,6 +87,19 @@ def generate_monte_carlo_flags(snapshot: dict) -> list[dict]:
                     f"{int(drift_overrides_count)} ticker(s)"
                 ),
                 "drift_overrides_count": int(drift_overrides_count),
+            }
+        )
+
+    if dropped_tickers:
+        flags.append(
+            {
+                "type": "tickers_dropped",
+                "severity": "warning",
+                "message": (
+                    f"Dropped {len(dropped_tickers)} ticker(s) not in covariance matrix: "
+                    f"{', '.join(dropped_tickers)}"
+                ),
+                "dropped_tickers": dropped_tickers,
             }
         )
 
@@ -157,6 +171,8 @@ def generate_monte_carlo_flags(snapshot: dict) -> list[dict]:
         )
 
     for warning_text in warnings:
+        if dropped_tickers and str(warning_text).startswith("Dropped "):
+            continue
         flags.append(
             {
                 "type": "engine_warnings",

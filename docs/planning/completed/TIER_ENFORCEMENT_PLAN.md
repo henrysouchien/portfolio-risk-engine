@@ -214,7 +214,8 @@ async def create_link_token(request: Request, user=Depends(_require_paid)):
 - `POST /api/portfolio-analysis` — local computation → **FREE**
 
 **Trading** (`routes/trading.py`) — broker API cost:
-- `GET /api/trading/accounts`, `POST /preview`, `POST /execute`, `GET /orders`, `POST /cancel` → **PAID**
+- `GET /api/trading/accounts` → **AUTH**
+- `POST /preview`, `POST /execute`, `GET /orders`, `POST /cancel` → **PAID**
 - `GET /api/trading/analysis` → **FREE** (transaction DB only)
 
 **Factor Intelligence** (`routes/factor_intelligence.py`):

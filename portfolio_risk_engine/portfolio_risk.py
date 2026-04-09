@@ -44,7 +44,8 @@ Dividend Analysis Integration:
 import time
 import pandas as pd
 import numpy as np
-from typing import Dict, Optional, List, Union, Any
+from dataclasses import replace
+from typing import Dict, Optional, List, Union, Any, Tuple, TYPE_CHECKING
 import functools
 import hashlib
 import json
@@ -83,6 +84,9 @@ from portfolio_risk_engine._logging import (
     log_timing,
     log_errors,
 )
+
+if TYPE_CHECKING:
+    from core.result_objects import RiskAnalysisResult
 
 MIN_WEIGHT_COVERAGE = 0.5
 _RATE_MATURITY_COL_MAP = {
@@ -2119,6 +2123,80 @@ def build_portfolio_view(
         bond_mask_json, cache_version, ticker_alias_map_json, currency_map_json, instrument_types_json,
         security_types_json, contract_identities_json, security_identities_json
     )
+
+
+def expand_risk_result_for_tickers(
+    risk_result: "RiskAnalysisResult",
+    resolved_weights: Dict[str, float],
+    start_date: str,
+    end_date: str,
+    *,
+    ticker_alias_map=None,
+    currency_map=None,
+    instrument_types=None,
+    contract_identities=None,
+) -> Tuple["RiskAnalysisResult", List[str]]:
+    """Expand an existing risk result's covariance universe to cover extra tickers."""
+    cov_df = getattr(risk_result, "covariance_matrix", None)
+    existing = (
+        {str(ticker) for ticker in cov_df.columns}
+        if isinstance(cov_df, pd.DataFrame)
+        else set()
+    )
+    new_tickers = {
+        str(ticker or "").strip().upper()
+        for ticker in resolved_weights
+        if str(ticker or "").strip()
+    } - existing
+    if not new_tickers:
+        return risk_result, []
+
+    combined_weights = {ticker: 0.0 for ticker in existing}
+    combined_weights.update({ticker: 0.0 for ticker in new_tickers})
+
+    from portfolio_risk_engine._logging import portfolio_logger
+
+    try:
+        returns_df = get_returns_dataframe(
+            combined_weights,
+            start_date,
+            end_date,
+            ticker_alias_map=ticker_alias_map,
+            currency_map=currency_map,
+            instrument_types=instrument_types,
+            contract_identities=contract_identities,
+        )
+    except Exception as exc:
+        portfolio_logger.warning(
+            "Covariance expansion failed for new tickers %s; using original covariance matrix (%s)",
+            ", ".join(sorted(new_tickers)),
+            exc,
+        )
+        return risk_result, sorted(new_tickers)
+
+    returns_columns = {str(column) for column in returns_df.columns}
+    missing_existing = sorted(existing - returns_columns)
+    if missing_existing:
+        portfolio_logger.warning(
+            "Covariance expansion aborted because existing covariance tickers disappeared: %s",
+            ", ".join(missing_existing),
+        )
+        return risk_result, sorted(new_tickers)
+
+    new_cov = compute_covariance_matrix(returns_df)
+    new_corr = compute_correlation_matrix(returns_df)
+    still_missing = sorted(ticker for ticker in new_tickers if ticker not in returns_columns)
+    expanded_result = replace(
+        risk_result,
+        covariance_matrix=new_cov,
+        correlation_matrix=new_corr,
+    )
+    portfolio_logger.info(
+        "Expanded covariance matrix: %d \u2192 %d tickers",
+        len(existing),
+        len(new_cov.columns),
+    )
+    return expanded_result, still_missing
 
 @log_errors("high")
 def _build_portfolio_view_computation(

@@ -34,6 +34,7 @@ BLOCKED_PARAMS = {
 # normalizer_list           — Returns local directory paths (path-leak, fs coupling)
 # manage_instrument_config  — Admin-only, not user-scoped, changes ephemeral (seed_all)
 # manage_proxy_cache        — Admin-only cache inspection/invalidation tool
+# manage_brokerage_routing  — Admin-only runtime routing config management
 # manage_stress_scenarios   — Admin-only scenario catalog management (CLI agent only)
 # initiate_brokerage_connection   — External OAuth requiring interactive browser auth
 # complete_brokerage_connection   — Completes OAuth; needs browser-provided tokens
@@ -135,6 +136,7 @@ def _build_registry() -> None:
         update_action_status,
     )
     from mcp_tools.connections import list_supported_brokerages
+    from mcp_tools.connection_status import list_connections
     from mcp_tools.stock import analyze_stock
     from mcp_tools.quote import get_quote
     from mcp_tools.futures_curve import get_futures_curve
@@ -203,6 +205,7 @@ def _build_registry() -> None:
         list_supported_brokerages,
         category="connections",
     )
+    _register("list_connections", list_connections, category="connections")
 
     _register("analyze_stock", analyze_stock, category="analysis")
     _register("get_quote", get_quote, category="market")

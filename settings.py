@@ -397,6 +397,9 @@ from providers.routing_config import (
     PROVIDER_CAPABILITIES,
     PROVIDER_PRIORITY_CONFIG,
     PROVIDER_ROUTING_CONFIG,
+    get_position_routing,
+    get_trade_routing,
+    get_transaction_routing,
     TRANSACTION_FETCH_POLICY,
     TRANSACTION_ROUTING,
 )
