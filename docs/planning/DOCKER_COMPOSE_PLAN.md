@@ -3,7 +3,7 @@
 > **Status**: NOT STARTED
 > **Created**: 2026-03-19
 > **ID**: B2
-> **Parent**: `docs/OPEN_SOURCE_LAUNCH_GAPS.md` (Phase B)
+> **Parent**: `docs/planning/launch/OPEN_SOURCE_LAUNCH_GAPS.md` (Phase B)
 > **Depends on**: None (can be built independently)
 > **Goal**: `git clone` + `cp .env.example .env` + `docker compose up` = working full-stack app
 
@@ -770,7 +770,7 @@ Files to modify:
 |---|---|
 | `app.py` | Add `/health` endpoint (if not already present) |
 | `.gitignore` | Add Docker-specific entries if missing |
-| `docs/OPEN_SOURCE_LAUNCH_GAPS.md` | Update B2 status |
+| `docs/planning/launch/OPEN_SOURCE_LAUNCH_GAPS.md` | Update B2 status |
 
 ---
 

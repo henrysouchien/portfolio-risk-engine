@@ -3,7 +3,7 @@
 > **Status**: PLANNED
 > **Created**: 2026-03-19
 > **Phase**: C2 (Open Source CLI Launch)
-> **Parent**: `docs/OPEN_SOURCE_LAUNCH_GAPS.md`
+> **Parent**: `docs/planning/launch/OPEN_SOURCE_LAUNCH_GAPS.md`
 > **Depends on**: B4 (portfolio-mcp extraction — partial, wizard can precede full extraction)
 
 ---
@@ -740,4 +740,4 @@ Estimated calendar time: 2-3 sessions.
 
 ---
 
-*This plan implements item C2 from `docs/OPEN_SOURCE_LAUNCH_GAPS.md`. It can be started before B4 (portfolio-mcp extraction) is complete — the CLI module works with the current codebase and will be carried forward during extraction.*
+*This plan implements item C2 from `docs/planning/launch/OPEN_SOURCE_LAUNCH_GAPS.md`. It can be started before B4 (portfolio-mcp extraction) is complete — the CLI module works with the current codebase and will be carried forward during extraction.*

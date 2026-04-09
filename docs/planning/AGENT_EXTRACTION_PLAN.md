@@ -2,7 +2,7 @@
 
 > **Status**: Draft
 > **Created**: 2026-03-19
-> **Parent doc**: `docs/OPEN_SOURCE_LAUNCH_GAPS.md` (item C3)
+> **Parent doc**: `docs/planning/launch/OPEN_SOURCE_LAUNCH_GAPS.md` (item C3)
 > **Source repo**: `AI-excel-addin/` (`api/agent/`, `api/memory/`, `api/tools.py`, `packages/agent-gateway/`)
 > **Target**: Standalone `openclaw-agent` package in this repo
 
@@ -342,7 +342,7 @@ system_prompt_file: ~/.openclaw/prompts/analyst.md
 - Skills directory is user-configurable, defaults to `~/.openclaw/workspace/skills/`
 - Built-in skills ship in the package's `data/skills/` directory and are copied to workspace on first run
 
-**Built-in skills** (6 initial, matching `OPEN_SOURCE_LAUNCH_STRATEGY.md`):
+**Built-in skills** (6 initial, matching `docs/planning/launch/OPEN_SOURCE_LAUNCH_STRATEGY.md`):
 ```
 agent/data/skills/
 ├── morning-briefing.md
@@ -606,4 +606,4 @@ No dependency on:
 
 ---
 
-*This plan covers item C3 from `docs/OPEN_SOURCE_LAUNCH_GAPS.md`. It depends on C1 (Gateway Model Abstraction) being partially complete — specifically, the `ModelProvider` protocol and `OpenAIProvider` already exist in `agent-gateway`. Full model-agnostic support (Gemini, local models) is a separate effort.*
+*This plan covers item C3 from `docs/planning/launch/OPEN_SOURCE_LAUNCH_GAPS.md`. It depends on C1 (Gateway Model Abstraction) being partially complete — specifically, the `ModelProvider` protocol and `OpenAIProvider` already exist in `agent-gateway`. Full model-agnostic support (Gemini, local models) is a separate effort.*

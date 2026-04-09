@@ -2,7 +2,7 @@
 
 > **Status**: PLANNED
 > **Created**: 2026-03-19
-> **Parent docs**: `docs/OPEN_SOURCE_LAUNCH_GAPS.md` (B4), `docs/OPEN_SOURCE_LAUNCH_STRATEGY.md`
+> **Parent docs**: `docs/planning/launch/OPEN_SOURCE_LAUNCH_GAPS.md` (B4), `docs/planning/launch/OPEN_SOURCE_LAUNCH_STRATEGY.md`
 > **Tracking ID**: B4
 > **Predecessor extractions**: `fmp-mcp` (PyPI v0.3.1), `app-platform` (PyPI v0.2.1), `web-app-platform` (npm v0.1.0)
 
@@ -731,7 +731,7 @@ The package is large — it includes most of the monorepo's Python code. This is
 
 ## PyPI Publishing Workflow
 
-Following the established `DEPLOY_CHECKLIST.md` pattern:
+Following the established `docs/deployment/PACKAGE_DEPLOY_CHECKLIST.md` pattern:
 
 1. All changes committed in monorepo (authoritative)
 2. Run `./scripts/sync_portfolio_mcp.sh`
@@ -767,9 +767,9 @@ Existing users with DATABASE_URL continue to work unchanged. New users without a
 
 ## Related Documents
 
-- `docs/OPEN_SOURCE_LAUNCH_GAPS.md` — Gap analysis (this is item B4)
-- `docs/OPEN_SOURCE_LAUNCH_STRATEGY.md` — Strategic context
-- `docs/DEPLOY_CHECKLIST.md` — Publish workflow
+- `docs/planning/launch/OPEN_SOURCE_LAUNCH_GAPS.md` — Gap analysis (this is item B4)
+- `docs/planning/launch/OPEN_SOURCE_LAUNCH_STRATEGY.md` — Strategic context
+- `docs/deployment/PACKAGE_DEPLOY_CHECKLIST.md` — Publish workflow
 - `scripts/sync_fmp_mcp.sh` — Reference sync script (fmp-mcp)
 - `scripts/sync_app_platform.sh` — Reference sync script (app-platform)
 - `fmp/pyproject.toml` — Reference pyproject.toml (fmp-mcp)

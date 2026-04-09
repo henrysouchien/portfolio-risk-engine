@@ -195,7 +195,7 @@ Sections to cover:
 
 ### 1.9 Subscription and Billing
 
-Per the pricing model in `OPEN_SOURCE_LAUNCH_STRATEGY.md`:
+Per the pricing model in `docs/planning/launch/OPEN_SOURCE_LAUNCH_STRATEGY.md`:
 
 | Tier | Price | Billing | Features |
 |------|-------|---------|----------|
@@ -537,7 +537,7 @@ record cascades to:
 | `/package.json` (root) | `"license": "MIT"` |
 | `/frontend/packages/app-platform/package.json` | `"license": "SEE LICENSE IN LICENSE"` |
 | `/frontend/package.json` | No license field |
-| `OPEN_SOURCE_LAUNCH_STRATEGY.md` | Discusses MIT vs Apache 2.0 (undecided) |
+| `docs/planning/launch/OPEN_SOURCE_LAUNCH_STRATEGY.md` | Discusses MIT vs Apache 2.0 (undecided) |
 | `PUBLIC_RELEASE_EXCLUSION_CHECKLIST.md` | Flags LICENSE as needing replacement |
 
 The `LICENSE` file contains a strict proprietary license with personal contact
@@ -556,7 +556,7 @@ declaring MIT. This must be resolved before any public release.
 
 ### 5.3 Recommendation
 
-Per `OPEN_SOURCE_LAUNCH_STRATEGY.md`, the stated vision is open-source infrastructure
+Per `docs/planning/launch/OPEN_SOURCE_LAUNCH_STRATEGY.md`, the stated vision is open-source infrastructure
 with a hosted service as the business model. The recommended approach:
 
 **Apache 2.0 for all packages** (portfolio-risk-engine, fmp-mcp, ibkr-mcp,
@@ -797,7 +797,7 @@ Plus ongoing: LLC formation ($50-$150), cyber insurance ($1,000-$3,000/year).
 
 ## Related Documents
 
-- `docs/OPEN_SOURCE_LAUNCH_STRATEGY.md` -- Business model, pricing tiers, launch sequence
+- `docs/planning/launch/OPEN_SOURCE_LAUNCH_STRATEGY.md` -- Business model, pricing tiers, launch sequence
 - `docs/deployment/SECURITY_IMPLEMENTATION_PLAN.md` -- Security gaps and remediation
 - `docs/deployment/PUBLIC_RELEASE_EXCLUSION_CHECKLIST.md` -- Sensitive data to scrub
 - `finance_cli/docs/planning/RECOMMENDATION_D4_LEGAL.md` -- Prior art (finance-cli legal recommendation)

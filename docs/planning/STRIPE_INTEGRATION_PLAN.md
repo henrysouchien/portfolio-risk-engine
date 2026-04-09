@@ -2,7 +2,7 @@
 
 > **Created**: 2026-03-19
 > **Status**: Not started
-> **Parent**: `docs/OPEN_SOURCE_LAUNCH_GAPS.md` (item B1)
+> **Parent**: `docs/planning/launch/OPEN_SOURCE_LAUNCH_GAPS.md` (item B1)
 > **Depends on**: A1 (Tier Enforcement — `90f52fe1`, DONE), A2 (Frontend Tier Awareness — `948f38f4`, DONE)
 > **Goal**: Self-serve upgrade from Free to Pro via Stripe Checkout. Webhook-driven tier management. Billing portal for subscription lifecycle.
 

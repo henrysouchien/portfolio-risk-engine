@@ -109,7 +109,7 @@ Test files in `scenario/__tests__/` are **kept** (they test live hooks/templates
    For each hit in a surviving file: remove or update the stale reference (comment, doc listing, or architecture description). Archive/legacy docs are excluded — they are historical and not worth updating. Known files with stale references include:
    - `ModernDashboardApp.tsx`, `ErrorBoundary.tsx`, `frontend/README.md`
    - `WhatIfAnalysisAdapter.ts`, `frontend/packages/ui/src/ARCHITECTURE.md`
-   - `docs/architecture.md`, `docs/architecture/FRONTEND_DATA_FLOW_GUIDE.md`, `docs/architecture/FRONTEND_ARCHITECTURE.md`
+   - `docs/architecture.md`, `docs/architecture/FRONTEND_ARCHITECTURE.md`
    - `frontend/packages/ui/src/components/portfolio/index.ts` (stale comment)
 4. Run `npm run typecheck` in `frontend/` — full `tsc -b` workspace check
 5. Run `npm run build` in `frontend/` — verify no import breakage

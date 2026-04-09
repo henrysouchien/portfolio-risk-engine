@@ -88,10 +88,10 @@ tests/fixtures/performance_baseline_2025.json   # Real account data, holdings, d
 
 **Files to exclude:**
 ```
-docs/CHANGELOG.md       # Contains personal paths
-CHANGELOG.md            # Root-level copy, also personal paths
-AI_CONTEXT.md           # Contains personal email in MCP server example
-RELEASE_PLAN.md         # Contains deploy infra details (EC2 IP, SSH key paths)
+docs/_archive/guides/CHANGELOG.md       # Contains personal paths
+CHANGELOG.md                            # Root-level copy, also personal paths
+docs/_archive/guides/AI_CONTEXT.md      # Contains personal email in MCP server example
+docs/planning/launch/RELEASE_PLAN.md    # Contains deploy infra details (EC2 IP, SSH key paths)
 tests/TESTING_COMMANDS.md  # 27+ personal email references
 ```
 
@@ -230,11 +230,11 @@ rsync $RSYNC_FLAGS \
   --exclude='docs/schemas/' \
   --exclude='docs/_archive/' \
   --exclude='docs/architecture/legacy/' \
-  --exclude='docs/CHANGELOG.md' \
+  --exclude='docs/_archive/guides/CHANGELOG.md' \
   --exclude='docs/*.csv' \
   --exclude='CHANGELOG.md' \
-  --exclude='AI_CONTEXT.md' \
-  --exclude='RELEASE_PLAN.md' \
+  --exclude='docs/_archive/guides/AI_CONTEXT.md' \
+  --exclude='docs/planning/launch/RELEASE_PLAN.md' \
   --exclude='tests/snaptrade/' \
   --exclude='tests/TESTING_COMMANDS.md' \
   --exclude='tests/reports/' \
@@ -488,7 +488,7 @@ for f in \
   scripts/secrets_helper.sh scripts/update_secrets.sh scripts/plaid_reauth.py \
   scripts/extract_performance_actual_baseline.py scripts/materialize_ibkr_statement.py \
   scripts/test_first_exit_backfill.py scripts/debug_fmp_ticker_map.py \
-  CHANGELOG.md AI_CONTEXT.md RELEASE_PLAN.md docs/CHANGELOG.md \
+  CHANGELOG.md docs/_archive/guides/AI_CONTEXT.md docs/planning/launch/RELEASE_PLAN.md docs/_archive/guides/CHANGELOG.md \
   tests/TESTING_COMMANDS.md; do
   [[ -e "$f" ]] && echo "FAIL: $f exists (should be excluded)" && FAIL=1 || echo "PASS: $f excluded"
 done
@@ -528,7 +528,7 @@ fi
 | # | Action | Notes |
 |---|--------|-------|
 | 6.1 | **Rotate ALL API keys** | Keys have been in `.env` in private git history. Rotate: FMP, OpenAI, Anthropic, AWS, Plaid, Schwab, SnapTrade, Google OAuth, IBKR Flex tokens, admin token, Edgar key |
-| 6.2 | **Update DEPLOY_CHECKLIST.md** | Add public repo to sync table |
+| 6.2 | **Update PACKAGE_DEPLOY_CHECKLIST.md** | Add public repo to sync table |
 | 6.3 | **Verify README** (public repo) | Phase 3.21 should have cleaned it. Double-check setup instructions are self-contained. |
 | 6.4 | **Add GitHub topics/description** | `portfolio-management`, `risk-analysis`, `mcp`, `python` |
 | 6.5 | **Clean up legacy public repo** | If `portfolio-risk-engine` has stale/leaked data from the old workflow, either delete it or scrub it |
