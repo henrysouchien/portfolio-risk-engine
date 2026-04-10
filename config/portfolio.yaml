@@ -29,23 +29,6 @@ portfolio_input:
     shares: 3.0
   MSFT:
     shares: 3.0
-expected_returns:
-  SGOV: 0.04
-  DSU: 0.015
-  EQT: 0.29100000000000004
-  IGIC: 0.299
-  IT: 0.235
-  KINS: 0.24100000000000002
-  MSCI: 0.078
-  NVDA: 0.7490000000000001
-  RNMBY: 0.848
-  SFM: 0.43799999999999994
-  SLV: 0.08900000000000001
-  STWD: 0.059000000000000004
-  TKO: 0.295
-  V: 0.134
-  AAPL: 0.125
-  MSFT: 0.1
 stock_factor_proxies:
   SGOV:
     market: SPY

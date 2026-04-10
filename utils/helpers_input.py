@@ -20,27 +20,46 @@ Precedence rules
 3. YAML missing or empty           → use shift_dict alone.
 """
 
-import yaml
+import math
+import numbers
 from pathlib import Path
-from typing import Dict, Tuple, Optional
+from typing import Dict, Optional, Tuple
 
-def _parse_shift(txt: str) -> float:
+import yaml
+
+def _parse_shift(txt) -> float:
     """
-    Convert a human-friendly shift string to decimal.
+    Convert a human-friendly shift string or numeric value to decimal.
 
     "+200bp", "-75bps", "1.5%", "-0.01"  →  0.02, -0.0075, 0.015, -0.01
+    0.10, -0.05, 0                        →  0.10, -0.05, 0.0
+
+    Raises TypeError for bool/None, ValueError for non-finite (nan/inf).
     """
     # LOGGING: Add input validation logging with original and parsed values
-    t = txt.strip().lower().replace(" ", "")
+    if isinstance(txt, bool):
+        raise TypeError(f"_parse_shift() does not accept bool: {txt!r}")
+    if isinstance(txt, numbers.Real):
+        val = float(txt)
+        if not math.isfinite(val):
+            raise ValueError(f"_parse_shift() does not accept non-finite value: {txt!r}")
+        return val
+    if txt is None:
+        raise TypeError("_parse_shift() does not accept None")
+    t = str(txt).strip().lower().replace(" ", "")
     if t.endswith("%"):
-        return float(t[:-1]) / 100
-    if t.endswith(("bp", "bps")):
-        return float(t.rstrip("ps").rstrip("bp")) / 10_000
-    return float(t)                       # already decimal
+        val = float(t[:-1]) / 100
+    elif t.endswith(("bp", "bps")):
+        val = float(t.rstrip("ps").rstrip("bp")) / 10_000
+    else:
+        val = float(t)                    # already decimal
+    if not math.isfinite(val):
+        raise ValueError(f"_parse_shift() does not accept non-finite value: {txt!r}")
+    return val
 
 def parse_delta(
     yaml_path: Optional[str] = None,
-    literal_shift: Optional[Dict[str, str]] = None,
+    literal_shift: Optional[Dict[str, object]] = None,
 ) -> Tuple[Dict[str, float], Optional[Dict[str, float]]]:
     """
     Parse a what-if scenario from YAML file or inline shift dictionary.
@@ -56,7 +75,9 @@ def parse_delta(
         - 'new_weights': Dict with decimal weights (e.g., {'AAPL': 0.25, 'SGOV': 0.15} for 25% AAPL, 15% SGOV)
         - 'delta': Dict with shift strings (e.g., {'AAPL': '+200bp', 'SGOV': '-0.05'})
     literal_shift : dict | None
-        In-memory dict of {ticker: shift_string}. Format: {"TICKER": "+500bp"} or {"TICKER": "1.5%"}
+        In-memory dict of {ticker: shift_value}. Values can be:
+        - Strings: "+500bp", "1.5%", "-0.01"
+        - Numbers: 0.10, -0.05 (treated as decimal shifts)
         Overrides YAML deltas if both are provided.
 
     Returns

@@ -318,7 +318,7 @@ def solve_min_variance_with_risk_limits(
     for proxy, cap in proxy_caps.items():
         coeff = []
         for t in tickers:
-            this_proxy = proxies[t].get("industry")
+            this_proxy = proxies.get(t, {}).get("industry")
             if this_proxy == proxy:
                 coeff.append(beta_mat.loc[t, "industry"])
             else:
@@ -818,12 +818,6 @@ def run_what_if_scenario(
         2. Otherwise, the function looks for a `delta:` section in the YAML.
         3. If neither is found or YAML is missing keys, `shift_dict` is used as a fallback or override.
 
-    This function does not return any data. It prints:
-        • NEW portfolio risk checks (volatility, concentration, variance share)
-        • NEW factor and industry beta exposures (vs. max allowed betas)
-        • BEFORE vs AFTER comparison of key risk metrics
-        • BEFORE vs AFTER comparison of factor beta pass/fail status
-
     Parameters
     ----------
     base_weights : dict
@@ -853,7 +847,15 @@ def run_what_if_scenario(
 
     Returns
     -------
-    summary_new, risk_new, beta_new, cmp_risk, cmp_beta
+    tuple
+        (summary_new, risk_new, beta_new, cmp_risk, cmp_beta, risk_base, beta_base)
+        - summary_new: build_portfolio_view() output for scenario weights
+        - risk_new: Risk limit checks for scenario portfolio
+        - beta_new: Beta limit checks for scenario portfolio
+        - cmp_risk: Side-by-side risk comparison (base vs scenario)
+        - cmp_beta: Side-by-side beta comparison (base vs scenario)
+        - risk_base: Risk limit checks for base portfolio
+        - beta_base: Beta limit checks for base portfolio
     """
     try:
         from utils.helpers_input import parse_delta  # type: ignore
@@ -974,7 +976,7 @@ def run_what_if_scenario(
     cmp_beta = _drop_factors(cmp_beta)
     cmp_beta = cmp_beta[~cmp_beta.index.str.startswith("industry_proxy::")]
 
-    return summary_new, risk_new, beta_new, cmp_risk, cmp_beta
+    return summary_new, risk_new, beta_new, cmp_risk, cmp_beta, risk_base, beta_base
 
 
 # In[20]:
@@ -1318,7 +1320,7 @@ def solve_max_return_with_risk_limits(
     for proxy in proxy_caps:
         coeff = []
         for t in tickers:
-            this_proxy = stock_factor_proxies[t].get("industry")
+            this_proxy = stock_factor_proxies.get(t, {}).get("industry")
             coeff.append(β_tbl.loc[t, "industry"] if this_proxy == proxy else 0.0)
         coeff_proxy[proxy] = np.array(coeff)
 

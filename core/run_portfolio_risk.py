@@ -4,6 +4,7 @@
 # In[ ]:
 
 import pandas as pd
+import math
 from pprint import pprint
 import statsmodels.api as sm
 from dotenv import load_dotenv
@@ -366,6 +367,8 @@ def evaluate_portfolio_beta_limits(
     # ─── Proxy-level checks (e.g. SOXX, XSW) ─────────────────
     if proxy_betas and max_proxy_betas:
         for proxy, actual in proxy_betas.items():
+            if not math.isfinite(actual):
+                continue  # skip NaN/Inf betas (e.g. cash tickers with no industry exposure)
             max_b = max_proxy_betas.get(proxy, float("inf"))
             label = f"industry_proxy::{proxy}"
             rows.append({

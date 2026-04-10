@@ -82,7 +82,10 @@ class MonteCarloResult:
                 "drift_overrides_count": self.drift_overrides_count,
                 "vol_scale": self.vol_scale,
                 "weights_overridden": self.weights_overridden,
-                "resolved_weights": self.resolved_weights,
+                "resolved_weights": (
+                    {k: round(v, 6) for k, v in self.resolved_weights.items()}
+                    if self.resolved_weights else self.resolved_weights
+                ),
                 "dropped_tickers": self.dropped_tickers,
                 "scenario_conditioning": self.scenario_conditioning,
                 "bootstrap_sample_size": self.bootstrap_sample_size,
@@ -130,7 +133,10 @@ class MonteCarloResult:
                 "initial_value": self.initial_value,
                 "conditioning": {
                     "weights_overridden": self.weights_overridden,
-                    "resolved_weights": self.resolved_weights,
+                    "resolved_weights": (
+                        {k: round(v, 6) for k, v in self.resolved_weights.items()}
+                        if self.resolved_weights else self.resolved_weights
+                    ),
                     "dropped_tickers": self.dropped_tickers,
                     "vol_scale": self.vol_scale,
                     "scenario_conditioning": self.scenario_conditioning,
@@ -157,7 +163,10 @@ class MonteCarloResult:
                 "drift_overrides_count": self.drift_overrides_count,
                 "vol_scale": self.vol_scale,
                 "weights_overridden": self.weights_overridden,
-                "resolved_weights": self.resolved_weights,
+                "resolved_weights": (
+                    {k: round(v, 6) for k, v in self.resolved_weights.items()}
+                    if self.resolved_weights else self.resolved_weights
+                ),
                 "dropped_tickers": self.dropped_tickers,
                 "scenario_conditioning": self.scenario_conditioning,
                 "bootstrap_sample_size": self.bootstrap_sample_size,

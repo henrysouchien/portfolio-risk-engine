@@ -139,7 +139,7 @@ class BasketAnalysisResult:
             "basket_name": self.basket_name,
             "description": self.description,
             "tickers": list(self.tickers),
-            "resolved_weights": dict(self.resolved_weights),
+            "resolved_weights": {k: round(v, 6) for k, v in self.resolved_weights.items()},
             "weighting_method": self.weighting_method,
             "analysis_period": dict(self.analysis_period),
             "performance": dict(self.performance or {}),

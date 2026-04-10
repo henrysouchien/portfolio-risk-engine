@@ -2,120 +2,225 @@
 
 **Bug**: When navigating from StressTestTool to MonteCarloTool via "Simulate recovery" exit ramp, the context banner does not show "Scenario-conditioned drift" even though the backend correctly applies scenario shocks.
 
-**Status**: Draft v3 (re-scoped to diagnostic-first after v2 Codex review)  
-**Files**: 2 changed, 0 new  
-**Risk**: Low (UI-only, no backend changes)
+**Status**: v5 — Codex review of v4 caught a Pydantic response-model boundary issue. Backend fix expanded.
+**Files**: 4 changed, 1 new test file
+**Risk**: Low (additive backend changes + additive frontend fallback)
+**Severity**: **Medium** (re-tagged from Low — confirmed via code: this was not just a cosmetic banner bug; MC was skipping scenario-conditioned drift entirely on the stress→MC navigation path. See "Confirmed: Feature Was Broken" section below.)
 
 ---
 
-## Codex Review v1 Findings (FAIL)
+## Plan History (Codex reviews on prior drafts)
 
-The v1 plan proposed two fixes: (1) `key={activeTool}` on Suspense, (2) blanket `useEffect([context])` sync. Codex rejected both:
-
-1. **`key` prop is unnecessary**: `ScenariosRouter.tsx` renders `StressTestTool` and `MonteCarloTool` as distinct `React.lazy()` component types. React reconciliation already unmounts on cross-type switch. A `key` prop adds no value.
-2. **Same-instance rerender is the real `useState` hazard**: The `useState(() => {...})` capture at `MonteCarloTool.tsx:280` only stales when the component receives new `context` props WITHOUT unmounting — not the cross-tool navigation case.
-3. **Test plan insufficient**: The proposed router test passes with or without the `key` fix. Missing: MC rerender test that changes context without unmounting.
-4. **`useEffect([context])` conflicts with `handleClearContext`**: User clicks "Clear context" → state cleared. Parent re-emits same `context` prop on next render → `useEffect` repopulates state, undoing the user's action.
+- **v1** (FAIL): Proposed `key={activeTool}` on `<Suspense>` + blanket `useEffect([context])` sync on MC. Codex rejected: cross-type swap already remounts; blanket effect conflicts with "Clear context".
+- **v2** (FAIL): Proposed `contextDismissedRef` + stale-`contextKey` refactor. Codex found 4 issues: stale `incoming*` key, incorrect empty-context semantics, nonexistent `factorShocks` field, ref never resets.
+- **v3** (Diagnostic-first draft): Phase 1 added `console.warn` probes at 3 junctures to capture root cause in a live repro, Phase 2 deferred until diagnostics landed.
+- **v4**: **Live browser investigation of a real repro superseded Phase 1.** Root cause confirmed without shipping diagnostics. Backend service-layer patch + frontend fallback. Codex review FAIL: missed Pydantic `response_model` boundary, missed API-level test coverage, missed code-level confirmation that MC drift was actually broken.
+- **v5** (this draft): Adds the response-model update, adds an API-level test, upgrades severity to Medium, removes "Open Question" (resolved).
 
 ---
 
-## Codex Review v2 Findings (FAIL — 4 issues)
+## Live Repro Findings (2026-04-09)
 
-The v2 plan correctly identified the same-instance context hazard and proposed a `useEffect` + `contextDismissedRef` guard. However:
+Reproduced in the browser on the live dev stack:
 
-### Finding 1: Auto-run key uses stale `incoming*` values
+1. Navigated to `#scenarios/stress-test`, ran **Interest Rate Shock**.
+2. Clicked **Simulate recovery** → `#scenarios/monte-carlo`.
+3. MC context banner rendered as:
+   > `"Running with context from Post-Interest Rate Shock recovery · Vol scale: 1.5x"`
 
-The `contextKey` at `MonteCarloTool.tsx:642` mixes `incoming*` (frozen at mount via `useState(() => {...})` at line 280) and `context*` (live state):
+   Missing the expected `"· Scenario-conditioned drift"` suffix.
+4. Introspected React fiber state on `MonteCarloTool` via browser devtools. `context` prop:
+   ```
+   context = {
+     source: "stress-test",
+     label: "Post-Interest Rate Shock recovery",
+     volScale: 1.5,
+     distribution: "t",
+     scenarioShocks: undefined    ← property exists, value is undefined
+   }
+   ```
+   `hasOwnProperty("scenarioShocks") === true`, `scenarioShocks === undefined`. `StressTestTool` explicitly set the key.
 
-```tsx
-// contextKey — line 642-669
-const contextKey = useMemo(() => {
-  if (!incomingWeights && !incomingPortfolioValue && !incomingVolScale && !incomingDistribution && !contextScenarioShocks) {
-    return ""
-  }
-  return JSON.stringify({
-    w: sortedWeights,           // from incomingWeights (STALE)
-    pv: incomingPortfolioValue, // STALE
-    vs: incomingVolScale,       // STALE
-    d: incomingDistribution,    // STALE
-    ss: sortedScenarioShocks,   // from contextScenarioShocks (LIVE)
-  })
-}, [contextScenarioShocks, incomingDistribution, incomingPortfolioValue, incomingVolScale, incomingWeights, portfolioId])
+5. Inspected the React Query cache entry for the stress-test run:
+   ```
+   {
+     success: true,
+     scenario_name: "Interest Rate Shock",
+     factor_contributions: [
+       { factor: "rate_10y", shock: 0.03, ... },
+       { factor: "rate_5y",  shock: 0.03, ... },
+       { factor: "rate_30y", shock: 0.03, ... },
+       { factor: "rate_2y",  shock: 0.03, ... }
+     ],
+     // NO `scenario`, NO `scenario_id`, NO `scenario_key`
+     ...
+   }
+   ```
+   The backend response only contains `scenario_name`. The `scenario` key is absent.
+
+### Full failure path (top → bottom)
+
+| # | Location | What happens |
+|---|---|---|
+| 1 | `portfolio_risk_engine/stress_testing.py:297-310` | `run_stress_test()` returns a dict with `scenario_name` only — no `scenario` key. |
+| 2 | `services/scenario_service.py:506-511` | `analyze_stress_scenario` knows the `scenario` identifier (it was the `scenario` parameter at line 485) but returns the engine result unchanged. Contrast with `run_all_stress_tests` at `stress_testing.py:331` and `agent_building_blocks.run_stress_test` at line 459, which both manually attach `result["scenario"] = scenario_id`. |
+| 3 | `POST /api/stress-test` response | Payload is missing the `scenario` field. |
+| 4 | `StressTestAdapter.ts:131` | `scenarioId: apiResponse.scenario` → `undefined`. |
+| 5 | `StressTestTool.tsx:176` | `scenarioOptions.find(s => s.id === undefined)` → `undefined`. |
+| 6 | `StressTestTool.tsx:183` | `setLastRunScenarioShocks(executedScenario?.shocks ?? null)` → **`null`**. |
+| 7 | `StressTestTool.tsx:563` | Navigation context built with `scenarioShocks: lastRunScenarioShocks ?? undefined` → **`undefined`**. |
+| 8 | `MonteCarloTool.tsx:281` | `initialContext.scenarioShocks` is `undefined`, so `contextScenarioShocks` state is never set. |
+| 9 | `MonteCarloTool.tsx:1002-1019` | Banner render condition `contextScenarioShocks ? " · Scenario-conditioned drift" : ""` → empty string. **Observed bug.** |
+
+### What the v3 diagnostic scenarios predicted vs what we found
+
+v3's diagnostic table enumerated five possible failure modes:
+
+| Scenario | D1 result | D2 result | D3 result | Root cause |
+|---|---|---|---|---|
+| **A** | NOT FOUND | null | absent | **scenarioId mismatch** ← **MATCHES REPRO** |
+| B | FOUND | null | absent | nav timing race |
+| C | FOUND | truthy | absent | propagation bug |
+| D | FOUND | truthy | present | normalize rejects shape / render bug |
+| E | works | works | works | intermittent |
+
+Live investigation **confirmed Scenario A**, but with a twist v3 didn't anticipate: it's not an ID *mismatch* — the ID is *entirely missing* from the backend response. The same-instance rerender hazard v3's Change 2 was designed to guard is **not the bug**.
+
+### MCP path is unaffected
+
+`services/agent_building_blocks.run_stress_test` (the MCP/agent path) already sets `result["scenario"] = scenario_id` at line 459. Only the REST path via `services/scenario_service.analyze_stress_scenario` is broken.
+
+---
+
+## Confirmed: Feature Was Broken (not just cosmetic)
+
+Codex flagged this on review and the code chain confirms it. Tracing the failure forward:
+
+1. `StressTestTool.tsx:183` sets `lastRunScenarioShocks` to `null` when `executedScenario` lookup fails.
+2. `StressTestTool.tsx:559` (`handleMonteCarloNavigation`) **omits `scenarioShocks` from the navigation context entirely** when null (passes `lastRunScenarioShocks ?? undefined`).
+3. `MonteCarloTool.tsx:705` only forwards `scenarioShocks` to the run params when present.
+4. `MonteCarloTool.tsx:1005` only renders the "· Scenario-conditioned drift" suffix when present.
+
+So on every "Simulate recovery" navigation since A7c shipped (`346bca92`), the resulting MC run has executed **without** scenario-conditioned drift overrides — just a regular distribution + scaled vol. The missing banner suffix was the visible symptom of the broken feature, not the bug itself.
+
+Additional collateral damage: `StressTestsTab.tsx:148` reads `stressTestData.severity` to render a single-run severity badge. Currently always falsy → badge silently absent. Same root cause, fixed by the same response-model + service-layer patch.
+
+This raises the bug from **Low (cosmetic)** to **Medium (broken feature)**. `docs/TODO.md` should be updated.
+
+---
+
+## Fix
+
+### Change 1a (backend, response model): declare `scenario` + `severity` on `StressTestResponse`
+
+**File**: `models/response_models.py`
+**Why**: FastAPI's `response_model=get_response_model(StressTestResponse)` at `app.py:3065` runs Pydantic validation on every response and **strips any field not declared on the model**. Without this change, the service-layer attachment in Change 1b would be silently dropped at the route boundary. Codex caught this on v4 review by confirming `StressTestResponse` only declares 7 fields (none of which are `scenario` or `severity`).
+
+**Before** (lines 155-162):
+```python
+class StressTestResponse(BaseModel):
+    success: bool
+    scenario_name: str
+    estimated_portfolio_impact_pct: float
+    estimated_portfolio_impact_dollar: Optional[float]
+    position_impacts: List[Dict[str, Any]]
+    factor_contributions: List[Dict[str, Any]]
+    risk_context: Dict[str, Any]
 ```
 
-The `incoming*` variables are destructured from `initialContext` (line 299-305), which is the frozen `useState` value. If the `useEffect` from Change 2 updates `contextWeights` etc., the banner shows correct values but `contextKey` still uses the stale `incoming*` references. This means:
-- Auto-run gate (`autoRunCache === contextKey`) could use wrong key
-- The "already ran with this context" dedup could fail
-
-**Resolution**: Change 2's `useEffect` cannot fix `incoming*` because they're derived from `initialContext` (a `useState` value that never changes). The `contextKey` must be refactored to use `context*` state variables exclusively. See Change 2 below.
-
-### Finding 2: Empty context contradicts store contract
-
-The v2 plan said "preserve stale local context on `context={{}}` rerender", but `setActiveTool(tool)` in `uiStore.ts:332-334` explicitly clears `toolContext` to `{}`:
-
-```tsx
-setActiveTool: (activeTool, toolContext?) => set({
-  activeTool,
-  toolContext: toolContext ?? {},
-})
+**After**:
+```python
+class StressTestResponse(BaseModel):
+    success: bool
+    scenario_name: str
+    scenario: Optional[str] = None
+    severity: Optional[str] = None
+    estimated_portfolio_impact_pct: float
+    estimated_portfolio_impact_dollar: Optional[float]
+    position_impacts: List[Dict[str, Any]]
+    factor_contributions: List[Dict[str, Any]]
+    risk_context: Dict[str, Any]
 ```
 
-**All same-tool `setActiveTool` calls send fresh context** — there's no legitimate case where context becomes `{}` while the user's previous context should be preserved. The two ways `toolContext` becomes `{}` are:
-1. `setActiveTool("monte-carlo")` with no context arg — intentional, means "no context"
-2. `resetToLanding()` — means "go home"
+Both fields are `Optional` with `None` default — custom-shock runs and any future code path that legitimately omits the scenario ID stay valid.
 
-Both are intentional "clear context" signals. The v2 plan's no-op guard on empty context was wrong.
+### Change 1b (backend, service layer): attach `scenario` + `severity` in service layer
 
-**Resolution**: The `useEffect` should treat empty context (`{}`) as "clear everything" — same as the user clicking "Clear context". This is consistent with the store contract. The `contextDismissedRef` only guards against same-object-reference re-renders from unrelated Zustand updates, NOT from `setActiveTool` calls. See Change 2 below.
+**File**: `services/scenario_service.py`
+**Function**: `ScenarioService.analyze_stress_scenario` (line 482)
+**Why this location**: The service has the authoritative `scenario` identifier from its parameter, and already looks up `scenario_config` to read `shocks` and `scenario_name`. Attaching the ID (and severity, which is also missing) is a 3-line addition at the existing callsite. Matches the pattern already used in `run_all_stress_tests` and `agent_building_blocks.run_stress_test`.
 
-**Test 3 updated**: The empty-context rerender test now asserts that context IS cleared.
+**Before** (lines 489-513):
+```python
+try:
+    if scenario:
+        scenarios = get_stress_scenarios()
+        scenario_config = scenarios.get(scenario)
+        if not scenario_config:
+            available = ", ".join(sorted(scenarios.keys()))
+            raise ValueError(f"Unknown stress scenario '{scenario}'. Available: {available}")
+        shocks = scenario_config.get("shocks", {})
+        scenario_name = scenario_config.get("name", scenario)
+    else:
+        shocks = custom_shocks or {}
+        scenario_name = "Custom"
 
-### Finding 3: Change 1 depends on nonexistent field
+    if not shocks:
+        raise ValueError("Stress test requires either a predefined scenario or custom_shocks")
 
-The v2 plan's fallback `stressTest.data.factorShocks` does not exist. The actual data shape is:
+    risk_result = self.portfolio_service.analyze_portfolio(portfolio_data)
+    return run_stress_test(
+        risk_result=risk_result,
+        shocks=shocks,
+        scenario_name=scenario_name,
+        portfolio_value=risk_result.total_value,
+    )
+```
 
-- `StressTestData.factorContributions`: `Array<{ factor, shock, portfolioBeta, contributionPct }>` (from `StressTestAdapter.ts:21`)
-- `StressTestApiResponse.factor_contributions`: `Array<{ factor, shock, portfolio_beta, contribution_pct }>` (from `api.ts:191`)
+**After**:
+```python
+try:
+    if scenario:
+        scenarios = get_stress_scenarios()
+        scenario_config = scenarios.get(scenario)
+        if not scenario_config:
+            available = ", ".join(sorted(scenarios.keys()))
+            raise ValueError(f"Unknown stress scenario '{scenario}'. Available: {available}")
+        shocks = scenario_config.get("shocks", {})
+        scenario_name = scenario_config.get("name", scenario)
+    else:
+        shocks = custom_shocks or {}
+        scenario_name = "Custom"
 
-Neither has a `factorShocks: Record<string, number>` field. The shocks are embedded in `factorContributions[].shock` alongside portfolio betas.
+    if not shocks:
+        raise ValueError("Stress test requires either a predefined scenario or custom_shocks")
 
-**Resolution**: Change 1 is replaced with a reconstruction from `factorContributions`. See Change 1 below.
+    risk_result = self.portfolio_service.analyze_portfolio(portfolio_data)
+    result = run_stress_test(
+        risk_result=risk_result,
+        shocks=shocks,
+        scenario_name=scenario_name,
+        portfolio_value=risk_result.total_value,
+    )
+    if scenario:
+        result["scenario"] = scenario
+        if scenario_config and scenario_config.get("severity") is not None:
+            result["severity"] = scenario_config["severity"]
+    return result
+```
 
-### Finding 4: `contextDismissedRef` never resets on new valid context
+**Why include `severity`**: `StressTestAdapter.ts:132` reads `severity: apiResponse.severity` — it's also currently `undefined` for the REST path, for the same structural reason. Fixing it in the same place is nearly free and removes a second silent field. Custom-shock runs leave severity absent (correct — there's no pre-defined severity for custom scenarios).
 
-After "Clear context", `contextDismissedRef.current = true` persists for the component's lifetime. If `setActiveTool("monte-carlo", newContext)` is called while MC stays mounted, the new context is ignored because the ref is still `true`.
+**Not chosen** (alternative we considered): modifying `portfolio_risk_engine.stress_testing.run_stress_test` to accept a `scenario_key` parameter. Wider change, three callers (`run_all_stress_tests`, `agent_building_blocks.run_stress_test`, `scenario_service.analyze_stress_scenario`) would need updating, and the engine layer stays cleaner if it keeps knowing nothing about stable keys. Service-layer attachment is the minimal surface.
 
-**Resolution**: Reset `contextDismissedRef` when context genuinely changes (new object reference with actual content). The `useEffect` checks for this. See Change 2 below.
+### Change 2 (belt-and-suspenders, frontend): factorContributions fallback
 
----
+**File**: `frontend/packages/ui/src/components/portfolio/scenarios/tools/StressTestTool.tsx`
+**Function**: Inside `useEffect` that sets `lastRunScenarioShocks` (line 170-184)
 
-## Strategy: Diagnostic-First, Then Fix
+**Rationale**: Change 1 fixes the root cause, but the frontend currently silently produces `null` shocks whenever any future response shape regression drops `scenario`. `factorContributions` carries the same shock values and is always populated on a successful stress test. Using it as a fallback makes the pipeline robust to backend drift.
 
-Given that:
-1. The cross-tool navigation path (stress-test → monte-carlo) theoretically works correctly (React remounts, `useState` initializer captures fresh context)
-2. The actual bug has never been reproduced with diagnostic instrumentation
-3. The v2 plan's fixes introduced new correctness issues (stale `contextKey`, wrong empty-context semantics, nonexistent field)
-4. The same-instance hazard is still theoretical (no existing code path triggers it)
-
-**The plan is split into two phases:**
-
-### Phase 1: Diagnostic instrumentation (implement now)
-
-Add targeted `console.warn` logging at the three critical junctures to identify the real failure point in the next live reproduction. These are `console.warn` (not `console.log`) so they're visible in browser devtools even with info-level filtering.
-
-### Phase 2: Defensive fix (implement after Phase 1 confirms root cause)
-
-Apply the corrected Change 1 + Change 2 once we know WHERE the data is lost. If Phase 1 reveals a completely different root cause, this phase may be replaced.
-
----
-
-## Phase 1: Diagnostic Instrumentation
-
-### Diagnostic 1: StressTestTool shock capture
-
-**File**: `frontend/packages/ui/src/components/portfolio/scenarios/tools/StressTestTool.tsx`  
-**Location**: Inside the `useEffect` that sets `lastRunScenarioShocks` (line 170-184)
-
+**Before** (line 170-184):
 ```tsx
 useEffect(() => {
   if (!stressTest.data) {
@@ -128,409 +233,260 @@ useEffect(() => {
     ?? stressTest.data.scenarioName
     ?? "Stress scenario"
 
-  // DIAGNOSTIC: MC banner bug — verify shock capture
-  if (!executedScenario) {
-    console.warn("[StressTest→MC] executedScenario NOT FOUND", {
-      scenarioId: stressTest.data.scenarioId,
-      availableIds: scenarioOptions.map((s) => s.id),
-      factorContributions: stressTest.data.factorContributions?.length ?? 0,
-    })
-  } else {
-    console.warn("[StressTest→MC] executedScenario FOUND", {
-      scenarioId: stressTest.data.scenarioId,
-      shockKeys: Object.keys(executedScenario.shocks),
-      shockCount: Object.keys(executedScenario.shocks).length,
-    })
-  }
-
   setLastRunScenarioId(pinnedScenarioId)
   setLastRunScenarioName(pinnedScenarioName)
   setLastRunScenarioShocks(executedScenario?.shocks ?? null)
 }, [scenarioOptions, stressTest.data])
 ```
 
-### Diagnostic 2: StressTestTool navigation handler
-
-**File**: `frontend/packages/ui/src/components/portfolio/scenarios/tools/StressTestTool.tsx`  
-**Location**: `handleMonteCarloNavigation` (line 541), before calling `onNavigate`
-
-```tsx
-const handleMonteCarloNavigation = () => {
-  // DIAGNOSTIC: MC banner bug — verify shocks at navigation time
-  console.warn("[StressTest→MC] handleMonteCarloNavigation", {
-    hasData: !!stressTest.data,
-    lastRunScenarioShocks: lastRunScenarioShocks
-      ? `${Object.keys(lastRunScenarioShocks).length} factors`
-      : "null",
-    scenarioShocksPassedToMC: (lastRunScenarioShocks ?? undefined) ? "truthy" : "undefined",
-  })
-
-  if (!stressTest.data) {
-    onNavigate("monte-carlo")
-    return
-  }
-  // ... rest unchanged
-```
-
-### Diagnostic 3: MonteCarloTool context reception
-
-**File**: `frontend/packages/ui/src/components/portfolio/scenarios/tools/MonteCarloTool.tsx`  
-**Location**: After `initialContext` state initialization (after line 305)
-
-```tsx
-const incomingLabel = initialContext.label
-
-// DIAGNOSTIC: MC banner bug — verify context at MC mount
-console.warn("[MC] mount context", {
-  rawContextKeys: Object.keys(context),
-  scenarioShocks: context.scenarioShocks ? "present" : "absent",
-  normalizedScenarioShocks: incomingScenarioShocks
-    ? `${Object.keys(incomingScenarioShocks).length} factors`
-    : "undefined",
-  source: incomingSource,
-  label: incomingLabel,
-})
-```
-
-### Expected diagnostic outcomes
-
-| Scenario | Diagnostic 1 | Diagnostic 2 | Diagnostic 3 | Root cause |
-|---|---|---|---|---|
-| **Scenario A**: executedScenario not found | "NOT FOUND" | "null" | "absent" | scenarioId mismatch between API response and scenario options |
-| **Scenario B**: shocks captured but lost at nav | "FOUND" | "null" | "absent" | State timing issue between `useEffect` and navigation handler |
-| **Scenario C**: shocks passed but MC doesn't see | "FOUND" | "truthy" | "absent" | Store/router context propagation bug |
-| **Scenario D**: MC sees shocks but banner fails | "FOUND" | "truthy" | "present" | `normalizeContextScenarioShocks` rejects data shape, or render logic bug |
-| **Scenario E**: Everything works | "FOUND" | "truthy" | "present" + banner shows | Bug is intermittent / environment-specific |
-
----
-
-## Phase 2: Defensive Fixes (post-diagnostic)
-
-These fixes are correct regardless of which scenario Phase 1 reveals, but their priority depends on the root cause.
-
-### Change 1: Reconstruct shocks from `factorContributions` as fallback
-
-**File**: `frontend/packages/ui/src/components/portfolio/scenarios/tools/StressTestTool.tsx`  
-**Lines**: 170-184
-
-The `executedScenario?.shocks` lookup depends on finding the scenario in `scenarioOptions` by ID match. If the ID format differs between the API response (`stressTest.data.scenarioId`) and the scenario definitions (`stressScenarios.data` keys), this lookup fails and `lastRunScenarioShocks` is null.
-
-The stress test response includes `factorContributions` which has the shock values per factor. We can reconstruct the `Record<string, number>` shape from this array.
-
-**Before**:
-```tsx
-setLastRunScenarioShocks(executedScenario?.shocks ?? null)
-```
-
 **After**:
 ```tsx
-const shocksFromContributions = stressTest.data.factorContributions.length > 0
-  ? Object.fromEntries(
-      stressTest.data.factorContributions.map((fc) => [fc.factor, fc.shock])
-    )
-  : null
-setLastRunScenarioShocks(executedScenario?.shocks ?? shocksFromContributions)
-```
-
-**Why this is safe**: `factorContributions` comes from the same backend stress test run. The `shock` value on each contribution is the same factor shock used in the scenario — just embedded in a richer structure. The reconstructed `Record<string, number>` is shape-compatible with `scenarioShocks` as consumed by MonteCarloTool.
-
-**Trade-off**: The `factorContributions` shocks might differ slightly from the `scenarioOptions` shocks if the backend modifies them (e.g., severity scaling). But having approximate shocks is better than having no shocks (which is the current failure mode).
-
-### Change 2: Context sync with corrected semantics
-
-**File**: `frontend/packages/ui/src/components/portfolio/scenarios/tools/MonteCarloTool.tsx`  
-**Insert after**: Line 330 (after `contextLabel` state declaration)
-
-This addresses four issues simultaneously:
-1. Same-instance context prop changes (the core vulnerability)
-2. Empty context clears state (correct store contract semantics)
-3. `contextDismissedRef` resets on genuinely new context
-4. `contextKey` uses `context*` state instead of `incoming*` (fixes stale key)
-
-**Add context sync effect after line 330**:
-```tsx
-const contextDismissedRef = useRef(false)
-const prevContextRef = useRef(context)
-
 useEffect(() => {
-  // If context object reference changed, reset dismissed state
-  // (new setActiveTool call = new intent, even after a prior Clear)
-  if (context !== prevContextRef.current) {
-    prevContextRef.current = context
-    contextDismissedRef.current = false
-  }
-
-  // Don't repopulate if user explicitly dismissed context via Clear button
-  if (contextDismissedRef.current) {
+  if (!stressTest.data) {
     return
   }
 
-  const newScenarioShocks = normalizeContextScenarioShocks(context.scenarioShocks)
-  const newSource = typeof context.source === "string" ? context.source : undefined
-  const newLabel = typeof context.label === "string" ? context.label : undefined
-  const newWeights = normalizeContextWeights(context.weights)
-  const newPortfolioValue = normalizeContextNumber(context.portfolioValue)
-  const newVolScale = normalizeContextNumber(context.volScale)
-  const newDistribution = normalizeContextDistribution(context.distribution)
+  const pinnedScenarioId = stressTest.data.scenarioId ?? null
+  const executedScenario = scenarioOptions.find((scenario) => scenario.id === stressTest.data?.scenarioId)
+  const pinnedScenarioName = executedScenario?.name
+    ?? stressTest.data.scenarioName
+    ?? "Stress scenario"
 
-  // Check if we have any actual context to apply
-  const hasContent = !!(newScenarioShocks || newSource || newWeights
-    || newPortfolioValue !== undefined || newVolScale !== undefined)
+  // Fallback: if scenario lookup failed (e.g. backend omitted `scenario`),
+  // reconstruct shocks from factorContributions, which is always populated
+  // on a successful run and carries the same shock values by factor.
+  const shocksFromContributions = stressTest.data.factorContributions.length > 0
+    ? Object.fromEntries(
+        stressTest.data.factorContributions.map((fc) => [fc.factor, fc.shock])
+      )
+    : null
 
-  if (!hasContent) {
-    // Empty context = explicit "no context" signal from store
-    // Clear all context state to match store contract
-    setContextWeights(undefined)
-    setContextPortfolioValue(undefined)
-    setContextVolScale(undefined)
-    setContextScenarioShocks(undefined)
-    setContextSource(undefined)
-    setContextLabel(undefined)
-    return
-  }
-
-  // Sync new context values
-  setContextWeights(newWeights)
-  setContextPortfolioValue(newPortfolioValue)
-  setContextVolScale(newVolScale)
-  setContextScenarioShocks(newScenarioShocks)
-  setContextSource(newSource)
-  setContextLabel(newLabel)
-
-  if (newDistribution) {
-    setDistribution(newDistribution)
-  }
-}, [context])
+  setLastRunScenarioId(pinnedScenarioId)
+  setLastRunScenarioName(pinnedScenarioName)
+  setLastRunScenarioShocks(executedScenario?.shocks ?? shocksFromContributions)
+}, [scenarioOptions, stressTest.data])
 ```
 
-**Update `handleClearContext`** to set the dismissed ref:
+**Trade-off note**: `factorContributions[].shock` is the shock value *applied* during the run. For predefined scenarios this equals `scenarioOptions[].shocks[factor]` exactly. For custom-shock runs it matches the custom input. No divergence risk.
 
-```tsx
-const handleClearContext = useCallback(() => {
-  contextDismissedRef.current = true
-  setContextWeights(undefined)
-  setContextPortfolioValue(undefined)
-  setContextVolScale(undefined)
-  setContextScenarioShocks(undefined)
-  setContextSource(undefined)
-  setContextLabel(undefined)
-}, [])
-```
+### Dropped from prior drafts
 
-**Refactor `contextKey` to use `context*` state exclusively** (line 642-669):
-
-```tsx
-const contextKey = useMemo(() => {
-  if (!contextWeights && !contextPortfolioValue && !contextVolScale && !contextScenarioShocks) {
-    return ""
-  }
-
-  const sortedWeights = contextWeights
-    ? Object.fromEntries(Object.entries(contextWeights).sort(([left], [right]) => left.localeCompare(right)))
-    : undefined
-  const sortedScenarioShocks = contextScenarioShocks
-    ? Object.fromEntries(Object.entries(contextScenarioShocks).sort(([left], [right]) => left.localeCompare(right)))
-    : undefined
-
-  return JSON.stringify({
-    pid: portfolioId,
-    w: sortedWeights,
-    pv: contextPortfolioValue,
-    vs: contextVolScale,
-    d: distribution,
-    ss: sortedScenarioShocks,
-  })
-}, [
-  contextScenarioShocks,
-  contextPortfolioValue,
-  contextVolScale,
-  contextWeights,
-  distribution,
-  portfolioId,
-])
-```
-
-**Why this is safe**: `contextKey` is used for two purposes: (1) auto-run dedup via `autoRunCache`, (2) triggering auto-run on mount with context. Both should react to the live `context*` state, not the frozen `incoming*` values. After this change:
-- On fresh mount: `context*` state == `incoming*` values (both from same context prop), so behavior is identical.
-- On same-instance prop change: `context*` state is updated by the `useEffect`, `contextKey` recomputes, auto-run fires correctly.
-- After "Clear context": `context*` state is `undefined`, `contextKey` is `""`, auto-run gate returns early. Correct.
-
-### Dropped: `key={activeTool}` on Suspense
-
-Still not needed. React already remounts on cross-type component switch.
+- **v3 Phase 1 (console.warn diagnostics)** — not needed; root cause already traced via live fiber inspection.
+- **v2/v3 Change 2 (`useEffect` + `contextDismissedRef` + `contextKey` refactor in `MonteCarloTool`)** — was addressing a theoretical same-instance rerender hazard that is not present in the actual bug path. `MonteCarloTool` does remount on cross-tool navigation (verified: fiber fresh, 80 hooks on a clean mount). Keeping this change in scope would add ~50 lines of code to defend against a non-issue.
+- **v1 `key={activeTool}` on `<Suspense>`** — unnecessary, cross-type React reconciliation already remounts.
 
 ---
 
-## Other Tools: Vulnerability Audit
+## Test Plan
 
-| Tool | Context access pattern | Vulnerable? | Notes |
-|---|---|---|---|
-| **WhatIfTool** | `useMemo(() => ..., [context.weights])` | **No** | Reactive via `useMemo` deps. Context changes recompute immediately. |
-| **BacktestTool** | `useMemo(() => normalizeWeights(context.weights), [context.weights])` | **No** | Same reactive `useMemo` pattern. |
-| **OptimizeTool** | Direct reads: `context?.riskContext`, `context?.mcRunId` | **No** | Reads `context` props directly in render, no memoization. Always current. |
-| **StressTestTool** | `_context` (destructured and unused) | **No** | Does not consume context at all. |
-| **HedgeTool** | `context.label` (direct read) | **No** | Direct prop read, always current. |
-| **RebalanceTool** | Passes through to child | **No** | Direct prop threading. |
-| **TaxHarvestTool** | Does not consume context | **No** | N/A. |
+### New backend test
 
-**MonteCarloTool is the only tool** using the `useState(() => ...)` pattern for context capture.
+**File**: `tests/services/test_scenario_service.py`
+**Pattern**: Follow existing fixtures in the file (e.g. `test_scenario_shocks_thread_to_engine` at line 158).
 
----
+```python
+def test_analyze_stress_scenario_emits_scenario_key_and_severity(monkeypatch):
+    """Regression: REST path must attach scenario ID + severity to result.
 
-## Test Cases
+    Without this, StressTestAdapter.scenarioId is undefined, which causes
+    StressTestTool → MonteCarloTool navigation to drop scenario shocks.
+    """
+    from services.scenario_service import ScenarioService
 
-### Existing tests (no changes needed)
+    fake_risk_result = _make_fake_risk_result()  # whatever existing tests use
+    fake_portfolio_data = _make_fake_portfolio_data()
 
-The existing test file `tools/__tests__/MonteCarloTool.test.tsx` already covers:
-- Scenario shocks activate context banner (line 247-259)
-- Scenario shocks appear in auto-context key (line 261-288)
-- Scenario shocks threaded into run params (line 290-304)
-- Clear context removes scenario shocks (line 306-330)
-- Bootstrap distribution coerced to normal with shocks (line 332-354)
+    svc = ScenarioService(portfolio_service=_stub_portfolio_service(fake_risk_result))
 
-These tests all render fresh (no reuse), so they test the `useState` initializer path. They will continue to pass.
+    result = svc.analyze_stress_scenario(
+        portfolio_data=fake_portfolio_data,
+        scenario="interest_rate_shock",
+    )
 
-### New test 1: MC context sync on prop change without remount
+    assert result["scenario"] == "interest_rate_shock"
+    assert result["scenario_name"] == "Interest Rate Shock"
+    assert result["severity"] in {"High", "Medium", "Low", "Extreme"}  # capitalized in YAML
+    # existing engine fields still present
+    assert "factor_contributions" in result
+    assert "estimated_portfolio_impact_pct" in result
+
+
+def test_analyze_stress_scenario_custom_shocks_omits_scenario_key(monkeypatch):
+    """Custom-shock runs legitimately have no scenario ID or severity."""
+    from services.scenario_service import ScenarioService
+
+    svc = ScenarioService(portfolio_service=_stub_portfolio_service(_make_fake_risk_result()))
+
+    result = svc.analyze_stress_scenario(
+        portfolio_data=_make_fake_portfolio_data(),
+        custom_shocks={"rate_10y": 0.02},
+    )
+
+    assert "scenario" not in result
+    assert "severity" not in result
+    assert result["scenario_name"] == "Custom"
+```
+
+### New API-level test (catches the response-model boundary)
+
+**File**: `tests/api/test_stress_test_api.py` (new file)
+**Pattern**: Mirror `tests/api/test_monte_carlo_api.py:615` (`test_scenario_conditioning_preserved_in_response`).
+**Why this is essential**: A pure service-layer test in `test_scenario_service.py` will pass even if `StressTestResponse` strips the new fields, because it never crosses the FastAPI route boundary. We need a `TestClient` test that hits `POST /api/stress-test` with a mocked workflow and asserts `scenario` and `severity` survive serialization.
+
+```python
+"""API-level coverage that scenario + severity survive the response_model boundary."""
+from fastapi.testclient import TestClient
+import app as app_module
+
+
+def _mock_authenticated_user(monkeypatch):
+    # match the helper used in test_monte_carlo_api.py
+    ...
+
+
+def test_stress_test_response_includes_scenario_and_severity(monkeypatch) -> None:
+    """Regression: /api/stress-test must surface scenario ID + severity for the
+    StressTest → MonteCarlo navigation to attach scenario-conditioned drift."""
+    client = TestClient(app_module.app)
+    client.cookies.set("session_id", "stress-session")
+    _mock_authenticated_user(monkeypatch)
+    monkeypatch.setattr(app_module, "get_user_scenario_service", lambda user: object())
+    monkeypatch.setattr(app_module, "log_request", lambda *args, **kwargs: None)
+
+    def _fake_workflow(portfolio_name, scenario, custom_shocks, user, scenario_service):
+        return {
+            "success": True,
+            "scenario_name": "Interest Rate Shock",
+            "scenario": "interest_rate_shock",
+            "severity": "High",
+            "estimated_portfolio_impact_pct": -5.0,
+            "estimated_portfolio_impact_dollar": -5000.0,
+            "position_impacts": [],
+            "factor_contributions": [
+                {"factor": "rate_10y", "shock": 0.03, "portfolio_beta": -6.87, "contribution_pct": -20.0},
+            ],
+            "risk_context": {},
+        }
+    monkeypatch.setattr(app_module, "_run_stress_test_workflow", _fake_workflow)
+
+    response = client.post(
+        "/api/stress-test",
+        json={"portfolio_name": "TEST", "scenario": "interest_rate_shock"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["scenario"] == "interest_rate_shock"
+    assert body["severity"] == "High"
+    assert body["scenario_name"] == "Interest Rate Shock"
+
+
+def test_stress_test_custom_shocks_omits_scenario_and_severity(monkeypatch) -> None:
+    """Custom-shock runs legitimately have no preset scenario ID or severity.
+    Both should serialize as None (Optional fields), not be required."""
+    client = TestClient(app_module.app)
+    client.cookies.set("session_id", "stress-session")
+    _mock_authenticated_user(monkeypatch)
+    monkeypatch.setattr(app_module, "get_user_scenario_service", lambda user: object())
+    monkeypatch.setattr(app_module, "log_request", lambda *args, **kwargs: None)
+
+    def _fake_workflow(portfolio_name, scenario, custom_shocks, user, scenario_service):
+        return {
+            "success": True,
+            "scenario_name": "Custom",
+            "estimated_portfolio_impact_pct": -2.0,
+            "estimated_portfolio_impact_dollar": -2000.0,
+            "position_impacts": [],
+            "factor_contributions": [{"factor": "rate_10y", "shock": 0.02, "portfolio_beta": -1.0, "contribution_pct": -2.0}],
+            "risk_context": {},
+        }
+    monkeypatch.setattr(app_module, "_run_stress_test_workflow", _fake_workflow)
+
+    response = client.post(
+        "/api/stress-test",
+        json={"portfolio_name": "TEST", "custom_shocks": {"rate_10y": 0.02}},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body.get("scenario") is None
+    assert body.get("severity") is None
+    assert body["scenario_name"] == "Custom"
+```
+
+### New frontend test
+
+**File**: `frontend/packages/ui/src/components/portfolio/scenarios/tools/__tests__/StressTestTool.test.tsx`
+**Purpose**: Cover the factorContributions fallback path.
 
 ```tsx
-it("syncs context state when context prop changes without remount", () => {
-  // Initial render with empty context
-  const { rerender } = renderTool({})
-  expect(screen.queryByText(/Scenario-conditioned drift/)).toBeNull()
+it("reconstructs lastRunScenarioShocks from factorContributions when scenarioId is missing", async () => {
+  // Set up a stress test response where scenarioId is undefined (simulating
+  // the pre-fix backend bug, or any future regression)
+  const stressTestData: StressTestData = {
+    success: true,
+    scenarioName: "Interest Rate Shock",
+    scenarioId: undefined,
+    estimatedImpactPct: -0.05,
+    estimatedImpactDollar: -5000,
+    positionImpacts: [],
+    factorContributions: [
+      { factor: "rate_10y", shock: 0.03, portfolioBeta: -6.87, contributionPct: -20 },
+      { factor: "rate_5y",  shock: 0.03, portfolioBeta: -3.2,  contributionPct: -10 },
+    ],
+    riskContext: /* ... */,
+    flags: [],
+  }
 
-  // Rerender with scenarioShocks context (simulating same-instance prop change)
-  rerender(
-    <MonteCarloTool
-      context={{ scenarioShocks: { market: -0.15 }, source: "stress-test", label: "Post-crash recovery" }}
-      onNavigate={vi.fn()}
-    />
-  )
+  const onNavigate = vi.fn()
+  renderStressTestTool({ stressTestData, onNavigate })
 
-  expect(screen.getByText(/Running with context from Post-crash recovery/)).toBeInTheDocument()
-  expect(screen.getByText(/Scenario-conditioned drift/)).toBeInTheDocument()
+  // Trigger navigation to MC
+  fireEvent.click(screen.getByRole("button", { name: /simulate recovery/i }))
+
+  // Verify onNavigate was called with shocks reconstructed from factorContributions
+  expect(onNavigate).toHaveBeenCalledWith("monte-carlo", expect.objectContaining({
+    scenarioShocks: { rate_10y: 0.03, rate_5y: 0.03 },
+  }))
 })
 ```
 
-This tests the `useEffect` defensive fix: component NOT unmounted, context prop changes. The effect syncs state.
+### Existing tests that must still pass
 
-### New test 2: Clear context is not overridden by parent re-emit
+- `tests/test_stress_testing.py` — `run_stress_test` engine tests (unchanged; engine not modified).
+- `tests/services/test_scenario_service.py` — existing 5 tests (whatif/mc/scenario-shocks-threading; unaffected).
+- `tests/mcp_tools/test_stress_test_tool.py` — MCP stress test tool tests (unchanged; `agent_building_blocks` path was never broken).
+- `StressTestTool.test.tsx` — existing tests (the factorContributions fallback is a strict superset; shocks from scenarioOptions still win when scenarioId IS present).
+- `MonteCarloTool.test.tsx` — existing scenarioShocks banner tests (should start passing end-to-end for the stress-test→MC flow after this fix; unit tests that directly pass `context.scenarioShocks` continue to pass).
 
-```tsx
-it("does not repopulate context after user clicks Clear context", () => {
-  const context = { scenarioShocks: { market: -0.15 }, source: "stress-test" }
-  const { rerender } = renderTool(context)
+### Live verification
 
-  expect(screen.getByText(/Scenario-conditioned drift/)).toBeInTheDocument()
-
-  // User clicks "Clear context"
-  fireEvent.click(screen.getByText("Clear context"))
-  expect(screen.queryByText(/Scenario-conditioned drift/)).toBeNull()
-
-  // Parent re-renders with same context prop (e.g., unrelated Zustand update)
-  rerender(
-    <MonteCarloTool context={context} onNavigate={vi.fn()} />
-  )
-
-  // Context should stay cleared — user's action is respected
-  // (same context object reference → dismissed ref still true)
-  expect(screen.queryByText(/Scenario-conditioned drift/)).toBeNull()
-})
-```
-
-This tests the `contextDismissedRef` guard: after "Clear context", the `useEffect` must NOT repopulate state even if the parent re-emits the same context object.
-
-### New test 3: Empty context clears stale context state
-
-```tsx
-it("clears stale context when context prop becomes empty on rerender", () => {
-  const { rerender } = renderTool({
-    scenarioShocks: { market: -0.15 },
-    source: "stress-test",
-  })
-
-  expect(screen.getByText(/Scenario-conditioned drift/)).toBeInTheDocument()
-
-  // Parent sends empty context (e.g., setActiveTool("monte-carlo") with no context arg)
-  rerender(<MonteCarloTool context={{}} onNavigate={vi.fn()} />)
-
-  // Empty context = "no context" signal → banner should be cleared
-  expect(screen.queryByText(/Scenario-conditioned drift/)).toBeNull()
-})
-```
-
-This tests that empty context correctly clears state, matching the store's `setActiveTool` contract where omitting context means `toolContext: {}`.
-
-### New test 4: New context after Clear resets dismissed state
-
-```tsx
-it("accepts new context after prior Clear if context object reference changes", () => {
-  const originalContext = { scenarioShocks: { market: -0.15 }, source: "stress-test" }
-  const { rerender } = renderTool(originalContext)
-
-  expect(screen.getByText(/Scenario-conditioned drift/)).toBeInTheDocument()
-
-  // User clicks "Clear context"
-  fireEvent.click(screen.getByText("Clear context"))
-  expect(screen.queryByText(/Scenario-conditioned drift/)).toBeNull()
-
-  // New context arrives (different object reference = new setActiveTool call)
-  const newContext = { scenarioShocks: { market: -0.25 }, source: "stress-test", label: "New scenario" }
-  rerender(
-    <MonteCarloTool context={newContext} onNavigate={vi.fn()} />
-  )
-
-  // New context should be accepted — dismissed ref was reset on new object reference
-  expect(screen.getByText(/Scenario-conditioned drift/)).toBeInTheDocument()
-  expect(screen.getByText(/Running with context from New scenario/)).toBeInTheDocument()
-})
-```
-
-This tests Finding 4's fix: `contextDismissedRef` resets when a genuinely new context object arrives after a prior Clear.
-
----
-
-## Banner Conditional Verification
-
-After Phase 2, the banner logic at line 1002-1019 works correctly:
-
-1. On cross-tool mount: `contextScenarioShocks` set via `useState` initializer from `context.scenarioShocks` (primary path). `useEffect` fires as belt-and-suspenders with same values (no-op).
-2. On same-instance prop change: `contextScenarioShocks` set via `useEffect` sync (defensive path).
-3. `hasActiveContext` (line 440) = `!!(contextWeights || contextPortfolioValue || contextVolScale || contextScenarioShocks)` -- truthy when shocks present.
-4. `contextSource` set from `context.source` -- truthy ("stress-test").
-5. `hasActiveContext && contextSource` -- truthy, banner renders.
-6. `contextScenarioShocks ? " · Scenario-conditioned drift" : ""` -- truthy, text appears.
-
-The auto-run `useEffect` (line 724-731) also benefits: `hasActiveContext` is now truthy, `contextKey` is computed from `context*` state (no stale `incoming*`), so the MC run triggers automatically with shocks applied.
+After deploy:
+1. Navigate to `#scenarios/stress-test`, run any predefined scenario.
+2. Click "Simulate recovery".
+3. MC banner should read:
+   > `"Running with context from Post-<Scenario> recovery · Vol scale: 1.5x · Scenario-conditioned drift"`
+4. Introspect React fiber (or just the rendered text): `context.scenarioShocks` should be a populated object, not `undefined`.
 
 ---
 
 ## Implementation Sequence
 
-### Phase 1 (now)
-1. Add Diagnostic 1 to `StressTestTool.tsx` useEffect (~10 lines)
-2. Add Diagnostic 2 to `StressTestTool.tsx` handleMonteCarloNavigation (~8 lines)
-3. Add Diagnostic 3 to `MonteCarloTool.tsx` after initialContext (~8 lines)
-4. Run `vitest` to verify no test regressions
-5. Manual smoke test: StressTest → "Simulate recovery" → check console for `[StressTest→MC]` / `[MC]` logs
-6. Record which scenario (A-E) matches the console output
-
-### Phase 2 (after Phase 1 diagnosis)
-1. Apply Change 1 (shock reconstruction fallback) — 5 lines in StressTestTool
-2. Apply Change 2 (context sync effect + contextDismissedRef + contextKey refactor) — ~50 lines in MonteCarloTool
-3. Update `handleClearContext` to set dismissed ref — 1 line
-4. Remove Phase 1 diagnostics (or keep behind `__DEV__` guard)
-5. Add 4 new tests
-6. Run `vitest` to verify all existing + new tests pass
-7. Manual smoke test: StressTest → "Simulate recovery" → verify banner shows "Scenario-conditioned drift"
+1. **Backend response model** — Edit `models/response_models.py:155-162`, add `scenario: Optional[str] = None` and `severity: Optional[str] = None` to `StressTestResponse`. ~2 lines.
+2. **Backend service layer** — Edit `services/scenario_service.py:506-511`, assign engine call to `result`, attach `result["scenario"] = scenario` and `result["severity"] = scenario_config["severity"]` for the preset path, return `result`. ~5 net lines.
+3. **Backend service test** — Add 2 tests to `tests/services/test_scenario_service.py` (happy path + custom-shocks path).
+4. **Backend API test** — Create `tests/api/test_stress_test_api.py` with 2 tests (preset round-trip + custom-shocks round-trip). Catches the Pydantic boundary that pure service tests miss.
+5. **Frontend fallback** — Edit `StressTestTool.tsx:170-184`, add `shocksFromContributions` reconstruction, chain it after `executedScenario?.shocks`. ~5 net lines.
+6. **Frontend test** — Add 1 test to `StressTestTool.test.tsx` for the fallback path.
+7. **Manual verification** — Reproduce the repro steps in "Live Repro Findings", confirm banner shows "Scenario-conditioned drift" AND the StressTest single-run severity badge appears AND the MC run params include `scenario_shocks` (verify by inspecting `/api/monte-carlo` request payload in devtools).
+8. **TODO update** — Re-tag bug from Low → Medium severity in `docs/TODO.md` "Open Bugs" table; update the bug summary line to note the broken-feature scope (not cosmetic).
 
 ---
 
-## Open Questions Resolved
+## Risk Assessment
 
-| Question | Answer |
+| Dimension | Assessment |
 |---|---|
-| Does `stressTest.data.factorShocks` exist? | **No.** The field does not exist. `stressTest.data.factorContributions` is an `Array<{factor, shock, portfolioBeta, contributionPct}>`. Shocks must be reconstructed via `Object.fromEntries(fc.map(c => [c.factor, c.shock]))`. |
-| Should empty context `{}` preserve stale state? | **No.** `setActiveTool(tool)` clears to `{}` intentionally. Empty context = "no context" = clear state. |
-| Does `contextDismissedRef` need a reset mechanism? | **Yes.** Use `prevContextRef` to detect new object reference → reset dismissed flag. |
-| Should `contextKey` use `incoming*` or `context*`? | **`context*` exclusively.** `incoming*` values are frozen at mount. `contextKey` must track live state for correct auto-run behavior. |
-| Is the cross-tool navigation path the actual bug? | **Unknown — that's what Phase 1 diagnostics will determine.** Theory says it works (React remounts, `useState` captures fresh context). But the reported bug may involve `executedScenario` lookup failure (Scenario A), making `lastRunScenarioShocks` null at the source. |
+| **Blast radius** | REST `/api/stress-test` response gains 2 optional fields. No consumer breaks: adapter already declared them, was just reading undefined; `StressTestsTab.tsx:148` severity badge starts rendering correctly (currently silently absent). MCP path unchanged. |
+| **Backward compat** | Response is strictly additive. Both new fields are `Optional[str] = None`. Existing clients ignoring them are unaffected. |
+| **Rollback** | All changes are isolated to 4 files and revertable atomically. |
+| **Test coverage** | 2 new service-layer tests + 2 new API-level tests (the API tests are the critical guardrail against future Pydantic boundary regressions) + 1 new frontend test + existing MonteCarloTool scenario-shocks banner tests run end-to-end. |
+| **Severity of bug fixed** | **Medium** — confirmed via code inspection that the MC engine was running without scenario-conditioned drift on the stress→MC path. Not just a cosmetic banner. See "Confirmed: Feature Was Broken" section above. |

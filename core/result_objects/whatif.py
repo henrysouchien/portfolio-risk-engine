@@ -12,6 +12,31 @@ from utils.serialization import make_json_safe
 from .risk import RiskAnalysisResult
 from ._helpers import _convert_to_json_serializable, _clean_nan_values
 
+
+def _violation_keys(
+    risk_checks: list[dict],
+    beta_checks: list[dict],
+    industry_df: pd.DataFrame | None,
+) -> set[str]:
+    """Build stable identity keys for all failed checks."""
+    keys: set[str] = set()
+
+    for check in risk_checks:
+        if not check.get("Pass", True):
+            keys.add(f"risk:{check.get('Metric', 'unknown')}")
+
+    for check in beta_checks:
+        if not check.get("pass", True):
+            factor = check.get("factor", check.get("index", "unknown"))
+            keys.add(f"factor:{factor}")
+
+    if industry_df is not None and not industry_df.empty and "pass" in industry_df.columns:
+        for ticker in industry_df.index[~industry_df["pass"]]:
+            keys.add(f"proxy:{ticker}")
+
+    return keys
+
+
 class WhatIfResult:
     """
     Scenario analysis output with before/after comparison.
@@ -25,12 +50,14 @@ class WhatIfResult:
                  scenario_metrics: RiskAnalysisResult,
                  scenario_name: str = "Unknown",
                  risk_comparison: Optional[pd.DataFrame] = None,
-                 beta_comparison: Optional[pd.DataFrame] = None):
+                 beta_comparison: Optional[pd.DataFrame] = None,
+                 new_tickers: Optional[List[str]] = None):
         
         # Before/after analysis
         self.current_metrics = current_metrics
         self.scenario_metrics = scenario_metrics
         self.scenario_name = scenario_name
+        self.new_tickers = new_tickers or []
         
         # Comparison tables from actual what-if functions
         self.risk_comparison = risk_comparison if risk_comparison is not None else pd.DataFrame()
@@ -71,6 +98,9 @@ class WhatIfResult:
                 "risk_new": DataFrame,     # Risk checks for scenario portfolio
                 "beta_f_new": DataFrame,   # Factor beta checks for scenario portfolio  
                 "beta_p_new": DataFrame,   # Industry proxy checks for scenario portfolio
+                "risk_base": DataFrame,    # Risk checks for current portfolio
+                "beta_f_base": DataFrame,  # Factor beta checks for current portfolio
+                "beta_p_base": DataFrame,  # Industry proxy checks for current portfolio
                 "cmp_risk": DataFrame,     # Before/after risk comparison table
                 "cmp_beta": DataFrame      # Before/after beta comparison table
             },
@@ -114,8 +144,16 @@ class WhatIfResult:
         
         # === STEP 2: Create RiskAnalysisResult for CURRENT portfolio (baseline) ===
         # Transform build_portfolio_view() output into RiskAnalysisResult parameters
-        current_risk_checks = []                                     # List[Dict]: Empty - baseline doesn't run risk checks
-        current_beta_checks = []                                     # List[Dict]: Empty - baseline doesn't run beta checks  
+        current_risk_checks = (
+            raw_tables["risk_base"].to_dict('records')
+            if "risk_base" in raw_tables and not raw_tables["risk_base"].empty
+            else []
+        )                                                            # List[Dict]: Risk limit checks for baseline
+        current_beta_checks = (
+            raw_tables["beta_f_base"].reset_index().to_dict('records')
+            if "beta_f_base" in raw_tables and not raw_tables["beta_f_base"].empty
+            else []
+        )                                                            # List[Dict]: Beta checks for baseline
         current_historical_analysis = raw_tables["summary_base"].get("historical_analysis", {})  # Dict: Historical performance data
         current_metadata = {                                         # Dict: Metadata for RiskAnalysisResult creation
             "portfolio_name": "Current Portfolio",                  # str: Display name for baseline
@@ -124,8 +162,8 @@ class WhatIfResult:
         
         current_metrics = RiskAnalysisResult.from_core_analysis(     # RiskAnalysisResult: Baseline portfolio analysis
             portfolio_summary=raw_tables["summary_base"],           # Dict: build_portfolio_view() output for current portfolio
-            risk_checks=current_risk_checks,                        # List[Dict]: No risk checks for baseline
-            beta_checks=current_beta_checks,                        # List[Dict]: No beta checks for baseline
+            risk_checks=current_risk_checks,                        # List[Dict]: Risk limit validation results
+            beta_checks=current_beta_checks,                        # List[Dict]: Beta exposure validation results
             max_betas=raw_tables["summary_base"].get("max_betas", {}),          # Dict: Max beta thresholds
             max_betas_by_proxy=raw_tables["summary_base"].get("max_betas_by_proxy", {}),  # Dict: Max proxy beta thresholds
             historical_analysis=current_historical_analysis,        # Dict: Historical analysis data
@@ -135,7 +173,7 @@ class WhatIfResult:
         # === STEP 3: Create RiskAnalysisResult for SCENARIO portfolio (modified) ===
         # Convert DataFrames to List[Dict] format expected by RiskAnalysisResult
         scenario_risk_checks = raw_tables["risk_new"].to_dict('records') if not raw_tables["risk_new"].empty else []      # List[Dict]: Risk limit checks
-        scenario_beta_checks = raw_tables["beta_f_new"].to_dict('records') if not raw_tables["beta_f_new"].empty else []  # List[Dict]: Beta exposure checks
+        scenario_beta_checks = raw_tables["beta_f_new"].reset_index().to_dict('records') if not raw_tables["beta_f_new"].empty else []  # List[Dict]: Beta exposure checks
         scenario_historical_analysis = raw_tables["summary"].get("historical_analysis", {})  # Dict: Historical performance data
         scenario_metadata_dict = {                                  # Dict: Metadata for RiskAnalysisResult creation
             "portfolio_name": scenario_name,                        # str: Display name for scenario (e.g., "What-If Scenario")
@@ -166,6 +204,8 @@ class WhatIfResult:
         result._new_portfolio_risk_checks = raw_tables["risk_new"]           # DataFrame: Risk checks for get_new_portfolio_risk_checks_table()
         result._new_portfolio_factor_checks = raw_tables["beta_f_new"]       # DataFrame: Factor checks for get_new_portfolio_factor_checks_table()
         result._new_portfolio_industry_checks = raw_tables["beta_p_new"]     # DataFrame: Industry checks for get_new_portfolio_industry_checks_table()
+        if "beta_p_base" in raw_tables and not raw_tables["beta_p_base"].empty:
+            result._current_portfolio_industry_checks = raw_tables["beta_p_base"]  # DataFrame: Baseline industry checks for violation attribution
         result._scenario_metadata = scenario_metadata                        # Dict: Analysis metadata for position_changes_table() and _build_risk_analysis()
         result._formatted_report = scenario_result.get("formatted_report", "")  # str: Pre-generated CLI report (if available)
         
@@ -242,6 +282,30 @@ class WhatIfResult:
                 proxy_passes = bool(industry_df["pass"].all())
                 proxy_violation_count = int((~industry_df["pass"]).sum())
 
+        current_risk = self.current_metrics
+        base_risk_checks = getattr(current_risk, "risk_checks", None) or []
+        base_beta_checks = getattr(current_risk, "beta_checks", None) or []
+        base_industry_df = getattr(self, "_current_portfolio_industry_checks", None)
+        base_fail_keys = _violation_keys(base_risk_checks, base_beta_checks, base_industry_df)
+
+        scenario_risk_checks = scenario_risk.risk_checks if has_risk_checks else []
+        scenario_beta_checks = scenario_risk.beta_checks if has_factor_checks else []
+        scenario_industry_df = getattr(self, "_new_portfolio_industry_checks", None)
+        scenario_fail_keys = _violation_keys(
+            scenario_risk_checks,
+            scenario_beta_checks,
+            scenario_industry_df,
+        )
+
+        new_keys = scenario_fail_keys - base_fail_keys
+        resolved_keys = base_fail_keys - scenario_fail_keys
+        inherited_keys = base_fail_keys & scenario_fail_keys
+
+        new_violation_count = len(new_keys)
+        resolved_violation_count = len(resolved_keys)
+        inherited_violation_count = len(inherited_keys)
+        base_violation_count = len(base_fail_keys)
+
         position_changes: List[Dict[str, Any]] = []
         try:
             if not hasattr(self, "_scenario_metadata") or not self._scenario_metadata.get("base_weights"):
@@ -292,8 +356,16 @@ class WhatIfResult:
         raw_conc_delta = self.concentration_delta
         total_violations = risk_violation_count + factor_violation_count + proxy_violation_count
         is_marginal = abs(raw_vol_delta_pct) < 0.1 and abs(raw_conc_delta) < 0.001
-        if total_violations > 0:
-            verdict = "introduces violations"
+        if new_violation_count > 0 and resolved_violation_count > 0:
+            verdict = f"resolves {resolved_violation_count} violation(s), introduces {new_violation_count} new"
+        elif new_violation_count > 0:
+            verdict = f"introduces {new_violation_count} new violation(s)"
+        elif resolved_violation_count > 0 and total_violations == 0:
+            verdict = f"resolves {resolved_violation_count} violation(s)"
+        elif resolved_violation_count > 0:
+            verdict = f"resolves {resolved_violation_count} violation(s), inherits {inherited_violation_count}"
+        elif total_violations > 0:
+            verdict = f"inherits {total_violations} violation(s)"
         elif is_marginal:
             verdict = "marginal impact"
         elif self.risk_improvement and self.concentration_improvement:
@@ -339,10 +411,20 @@ class WhatIfResult:
                 "factor_violation_count": factor_violation_count,
                 "proxy_passes": proxy_passes,
                 "proxy_violation_count": proxy_violation_count,
+                "base_violation_count": base_violation_count,
+                "new_violation_count": new_violation_count,
+                "resolved_violation_count": resolved_violation_count,
+                "inherited_violation_count": inherited_violation_count,
             },
             "top_position_changes": position_changes,
             "top_factor_deltas": factor_deltas,
-            "resolved_weights": getattr(self.scenario_metrics, "portfolio_weights", None) or {},
+            "resolved_weights": {
+                k: round(v, 6)
+                for k, v in (
+                    getattr(self.scenario_metrics, "portfolio_weights", None) or {}
+                ).items()
+            },
+            "new_tickers": self.new_tickers,
         }
 
         return snapshot

@@ -142,7 +142,7 @@ class BacktestResult:
                     "warning_count": len(self.warnings),
                 },
                 "warnings": self.warnings,
-                "resolved_weights": self.weights,
+                "resolved_weights": {k: round(v, 6) for k, v in self.weights.items()},
             }
         )
 

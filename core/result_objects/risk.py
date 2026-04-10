@@ -15,6 +15,38 @@ from utils.serialization import make_json_safe
 from portfolio_risk_engine.constants import get_asset_class_color, get_asset_class_display_name
 from ._helpers import (_convert_to_json_serializable, _clean_nan_values, _format_df_as_text, _abbreviate_labels, _DEFAULT_INDUSTRY_ABBR_MAP)
 
+
+def _industry_label_with_profile_fallback(
+    ticker: str,
+    cash_positions: set,
+    industry_map: Dict[str, str],
+    formatter=None,
+) -> str:
+    """Label an industry-driver ticker with profile-provider fallback."""
+    if formatter is None:
+        return ticker
+
+    labeled = formatter(ticker, cash_positions, industry_map)
+    if labeled != ticker:
+        return labeled
+
+    try:
+        from core.proxy_builder import fetch_profile
+
+        profile = fetch_profile(ticker)
+        company_name = (
+            (profile or {}).get("companyName")
+            or (profile or {}).get("name")
+            or ""
+        ).strip()
+        if company_name:
+            return f"{ticker} ({company_name})"
+    except Exception:
+        pass
+
+    return ticker
+
+
 def _safe_finite(v) -> bool:
     """Check if a value is a finite number (handles non-numeric types safely)."""
     try:
@@ -780,19 +812,22 @@ class RiskAnalysisResult:
             
             cash_positions = get_cash_positions()
             industry_map = get_etf_to_industry_map()
+            formatter = format_ticker_with_label
         except ImportError:
             # Fallback if utilities not available
             cash_positions = {}
             industry_map = {}
+            formatter = None
         
         # Calculate adaptive column width (matching CLI logic)
         max_etf_width = 12  # minimum width for backwards compatibility
         for ticker in per_group.keys():
-            if cash_positions and industry_map:
-                from utils.etf_mappings import format_ticker_with_label
-                labeled_etf = format_ticker_with_label(ticker, cash_positions, industry_map)
-            else:
-                labeled_etf = ticker
+            labeled_etf = _industry_label_with_profile_fallback(
+                ticker,
+                cash_positions,
+                industry_map,
+                formatter,
+            )
             max_etf_width = max(max_etf_width, len(labeled_etf))
         
         # Add padding
@@ -801,11 +836,12 @@ class RiskAnalysisResult:
         # Build table with exact CLI structure
         table = []
         for ticker, beta_value in sorted(per_group.items(), key=lambda kv: -abs(kv[1])):
-            if cash_positions and industry_map:
-                from utils.etf_mappings import format_ticker_with_label
-                labeled_etf = format_ticker_with_label(ticker, cash_positions, industry_map)
-            else:
-                labeled_etf = ticker
+            labeled_etf = _industry_label_with_profile_fallback(
+                ticker,
+                cash_positions,
+                industry_map,
+                formatter,
+            )
             
             row = {
                 "ticker": ticker,
@@ -1663,11 +1699,17 @@ class RiskAnalysisResult:
                     # Use cash positions passed via analysis_metadata to avoid core calls
                     cash_positions = set((self.analysis_metadata or {}).get("cash_positions", []))
                     industry_map = get_etf_to_industry_map()
+                    formatter = format_ticker_with_label
                     
                     # Calculate adaptive column width based on labeled ETF tickers
                     max_etf_width = 12  # minimum width for backwards compatibility
                     for k, v in per_group.items():
-                        labeled_etf = format_ticker_with_label(k, cash_positions, industry_map)
+                        labeled_etf = _industry_label_with_profile_fallback(
+                            k,
+                            cash_positions,
+                            industry_map,
+                            formatter,
+                        )
                         max_etf_width = max(max_etf_width, len(labeled_etf))
                     
                     # Add some padding
@@ -1676,7 +1718,12 @@ class RiskAnalysisResult:
                     # Display with labels and adaptive width
                     group_lines = []
                     for k, v in sorted(per_group.items(), key=lambda kv: -abs(kv[1])):
-                        labeled_etf = format_ticker_with_label(k, cash_positions, industry_map)
+                        labeled_etf = _industry_label_with_profile_fallback(
+                            k,
+                            cash_positions,
+                            industry_map,
+                            formatter,
+                        )
                         group_lines.append(f"{labeled_etf:<{max_etf_width}} : {v:>+7.4f}")
                     sections.append("\n".join(group_lines))
                 except ImportError:

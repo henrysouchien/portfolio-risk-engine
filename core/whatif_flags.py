@@ -52,6 +52,58 @@ def generate_whatif_flags(snapshot: dict) -> list[dict]:
             }
         )
 
+    total_violations = risk_violations + factor_violations + proxy_violations
+    new_violation_count = compliance.get("new_violation_count")
+    if new_violation_count is not None and new_violation_count == 0 and total_violations > 0:
+        base_count = compliance.get("base_violation_count", 0)
+        flags.append(
+            {
+                "type": "inherited_violations",
+                "severity": "info",
+                "message": (
+                    f"All {total_violations} violation(s) are inherited from the base portfolio "
+                    f"({base_count} base violations)"
+                ),
+            }
+        )
+    elif new_violation_count is not None and new_violation_count > 0:
+        flags.append(
+            {
+                "type": "new_violations",
+                "severity": "warning",
+                "message": (
+                    f"Scenario introduces {new_violation_count} new violation(s) "
+                    "not present in the base portfolio"
+                ),
+                "new_violation_count": new_violation_count,
+            }
+        )
+
+    resolved_count = compliance.get("resolved_violation_count", 0)
+    if resolved_count > 0:
+        flags.append(
+            {
+                "type": "resolved_violations",
+                "severity": "success",
+                "message": f"Scenario resolves {resolved_count} violation(s) present in the base portfolio",
+                "resolved_violation_count": resolved_count,
+            }
+        )
+
+    new_tickers = snapshot.get("new_tickers", [])
+    if new_tickers:
+        flags.append(
+            {
+                "type": "new_tickers_added",
+                "severity": "info",
+                "message": (
+                    f"Scenario introduces {len(new_tickers)} ticker(s) not in current portfolio: "
+                    f"{', '.join(new_tickers)}"
+                ),
+                "new_tickers": new_tickers,
+            }
+        )
+
     vol_delta = snapshot.get("_raw_vol_delta_pct", vol.get("delta", 0))
     if vol_delta > 2.0:
         flags.append(
@@ -83,11 +135,6 @@ def generate_whatif_flags(snapshot: dict) -> list[dict]:
             }
         )
 
-    total_violations = (
-        compliance.get("risk_violation_count", 0)
-        + compliance.get("factor_violation_count", 0)
-        + compliance.get("proxy_violation_count", 0)
-    )
     is_marginal = snapshot.get("is_marginal", False)
     if is_marginal and total_violations == 0:
         flags.append(
