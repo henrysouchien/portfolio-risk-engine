@@ -82,6 +82,7 @@ def generate_position_flags(
     by_sector: dict[str, dict[str, Any]] | None = None,
     monitor_positions: list[dict] | None = None,
     security_types: dict[str, str] | None = None,
+    provider_freshness: dict[str, Any] | None = None,
 ) -> list[dict]:
     """Generate actionable flags from position data."""
     flags: list[dict] = []
@@ -397,9 +398,31 @@ def generate_position_flags(
                 }
             )
 
-    # Stale data: age > 2x TTL for each provider.
+    # Stale data: explicit sync status degradation plus age > 2x TTL.
+    freshness_stale_providers: set[str] = set()
+    for provider, freshness in (provider_freshness or {}).items():
+        if not isinstance(freshness, dict):
+            continue
+        status = str(freshness.get("status") or "").strip().lower()
+        if status not in {"degraded", "offline"}:
+            continue
+        freshness_stale_providers.add(str(provider))
+        flag = {
+            "type": "stale_data",
+            "severity": "warning",
+            "message": f"{provider} sync status is {status}",
+            "provider": provider,
+            "status": status,
+            "as_of": freshness.get("as_of"),
+        }
+        if freshness.get("last_error"):
+            flag["last_error"] = freshness.get("last_error")
+        flags.append(flag)
+
     for provider, info in (cache_info or {}).items():
         if not isinstance(info, dict):
+            continue
+        if str(provider) in freshness_stale_providers:
             continue
         age = info.get("age_hours")
         ttl = info.get("ttl_hours", 24)

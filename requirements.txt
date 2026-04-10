@@ -20,6 +20,7 @@ psycopg2-binary>=2.9.5
 # Caching & Performance
 cachetools>=7.0.0
 redis>=7.3.0
+celery>=5.3.0,<6.0
 
 # Data Fetching & HTTP
 requests>=2.32.0

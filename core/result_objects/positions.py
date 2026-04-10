@@ -45,6 +45,7 @@ class PositionResult:
     by_type: Dict[str, int] = field(default_factory=dict)
     by_source: Dict[str, int] = field(default_factory=dict)
     provider_errors: Dict[str, str] = field(default_factory=dict)
+    _provider_freshness: Dict[str, Any] = field(default_factory=dict, repr=False)
 
     def __post_init__(self) -> None:
         """Compute summary statistics from wrapped data."""
@@ -52,6 +53,7 @@ class PositionResult:
             raise ValueError("PositionResult requires data")
         self.provider_errors = dict(self.provider_errors or {})
         self._provider_errors = self.provider_errors
+        self._provider_freshness = dict(self._provider_freshness or {})
         positions = self.data.positions
         if positions is None:
             raise ValueError("PositionResult data.positions cannot be None")
@@ -145,6 +147,8 @@ class PositionResult:
                     "sources": self.data.sources,
                 },
             }
+            if getattr(self, "_provider_freshness", None):
+                payload["metadata"]["provider_freshness"] = self._provider_freshness
             return make_json_safe(payload)
 
         payload = {
@@ -178,6 +182,8 @@ class PositionResult:
         }
         if hasattr(self, "_cache_metadata"):
             payload["metadata"]["cache_by_provider"] = self._cache_metadata
+        if getattr(self, "_provider_freshness", None):
+            payload["metadata"]["provider_freshness"] = self._provider_freshness
         return make_json_safe(payload)
 
     def to_portfolio_data(
@@ -647,6 +653,8 @@ class PositionResult:
         }
         if hasattr(self, "_cache_metadata"):
             payload["metadata"]["cache_by_provider"] = self._cache_metadata
+        if getattr(self, "_provider_freshness", None):
+            payload["metadata"]["provider_freshness"] = self._provider_freshness
 
         return payload
 

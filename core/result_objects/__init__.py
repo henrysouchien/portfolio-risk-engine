@@ -15,6 +15,7 @@ from ._helpers import (
     _abbreviate_labels,
     _DEFAULT_INDUSTRY_ABBR_MAP,
 )
+from .provider_freshness import ProviderFreshness
 from .positions import PositionResult
 from .risk import RiskAnalysisResult, RiskScoreResult
 from .performance import PerformanceResult
@@ -49,6 +50,7 @@ from .factor_intelligence import (
 
 __all__ = [
     "PositionResult",
+    "ProviderFreshness",
     "RiskAnalysisResult",
     "RiskScoreResult",
     "PerformanceResult",
