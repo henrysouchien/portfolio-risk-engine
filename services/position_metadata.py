@@ -6,8 +6,9 @@ Provides reference data helpers for position labeling in display functions.
 Focuses on cash position detection and simple formatting utilities.
 """
 
-from typing import Dict, Optional, Set, Any
-from portfolio_risk_engine.portfolio_config import get_cash_positions, is_cash_ticker
+from typing import Any, Dict, Optional, Set
+
+from core.cash_helpers import is_cash_ticker
 
 
 # Note: The user-specific metadata function is kept for potential future use
@@ -42,7 +43,7 @@ def get_position_metadata(user_id: Optional[int] = None, portfolio_name: Optiona
 
 def enrich_with_cash_fallbacks(metadata: Dict[str, Dict[str, str]], tickers: Set[str]) -> Dict[str, Dict[str, str]]:
     """
-    Add cash position metadata for tickers not in database using get_cash_positions().
+    Add cash position metadata for tickers not in database.
     
     Args:
         metadata: Existing metadata from database
@@ -51,31 +52,14 @@ def enrich_with_cash_fallbacks(metadata: Dict[str, Dict[str, str]], tickers: Set
     Returns:
         Enhanced metadata dictionary
     """
-    cash_positions = get_cash_positions()
-    
     for ticker in tickers:
         if ticker not in metadata:
-            if is_cash_position(ticker, cash_positions):
+            if is_cash_ticker(ticker):
                 metadata[ticker] = {"type": "cash", "source": "calculated"}
             else:
                 metadata[ticker] = {"type": "equity", "source": "unknown"}
     
     return metadata
-
-
-def is_cash_position(ticker: str, cash_positions: Set[str]) -> bool:
-    """
-    Simple helper to check if a ticker is a cash position.
-    
-    Args:
-        ticker: Stock ticker symbol
-        cash_positions: Set of known cash proxy tickers
-        
-    Returns:
-        True if ticker is a cash position
-    """
-    del cash_positions
-    return is_cash_ticker(ticker)
 
 
 # Simplified formatting helpers for future use if needed

@@ -51,6 +51,7 @@ import hashlib
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from core.cash_helpers import is_cur_ticker
 from core.coverage_tracking import (
     FactorCoverage,
     ModelingStatus,
@@ -122,7 +123,7 @@ def _is_cash_coverage_ticker(
     if str(_identity_value(identity, "instrument_category", "")).lower() == "cash":
         return True
 
-    from portfolio_risk_engine.portfolio_config import is_cash_ticker
+    from core.cash_helpers import is_cash_ticker
 
     return is_cash_ticker(ticker)
 
@@ -853,7 +854,7 @@ def _fetch_ticker_returns(
     contract_identities: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Fetch a single ticker return series and optional FX attribution details."""
-    if isinstance(ticker, str) and ticker.startswith("CUR:"):
+    if is_cur_ticker(ticker):
         idx = pd.date_range(start_date, end_date, freq="ME")
         currency = ticker.split(":", 1)[1].upper()
         if currency == "USD":
