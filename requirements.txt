@@ -41,7 +41,7 @@ certifi>=2026.0.0  # SSL fix for IBKR Flex (ibkr/flex.py), also used by provider
 # AI & Language Models
 anthropic>=0.84.0
 openai>=2.26.0
-fastmcp>=3.1.0  # MCP server for Claude Code integration (mcp_server.py, fmp/server.py, ibkr/server.py)
+fastmcp==3.2.3  # MCP server for Claude Code integration (mcp_server.py, fmp/server.py, ibkr/server.py)
 
 # Date Utilities
 python-dateutil>=2.8.0  # relativedelta used in mcp_tools/tax_harvest.py
