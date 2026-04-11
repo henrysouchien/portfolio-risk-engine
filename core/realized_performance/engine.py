@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 
 from app_platform.logging.workflow_timing import WorkflowTimer
+from core.cash_helpers import is_cur_ticker
 from portfolio_risk_engine.performance_metrics_engine import compute_performance_metrics
 from portfolio_risk_engine.data_loader import fetch_monthly_close, fetch_monthly_treasury_rates
 from portfolio_risk_engine.factor_utils import calc_monthly_returns
@@ -2212,7 +2213,7 @@ def _analyze_realized_performance_single_scope(
 
                     ticker = str(row.get("ticker") or "").strip().upper()
                     kind = str(row.get("type") or "").strip().lower()
-                    if ticker.startswith("CUR:") or kind in {"cash", "currency", "fx", "forex"}:
+                    if is_cur_ticker(ticker) or kind in {"cash", "currency", "fx", "forex"}:
                         if use_aliases:
                             # Deduplicate by (alias_group, ticker) to prevent
                             # double-counting from unconsolidated multi-provider rows.

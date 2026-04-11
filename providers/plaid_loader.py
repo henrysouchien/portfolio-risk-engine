@@ -43,6 +43,7 @@ AWS_REGION = AWS_DEFAULT_REGION
 # --- Normalize Holdings Information to Process to YAML ---------------------------------
 
 import pandas as pd
+from core.cash_helpers import is_cur_ticker
 
 # Import SecurityTypeService for enhanced security classification
 try:
@@ -110,7 +111,7 @@ def normalize_plaid_holdings(holdings: list, securities: list) -> pd.DataFrame:
         position_type = s.get("type")
 
         ticker_alias = None
-        if ticker_symbol and position_type != "cash" and not ticker_symbol.startswith("CUR:"):
+        if ticker_symbol and position_type != "cash" and not is_cur_ticker(ticker_symbol):
             ticker_alias = resolve_ticker_from_exchange(
                 ticker=ticker_symbol,
                 company_name=s.get("name"),

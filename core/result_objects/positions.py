@@ -8,6 +8,7 @@ from datetime import datetime, UTC
 import json
 import numpy as np
 from dataclasses import dataclass, field
+from core.cash_helpers import is_cash_ticker, is_cur_ticker
 from utils.serialization import make_json_safe
 from portfolio_risk_engine.data_objects import PositionsData
 from ._helpers import _convert_to_json_serializable, _clean_nan_values
@@ -579,7 +580,7 @@ class PositionResult:
             ticker = position.get("ticker")
             currency = position.get("original_currency") or position.get("currency")
             ticker_currency = None
-            if isinstance(ticker, str) and ticker.startswith("CUR:"):
+            if is_cur_ticker(ticker):
                 ticker_currency = ticker.split(":", 1)[1]
             normalized_currency = currency or ticker_currency or "UNKNOWN"
             display_currency = ticker_currency or normalized_currency
@@ -692,7 +693,7 @@ class PositionResult:
             position
             for position in (self.data.positions or [])
             if position.get("type") != "cash"
-            and not str(position.get("ticker", "")).startswith("CUR:")
+            and not is_cash_ticker(str(position.get("ticker", "")))
         ]
         sorted_positions = sorted(
             non_cash,
@@ -737,7 +738,7 @@ class PositionResult:
             except (TypeError, ValueError):
                 continue
 
-            is_cash = position_type == "cash" or ticker.startswith("CUR:")
+            is_cash = position_type == "cash" or is_cash_ticker(ticker)
             if is_cash:
                 if value >= 0:
                     cash_balance += value

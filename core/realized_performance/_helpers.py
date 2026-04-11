@@ -12,6 +12,7 @@ from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union
 import numpy as np
 import pandas as pd
 
+from core.cash_helpers import is_cur_ticker
 from portfolio_risk_engine.performance_metrics_engine import compute_performance_metrics
 from portfolio_risk_engine.data_loader import fetch_monthly_close, fetch_monthly_treasury_rates
 from portfolio_risk_engine.factor_utils import calc_monthly_returns
@@ -115,7 +116,7 @@ def _is_pseudo_symbol(symbol: str) -> bool:
         return True
     if s.startswith("UNKNOWN"):
         return True
-    if s.startswith("CUR:"):
+    if is_cur_ticker(s):
         return True
     if s.endswith("IBKR MANAGED SECURITIES"):
         return True

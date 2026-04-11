@@ -12,6 +12,7 @@ from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union
 import numpy as np
 import pandas as pd
 
+from core.cash_helpers import is_cash_position
 from portfolio_risk_engine.performance_metrics_engine import compute_performance_metrics
 from portfolio_risk_engine.data_loader import fetch_monthly_close, fetch_monthly_treasury_rates
 from portfolio_risk_engine.factor_utils import calc_monthly_returns
@@ -92,7 +93,7 @@ def _build_current_positions(
         ticker = ticker.rstrip(".")
         if not ticker:
             continue
-        if pos.get("type") == "cash" or ticker.startswith("CUR:"):
+        if is_cash_position(pos):
             continue
 
         quantity = _helpers._as_float(pos.get("quantity"), 0.0)
@@ -329,7 +330,7 @@ def _build_source_scoped_holdings(
         ticker = pos.get("ticker")
         if not ticker or not isinstance(ticker, str):
             continue
-        if pos.get("type") == "cash" or ticker.startswith("CUR:"):
+        if is_cash_position(pos):
             continue
 
         quantity = _helpers._as_float(pos.get("quantity"), 0.0)

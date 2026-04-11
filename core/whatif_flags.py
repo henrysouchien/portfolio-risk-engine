@@ -61,8 +61,8 @@ def generate_whatif_flags(snapshot: dict) -> list[dict]:
                 "type": "inherited_violations",
                 "severity": "info",
                 "message": (
-                    f"All {total_violations} violation(s) are inherited from the base portfolio "
-                    f"({base_count} base violations)"
+                    f"All {total_violations} violation(s) are pre-existing "
+                    f"({base_count} in the portfolio before this scenario)"
                 ),
             }
         )
@@ -73,7 +73,7 @@ def generate_whatif_flags(snapshot: dict) -> list[dict]:
                 "severity": "warning",
                 "message": (
                     f"Scenario introduces {new_violation_count} new violation(s) "
-                    "not present in the base portfolio"
+                    "not previously present"
                 ),
                 "new_violation_count": new_violation_count,
             }
@@ -85,7 +85,7 @@ def generate_whatif_flags(snapshot: dict) -> list[dict]:
             {
                 "type": "resolved_violations",
                 "severity": "success",
-                "message": f"Scenario resolves {resolved_count} violation(s) present in the base portfolio",
+                "message": f"Scenario resolves {resolved_count} pre-existing violation(s)",
                 "resolved_violation_count": resolved_count,
             }
         )

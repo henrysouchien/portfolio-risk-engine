@@ -6,6 +6,7 @@ from datetime import date, datetime
 import math
 from typing import Any
 
+from core.cash_helpers import is_cash_ticker
 from portfolio_risk_engine.constants import DIVERSIFIED_SECURITY_TYPES
 from providers.routing_config import resolve_account_aliases
 
@@ -100,7 +101,7 @@ def generate_position_flags(
         position
         for position in all_positions
         if position.get("type") != "cash"
-        and not str(position.get("ticker", "")).startswith("CUR:")
+        and not is_cash_ticker(str(position.get("ticker", "")))
     ]
     single_issuer = [position for position in non_cash if not _is_diversified(position, security_types)]
     diversified = [position for position in non_cash if _is_diversified(position, security_types)]
@@ -157,7 +158,7 @@ def generate_position_flags(
         ticker = str(position.get("ticker", ""))
         position_type = str(position.get("type", ""))
         value = _to_float(position.get("value", 0))
-        is_cash = position_type == "cash" or ticker.startswith("CUR:")
+        is_cash = position_type == "cash" or is_cash_ticker(ticker)
         if is_cash and value > 0:
             continue
         net_exposure += value
@@ -357,7 +358,7 @@ def generate_position_flags(
     for position in all_positions:
         ptype = str(position.get("type", ""))
         ticker = str(position.get("ticker", ""))
-        if ptype == "cash" or ticker.startswith("CUR:"):
+        if ptype == "cash" or is_cash_ticker(ticker):
             brokerage = str(position.get("brokerage_name", ""))
             acct = _canonical_account_key(position.get("account_id", ""))
             dedup_key = (ticker, brokerage, acct)

@@ -120,10 +120,10 @@ def generate_comparison_flags(response: dict) -> list[dict]:
             if best_new_violations == 0:
                 message = (
                     f"First-ranked scenario '{best_entry['name']}' inherits "
-                    f"{best_total_violations} violation(s) from the base portfolio"
+                    f"{best_total_violations} pre-existing violation(s)"
                     if is_non_directional
                     else f"Top-ranked scenario '{best_entry['name']}' inherits "
-                    f"{best_total_violations} violation(s) from the base portfolio"
+                    f"{best_total_violations} pre-existing violation(s)"
                 )
                 severity = "info"
             else:
@@ -167,7 +167,7 @@ def generate_comparison_flags(response: dict) -> list[dict]:
                     "type": "all_have_violations",
                     "severity": "info" if all_inherited else "warning",
                     "message": (
-                        "All scenarios inherit compliance violations from the base portfolio"
+                        "All scenarios inherit pre-existing compliance violations"
                         if all_inherited
                         else "All successful scenarios have compliance violations"
                     ),

@@ -58,6 +58,7 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any, TYPE_CHECKING, Union
 from botocore.exceptions import ClientError, BotoCoreError
 
+from core.cash_helpers import is_cur_ticker
 # Logging (import first to use in SDK imports)
 from utils.logging import log_error, log_portfolio_operation, portfolio_logger
 
@@ -979,7 +980,7 @@ def fetch_snaptrade_holdings(user_email: str, client: SnapTrade) -> List[Dict]:
                     currency_code = inner_symbol.get('currency', {}).get('code', 'USD') if inner_symbol.get('currency') else "USD"
 
                     ticker_alias = None
-                    if ticker and ticker != "UNKNOWN" and our_security_type != "cash" and not ticker.startswith("CUR:"):
+                    if ticker and ticker != "UNKNOWN" and our_security_type != "cash" and not is_cur_ticker(ticker):
                         ticker_alias = resolve_ticker_from_exchange(
                             ticker=ticker,
                             company_name=inner_symbol.get('description', 'Unknown Security'),
@@ -1141,7 +1142,7 @@ def consolidate_snaptrade_holdings(holdings_df: pd.DataFrame) -> pd.DataFrame:
 
     try:
         # Separate cash and non-cash positions
-        cash_mask = holdings_df['ticker'].str.startswith('CUR:', na=False)
+        cash_mask = holdings_df["ticker"].map(is_cur_ticker)
         cash_positions = holdings_df[cash_mask].copy()
         non_cash_positions = holdings_df[~cash_mask].copy()
 
