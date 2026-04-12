@@ -241,8 +241,8 @@ NO research tables                         │   are public SEC documents and th
 |---|---|---|
 | UI rendering + state management | risk_module frontend | All React + Zustand code |
 | Authentication + session management | risk_module backend | Existing auth stack |
-| Tier gating (`minimum_tier="paid"`) | risk_module backend | Enforced at `routes/research_content.py` proxy |
-| User_id resolution + injection | risk_module backend | From authenticated session; proxy forwards to ai-excel-addin as trusted value |
+| Tier gating (`minimum_tier="paid"`) | risk_module backend | CRUD: enforced at `routes/research_content.py` proxy. Chat: enforced at existing gateway proxy (`routes/gateway_proxy.py`) via `purpose` field check |
+| User_id resolution + injection | risk_module backend | CRUD: extracted from session at `routes/research_content.py`, forwarded to ai-excel-addin. Chat: extracted at existing gateway proxy, injected via strict-mode context |
 | Non-research app state (portfolios, baskets, users) | risk_module Postgres | Unchanged |
 | Multi-user routing + SSE streaming | gateway (app-platform) | Existing |
 | Research data storage | ai-excel-addin per-user SQLite | NEW per-user files; NO Postgres tables for research in risk_module |
@@ -265,9 +265,11 @@ Phase 1:
 - `PATCH /api/research/content/files/{research_file_id}` — update stage/conviction/direction/strategy/label (user-driven only; agent never calls this)
 - `DELETE /api/research/content/files/{research_file_id}`
 - `GET /api/research/content/threads?research_file_id=...` — list threads for a file
-- `POST /api/research/content/threads` — create thread `{research_file_id, name, is_explore?, is_panel?}` (idempotent when `is_explore=true` or `is_panel=true`)
-- `GET /api/research/content/messages?thread_id=...&limit=...` — message history (thread ownership verified via repository join)
-- `POST /chat` — existing gateway chat endpoint, now accepts `purpose='research_workspace'` context with `user_id` (proxy-injected), `research_file_id`, `thread_id`, `tab_context`
+- `POST /api/research/content/threads` — create thread `{research_file_id, name, is_explore?, is_panel?, seed_message_ids?}` (idempotent when `is_explore=true` or `is_panel=true`; `seed_message_ids` copies messages from explore into the new thread — file-scope validated via join)
+- `PATCH /api/research/content/threads/{thread_id}?research_file_id=...` — update `finding_summary` (file-scope ownership check)
+- `GET /api/research/content/messages?thread_id=...&research_file_id=...&limit=...` — message history (thread ownership verified via `thread_belongs_to_file` guard)
+
+**Separate auth boundary for chat:** `POST /chat` is the **existing gateway chat endpoint** (routed through `routes/gateway_proxy.py`, NOT through `routes/research_content.py`). For research turns, the frontend sends `purpose='research_workspace'` + `research_file_id` + `thread_id` + `tab_context` in the context payload. The existing gateway proxy already handles auth + `user_id` injection for chat. Tier gating for research chat is enforced at the gateway level via the `purpose` field — if `purpose='research_workspace'` and user is not paid tier, the gateway rejects the turn. The research content proxy (`routes/research_content.py`) handles ONLY the CRUD endpoints above.
 
 Phase 2:
 - `GET /api/research/content/documents?filing_id=...` — load filing, return `{section_map, available_sections}`
@@ -280,7 +282,7 @@ Phase 4:
 - `GET /api/research/content/handoffs/{handoff_id}` — fetch handoff artifact for review
 - `POST /api/research/content/handoffs/{handoff_id}/build-model` — orchestrates `model_build()` + `annotate_model_with_research()`, returns `{model_path, handoff_id, build_status}`
 
-**All POST/GET/PATCH/DELETE routes go through `routes/research_content.py` proxy**, which enforces `minimum_tier="paid"`, extracts `user_id` from the authenticated session, and forwards to ai-excel-addin via the gateway. **No direct-MCP-from-frontend path** for any of these endpoints.
+**CRUD routes go through `routes/research_content.py` proxy**, which enforces `minimum_tier="paid"`, extracts `user_id` from the authenticated session, and forwards to ai-excel-addin via the gateway. **Chat route (`POST /chat`) goes through the existing `routes/gateway_proxy.py`** with research context in the payload. **No direct-MCP-from-frontend path** for any of these endpoints.
 
 ---
 
@@ -293,7 +295,7 @@ User opens #research
   → Frontend: useResearchFiles() hook fires
   → Frontend → GET /api/research/content/files
   → Risk_module proxy: verify paid tier, extract user_id from session
-  → Proxy → gateway → ai-excel-addin: GET /api/research/content/files (with user_id header/context injected by gateway)
+  → Proxy → gateway → ai-excel-addin: GET /api/research/files (proxy strips /content prefix; with user_id header/context injected by gateway)
   → Ai-excel-addin: ResearchRepository.list_files(user_id)
       → opens data/users/{user_id}/research.db
       → SELECT * FROM research_files ORDER BY updated_at DESC
@@ -314,7 +316,7 @@ User clicks "Start research" or deep-links #research/VALE (or #research/VALE:lon
        B. POST /api/research/content/threads {research_file_id: 42, is_explore: true}  ┐ parallel
        C. POST /api/research/content/threads {research_file_id: 42, is_panel: true}    ┘
        D. GET /api/research/content/threads?research_file_id=42
-       E. For each thread: GET /api/research/content/messages?thread_id=...&limit=50
+       E. For each thread: GET /api/research/content/messages?thread_id=...&research_file_id=42&limit=50
        F. researchStore.hydrate({ file, exploreThreadId, panelThreadId, threads, messagesByThread })
   → UI renders two-pane workspace with Explore tab active
 ```
@@ -354,7 +356,7 @@ User types message → hits enter
           other tools (per-user isolation via Invariant 1 eliminates the contamination concern)
         - See Section 6 and Section 8 for policy layer details
      10. build_system_prompt_blocks(context):
-        - Base blocks (minus memory guidance for research turns)
+        - Base blocks (includes memory guidance — agent has full memory access per Invariant 2)
         - Call build_research_context(user_id, research_file_id, thread_id, tab_context)
           which queries ResearchRepository:
           * get_file(research_file_id) → ticker, label, stage, direction, strategy, conviction
@@ -364,7 +366,8 @@ User types message → hits enter
           * get_latest_handoff(research_file_id, status='draft') → draft diligence state (Phase 3+)
         - Format into prompt block: "You are working on research file VALE — long-thesis
           (stage: exploring, direction: long, strategy: value). Active thread: Ownership..."
-     11. Agent generates response using tool catalog with memory_* excluded
+     11. Agent generates response using FULL tool catalog (memory_*, run_agent, all tools —
+         per-user isolation eliminates contamination concern; see Invariant 2)
      12. Streams response via SSE
   
   → Frontend:
@@ -435,7 +438,7 @@ User clicks "Build Model"
   → Ai-excel-addin BuildModelOrchestrator:
      Step 1: model_build(
        ticker="VALE", company_name="Vale S.A.", fiscal_year_end="12-31",
-       most_recent_fy=2025, output_path="data/users/{user_id}/exports/VALE_long-thesis_v1.xlsx",
+       most_recent_fy=2025, output_path="data/users/{user_id}/exports/model_{research_file_id}_v{N}.xlsx",
        source="fmp", financials=handoff.financials.data, sector=handoff.company.sector
      )
      → Model engine builds populated SIA-template workbook
@@ -488,10 +491,12 @@ Agent runtime receives chat request:
 # STEP 2: Build system prompt blocks
 blocks = research_policy.build_research_prompt_stack(context)
   # This is a DIFFERENT prompt stack than the generic one.
-  # Does NOT include the existing memory guidance block ("use memory_read to...").
-  # Does include research-workspace-specific instructions.
+  # Includes research-workspace-specific instructions + file context block.
+  # Includes general memory guidance (agent has full memory access per Invariant 2;
+  # prompt guidance tells the agent which store to use for which data — research.db
+  # for workspace state, memory tools for general cross-session ticker observations).
 
-repo = ResearchRepositoryFactory.get(user_id)   # opens per-user research.db
+repo = ResearchRepositoryFactory.get(user_id)   # returns per-user ResearchRepository (no persistent connection; connection-per-operation per Invariant 12)
 
 file = repo.get_file(research_file_id)
   # → { id, ticker, label, company_name, stage, direction, strategy, conviction }
@@ -514,7 +519,8 @@ blocks.append(format_research_block(
   file, threads, active_messages, reader_messages, draft_handoff
 ))
 
-repo.close()   # connection-per-request
+# No repo.close() needed — ResearchRepository uses connection-per-operation
+# (open → use → close inside each method call). See Invariant 12.
 
 # The prompt block looks like:
 #   "You are working on research file VALE — long-thesis (Vale S.A.).
@@ -523,10 +529,13 @@ repo.close()   # connection-per-request
 #    Other threads for this file: Valuation (empty), Catalysts (3 messages).
 #    Reader tab context: Catalysts thread, last 10 messages: ...
 #    Draft diligence state: Business Overview (draft), Thesis (empty), Catalysts (draft), ..."
-#    Note: This prompt does NOT instruct the agent to use memory_read or memory_recall.
-#    Those tools are not even in the catalog for this turn.
+#    The agent has full access to memory_read, memory_recall, run_agent, and all
+#    other tools — per-user physical isolation (Invariant 1) eliminates cross-user
+#    contamination. Prompt guidance (not code enforcement) tells the agent which
+#    store to use for which data (research.db for workspace state, memory tools
+#    for general ticker observations).
 
-# STEP 3: Runtime calls LLM with filtered tool catalog + research prompt stack
+# STEP 3: Runtime calls LLM with FULL tool catalog (unchanged) + research prompt stack
 # STEP 4: Streams response back via SSE
 # STEP 5: Server-side persistence hook saves agent message to research.db after stream completes
 ```
@@ -547,9 +556,9 @@ These are the architecture rules that must hold across all code. Each invariant 
 
 2. **Research workspace code DOES touch memory tools** — [DELIBERATE]. Under the per-user-everything model, the research agent has full access to `memory_*` tools and `run_agent`. There's no contamination risk because `memory_store` / `memory_recall` / `memory_read` read and write to the user's OWN `analyst_memory.db` under `data/users/{user_id}/`, not a shared file. The research agent benefits from accumulated ticker knowledge across sessions exactly the way the general analyst agent does. The two stores (research workspace and general memory) coexist in the same per-user directory, and the agent is trusted to write workspace-specific state to `research.db` and general ticker observations to `analyst_memory.db` based on context. Prompt guidance (not code enforcement) tells the agent which store is appropriate for which data.
 
-3. **User_id is always proxy-injected** — [ENFORCED at proxy, TRUSTED downstream]. Comes from the authenticated risk_module session at `routes/research_content.py`. NEVER trusted from client input. Gateway strict mode validates per-turn. Ai-excel-addin does NOT re-validate. **Scope of trust:** applies to proxy-routed requests only. If ai-excel-addin later exposes research endpoints to non-proxied channels (direct desktop app calls, MCP-tool invocation of research APIs from the agent itself), this invariant must be re-examined for those surfaces.
+3. **User_id is always proxy-injected** — [ENFORCED at proxy layer, TRUSTED downstream]. **Two proxy paths:** (a) CRUD requests go through `routes/research_content.py` which extracts user_id from the authenticated session and forwards. (b) Chat requests (`POST /chat`) go through `routes/gateway_proxy.py` which extracts user_id from the authenticated session and injects via gateway strict mode. In both cases, user_id is NEVER trusted from client input. Ai-excel-addin does NOT re-validate. **Scope of trust:** applies to proxy-routed requests only.
 
-4. **Tier gating lives at the proxy boundary** — [ENFORCED at `routes/research_content.py`]. `create_tier_dependency(minimum_tier="paid")` is the single enforcement point. Ai-excel-addin does not duplicate the check.
+4. **Tier gating lives at the proxy boundary** — [ENFORCED at proxy layer]. **Two enforcement points:** (a) CRUD: `create_tier_dependency(minimum_tier="paid")` at `routes/research_content.py`. (b) Chat: gateway proxy checks tier when `purpose='research_workspace'` is in the context payload. Ai-excel-addin does not duplicate the check in either case.
 
 5. **User messages are persisted before the turn runs; agent messages are persisted on stream completion** — [ENFORCED by runtime hook]. **Honest failure semantics:**
    - User message save fails → reject turn before stream starts (no drift)
@@ -655,7 +664,9 @@ What each phase delivers, anchored to this architecture:
 
 - **Phase 4** — `research_handoffs` table + lifecycle, handoff artifact assembly, "Finalize Report" flow, `annotate_model_with_research()` MCP tool, SIA driver-name → cell-address mapping, workbook recalc safeguards. **This closes the pipeline.**
 
-- **Phase 5** — Deferred (scope doc only): multi-ticker themes, `valuation_signals`/`capital_structure_detail` langextract schemas, bidirectional analyst-memory sync, web search integration, PDF/markdown report export, per-user markdown sync for `tickers/*.md`.
+- **Phase 5** — Deferred (scope doc only): multi-ticker themes, `valuation_signals`/`capital_structure_detail` langextract schemas, bidirectional analyst-memory sync, web search integration, PDF/markdown report export.
+
+**Note:** Per-user markdown sync for `tickers/*.md` is a **Phase 1 Step 0** deliverable (part of the memory per-user migration), NOT deferred to Phase 5. After Phase 1 Step 0, ALL ai-excel-addin state — including existing `analyst_memory.db` and `workspace/tickers/*.md` — lives under `data/users/{user_id}/` with per-user physical isolation.
 
 ---
 
@@ -664,7 +675,7 @@ What each phase delivers, anchored to this architecture:
 Being explicit about non-goals prevents scope creep.
 
 - **Not a multi-host scalable service.** Per-user SQLite on local disk is a transitional design for single-host deploy (Phase 6A). Horizontal scaling requires Postgres consolidation; that's a post-Phase-4 migration, not a Phase 1-4 concern.
-- **Not a replacement for the existing analyst memory.** The single-user `AnalystMemoryStore` + markdown sync is for henrychien's personal workflow. The research workspace is a separate parallel multi-user domain. Eventual convergence is deferred.
+- **Not a replacement for the existing analyst memory.** After Phase 1 Step 0, `AnalystMemoryStore` + markdown sync are migrated to per-user paths (`data/users/{user_id}/`) alongside `research.db`. Both stores coexist in the same per-user directory. The research workspace is a separate domain from general ticker memory; both are now per-user by physical isolation. Eventual convergence (bidirectional sync) is deferred to Phase 5.
 - **Not a document editor.** Filings and transcripts render as read-only. Annotations are overlays, not edits to source documents.
 - **Not a collaborative multi-analyst workspace.** Single analyst per research file. No real-time co-editing, no concurrent writes from multiple sessions. If needed later, handled by Postgres migration + operational transforms.
 - **Not a chat history replacement.** Research threads + messages are scoped to a ticker + research file. Not a general chat history for the agent.

@@ -91,7 +91,7 @@ Three parallel Explore agents surfaced the following. Full transcripts in task l
 3. **Physical isolation is stronger than row-level scoping.** Per-user files eliminate an entire class of leak bugs (missing `WHERE user_key=?` filters).
 4. **Concurrency.** Codex flagged that `analyst_memory.db` uses a process-wide lock serializing all writes. Per-user files give each user their own lock.
 5. **Testability.** Temp dir per test = throwaway DB. Hermetic migrations. Trivial cleanup.
-6. **The research domain is self-contained.** It doesn't join with any other risk_module Postgres tables (portfolios, baskets) beyond tier gating, which the gateway proxy enforces.
+6. **The research domain is self-contained.** It doesn't join with any other risk_module Postgres tables (portfolios, baskets) beyond tier gating, which is enforced at the proxy boundary (CRUD: `routes/research_content.py`; Chat: existing gateway proxy via `purpose` field).
 
 ### File Structure
 
@@ -133,7 +133,7 @@ AI-excel-addin/
 
 **Context key choice — `purpose='research_workspace'` (not `research`):** the existing runtime already uses `context.mode == "research"` for a different product concept (a general research mode within the addin). Reusing `research` as the key would inherit the wrong prompt behavior. The workspace uses `purpose='research_workspace'` to distinguish.
 
-**What about the existing EAV workflow?** After Phase 1 Step 0 migration, the existing analyst memory workflow (including the 9 screener connectors, markdown sync, memory tools in general chat) all continue to work — they just resolve paths per-user instead of from the shared location. For the only existing user (henrychien), this is a one-time file move + code path update; functionally nothing changes from henrychien's perspective.
+**What about the existing EAV workflow?** After Phase 1 Step 0 migration, the existing analyst memory workflow (including the 9 screener connectors, markdown sync, memory tools in general chat) all continue to work — they just resolve paths per-user instead of from the shared location. For the only existing user (henrychien), the migration is a copy-first cutover (copy → verify → switch code → archive old), not a destructive file move. See Phase 1 Plan v5 Step 0 for the 7-step cutover plan with rollback story. `MemoryStoreFactory.get()` requires explicit `user_id` — missing user_id raises `ValueError`, no default-user fallback. Functionally nothing changes from henrychien's perspective after migration.
 
 ### Schema Sketch (research.db)
 
@@ -174,9 +174,9 @@ CREATE UNIQUE INDEX idx_threads_panel
 CREATE TABLE research_messages (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   thread_id INTEGER NOT NULL REFERENCES research_threads(id) ON DELETE CASCADE,
-  author TEXT NOT NULL,                          -- user|agent
+  author TEXT NOT NULL,                          -- user|agent|system
   content TEXT NOT NULL,
-  content_type TEXT NOT NULL DEFAULT 'message',  -- message|note|tool_call|artifact
+  content_type TEXT NOT NULL DEFAULT 'message',  -- message|note|tool_call|artifact|pending_error
   tab_context INTEGER,                           -- thread_id of active reader tab (numeric)
   metadata TEXT,                                 -- JSON: tool_calls, artifacts, diligence_ref, proposed_stage, etc.
   created_at REAL NOT NULL
@@ -222,7 +222,7 @@ CREATE INDEX idx_handoffs_file ON research_handoffs(research_file_id, version DE
 
 New abstraction layer in `AI-excel-addin/api/research/repository.py` (new module):
 
-- Factory: `ResearchRepositoryFactory(base_dir: Path)` — resolves `user_id → Path → sqlite3.Connection`
+- Factory: `ResearchRepositoryFactory(base_dir: Path)` — resolves `user_id → Path → ResearchRepository` (no persistent connection; each repository method opens its own connection-per-operation)
 - **Connection-per-request default** (per Codex): open → use → close. No long-lived cache.
 - Applied on every open: `busy_timeout`, `foreign_keys`, WAL mode (persistent). Don't assume one-time PRAGMA setup is enough.
 - Lazy schema migrations on DB open — run `_maybe_migrate()` idempotently. **Must be tested thoroughly** because production state = many DBs at possibly different schema versions.

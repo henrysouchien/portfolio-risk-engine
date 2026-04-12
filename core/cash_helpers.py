@@ -43,6 +43,7 @@ _DEFAULT_CASH_MAP = {
 _cash_map_cache: dict[str, Any] | None = None
 _proxy_by_currency_cache: dict[str, str] | None = None
 _proxy_tickers_cache: set[str] | None = None
+_proxy_ticker_to_currency_cache: dict[str, str] | None = None
 _alias_to_currency_cache: dict[str, str] | None = None
 
 
@@ -89,6 +90,16 @@ def _get_proxy_tickers_cached() -> set[str]:
     if _proxy_tickers_cache is None:
         _proxy_tickers_cache = set(_get_proxy_by_currency_cached().values())
     return _proxy_tickers_cache
+
+
+def _get_proxy_ticker_to_currency_cached() -> dict[str, str]:
+    global _proxy_ticker_to_currency_cache
+    if _proxy_ticker_to_currency_cache is None:
+        _proxy_ticker_to_currency_cache = {
+            proxy: currency
+            for currency, proxy in _get_proxy_by_currency_cached().items()
+        }
+    return _proxy_ticker_to_currency_cache
 
 
 def _get_alias_to_currency_cached() -> dict[str, str]:
@@ -183,14 +194,21 @@ def cash_proxy_for_currency(currency: str) -> str | None:
 
 
 def currency_for_ticker(ticker: str) -> str | None:
-    """Return the ISO currency code for a cash ticker (CUR:USD -> USD),
-    or None if the ticker is not a cash representation. Uses the CUR:*
-    prefix and YAML alias_to_currency map."""
+    """Return the ISO currency code for a cash ticker, or None if not cash.
+
+    Resolves CUR:* prefix (CUR:USD -> USD), proxy ETFs from
+    proxy_by_currency (ERNS.L -> GBP, SGOV -> USD), and broker-format
+    aliases from alias_to_currency (CASH -> USD). YAML-backed.
+    """
     if not isinstance(ticker, str):
         return None
     if is_cur_ticker(ticker):
         currency = ticker.split(":", 1)[1].strip().upper()
         return currency or None
+    # Reverse lookup: proxy ETF -> currency (ERNS.L -> GBP)
+    proxy_currency = _get_proxy_ticker_to_currency_cached().get(ticker)
+    if proxy_currency is not None:
+        return proxy_currency
     return _get_alias_to_currency_cached().get(ticker)
 
 

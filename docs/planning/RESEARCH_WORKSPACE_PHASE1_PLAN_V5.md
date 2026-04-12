@@ -12,7 +12,21 @@
 - Per-user SQLite follow-up: thread `019d7935`
 - Decisions 3/5/6/7 bundle: thread `019d794e`
 - Architecture + decisions coherence review: thread `019d7d6a` (2 rounds, all 4 structural gaps closed)
-- v5 review: pending
+- v5 R1: FAIL — 6 findings (2 critical, 3 high, 1 medium). (1) `/chat` path missing thread→file scope guard on context + persistence, (2) Step 0 migration unsafe (default-user fallback, no cutover plan), (3) thread seeding mechanics missing (only empty threads), (4) frontend input placement drifts from spec (MessageInput in ThreadTab), (5) integration tests miss central cross-repo chat path, (6) CRUD overclaim (frontend only has list/create/open). Plus doc inconsistency in cross-repo summary (tool_catalog/tool_handlers).
+- v5 R2: FAIL — 4 findings (1 critical, 2 high, 1 medium). (1) seed_message_ids not file-scope validated (Invariant 15 violation), (2) MemoryStoreFactory.get() missing user_id guard, (3) doc contradiction: Step 0 says tool_catalog changes for memory routing vs Step 2 says unchanged + arch doc says memory_* excluded, (4) companion docs not updated for new endpoints + migration cutover.
+- v5 R3: FAIL — 2 findings (1 critical, 1 high). (1) Product spec still describes superseded Postgres architecture + 12-section diligence — needs superseded notice, (2) plan still self-contradicts on tool_catalog.py (Step 0 says changes, Step 2 says "No changes", cross-repo says "UNCHANGED").
+- v5 R4: FAIL — 2 findings (1 high, 1 medium). (1) Architecture doc Phase 5 scope still lists per-user markdown sync (is Phase 1 Step 0) + "Not a replacement" section describes single-user model (stale post-migration), (2) Phase 4 build-model flow uses ticker/label filename instead of research_file_id.
+- v5 R5: FAIL — 3 findings (1 high, 2 medium). (1) Spec "Eng Review Findings" block still has stale "Final architecture" (Postgres+sync), (2) Architecture bootstrap Flow 2 missing research_file_id on message fetch, (3) Spec phasing says Phase 1 includes "filter by stage" but plan defers it.
+- v5 R6: FAIL — 3 findings (1 high, 2 medium). (1) Agent persistence failure: plan logs-only vs architecture says emit terminal error chunk, (2) Prompt stack: plan says includes memory guidance vs architecture says excludes it, (3) Schema: decisions doc has user|agent, plan has user|agent|system + pending_error.
+- v5 R7: FAIL — 2 findings (both medium). (1) Architecture Flow 3 still says "minus memory guidance" + plan test asserts no memory refs (contradicts resolved prompt policy), (2) Architecture context flow calls repo.close() but plan uses connection-per-operation with no close() API.
+- v5 R8: FAIL — 2 findings (both medium). (1) Step 3 test summary still says "No memory guidance in output string" (stale), (2) Decisions doc factory still says "resolves user_id → Path → sqlite3.Connection" (stale lifecycle).
+- v5 R9: FAIL — 2 findings (1 medium, 1 low). (1) Workspace guidance test in Step 3 but belongs in Step 2 (responsibility mismatch), (2) test count drift (Step 1: 7→6, Step 2: 2→4).
+- v5 R10: FAIL — 3 findings (2 medium, 1 low). (1) Step 11 detailed tests list 2 but summary says 7, (2) Step 4 detailed tests list 5 but summary says 8, (3) Spec open question #1 already resolved by eng review.
+- v5 R11: FAIL — 3 findings (1 medium, 2 low). (1) Spec resolved Q#1 said "single-input" but plan says both inputs on Explore, (2) Architecture flow shows /content prefix on ai-excel-addin path, (3) Cross-repo summary lists 5 files but Step 1 declares 6 (missing migrations.py).
+- v5 R12: FAIL — 1 finding (medium). Architecture doc lists POST /chat under research API surface and says all routes go through research_content.py proxy, but chat actually uses existing gateway_proxy.py route.
+- v5 R13: FAIL — 1 finding (medium). Architecture ownership table + invariants 3/4 + plan invariant table still say tier/auth is solely at research_content.py, contradicting the dual-path (CRUD proxy + gateway proxy for chat) model.
+- v5 R14: FAIL — 1 finding (medium). Decisions doc still says tier gating enforced by "the gateway proxy" (stale single-path wording).
+- v5 R15: **PASS** — no active findings. All R1-R14 findings resolved. 4-doc set consistent.
 
 **What v5 supersedes in v4:**
 - v4 Step 1 (Postgres migration `research_files`) → **DELETED**. Per Decision 1: research state lives in per-user SQLite at `data/users/{user_id}/research.db`, NOT Postgres.
@@ -29,12 +43,12 @@
 
 ## What Phase 1 Delivers
 
-- **Research file CRUD** — create, list, filter by stage, update metadata, delete. Multi-thesis support via `label` column (first file on a ticker has `label=''`, subsequent files require a label, e.g., "long thesis" vs "pre-earnings").
+- **Research file CRUD** — **Backend:** full CRUD (create, list, filter by stage, update metadata, delete) via REST endpoints. **Frontend:** list view with create + open; metadata patch hook wired (for future stage/conviction UI). Delete and stage-filter UI are backend-ready but frontend surfaces deferred to Phase 2 polish — Phase 1 frontend focuses on the workspace experience, not list management. Multi-thesis support via `label` column (first file on a ticker has `label=''`, subsequent files require a label, e.g., "long thesis" vs "pre-earnings").
 - **Two-pane workspace** — reader (main) + agent panel (280px right), inspired by Cursor IDE. Resizable via `ResizablePanelGroup`.
 - **IDE-style tabs at top of reader** — Explore tab (always open, not closeable) + named thread tabs (created from conversation, closeable).
 - **Explore tab with streaming conversation** — free-form exploration; messages persisted server-side during turn processing.
 - **Agent panel with tab-aware context** — when user sends from panel while reader is on a different tab, panel sees the reader's active thread via `tab_context`.
-- **Thread creation** — "Start thread →" action from a conversation pivot creates a named thread; opens as a new reader tab.
+- **Thread creation with seed messages** — "Start thread →" action from a conversation pivot creates a named thread, copies the selected exchange messages into it (preserving author + content), and opens as a new reader tab. User can also pin a finding summary on any thread via "Pin finding" action.
 - **Thread resumption on return** — bootstrap hydration loads all existing threads + last 50 messages per thread.
 - **Deep links** — `#research/VALE` (default file) and `#research/VALE:long-thesis` (labeled file) with proper hash → state hydration.
 - **Paid-tier gate** — `UpgradeSurface` component when user tier is not `paid`/`business`; deep link preserved for upgrade CTA context.
@@ -73,8 +87,8 @@ This plan realizes the following sections from `RESEARCH_WORKSPACE_ARCHITECTURE.
 |---|---|
 | 1 — Per-user isolation is physical | `ResearchRepository` opens per-user file; no cross-user queries possible |
 | 2 — Research agent has full tool access (memory, sub-agents) | Per-user physical isolation (Step 0 migration) — NO tool denylist needed; per-user directories eliminate contamination |
-| 3 — User_id always proxy-injected | `routes/research_content.py` extracts from session; gateway strict mode validates |
-| 4 — Tier gating at proxy | `create_tier_dependency(minimum_tier="paid")` on proxy routes |
+| 3 — User_id always proxy-injected | CRUD: `routes/research_content.py` extracts from session. Chat: `routes/gateway_proxy.py` extracts + gateway strict mode validates. Both paths: user_id never from client |
+| 4 — Tier gating at proxy | CRUD: `create_tier_dependency(minimum_tier="paid")` on `research_content.py`. Chat: gateway proxy checks tier when `purpose='research_workspace'` |
 | 5 — User message persisted before first SSE yield | Runtime hook in Step 3 commits user message before stream starts |
 | 11 — User sole authority on stage/conviction | PATCH endpoints only invoked from UI; agent writes via message metadata only |
 | 12 — Connection-per-request | `ResearchRepository` open → use → close pattern in Step 1 |
@@ -94,11 +108,18 @@ Invariants 6-10, 13 (filing immutability, char offsets, handoff contract, model_
 - `api/memory/ingest.py` + 9 screener connectors — pass `user_id` through ingest chain
 - Runtime memory injection (`api/agent/shared/system_prompt.py`) — uses per-user store
 
-**One-time data migration:**
-- Move `api/memory/analyst_memory.db` → `data/users/{first_user_id}/analyst_memory.db`
-- Move `api/memory/workspace/tickers/*.md` → `data/users/{first_user_id}/workspace/tickers/*.md`
-- For the sole current user (henrychien), this is a file move + config update. No data transformation.
+**One-time data migration (cutover plan):**
+
+1. **Pre-flight check:** Verify `api/memory/analyst_memory.db` exists and is a valid SQLite DB (open + `PRAGMA integrity_check`). Verify `api/memory/workspace/tickers/` exists and enumerate files. Record file count + DB row counts for verification.
+2. **Copy (not move):** `cp api/memory/analyst_memory.db data/users/{henrychien_user_id}/analyst_memory.db` and `cp -r api/memory/workspace/tickers/ data/users/{henrychien_user_id}/workspace/tickers/`. Copy-first ensures the source is untouched if the migration is interrupted.
+3. **Verify copy:** Open the new DB, run `PRAGMA integrity_check`, verify row counts match pre-flight. Verify markdown file count matches.
+4. **Switch code paths:** Deploy the `MemoryStoreFactory` + per-user path resolution code. All code paths now resolve to the new location.
+5. **Smoke test:** Run a memory read + write cycle against the new path. Confirm existing ticker memories are readable. Confirm markdown sync writes to the new directory.
+6. **Archive old location:** Rename `api/memory/analyst_memory.db` → `api/memory/analyst_memory.db.pre_migration_backup` (do NOT delete). Same for `workspace/tickers/` → `workspace/tickers_pre_migration_backup/`.
+7. **Rollback story:** If any step fails, the old files are untouched (steps 1-3) or archived (step 6). Rollback = revert code deploy + rename backup files back. No data loss path.
+
 - New users get empty stores on first memory write (lazy creation, same pattern as `ResearchRepository._maybe_migrate`).
+- **Migration script:** `scripts/migrate_memory_per_user.py` — implements steps 1-6 as an idempotent CLI command. Can be re-run safely (skips if target already exists and passes integrity check).
 
 ### `MemoryStoreFactory`
 
@@ -110,6 +131,14 @@ class MemoryStoreFactory:
         self._base_dir = base_dir
 
     def get(self, user_id: int) -> AnalystMemoryStore:
+        # [NO DEFAULT FALLBACK] Missing or invalid user_id is a hard
+        # error, not a silent fallback to a default user. This prevents
+        # the cross-user bleed that the per-user model exists to eliminate.
+        if user_id is None or not isinstance(user_id, int) or user_id <= 0:
+            raise ValueError(
+                f"user_id is required for per-user store access "
+                f"(got {user_id!r})"
+            )
         db_path = self._base_dir / "users" / str(user_id) / "analyst_memory.db"
         db_path.parent.mkdir(parents=True, exist_ok=True)
         return AnalystMemoryStore(db_path=str(db_path))
@@ -131,7 +160,9 @@ Connectors: `estimate_revisions`, `insider_buying`, `ownership`, `biotech_cataly
 
 ### Runtime integration
 
-`get_memory_store()` call sites in the runtime (`system_prompt.py`, `tool_catalog.py`, tool handlers) must accept and pass `user_id`. The gateway strict-mode `user_id` (already available in the chat context) is the trusted value.
+`get_memory_store()` call sites in the runtime (`system_prompt.py` and memory tool handlers) must accept and pass `user_id`. The gateway strict-mode `user_id` (already available in the chat context) is the trusted value.
+
+**Clarification on `tool_catalog.py` and `tool_handlers.py`:** These files are changed ONLY for per-user memory store routing (Step 0 concern — `get_memory_store()` now takes `user_id` to resolve the per-user `analyst_memory.db` path). They are NOT changed for any research-workspace-specific behavior — the research policy layer (Step 2) does not modify the tool catalog, strip handlers, or add a denylist. The tool surface for research turns is identical to all other turns. The Step 0 changes to these files are memory infrastructure changes that benefit ALL turn types, not research-specific changes.
 
 ### Tests
 
@@ -139,6 +170,10 @@ Connectors: `estimate_revisions`, `insider_buying`, `ownership`, `biotech_cataly
 - `test_memory_migration_path` — opening a per-user store at a new path creates the DB + runs migrations
 - `test_markdown_sync_per_user` — sync writes to per-user directory, not shared
 - `test_connector_user_routing` — connector writes to authenticated user's store (mock factory, verify path)
+- `test_memory_factory_no_default_fallback` — calling `MemoryStoreFactory.get()` without user_id raises ValueError (no silent fallback)
+- `test_migration_script_integrity` — run migration script against a seeded source DB; verify target DB has matching row counts + passes integrity check
+- `test_migration_script_idempotent` — run migration script twice; second run is a no-op (target already valid)
+- `test_migration_script_rollback` — simulate failure mid-copy; verify source files are untouched
 
 ---
 
@@ -389,8 +424,16 @@ class ResearchRepository:
             )
             return cur.lastrowid
 
-    def create_thread(self, research_file_id: int, name: str) -> dict:
-        """Create a named (non-reserved) thread. For 'Start thread →' action."""
+    def create_thread(self, research_file_id: int, name: str,
+                       seed_message_ids: Optional[list[int]] = None) -> dict:
+        """Create a named (non-reserved) thread. For 'Start thread →' action.
+
+        If seed_message_ids is provided, copies those messages from their
+        source thread into the new thread (preserving author, content,
+        content_type, metadata). This is the "pull an exchange into a new
+        tab" mechanic from the spec. Original messages stay in their source
+        thread (copy, not move).
+        """
         now = time.time()
         with self._conn() as conn:
             cur = conn.execute(
@@ -399,8 +442,44 @@ class ResearchRepository:
                    VALUES (?, ?, ?, ?)""",
                 (research_file_id, name, now, now)
             )
+            new_thread_id = cur.lastrowid
+
+            # Seed the new thread with copies of selected messages.
+            # [INVARIANT 15] All seed messages must belong to threads
+            # in the SAME research_file_id. Without this check, a
+            # malformed request could import messages from another file.
+            if seed_message_ids:
+                placeholders = ",".join("?" for _ in seed_message_ids)
+                # Join through research_threads to verify file ownership
+                source_rows = conn.execute(
+                    f"""SELECT rm.author, rm.content, rm.content_type,
+                               rm.metadata
+                        FROM research_messages rm
+                        JOIN research_threads rt ON rm.thread_id = rt.id
+                        WHERE rm.id IN ({placeholders})
+                          AND rt.research_file_id = ?
+                        ORDER BY rm.id ASC""",
+                    [*seed_message_ids, research_file_id],
+                ).fetchall()
+                # If any requested IDs were filtered out by the file
+                # scope join, that means they belong to a different file.
+                if len(source_rows) != len(seed_message_ids):
+                    raise ValueError(
+                        "seed_message_ids contains messages outside this "
+                        f"research file (file_id={research_file_id})"
+                    )
+                for row in source_rows:
+                    conn.execute(
+                        """INSERT INTO research_messages
+                           (thread_id, author, content, content_type,
+                            metadata, created_at)
+                           VALUES (?, ?, ?, ?, ?, ?)""",
+                        (new_thread_id, row["author"], row["content"],
+                         row["content_type"], row["metadata"], now),
+                    )
+
             row = conn.execute(
-                "SELECT * FROM research_threads WHERE id=?", (cur.lastrowid,)
+                "SELECT * FROM research_threads WHERE id=?", (new_thread_id,)
             ).fetchone()
             return dict(row)
 
@@ -597,11 +676,12 @@ def build_system_prompt_blocks(context):
     # ... existing generic path (unchanged)
 ```
 
-**No changes to `tool_catalog.py` or `tool_handlers.py`** — research turns use the same full tool catalog + local handlers as all other turns. The agent has its complete natural capability surface.
+**No research-specific changes to `tool_catalog.py` or `tool_handlers.py`** — the research policy layer does NOT modify the tool catalog, strip handlers, or add a denylist. Research turns use the same full tool catalog as all other turns. (Note: these files ARE touched in Step 0 for per-user memory routing — `get_memory_store()` now takes `user_id` — but that is a memory infrastructure change benefiting all turn types, not a research-specific change. See Step 0 "Runtime integration" for details.)
 
-### Tests (2 for policy layer)
+### Tests (4 tests)
 
 - `test_policy_prompt_stack.py` — `build_research_prompt_stack` includes the file context block with ticker, stage, direction, thread list, and recent messages; is distinct from the generic prompt stack
+- `test_policy_includes_workspace_guidance.py` — prompt stack includes research-workspace-specific instruction blocks (co-pilot role, store guidance); does NOT include generic non-research prompt blocks
 - `test_policy_predicate.py` — `is_research_workspace` returns True for `purpose='research_workspace'`, False for `purpose='research'` (different product), False for no purpose
 - `test_policy_full_catalog_available.py` — research turns' tool catalog includes memory_* tools and run_agent (no regression — confirm full catalog is preserved)
 
@@ -662,6 +742,15 @@ def build_research_context(
     file = repo.get_file(research_file_id)
     if not file:
         return None
+
+    # [INVARIANT 15] Verify thread_id and tab_context belong to this file.
+    # Without this guard, a malformed turn could inject context from a
+    # different research file, breaking concurrent-thesis isolation.
+    if thread_id and not repo.thread_belongs_to_file(thread_id, research_file_id):
+        return None  # reject — thread does not belong to this file
+    if tab_context and tab_context != thread_id:
+        if not repo.thread_belongs_to_file(tab_context, research_file_id):
+            tab_context = None  # silently drop invalid reader context
 
     threads = repo.list_threads_for_file(research_file_id)
 
@@ -735,6 +824,16 @@ async def handle_chat_request(request, context):
     research_context = None
     if is_research_workspace(context):
         research_context = _prepare_research_context(request, context)
+        # [INVARIANT 15] Verify thread_id belongs to research_file_id before
+        # any persistence. Without this, a malformed request could write
+        # messages into threads belonging to a different research file.
+        if not research_context["repo"].thread_belongs_to_file(
+            context["thread_id"], context["research_file_id"]
+        ):
+            raise ValueError(
+                f"thread {context['thread_id']} does not belong to "
+                f"research file {context['research_file_id']}"
+            )
         # [CRITICAL] Commit user message to disk BEFORE starting the stream
         try:
             research_context["repo"].save_message(
@@ -763,9 +862,14 @@ async def handle_chat_request(request, context):
                 content_type="message",
                 metadata=research_context.get("metadata_json"),
             )
-        except Exception:
-            # Agent message LOST server-side. Client has streamed content in
-            # memory but it's not durable. User reload will show only user
+        except Exception as e:
+            # Agent message LOST server-side. Emit a terminal error chunk
+            # so the client knows persistence failed and can reconcile.
+            logger.error("research agent message persistence failed: %s", e)
+            yield {"type": "error", "content": "research_persistence_failed"}
+            # Client has streamed content in memory but it's not durable.
+            # Frontend onError handler will show error toast + lock input.
+            # User reload will show only user
             # message. Accept per Invariant 5 Phase 1.
             logger.error("research agent message persistence failed")
 
@@ -789,7 +893,9 @@ def _prepare_research_context(request, context):
 - `test_build_research_context_basic` — mock repo returns file + threads + messages; assert output contains ticker, stage, direction, thread names, and recent messages in chronological order
 - `test_build_research_context_missing_file` — mock repo returns None for file; assert result is None (not a crash)
 - `test_build_research_context_panel_tab` — when `tab_context != thread_id`, reader messages are included; when equal, only active messages shown
-- `test_build_research_context_no_memory_guidance` — ensure output string does NOT contain "memory_read" or "memory_recall" (defense vs accidental reinclusion)
+- `test_build_research_context_thread_file_mismatch` — thread_id belongs to file B, research_file_id is file A → returns None (Invariant 15)
+- `test_build_research_context_tab_context_file_mismatch` — tab_context thread belongs to wrong file → tab_context silently dropped, active thread still loaded
+- `test_runtime_thread_file_scope_guard` — runtime hook rejects turn with ValueError when thread_id does not belong to research_file_id (no message saved, no SSE yield)
 - `test_runtime_pre_turn_persistence` — mock repo.save_message raises; assert handler raises before any SSE yield happens (use in-memory async stream collector)
 - `test_runtime_post_turn_persistence` — simulate full successful stream; assert agent message saved with accumulated content
 - `test_runtime_disconnect_loss` — simulate runner cancellation mid-stream; assert user message persisted, agent message NOT persisted
@@ -841,6 +947,11 @@ class CreateThreadBody(BaseModel):
     name: Optional[str] = None
     is_explore: bool = False
     is_panel: bool = False
+    seed_message_ids: Optional[list[int]] = None  # "Start thread →" pulls these messages
+
+
+class PatchThreadBody(BaseModel):
+    finding_summary: Optional[str] = None
 
 
 @router.get("/files")
@@ -902,12 +1013,29 @@ def create_thread(body: CreateThreadBody,
     else:
         if not body.name:
             raise HTTPException(400, "name required for non-reserved thread")
-        thread = repo.create_thread(body.research_file_id, body.name)
+        thread = repo.create_thread(
+            body.research_file_id, body.name,
+            seed_message_ids=body.seed_message_ids,
+        )
         return thread
     # Return full thread row for reserved-thread creates
     threads = repo.list_threads_for_file(body.research_file_id)
     thread = next((t for t in threads if t["id"] == tid), None)
     return thread
+
+
+@router.patch("/threads/{thread_id}")
+def patch_thread(thread_id: int, body: PatchThreadBody,
+                 research_file_id: int = Query(...),
+                 user_id: int = Depends(get_trusted_user_id)):
+    """Update thread finding_summary. Used for 'Pin finding' action."""
+    repo = get_repo_factory().get(user_id)
+    if not repo.thread_belongs_to_file(thread_id, research_file_id):
+        raise HTTPException(404, "thread not found in this file")
+    if body.finding_summary is not None:
+        repo.update_thread_finding(thread_id, body.finding_summary)
+    threads = repo.list_threads_for_file(research_file_id)
+    return next((t for t in threads if t["id"] == thread_id), None)
 
 
 @router.get("/messages")
@@ -932,8 +1060,11 @@ def list_messages(thread_id: int, research_file_id: int, limit: int = 50,
 - `test_routes_files_crud` — upsert returns row with id; patch updates fields; delete removes row; list returns ordered by updated_at
 - `test_routes_label_disambiguation` — POST with same ticker+label=empty twice is idempotent; POST with same ticker + different labels creates two files
 - `test_routes_threads` — get-or-create explore/panel is idempotent; two files on same ticker each get independent explore threads
+- `test_routes_thread_seeding` — POST thread with `seed_message_ids` copies messages into new thread; messages from another file's threads are rejected (Invariant 15)
+- `test_routes_thread_finding_patch` — PATCH `/threads/{id}` with `finding_summary` updates and persists; wrong `research_file_id` returns 404
 - `test_routes_messages_ownership` — asking for thread_id from wrong research_file_id returns 404
 - `test_routes_user_isolation` — user A's files are not visible to user B (integration test with two users)
+- `test_routes_thread_finding_roundtrip` — patch finding → list threads → verify finding_summary in response
 
 ---
 
@@ -1340,13 +1471,18 @@ ResearchWorkspaceContainer (entry point)
         │   │   ├── Tab × N — thread tabs
         │   │   └── NewThreadButton (+)
         │   └── TabContent
-        │       ├── ExploreTab → ConversationFeed + MessageInput
-        │       └── ThreadTab → PinnedFinding + ConversationFeed + MessageInput
+        │       ├── ExploreTab → ConversationFeed + MessageInput (reader input ON for Explore)
+        │       └── ThreadTab → PinnedFinding + ConversationFeed (read-only; NO reader input)
         ├── ResizableHandle
         └── ResizablePanel (defaultSize=25, minSize=15, maxSize=35) — Agent Panel
             ├── AgentPanelHeader — shows "RESEARCH · {stage} · {ticker}{label suffix}"
             ├── ConversationFeed (panel thread messages)
-            └── MessageInput (disabled when any stream active)
+            └── MessageInput (always present; disabled when streaming)
+
+**Input placement rule (matches accepted spec Finding 4 from eng review):**
+- When Explore tab is active: reader has MessageInput (sends to explore thread), agent panel also has MessageInput (sends to panel thread with `tab_context=explore`).
+- When a Thread tab or Document tab is active: reader has NO MessageInput (read-only content surface), agent panel has MessageInput (sends to panel thread with `tab_context=<active_thread_id>`). The panel is the only conversation channel when the reader is showing content.
+- This avoids duplicate send surfaces on thread views and keeps the panel as the universal conversation channel.
 ```
 
 ### Bootstrap flow in ResearchWorkspaceContainer
@@ -1522,6 +1658,11 @@ export function useResearchBootstrap(ticker: string, label: string = '') {
 
 - `test_deep_link_to_workspace` — visiting `#research/VALE` hydrates store and renders workspace
 - `test_exit_ramp_from_stock_lookup` — clicking "Open Research →" sets context and navigates
+- `test_e2e_research_chat_roundtrip` — bootstrap file → send message via `/chat` with `purpose=research_workspace` → verify pre-turn user message persisted → verify agent response streamed → verify post-turn agent message persisted → reload bootstrap → verify both messages hydrated
+- `test_e2e_research_chat_thread_isolation` — two files on same ticker, send message to file A's explore thread → verify file B's explore thread is empty
+- `test_e2e_step0_migration_populated` — seed source `analyst_memory.db` with ticker memories → run migration script → verify memories readable at new per-user path → verify old path no longer used
+- `test_e2e_thread_seeding` — send 3 messages in explore → "Start thread" with seed_message_ids for messages 1+2 → verify new thread has 2 copies → verify explore still has all 3
+- `test_e2e_finding_pin` — create thread → pin a finding summary → reload → verify finding_summary persists
 
 ---
 
@@ -1571,7 +1712,7 @@ Batch 5:
 
 **Phase 1 test requirements (comprehensive):**
 
-**Step 1 — ResearchRepository (7 tests):**
+**Step 1 — ResearchRepository (6 tests):**
 - Schema creation + idempotent migration
 - File upsert + label disambiguation
 - Thread get-or-create for explore/panel
@@ -1579,30 +1720,40 @@ Batch 5:
 - Two-user isolation
 - Two-file-same-ticker isolation
 
-**Step 0 — Memory Per-User Migration (4 tests):**
+**Step 0 — Memory Per-User Migration (8 tests):**
 - MemoryStoreFactory per-user isolation (two users have independent DBs)
 - Migration path creates DB + runs migrations at new per-user location
 - Markdown sync writes to per-user directory
 - Connector user routing (writes to authenticated user's store)
+- No default-user fallback (ValueError without user_id)
+- Migration script integrity (row counts + integrity check match)
+- Migration script idempotent (second run is no-op)
+- Migration script rollback (source untouched on failure)
 
-**Step 2 — Policy Layer (3 tests — prompt routing only):**
+**Step 2 — Policy Layer (4 tests — prompt routing only):**
 - Prompt stack includes research-specific file context block
+- Prompt stack includes workspace-specific instruction blocks (not generic non-research blocks)
 - Predicate correctly identifies research_workspace purpose
 - Full tool catalog (memory_*, run_agent) preserved on research turns — no regression
 
-**Step 3 — Context + Persistence (7 tests):**
+**Step 3 — Context + Persistence (9 tests):**
 - `build_research_context` basic
 - `build_research_context` missing file
 - `build_research_context` panel tab (reader messages included)
-- No memory guidance in output string
+- `build_research_context` thread/file mismatch → returns None (Invariant 15)
+- `build_research_context` tab_context/file mismatch → tab_context dropped
+- Runtime thread/file scope guard → ValueError before persistence
 - Pre-turn persistence failure rejects turn before SSE yield
 - Post-turn persistence captures full stream
 - Disconnect mid-stream loses agent message but preserves user message
 
-**Step 4 — REST endpoints (5 tests):**
+**Step 4 — REST endpoints (8 tests):**
 - Files CRUD
 - Label disambiguation on POST
 - Threads get-or-create idempotent; two files on same ticker get independent threads
+- Thread creation with seed_message_ids copies messages into new thread
+- PATCH thread finding_summary updates and persists
+- PATCH thread with wrong research_file_id returns 404
 - Messages ownership check
 - User isolation
 
@@ -1619,11 +1770,16 @@ Batch 5:
 - Component tier gate + bootstrap (5 tests)
 - React Query hooks (3 tests)
 
-**Step 11 — Integration (2 tests):**
+**Step 11 — Integration (7 tests):**
 - Deep link end-to-end
 - Exit ramp from stock lookup
+- `test_e2e_research_chat_roundtrip` — bootstrap file → send message via `/chat` with `purpose=research_workspace` → verify pre-turn user message persisted → verify agent response streamed → verify post-turn agent message persisted → reload bootstrap → verify both messages hydrated (the system-defining cross-repo path: frontend → proxy → gateway → ai-excel-addin runtime → persistence → reload)
+- `test_e2e_research_chat_thread_isolation` — two files on same ticker, send message to file A's explore thread → verify file B's explore thread is empty (concurrent thesis isolation end-to-end)
+- `test_e2e_step0_migration_populated` — seed source `analyst_memory.db` with ticker memories → run migration script → verify memories readable at new per-user path → verify old path no longer used by any code path
+- `test_e2e_thread_seeding` — send 3 messages in explore → "Start thread" with seed_message_ids for messages 1+2 → verify new thread has 2 copied messages → verify explore thread still has all 3 originals
+- `test_e2e_finding_pin` — create thread → pin a finding summary → reload → verify finding_summary persists and renders in PinnedFinding component
 
-**Total new Phase 1 tests: ~52**
+**Total new Phase 1 tests: ~68**
 
 ---
 
@@ -1653,7 +1809,7 @@ Batch 5:
 
 | Repo | Changes |
 |---|---|
-| **ai-excel-addin** | New `api/research/` package (5 files: `repository.py`, `policy.py`, `context.py`, `routes.py`, `__init__.py`). Extensions to `api/agent/shared/system_prompt.py`, `tool_catalog.py`, `tool_handlers.py` and `api/agent/interactive/runtime.py` to honor the policy layer. New per-user storage directory `data/users/{user_id}/research.db`. Total: ~1500 lines of new code + ~50 lines of extension points. |
+| **ai-excel-addin** | New `api/research/` package (6 files: `repository.py`, `migrations.py`, `policy.py`, `context.py`, `routes.py`, `__init__.py`). Extensions to `api/agent/shared/system_prompt.py` (policy layer dispatch) and `api/agent/interactive/runtime.py` (pre/post-turn persistence hooks). Step 0 memory routing: `tool_catalog.py` and `tool_handlers.py` extended to pass `user_id` through `get_memory_store()` for per-user memory resolution (benefits ALL turn types, not research-specific). No research-specific tool catalog modifications — research turns use the full existing tool catalog with no denylist (per-user isolation eliminates the need). New `scripts/migrate_memory_per_user.py` migration CLI. New per-user storage directory `data/users/{user_id}/research.db`. Total: ~1600 lines of new code + ~80 lines of extension points. |
 | **risk_module (backend)** | New `routes/research_content.py` thin proxy (~80 lines). Registration in `app.py`. No Postgres migration. No gateway enricher. |
 | **risk_module (frontend)** | 11 new React components in `components/research/`. New `researchStore.ts`, `useResearchChat.ts`, `ResearchStreamContext.tsx`, `useResearchFiles.ts`, `useResearchContent.ts`. Extensions to `GatewayClaudeService.ts`, `hashSync.ts`, `useHashSync.ts`, `ResearchContainer.tsx`, `ModernDashboardApp.tsx`, `StockLookupContainer.tsx`. Total: ~2000 lines of new code + ~200 lines of extension points. |
 
@@ -1672,7 +1828,7 @@ The per-user-everything model requires extending (not replacing) existing memory
 - Existing `memory_*` tools — FULLY AVAILABLE on research turns (no restrictions)
 - Existing `run_agent` — FULLY AVAILABLE on research turns (no restrictions)
 
-**All extensions are backward-compatible:** if `user_id` is not provided (e.g., legacy code paths during migration), fallback to henrychien's user_id or a default path. Once migration completes, all paths flow user_id explicitly.
+**All extensions require explicit `user_id`.** There is NO default-user fallback. If `user_id` is not provided, the call raises `ValueError("user_id is required for per-user store access")`. This is deliberate — a silent fallback to henrychien's user_id would reintroduce cross-user bleed, which is exactly the class of bug the per-user-everything model exists to eliminate. Any legacy code path that doesn't have `user_id` available must be fixed to thread it through before the migration ships.
 
 ---
 

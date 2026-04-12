@@ -1,9 +1,30 @@
 # Equity Research Workspace — Product Spec
-**Status:** DRAFT (eng review complete)
-**Eng review:** 2026-04-03. Codex outside voice ran. Final architecture: hybrid Postgres (metadata) + ai-excel-addin SQLite (content).
+**Status:** PRODUCT SPEC (design + interaction model). Architecture sections superseded — see note below.
+**Eng review:** 2026-04-03. Codex outside voice ran.
 **Date:** 2026-04-03
 **TODO ref:** Group 5
 **Design preview:** `~/.gstack/projects/henrysouchien-risk_module/designs/research-workspace-20260403/research-workspace-preview.html`
+
+> **⚠ ARCHITECTURE SUPERSEDED:** Several sections below reflect the 2026-04-03 eng review draft and were superseded by the locked architecture (2026-04-10+) after 4 Codex consult rounds and 3 storage pivots. **Superseded sections:**
+>
+> - §"Persistence Model" (storage, sync layer, communication paths)
+> - §"Standard Template" (diligence checklist — 12 sections)
+> - §"Eng Review Findings" (architecture evolution + "Final architecture" — reflects Pivot 3 hybrid model, NOT the locked per-user-everything model)
+> - §"Phasing" (per-phase feature lists — detailed scope is now in the Phase 1 Plan v5; spec-level phasing is directionally correct but not binding for exact feature boundaries)
+>
+> **What changed:**
+> - **Storage:** All research state now lives in per-user SQLite at `data/users/{user_id}/research.db` — NO Postgres research tables, no sync layer, no hybrid model. See `RESEARCH_WORKSPACE_ARCHITECTURE.md` §3 and `RESEARCH_WORKSPACE_ARCHITECTURE_DECISIONS.md` Decision 1.
+> - **Identity:** Content keyed by `research_file_id` (not `ticker`), with `label` column for multi-thesis support. See Decision 5.
+> - **Diligence:** 9 universal core sections + dynamic Qualitative Factors extension mechanism (not the 12-section template below). See Decision 4.
+> - **Tool access:** Agent has FULL tool surface on research turns (memory, sub-agents, everything) — per-user physical isolation eliminates contamination. See Decision 1 + Invariant 2.
+> - **Phase 1 scope:** Detailed Phase 1 scope (including what's deferred, e.g., stage-filter UI) is defined in the Phase 1 Plan v5, not this spec.
+>
+> **For current architecture, read these docs (in order):**
+> 1. `RESEARCH_WORKSPACE_ARCHITECTURE.md` — locked system frame
+> 2. `RESEARCH_WORKSPACE_ARCHITECTURE_DECISIONS.md` — 7 locked decisions
+> 3. `RESEARCH_WORKSPACE_PHASE1_PLAN_V5.md` — implementation plan (binding for Phase 1 scope)
+>
+> **This spec remains authoritative for:** product vision, design principles, interaction model (§"What This Is" through §"Agent Interaction Model"), design patterns (§"New Design Patterns"), and open questions (§"Open Questions").
 
 ---
 
@@ -433,7 +454,7 @@ Source documents at readable prose size with collaborative annotation.
 
 ## Open Questions
 
-1. **Explore tab input** — should there also be an input at the bottom of the reader (for when Explore is active), or only in the agent panel? The preview shows both. Cursor has input in the agent panel only.
+1. ~~**Explore tab input**~~ — **RESOLVED** (eng review decision #4 + Phase 1 Plan v5): Both inputs active when Explore tab is active (reader sends to explore thread, panel sends to panel thread). When a Thread or Document tab is active, reader has NO input (read-only); agent panel is the sole conversation channel (sends to panel thread with `tab_context` pointing to the active reader tab). Agent panel input is always present.
 2. **Thread-to-diligence mapping** — when diligence activates, should exploration threads auto-map to checklist sections? ("Ownership" thread → Ownership & Flow section)
 3. **Multi-ticker research** — some research is comparative (Brazil equities = 5 names). Support research files for themes/baskets, or keep it single-ticker with a comparison feature?
 4. **Collaboration with analyst-claude** — the ticker memory workspace in ai-excel-addin has its own research state. Should research files sync bidirectionally?
