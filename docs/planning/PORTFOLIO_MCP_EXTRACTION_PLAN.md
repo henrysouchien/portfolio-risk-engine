@@ -51,13 +51,13 @@ The monorepo remains the authoritative source. The standalone package is a sync 
 | `trading.py` | preview_trade, execute_trade, get_orders, cancel_order | services.trade_execution_service |
 | `baskets.py` | 7 basket tools | database, fmp.client, portfolio_risk_engine.* |
 | `basket_trading.py` | preview/execute_basket_trade | services.trade_execution_service |
-| `rebalance.py` | generate_rebalance_trades | services.trade_execution_service |
+| `rebalance.py` | preview_rebalance_trades | services.trade_execution_service |
 | `transactions.py` | 8 transaction store tools | inputs.transaction_store |
 | `portfolio_management.py` | list_accounts, list_portfolios, create/update/delete_portfolio, account_activate/deactivate | inputs.database_client |
 | `audit.py` | record/update/get workflow actions | inputs.database_client |
 | `allocation.py` | set/get_target_allocation | inputs.portfolio_repository |
 | `import_portfolio.py` | import_portfolio | providers.csv_positions, inputs.normalizers |
-| `import_transactions.py` | import_transactions | providers.csv_transactions, inputs.transaction_normalizers |
+| `import_transactions.py` | import_transaction_file | providers.csv_transactions, inputs.transaction_normalizers |
 | `normalizer_builder.py` | 5 normalizer tools | inputs.position_schema |
 | `news_events.py` | get_portfolio_news, get_portfolio_events_calendar | fmp.tools.* |
 | `instrument_config.py` | manage_instrument_config | inputs.database_client |
@@ -545,13 +545,13 @@ These tools work with CSV-imported portfolio data and FMP for market data:
 - `set_target_allocation` / `get_target_allocation`
 - `record_workflow_action` / `update_action_status` / `get_action_history`
 - `manage_instrument_config` / `manage_ticker_config`
-- `ingest_transactions` / `list_transactions` / `list_ingestion_batches` / `inspect_transactions`
+- `fetch_provider_transactions` / `list_transactions` / `list_ingestion_batches` / `inspect_transactions`
 - `list_flow_events` / `list_income_events` / `refresh_transactions` / `transaction_coverage`
 - `suggest_tax_loss_harvest` (needs transaction history)
 - `get_trading_analysis` (needs transaction history)
 - `get_performance` (realized mode — needs transaction store)
 - `create_basket` / `list_baskets` / `get_basket` / `analyze_basket` / `update_basket` / `delete_basket` / `create_basket_from_etf`
-- `import_transactions`
+- `import_transaction_file`
 
 **~35 tools** — available when user sets `DATABASE_URL`.
 
@@ -564,7 +564,7 @@ These tools work with CSV-imported portfolio data and FMP for market data:
 - `analyze_option_chain` (needs IBKR chain data)
 - `monitor_hedge_positions`
 - `get_futures_curve`
-- `generate_rebalance_trades` (execution path)
+- `preview_rebalance_trades` (execution path)
 
 **~14 tools** — available when user has IBKR configured.
 

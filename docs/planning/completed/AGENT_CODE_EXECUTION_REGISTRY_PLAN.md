@@ -227,8 +227,8 @@ def _build_registry():
     _register("get_factor_analysis", get_factor_analysis, category="analysis")
     _register("get_factor_recommendations", get_factor_recommendations, category="analysis")
 
-    from mcp_tools.rebalance import generate_rebalance_trades
-    _register("generate_rebalance_trades", generate_rebalance_trades, category="analysis")
+    from mcp_tools.rebalance import preview_rebalance_trades
+    _register("preview_rebalance_trades", preview_rebalance_trades, category="analysis")
 
     from mcp_tools.signals import check_exit_signals
     _register("check_exit_signals", check_exit_signals, category="analysis")
@@ -261,7 +261,7 @@ def _build_registry():
 **Explicitly excluded**:
 ```
 # File-path tools (remote sandbox has no local filesystem)
-import_portfolio, import_transactions
+import_portfolio, import_transaction_file
 
 # Normalizer builder (writes arbitrary Python to disk)
 normalizer_sample_csv, normalizer_stage, normalizer_test, normalizer_activate, normalizer_list
@@ -552,7 +552,7 @@ class RiskClient:
     def get_trading_analysis(self, **kw): return self.call("get_trading_analysis", **kw)
     def get_factor_analysis(self, **kw): return self.call("get_factor_analysis", **kw)
     def get_factor_recommendations(self, **kw): return self.call("get_factor_recommendations", **kw)
-    def generate_rebalance_trades(self, **kw): return self.call("generate_rebalance_trades", **kw)
+    def preview_rebalance_trades(self, **kw): return self.call("preview_rebalance_trades", **kw)
     def check_exit_signals(self, ticker, **kw): return self.call("check_exit_signals", ticker=ticker, **kw)
 
     # Income
@@ -652,7 +652,7 @@ Gated behind `AGENT_API_ALLOW_WRITES=true`. Stricter rate limit (10/minute).
 | `update_basket` | baskets | |
 | `delete_basket` | baskets | |
 | `create_basket_from_etf` | baskets | |
-| `ingest_transactions` | transactions | |
+| `fetch_provider_transactions` | transactions | |
 | `refresh_transactions` | transactions | |
 
 ## Phase 3 — Multi-User

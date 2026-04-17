@@ -5,7 +5,7 @@
 The Asset Allocation container has a working rebalance **preview** flow — users can set target allocations, generate rebalance trades, and see a table of proposed SELL/BUY legs. But there is **no way to execute the trades**. The "Execute" button is missing.
 
 **What's built:**
-- Backend: `generate_rebalance_trades(preview=False)` in `mcp_tools/rebalance.py` — computes SELL/BUY legs as `RebalanceLeg` objects with prices, quantities, values. When `preview=True` + `account_id`, adds per-leg `preview_id` via IBKR `TradeExecutionService.preview_order()`.
+- Backend: `preview_rebalance_trades(preview=False)` in `mcp_tools/rebalance.py` — computes SELL/BUY legs as `RebalanceLeg` objects with prices, quantities, values. When `preview=True` + `account_id`, adds per-leg `preview_id` via IBKR `TradeExecutionService.preview_order()`.
 - Backend: `execute_basket_trade(preview_ids)` in `mcp_tools/basket_trading.py` — executes a list of preview IDs with best-effort semantics. Returns `BasketTradeExecutionResult` with `status` (completed/partial/failed/needs_confirmation), `execution_legs`, `reprieved_legs`, `summary`, `warnings`.
 - REST: `POST /api/allocations/rebalance` — accepts `{target_weights, min_trade_value, account_id}` via `RebalanceTradesRequest`. Currently hardcodes `format="full"` and does NOT pass `preview` param.
 - REST: `POST /api/baskets/execute` — accepts `{preview_ids: string[]}`, returns `BasketTradeExecutionResult.to_api_response()`.
@@ -29,7 +29,7 @@ The Asset Allocation container has a working rebalance **preview** flow — user
 
 **Three-step flow**: Generate rebalance legs first (fast, no IBKR call, no account needed), then on "Execute" click:
 1. User clicks "Execute All" → confirmation dialog opens with account selector.
-2. User selects account → clicks "Preview Orders" → calls `generate_rebalance_trades(preview=True, account_id)` to get account-scoped legs with IBKR `preview_id`s. The dialog updates to show the **actual account-scoped order set** (which may differ from the portfolio-wide preview if the user has multiple accounts).
+2. User selects account → clicks "Preview Orders" → calls `preview_rebalance_trades(preview=True, account_id)` to get account-scoped legs with IBKR `preview_id`s. The dialog updates to show the **actual account-scoped order set** (which may differ from the portfolio-wide preview if the user has multiple accounts).
 3. User reviews the account-scoped preview → clicks "Confirm Execute" → pipes `preview_id`s into `execute_basket_trade()` via `POST /api/baskets/execute`.
 
 This avoids touching `preview_basket_trade()` (which is basket-name-based, not arbitrary-leg-based) and reuses the existing execution path that BasketsCard already uses. The two-step confirmation (select account → preview → confirm) ensures the user always sees the exact orders that will be submitted.
@@ -77,7 +77,7 @@ class RebalanceTradesRequest(BaseModel):
 In the endpoint handler (~line 2581), add `preview` to the call:
 
 ```python
-rebalance_result = generate_rebalance_trades(
+rebalance_result = preview_rebalance_trades(
     target_weights=rebalance_request.target_weights,
     min_trade_value=rebalance_request.min_trade_value,
     account_id=rebalance_request.account_id,
@@ -87,7 +87,7 @@ rebalance_result = generate_rebalance_trades(
 )
 ```
 
-**Note**: Backend `generate_rebalance_trades()` already validates `account_id is required when preview=True` (line 91-92).
+**Note**: Backend `preview_rebalance_trades()` already validates `account_id is required when preview=True` (line 91-92).
 
 ### 1c: Handle all-preview-failed without HTTP 400
 
@@ -100,7 +100,7 @@ When `preview=True` and ALL legs fail IBKR preview, the backend sets `status="er
 **Fix**: Distinguish the two by checking for the `trades` key (only present in case 2):
 
 ```python
-rebalance_result = generate_rebalance_trades(...)
+rebalance_result = preview_rebalance_trades(...)
 
 if str(rebalance_result.get("status")) == "error":
     # All-preview-failed: has trades with per-leg errors — return 200 so frontend
@@ -903,7 +903,7 @@ Visual checks at localhost:3000 (requires IBKR Gateway running):
 
 | # | Finding | Resolution |
 |---|---------|------------|
-| 1 | `preview_basket_trade` is basket-name-based, not arbitrary-leg | Switched to `generate_rebalance_trades(preview=True)` which previews arbitrary legs |
+| 1 | `preview_basket_trade` is basket-name-based, not arbitrary-leg | Switched to `preview_rebalance_trades(preview=True)` which previews arbitrary legs |
 | 2 | REST paths wrong (`/api/trading/basket/*`) | Corrected: `/api/allocations/rebalance` for preview, `/api/baskets/execute` for execution |
 | 3 | Response shapes wrong | Using actual `BasketTradeExecutionResult.to_api_response()` shape with `execution_legs`, `reprieved_legs`, `summary` |
 | 4 | Multi-account unresolved | Account selector via `useTradingAccounts()` (existing hook, `['trading', 'accounts']` query key), auto-select if single account |

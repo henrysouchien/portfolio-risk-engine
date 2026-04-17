@@ -127,9 +127,18 @@ Why this matters:
 
 ### Phased Generator Rollout
 
-**Phase 1 (prove the model):** 4 core generators — Concentration, Risk, Performance, Events. These cover the founder's primary concerns and the most common "lead stories." Validate that the editorial pipeline produces better lead insights than the hardcoded severity cascade.
+**Phase 1 (prove the model) — COMPLETE:** 3 core generators — Concentration, Risk, Performance. Events deferred (no cached builder; see arch spec §3.1). P0 spec drift (beta/alpha metrics) fixed post-implementation. All 8 sub-phases (B1-B6, F1a-F1b) shipped. See `OVERVIEW_EDITORIAL_PIPELINE_PHASE1_PLAN.md`.
 
-**Phase 2 (expand coverage):** Add Income, Trading, Factor, Tax Harvest generators after Phase 1 proves the editorial model works. Each generator drops in without touching the composer.
+**Phase 2 (personalization + expansion):** Two tracks informed by post-Phase 1 audit (`EDITORIAL_PIPELINE_AUDIT.md`, 2026-04-13):
+
+*Track A — Personalization depth (net-new from audit, highest user-facing impact):*
+- **Loss screening generator** — biggest dollar losers / unrealized losses as persistent attention cards until resolved. New generator, not extending existing ones.
+- **Deep editorial memory usage** — `concerns` → always-on metrics, `watching` → ticker-specific cards, `briefing_philosophy` → LLM editorial pass input. Core personalization mechanism beyond the current score modifiers.
+- **Benchmark comparison enrichment** — side-by-side metric values (e.g., "Sharpe -1.10 vs 0.77 bmk"). Schema addition to `MetricStripItem`.
+
+*Track B — Generator expansion (originally planned):*
+- Events generator (pull-forward from deferred Phase 1 scope)
+- Income, Trading, Factor, Tax Harvest generators — each drops in without touching the composer.
 
 ### AI-Generated Artifacts as Editorial Output
 
@@ -400,11 +409,23 @@ Minimal. The Overview layout stays the same (metric strip, lead insight, attenti
 
 ## Open Questions
 
-1. **editorial_memory storage**: DB column on user table? Separate key-value store? File-based per user? (Recommend: JSONB column on user table — simplest, already have the schema.)
-2. **Generator activation**: All Phase 1 generators run on every load (only 4 tools, parallel). Phase 2 may introduce selective activation based on editorial_memory.
-3. **Relationship to Scenario Workflows**: The existing "AI Recommendations" section feeds from factor intelligence only. Does it get absorbed into the pipeline, or does it stay separate?
-4. **Previous brief storage**: Novelty scoring requires knowing "was this true in the last brief?" Need to persist the previous `OverviewBrief` per user. (Recommend: same DB table as editorial_memory, simple JSON column.)
-5. **editorial_memory write path (Phase 2, NEEDS DESIGN)**: Chat history is client-owned — there is no server-side conversation persistence. The onboarding conversation can't automatically update editorial_memory without a dedicated write mechanism. Key questions: (a) What triggers a memory write — does the AI decide, the user confirm, or is it automatic after onboarding? (b) How does the AI extract structured editorial_memory fields from freeform conversation? (c) How do corrections work ("actually I don't care about dividends anymore")? (d) Retention/cleanup — does conversation_extracts grow unbounded? (e) Privacy — what gets stored, what doesn't? Phase 1 sidesteps this entirely with a hardcoded editorial_memory. But Phase 2's onboarding conversation depends on solving this. (Flagged by Codex outside voice review.)
+1. ~~**editorial_memory storage**~~ — RESOLVED. `user_editorial_state` table with `editorial_memory JSONB` + `previous_briefs JSONB`. See arch spec §3.5.
+2. **Generator activation**: All Phase 1 generators run on every load (only 3 tools, parallel). Phase 2 may introduce selective activation based on editorial_memory.
+3. **Relationship to Scenario Workflows**: The existing "AI Recommendations" section feeds from factor intelligence only. Does it get absorbed into the pipeline, or does it stay separate? (Deferred to Phase 2 — see arch spec §15.)
+4. ~~**Previous brief storage**~~ — RESOLVED. `previous_briefs` JSONB column keyed by portfolio_id. See arch spec §9.3.
+5. ~~**editorial_memory write path**~~ — RESOLVED. `update_editorial_memory` MCP tool (analyst-managed, chat-driven). Auto-seeder from portfolio composition on first connection. See arch spec §3.5, §9.5.
+
+## Post-Phase 1 Audit Findings (2026-04-13)
+
+A live comparison between the LLM briefing experiment and the editorial pipeline output revealed personalization gaps. Full analysis in `EDITORIAL_PIPELINE_AUDIT.md`. Key findings:
+
+- The overview is a **persistent surface** (glanced at throughout the day), not a one-shot briefing. This reframes the gaps: the question is "is the persistent surface personalized to this user?" not "does it match the chat briefing?"
+- **P0 spec drift** (beta/alpha metrics missing) — fixed same day
+- **P1 net-new gaps**: loss screening generator, deep editorial memory usage, benchmark comparison enrichment
+- **P1 pull-forward**: events generator (ideal persistent content — time-bounded, actionable)
+- **P3 deferred**: alert/default state detection, new information awareness
+
+These findings are incorporated into the architecture spec §14 Phase 2 scope.
 
 ## Success Criteria
 

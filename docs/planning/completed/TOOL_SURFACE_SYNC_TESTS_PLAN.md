@@ -58,7 +58,7 @@ EXCLUDED_FROM_REGISTRY = {
     # Intentional exclusions — must match agent_registry.py comment block
     "get_mcp_context",
     "import_portfolio",
-    "import_transactions",
+    "import_transaction_file",
     "normalizer_sample_csv",
     "normalizer_stage",
     "normalizer_test",

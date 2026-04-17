@@ -19,7 +19,7 @@
 | Q14 | research | `get_positions` → `analyze_stock`(NVDA) → `get_risk_analysis` → `run_whatif` → `get_quote` → `fmp:get_technical_analysis` → `fmp:get_news` → `get_factor_analysis` → `get_risk_score` → `fmp:get_estimate_revisions` | **10** | `get_positions` |
 | Q16 | research (compare) | `get_positions` → `analyze_stock`(×3) → `get_risk_analysis` → `fmp:get_market_context` → `run_whatif`(×3) → `get_performance` → `get_factor_analysis` → `fmp:fmp_profile`(×3) → `fmp:get_estimate_revisions`(×3) | **17** | `get_positions` |
 | Q18 | planning (what-if) | `get_positions` → `get_risk_analysis` → `get_risk_score` → `run_whatif` → `compare_scenarios`(3 scenarios) | **5** | `get_positions` |
-| Q20 | planning (rebalance) | `get_positions`(×2) → `get_target_allocation` → `get_risk_analysis` → `get_risk_score` → `generate_rebalance_trades`(failed) | **8** | `get_positions` + `get_target_allocation` |
+| Q20 | planning (rebalance) | `get_positions`(×2) → `get_target_allocation` → `get_risk_analysis` → `get_risk_score` → `preview_rebalance_trades`(failed) | **8** | `get_positions` + `get_target_allocation` |
 | Q23 | tax | `get_positions` → `suggest_tax_loss_harvest`(×2) → `get_performance`(failed) → `list_transactions`(×2) | **12** | `get_positions` + `suggest_tax_loss_harvest` |
 | Q30 | research (thematic) | `get_positions` → `get_risk_analysis` → `get_factor_analysis` → `analyze_stock`(×2) → `get_risk_score` → `fmp:fmp_profile`(×5) → `run_whatif` | **13** | `get_positions` |
 
@@ -48,7 +48,7 @@ How often each tool appears across 10 questions (unique tools per question, not 
 | **`run_backtest`** | 1/10 | 10% | Plan |
 | **`get_leverage_capacity`** | 1/10 | 10% | Dashboard |
 | **`suggest_tax_loss_harvest`** | 1/10 | 10% | Plan |
-| **`generate_rebalance_trades`** | 1/10 | 10% | Plan |
+| **`preview_rebalance_trades`** | 1/10 | 10% | Plan |
 | **`list_transactions`** | 1/10 | 10% | Dashboard |
 | **`get_quote`** | 2/10 | 20% | Dashboard |
 | **`get_factor_recommendations`** | 1/10 | 10% | Research |
@@ -74,7 +74,7 @@ These appear when the question enters a specific domain:
 ### Tier 3 — Specialized (<30%)
 Deep tools for specific workflows:
 - Tax: `suggest_tax_loss_harvest`, `list_transactions`
-- Rebalance: `get_target_allocation`, `generate_rebalance_trades`
+- Rebalance: `get_target_allocation`, `preview_rebalance_trades`
 - Stress: `run_backtest`, `get_leverage_capacity`, `compare_scenarios`
 - Monitoring: `get_portfolio_news`, `get_portfolio_events_calendar`, `monitor_hedge_positions`, `check_exit_signals`
 
@@ -218,7 +218,7 @@ The agent doesn't follow a linear workflow. It fans out → reads flags → dril
 | **Dashboard** | `get_positions`, `get_risk_analysis`, `get_risk_score` | `get_portfolio_news`, `get_portfolio_events_calendar`, `monitor_hedge_positions`, `check_exit_signals`, `get_leverage_capacity`, `get_quote`, `list_transactions` | `fmp:get_news`, `fmp:get_market_context` |
 | **Performance** | `get_performance` | `get_trading_analysis` | — |
 | **Research** | `analyze_stock`, `get_factor_analysis` | `get_factor_recommendations` | `fmp:get_technical_analysis`, `fmp:get_estimate_revisions`, `fmp:fmp_profile` |
-| **Plan** | `run_whatif`, `compare_scenarios` | `run_backtest`, `get_target_allocation`, `generate_rebalance_trades`, `suggest_tax_loss_harvest`, `run_optimization`, `get_efficient_frontier` | — |
+| **Plan** | `run_whatif`, `compare_scenarios` | `run_backtest`, `get_target_allocation`, `preview_rebalance_trades`, `suggest_tax_loss_harvest`, `run_optimization`, `get_efficient_frontier` | — |
 | **Trade** | (not tested — execution questions not in this batch) | `preview_trade`, `execute_trade`, basket tools | — |
 
 ---

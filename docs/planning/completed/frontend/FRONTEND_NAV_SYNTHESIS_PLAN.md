@@ -356,7 +356,7 @@ Currently tabs within ScenarioAnalysisContainer — each gets its own full-width
 
 Target allocation → drift calculation → trade generation.
 
-**Tools**: `get_target_allocation` + `get_positions` → drift calc → `generate_rebalance_trades`
+**Tools**: `get_target_allocation` + `get_positions` → drift calc → `preview_rebalance_trades`
 **Exit ramp**: "Preview all trades →" → Trading section.
 
 #### Tax Harvest (full-width)

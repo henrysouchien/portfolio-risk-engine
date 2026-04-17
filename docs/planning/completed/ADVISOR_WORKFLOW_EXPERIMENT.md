@@ -112,7 +112,7 @@ Think out loud about which tools you're using and why.
 | Risk review | `get_risk_analysis` → `get_factor_analysis` → `get_factor_recommendations` |
 | Performance | `get_performance` → `get_trading_analysis` |
 | Stock research | `analyze_stock` → `get_quote` → (portfolio context from `get_positions`) |
-| What-if planning | `get_positions` → `run_whatif` → `compare_scenarios` → `generate_rebalance_trades` |
+| What-if planning | `get_positions` → `run_whatif` → `compare_scenarios` → `preview_rebalance_trades` |
 | Tax optimization | `suggest_tax_loss_harvest` → `get_trading_analysis` |
 | Execution | `preview_trade` → `execute_trade` |
 

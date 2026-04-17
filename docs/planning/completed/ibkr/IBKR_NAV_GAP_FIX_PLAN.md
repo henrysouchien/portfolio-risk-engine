@@ -368,7 +368,7 @@ the CUR:* anchor correctly sums across all providers.
 ### Step 6: Re-ingest to populate metadata
 
 ```
-ingest_transactions(provider="ibkr_flex")
+fetch_provider_transactions(provider="ibkr_flex")
 ```
 
 This re-fetches Flex data and stores the statement cash in fetch_metadata.

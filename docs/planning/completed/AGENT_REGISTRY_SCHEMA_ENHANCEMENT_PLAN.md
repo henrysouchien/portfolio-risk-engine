@@ -223,7 +223,7 @@ def _build_schema(entry: AgentFunction) -> dict[str, Any]:
   - `get_performance.mode` has `enum` containing `"hypothetical"` and `"realized"`
   - `run_optimization.optimization_type` has `enum` with `"min_variance"`, `"max_sharpe"`, etc.
   - `run_optimization.target_volatility` is `number` + `nullable`
-  - `generate_rebalance_trades.target_weights` is `object` + `nullable` + `value_type: "number"`
+  - `preview_rebalance_trades.target_weights` is `object` + `nullable` + `value_type: "number"`
   - `record_workflow_action.recommendation_data` (PEP 604 `dict | None`, from `mcp_tools/audit.py` with `__future__` annotations) is `object` + `nullable`
   - `get_action_history.status_filter` (PEP 604 `str | None`, wrapped + `__future__`) is `string` + `nullable`
 

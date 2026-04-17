@@ -130,7 +130,7 @@ Regex:      ^(?P<underlying>[A-Z0-9.]+)\s+(?P<day>\d{2})(?P<month>[A-Z]{3})(?P<y
 └──────────────────────┬──────────────────────────────────────────────┘
                        ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│ ingest_transactions(provider="ibkr_statement", csv_dir=...)         │
+│ fetch_provider_transactions(provider="ibkr_statement", csv_dir=...)         │
 │   OR _ingest_transactions_inner() (programmatic)                    │
 │                                                                      │
 │   Flatten parsed data into raw rows (ALL under one provider):       │
@@ -432,7 +432,7 @@ Provider = Literal["all", "plaid", "schwab", "ibkr_flex", "snaptrade", "ibkr_sta
 ```python
 # In refresh_transactions(), before the provider loop:
 if provider and str(provider).strip().lower() == "ibkr_statement":
-    raise ValueError("ibkr_statement requires csv_dir; use ingest_transactions instead")
+    raise ValueError("ibkr_statement requires csv_dir; use fetch_provider_transactions instead")
 ```
 This prevents the footgun of calling `refresh_transactions(provider="ibkr_statement")` which would fail at `_ingest_transactions_inner()` without csv_dir.
 
@@ -451,10 +451,10 @@ Changes to `_ingest_transactions_inner()`:
   - `allowed_providers` check passes because `provider="ibkr_statement"` → `allowed_providers = {"ibkr_statement"}`
   - Store cash_report as `statement_cash` in the ibkr_statement batch's own `fetch_metadata` (see §6.3)
 
-Changes to MCP tool `ingest_transactions()`:
+Changes to MCP tool `fetch_provider_transactions()`:
 ```python
 @handle_mcp_errors
-def ingest_transactions(
+def fetch_provider_transactions(
     user_email: Optional[str] = None,
     provider: Provider = "all",
     csv_dir: Optional[str] = None,  # NEW: required for ibkr_statement
@@ -651,8 +651,8 @@ def _income_dedup_key(inc: dict) -> tuple:
 
 #### 5.4 Phase 2 Acceptance Criteria
 
-- [ ] `ingest_transactions(provider="ibkr_statement", csv_dir=...)` works end-to-end
-- [ ] `ingest_transactions(provider="ibkr_statement")` without csv_dir raises error
+- [ ] `fetch_provider_transactions(provider="ibkr_statement", csv_dir=...)` works end-to-end
+- [ ] `fetch_provider_transactions(provider="ibkr_statement")` without csv_dir raises error
 - [ ] Raw rows stored with provider="ibkr_statement" (single provider, `_row_type` discriminator)
 - [ ] Normalization produces correct FIFO + income rows in DB
 - [ ] `load_from_store(source="ibkr_flex")` loads provider IN ("ibkr_flex", "ibkr_statement") — NOT all providers
@@ -929,7 +929,7 @@ The normalizer preserves the `currency` field on each `NormalizedIncome`. Works 
 | 20 | Is normalizer input a parsed dict or flat rows? | Flat rows with `_row_type` discriminator (consistent across Phase 1 tests and Phase 2 store). Parser returns structured dict; `flatten_for_store()` converts to flat rows before storage and normalization. |
 | 21 | Does cash anchor work for `source="all"` (default)? | Yes — engine source guard broadened from `source == "ibkr_flex"` to `source in ("ibkr_flex", "all")`. Engine normalizes source to lowercase string (`"all"`, never `None`). Default performance path now fires the cash anchor. |
 | 22 | Does metadata carry account/institution for scoped queries? | Partially. `account_id` and `institution` are stored in metadata JSON for future use and per-row engine checks. However, `load_fetch_metadata()` only partitions by `provider` (not account). For the current single-account IBKR setup, provider-level scoping is sufficient. Multi-account would need account-level metadata filtering (out of scope). |
-| 23 | Can `refresh_transactions()` be called with ibkr_statement? | Guarded — explicit ValueError if provider="ibkr_statement". Must use `ingest_transactions(csv_dir=...)` instead. |
+| 23 | Can `refresh_transactions()` be called with ibkr_statement? | Guarded — explicit ValueError if provider="ibkr_statement". Must use `fetch_provider_transactions(csv_dir=...)` instead. |
 | 24 | Where do futures multipliers come from? | Primary: `financial_instrument_information__all.csv` `multiplier` column. Fallback: `abs(notional_value) / (abs(quantity) * t_price)`. |
 
 ## 9. Risk Assessment
@@ -953,7 +953,7 @@ The normalizer preserves the `currency` field on each `NormalizedIncome`. Works 
 | Normalizer input contract mismatch (dict vs flat rows) | Consistent flat-row API; `flatten_for_store()` helper bridges parser → store | Addressed |
 | Cash anchor not firing for source="all" (default) | Engine source guard broadened to `source in ("ibkr_flex", "all")` — engine normalizes source to string, never None | Addressed |
 | Metadata scoping for multi-account | Provider-level scoping sufficient for single-account. `account_id`/`institution` stored in metadata JSON for future use. Multi-account metadata filtering out of scope | Acknowledged |
-| `refresh_transactions()` footgun for ibkr_statement | Explicit ValueError guard — must use `ingest_transactions` | Addressed |
+| `refresh_transactions()` footgun for ibkr_statement | Explicit ValueError guard — must use `fetch_provider_transactions` | Addressed |
 | HKD interest not FX-converted | Normalizer preserves currency; engine's FX cache handles | Works |
 | Breaking existing ibkr_flex behavior | Separate provider; flex path unchanged; no provider flows | Low risk |
 

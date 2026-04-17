@@ -329,7 +329,7 @@ Target allocation → drift calculation → trade generation.
 └──────────────────────────────────────────────────────────┘
 ```
 
-**Tools**: `get_target_allocation` + `get_positions` → drift calc → `generate_rebalance_trades`
+**Tools**: `get_target_allocation` + `get_positions` → drift calc → `preview_rebalance_trades`
 **Exit ramp**: "Preview all trades" → Trade section.
 
 ### 3e. Tax Harvest Scanner

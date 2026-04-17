@@ -253,7 +253,7 @@ For `load_fifo_transactions()` and other read methods:
 ### 1. Fix futures MTM gap
 ```bash
 # Re-ingest IBKR to pick up futures MTM rows
-ingest_transactions(provider="ibkr_flex")
+fetch_provider_transactions(provider="ibkr_flex")
 
 # Verify MTM rows stored
 SELECT count(*) FROM raw_transactions WHERE provider = 'ibkr_flex_mtm';

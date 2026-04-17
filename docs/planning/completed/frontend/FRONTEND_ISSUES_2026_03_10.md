@@ -412,7 +412,7 @@ The UI surfaces portfolio-relevant news and earnings events with "% relevant" sc
 
 **What works well:**
 - The drift visualization (overweight/underweight labels + colored bars) is clear and useful
-- The "Rebalance" button connects to `generate_rebalance_trades` to produce actionable trade legs
+- The "Rebalance" button connects to `preview_rebalance_trades` to produce actionable trade legs
 - Targets are persisted per-user per-portfolio in the DB
 
 **What's missing — guided target-setting workflow:**
@@ -510,7 +510,7 @@ Inline target editing on the main overview page encourages uninformed changes. T
 3. Card transitioned to "No Data" / empty state (likely the rebalance preview pane failed to render)
 4. User was left wondering if real trades were executed
 
-**Reality:** The backend `generate_rebalance_trades()` only computes a trade plan — it does NOT execute orders. `preview=False` by default, which counter-intuitively means "don't generate IBKR preview IDs" not "execute live." The result is a list of computed trade legs with status "computed."
+**Reality:** The backend `preview_rebalance_trades()` only computes a trade plan — it does NOT execute orders. `preview=False` by default, which counter-intuitively means "don't generate IBKR preview IDs" not "execute live." The result is a list of computed trade legs with status "computed."
 
 **But the UX is dangerous:**
 - No confirmation dialog: "This will generate a rebalance plan for your portfolio. Continue?"
@@ -522,7 +522,7 @@ Inline target editing on the main overview page encourages uninformed changes. T
 **Key files:**
 - `frontend/packages/ui/src/components/portfolio/AssetAllocation.tsx` — button (lines 206-217), Performance view (lines 329-337)
 - `frontend/packages/ui/src/components/dashboard/views/modern/AssetAllocationContainer.tsx` — `handleGenerateRebalance()` (lines 296-315), `showRebalance` state, `rebalanceMutation`
-- `mcp_tools/rebalance.py` — `generate_rebalance_trades()` (line 70+) — preview-only, no order execution
+- `mcp_tools/rebalance.py` — `preview_rebalance_trades()` (line 70+) — preview-only, no order execution
 
 **Fix approach:**
 1. **Rename button**: "Rebalance" → "Preview Rebalance" or "Generate Plan"
@@ -1494,7 +1494,7 @@ The user's instinct is right. This should be a sandbox where you can:
 4. **Inline the backtest**: Instead of a separate Performance tab, show backtest results directly below the Builder when the user clicks "Test This Allocation"
 5. **Break out of the card**: Each function (build, marketplace, backtest) should be its own section with room to breathe
 6. **Add strategy comparison**: Side-by-side cards showing current portfolio vs proposed strategy vs template
-7. **Connect to execution**: After backtesting, offer "Set as Target Allocation" → connects to existing `set_target_allocation()` + `generate_rebalance_trades()`
+7. **Connect to execution**: After backtesting, offer "Set as Target Allocation" → connects to existing `set_target_allocation()` + `preview_rebalance_trades()`
 
 ---
 

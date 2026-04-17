@@ -1,12 +1,12 @@
 # Research Workspace — Architecture
 
 **Status:** Frame document for Phase 1-5 implementation
-**Last updated:** 2026-04-10
+**Last updated:** 2026-04-13 (final cross-doc consistency sweep)
 **Synthesizes:** `RESEARCH_WORKSPACE_ARCHITECTURE_DECISIONS.md` (7 locked decisions)
 **References:**
 - `EQUITY_RESEARCH_WORKSPACE_SPEC.md` — product spec + design consultation
 - `RESEARCH_WORKSPACE_ARCHITECTURE_DECISIONS.md` — locked architectural decisions
-- `RESEARCH_WORKSPACE_PHASE1_PLAN.md` v4 (commit `7b4c8a76`) — superseded by v5 (pending)
+- `RESEARCH_WORKSPACE_PHASE1_PLAN_V5.md` — Phase 1 implementation plan (Codex PASS R15)
 - `DESIGN.md` — research workspace visual design section
 
 This doc is the high-level frame. Phase plans (Phase 1-4) sit inside this frame as implementation detail. Decisions doc sits behind this as rationale. Product spec sits behind as motivation. Read this first; drill into others as needed.
@@ -86,7 +86,10 @@ explore → diligence → report → model-build handoff
 │  │  │  api/research/routes.py                           │    │    │
 │  │  │  REST endpoints: /api/research/{files,threads,    │    │    │
 │  │  │  messages,annotations,documents,extractions,      │    │    │
-│  │  │  handoffs,handoffs/{id}/build-model}              │    │    │
+│  │  │  diligence/{activate,state,sections,factors,      │    │    │
+│  │  │  prepopulate,opening-take},                       │    │    │
+│  │  │  handoffs,handoffs/{id}/build-model,              │    │    │
+│  │  │  handoffs/{id}/re-annotate,export,download}       │    │    │
 │  │  └──────────────────────────────────────────────────┘    │    │
 │  │  ┌──────────────────────────────────────────────────┐    │    │
 │  │  │  api/research/repository.py                       │    │    │
@@ -205,7 +208,7 @@ NO research tables                         │   are public SEC documents and th
                                               │  │    source_id, section_header, char_start,
                                               │  │    char_end, selected_text, note, author,
                                               │  │    diligence_ref, created_at)
-                                              │  └─ research_handoffs         [Phase 4]
+                                              │  └─ research_handoffs         [Phase 3 draft, Phase 4 finalize]
                                               │      (id, research_file_id FK, ticker SNAPSHOT,
                                               │       version, status, artifact JSON,
                                               │       timestamps)
@@ -231,7 +234,7 @@ NO research tables                         │   are public SEC documents and th
 - `research_handoffs.research_file_id` is the lookup key. `research_handoffs.ticker` is a **denormalized snapshot field** for display only, NOT a lookup key.
 - `research_handoffs` versioning: `version=1, 2, 3...` per `research_file_id`; old versions stay after regeneration (audit trail)
 
-**Filing cache framing (pragmatic):** The shared `data/filings/` directory holds content-addressed, immutable markdown files. Sharing across users is safe because (a) filings are public SEC documents, (b) the content hash guarantees the file text can't change after ingest, (c) any user-specific state (annotations, citations, workspace context) lives in the per-user `research.db`, not in the filing file. Re-ingesting the same filing with different normalization produces a new hash → new file → both versions coexist. No garbage collection in Phase 2; add if disk usage matters.
+**Filing cache framing (pragmatic):** The shared `data/filings/` directory holds content-addressed, immutable markdown files. Sharing across users is safe because (a) filings are public SEC documents, (b) the content hash guarantees the file text can't change after ingest, (c) any user-specific state (annotations, citations, workspace context) lives in the per-user `research.db`, not in the filing file. **Idempotency model:** Same content bytes → same SHA hash → same filing_id (idempotent). Different normalization of the same SEC filing → different content bytes → different hash → different filing_id. Both old and new versions coexist. The filing_id includes a content hash, so identical content always produces the identical filing_id. No garbage collection in Phase 2; add if disk usage matters.
 
 ---
 
@@ -257,7 +260,7 @@ NO research tables                         │   are public SEC documents and th
 | Filing retrieval + content-hash versioning | ai-excel-addin + edgar-mcp | Ingest renames output with hash suffix (Phase 2) |
 | EAV memory + markdown sync | ai-excel-addin existing, MIGRATED to per-user in Phase 1 Step 0 | `MemoryStoreFactory` resolves `user_id → per-user analyst_memory.db`; markdown sync uses per-user paths; 9 screener connectors pass user_id |
 
-**API surface** (new in research layer, all scoped by `research_file_id` except the file list):
+**API surface** (new in research layer, all scoped by `research_file_id` except the file list and handoff-action endpoints (which use `handoff_id` — a transitive FK to `research_file_id`)):
 
 Phase 1:
 - `GET /api/research/content/files` — list user's research files (user-scoped by per-user DB)
@@ -272,15 +275,31 @@ Phase 1:
 **Separate auth boundary for chat:** `POST /chat` is the **existing gateway chat endpoint** (routed through `routes/gateway_proxy.py`, NOT through `routes/research_content.py`). For research turns, the frontend sends `purpose='research_workspace'` + `research_file_id` + `thread_id` + `tab_context` in the context payload. The existing gateway proxy already handles auth + `user_id` injection for chat. Tier gating for research chat is enforced at the gateway level via the `purpose` field — if `purpose='research_workspace'` and user is not paid tier, the gateway rejects the turn. The research content proxy (`routes/research_content.py`) handles ONLY the CRUD endpoints above.
 
 Phase 2:
-- `GET /api/research/content/documents?filing_id=...` — load filing, return `{section_map, available_sections}`
+- `GET /api/research/content/documents?source_id=...&source_type=filing|transcript` — load filing or transcript document. Filing returns `{source_id, source_type: "filing", full_text, sections: {header: {text, start, end}}, available_sections}`. Transcript returns `{source_id, source_type: "transcript", full_text, sections: {header: {text, start, end}}, available_sections, segments: [{speaker, role, text, char_start, char_end, section}]}`. `source_type` defaults to `"filing"` if omitted.
+- `POST /api/research/content/documents/ingest` — accepts `{source_path}`, returns `{filing_id}` (content-hashed). Idempotent: same content bytes produce the same filing_id.
 - `GET /api/research/content/extractions?filing_id=...&section=...&schemas=...` — run langextract on a specific section
 - `GET /api/research/content/annotations?research_file_id=...` — list annotations for a file
-- `POST /api/research/content/annotations` — create annotation `{research_file_id, filing_id, section_header, char_start, char_end, selected_text, note, diligence_ref?}`
+- `POST /api/research/content/annotations` — create annotation `{research_file_id, source_type, source_id, section_header, char_start, char_end, selected_text, note, diligence_ref?}`
+
+Phase 3:
+- `POST /api/research/content/diligence/activate` — activate diligence for a research file `{research_file_id}`, creates draft handoff if none exists
+- `GET /api/research/content/diligence/state?research_file_id=...` — get current diligence state (sections + completion + qualitative factors)
+- `PATCH /api/research/content/diligence/sections/{key}` — update a diligence section `{handoff_id, section_data, completion_state, source_refs?}`
+- `POST /api/research/content/diligence/factors` — add a qualitative factor `{handoff_id, factor}`, returns created factor with stable `id`
+- `PATCH /api/research/content/diligence/factors/{factor_id}` — update a qualitative factor `{handoff_id, updates}`
+- `DELETE /api/research/content/diligence/factors/{factor_id}?handoff_id=...` — remove a qualitative factor by `factor_id`
+- `POST /api/research/content/diligence/prepopulate` — trigger server-side pre-population `{research_file_id, sections?}`
+- `POST /api/research/content/diligence/opening-take` — generate opening take synthesis `{research_file_id}`
 
 Phase 4:
-- `POST /api/research/content/handoffs` — build handoff from current research state `{research_file_id}`, returns `{handoff_id, version, artifact_summary}`
+- `POST /api/research/content/handoffs/finalize` — finalize existing draft `{research_file_id}` → updates draft row to `status='finalized'`, returns `{handoff_id, version, ticker, status, artifact_summary}`
+- `POST /api/research/content/handoffs/new-version` — create new draft from finalized `{research_file_id}` → supersedes old finalized, creates new row `version+1, status='draft'`, returns `{handoff_id, version, ticker, status, artifact_summary}`
 - `GET /api/research/content/handoffs/{handoff_id}` — fetch handoff artifact for review
-- `POST /api/research/content/handoffs/{handoff_id}/build-model` — orchestrates `model_build()` + `annotate_model_with_research()`, returns `{model_path, handoff_id, build_status}`
+- `GET /api/research/content/handoffs?research_file_id=...` — list handoff versions for a file
+- `POST /api/research/content/handoffs/{handoff_id}/build-model` — orchestrated build: `model_build()` + `annotate_model_with_research()`, returns `{model_path, handoff_id, build_status, annotation_status}`
+- `POST /api/research/content/handoffs/{handoff_id}/re-annotate` — retry annotation only (skips build)
+- `POST /api/research/content/handoffs/{handoff_id}/export` — JSON export to per-user exports directory
+- `GET /api/research/content/handoffs/{handoff_id}/download?type=model|json` — binary file download (`Content-Disposition: attachment`)
 
 **CRUD routes go through `routes/research_content.py` proxy**, which enforces `minimum_tier="paid"`, extracts `user_id` from the authenticated session, and forwards to ai-excel-addin via the gateway. **Chat route (`POST /chat`) goes through the existing `routes/gateway_proxy.py`** with research context in the payload. **No direct-MCP-from-frontend path** for any of these endpoints.
 
@@ -388,17 +407,26 @@ User types message → hits enter
 - **Client disconnects mid-stream:** gateway cancels the runner (current behavior); user message is already persisted (Step 8); agent message is NOT persisted (Step 14 never fires); client reconciles on reload and sees only the user message
 - **Phase 1 accepts partial loss on disconnect.** Run-to-completion or incremental persistence are upgrades for later phases if UX hurts.
 
-### Flow 4: Open document tab on filing (Phase 2)
+### Flow 4: Open document tab on filing or transcript (Phase 2)
 
 ```
 User clicks "Open 10-K" in thread or agent message (in a workspace scoped to research_file_id=42)
-  → Frontend: researchStore.openTab({ type: 'document', source_id: 'VALE_10K_2024_a3f8b2c1' })
-  → Frontend → GET /api/research/content/documents?filing_id=VALE_10K_2024_a3f8b2c1
-  → Ai-excel-addin: DocumentService.get_document(filing_id)
+  → Frontend: researchStore.openDocumentTab({ sourceType: 'filing', sourceId: 'VALE_10K_2024_a3f8b2c1', label: '10-K' })
+  → Frontend → GET /api/research/content/documents?source_id=VALE_10K_2024_a3f8b2c1&source_type=filing
+  → Ai-excel-addin: DocumentService.get_document(source_id, source_type="filing")
      → look up filing file path at data/filings/VALE_10K_2024_a3f8b2c1.md  (shared immutable cache)
      → read markdown file
      → parse_filing_sections() → SectionMap
-     → return { section_map, available_sections }
+     → return { source_id, source_type: "filing", full_text, sections: {header: {text, start, end}}, available_sections }
+
+  For transcripts (source_type="transcript"):
+  → Frontend → GET /api/research/content/documents?source_id=VALE_1Q26_transcript_b7e3a1d0&source_type=transcript
+  → Ai-excel-addin: DocumentService.get_document(source_id, source_type="transcript")
+     → look up transcript at data/filings/VALE_1Q26_transcript_b7e3a1d0.md
+     → read markdown file
+     → parse_transcript_sections() → speaker-segmented data
+     → return { source_id, source_type: "transcript", full_text, sections: {header: {text, start, end}}, available_sections, segments: [{speaker, role, text, char_start, char_end, section}] }
+
   → Frontend: render document tab with section selector, user picks "Item 7 MD&A"
   → Frontend → GET /api/research/content/extractions?filing_id=...&section=Item 7&schemas=risk_factors,management_commentary
   → Ai-excel-addin: langextract.extract_filing_file(path, schema, sections_filter=[section])
@@ -407,8 +435,8 @@ User clicks "Open 10-K" in thread or agent message (in a workspace scoped to res
   → User selects text → capture (char_start, char_end) relative to full file
   → User clicks "Add annotation":
      → POST /api/research/content/annotations
-       {research_file_id: 42, filing_id, section_header, char_start, char_end,
-        selected_text, note, diligence_ref?}
+       {research_file_id: 42, source_type: "filing", source_id, section_header,
+        char_start, char_end, selected_text, note, diligence_ref?}
      → ResearchRepository.save_annotation(user_id, research_file_id=42, ...)
      → Note: annotations are keyed by research_file_id, so the SAME filing passage can
        be annotated independently under two different theses on VALE (file 42 vs file 57)
@@ -423,14 +451,27 @@ User clicks "Open 10-K" in thread or agent message (in a workspace scoped to res
 
 ```
 User clicks "Finalize Report" in workspace (scoped to research_file_id=42)
-  → Frontend → POST /api/research/content/handoffs {research_file_id: 42}
-  → Ai-excel-addin: HandoffService.build_handoff(user_id, research_file_id=42)
-     → reads file metadata, threads, messages, annotations, diligence state via ResearchRepository
-     → assembles research_handoff JSON artifact (schema in Decision 2)
-     → INSERT INTO research_handoffs (research_file_id=42, ticker='VALE' [snapshot],
-       status='finalized', version=N, artifact=...)
-     → return { handoff_id, version, ticker, artifact_summary }
+  → Frontend → POST /api/research/content/handoffs/finalize {research_file_id: 42}
+  → Ai-excel-addin:
+     repo = ResearchRepositoryFactory.get(user_id)
+     HandoffService(repo).finalize_handoff(research_file_id=42)
+     → reads the latest draft handoff (created by Phase 3 on diligence activation)
+     → refreshes artifact from current research state (threads, annotations, source_refs)
+     → UPDATES the existing draft row (does NOT create a new row):
+       UPDATE research_handoffs SET status='finalized', finalized_at=now(), artifact=...
+       WHERE research_file_id=42 AND status='draft'
+     → return { handoff_id, version, ticker, status, artifact_summary }
   → Frontend: navigate to handoff review view, display artifact + "Build Model" button
+
+User clicks "New Version" on a finalized handoff
+  → Frontend → POST /api/research/content/handoffs/new-version {research_file_id: 42}
+  → Ai-excel-addin:
+     repo = ResearchRepositoryFactory.get(user_id)
+     HandoffService(repo).create_new_version(research_file_id=42)
+     → marks current finalized handoff as 'superseded'
+     → creates a NEW row with version+1, status='draft', copying the artifact
+     → return { handoff_id, version, ticker, status, artifact_summary }
+  → Frontend: navigate to diligence tab for editing the new draft
 
 User clicks "Build Model"
   → Frontend → POST /api/research/content/handoffs/{handoff_id}/build-model
@@ -444,8 +485,8 @@ User clicks "Build Model"
      → Model engine builds populated SIA-template workbook
      → Returns { output_path, build_status }
 
-     Step 2: annotate_model_with_research(model_path=output_path, handoff_id=handoff.id)
-     → Load research_handoffs row
+     Step 2: annotate_model_with_research(model_path=output_path, handoff_id=handoff.id, user_id=user_id)
+     → Load research_handoffs row from per-user research.db
      → openpyxl: open workbook
      → Write handoff.assumptions[] to SIA driver cells (via driver-name → cell-address mapping)
      → Write handoff.{thesis, catalysts, risks, peers, valuation, qualitative_factors} to hidden metadata sheet
@@ -453,7 +494,7 @@ User clicks "Build Model"
      → Clear model-engine cache
      → Return { model_path, annotated_at }
 
-     Step 3: Return { model_path, handoff_id, build_status } to frontend
+     Step 3: Return { model_path, handoff_id, build_status, annotation_status } to frontend
   → Frontend: render "Model ready" state with download link
 
 User opens workbook in Excel
@@ -519,6 +560,17 @@ blocks.append(format_research_block(
   file, threads, active_messages, reader_messages, draft_handoff
 ))
 
+# Phase 2+: if last user message has metadata.document_context, add document reference
+# to the prompt block. When the active reader tab is a document, the frontend attaches
+# metadata.document_context = {source_id, source_type, section, selection?} (snake_case
+# wire format) to the user message. build_research_context() reads this from the last
+# user message's metadata and appends a [DOCUMENT CONTEXT] block with the source
+# reference and optionally the selected text.
+last_user_msg = _get_last_user_message(active_messages)
+if last_user_msg and _has_document_context(last_user_msg):
+    doc_ctx = _parse_document_context(last_user_msg["metadata"])
+    blocks.append(format_document_context_block(doc_ctx))
+
 # No repo.close() needed — ResearchRepository uses connection-per-operation
 # (open → use → close inside each method call). See Invariant 12.
 
@@ -566,7 +618,7 @@ These are the architecture rules that must hold across all code. Each invariant 
    - Client disconnects mid-stream → gateway cancels runner (current behavior); user message persisted, agent reply not persisted; reload shows only user message
    - **Phase 1 accepts partial loss on disconnect.** Run-to-completion and incremental persistence are later-phase upgrades if UX hurts.
 
-6. **Filing text is immutable once ingested** — [ENFORCED by content-addressed naming]. `filing_id` includes an 8-char content hash suffix (e.g., `VALE_10K_2024_a3f8b2c1`). Re-ingesting the same filing produces a NEW filing_id; does not overwrite the old file. Annotations keep pointing at the exact text they were created against.
+6. **Filing text is immutable once ingested** — [ENFORCED by content-addressed naming]. `filing_id` includes an 8-char content hash suffix (e.g., `VALE_10K_2024_a3f8b2c1`). Same content bytes → same SHA hash → same filing_id (idempotent). Different normalization of the same SEC filing → different content bytes → different hash → different filing_id. Both versions coexist; old annotations keep pointing at their original filing version.
 
 7. **Char offsets are the stable annotation reference** — [ENFORCED by schema]. Paragraph numbers are display sugar, computed lazily at citation-render time from immutable filing text. NEVER persisted as annotation fields. Annotation schema does NOT include a `para_id` column.
 
@@ -580,7 +632,7 @@ These are the architecture rules that must hold across all code. Each invariant 
 
 12. **Connection-per-request for SQLite** — [ENFORCED by `ResearchRepository` pattern]. Open → use → close per operation. Long-lived connection caching is OPT-IN, added only after profiling shows opens matter, with explicit in-use/idle tracking, LRU eviction, and forced close on eviction. Default is no caching.
 
-13. **Qualitative factors are extensible by design** — [ENFORCED by schema]. Free-form `category` strings, schema-free per-category `data` blobs. Schema changes are NOT required to add new factor types. Seed categories are suggestions, not enumerations.
+13. **Qualitative factors are extensible by design** — [ENFORCED by schema]. Free-form `category` strings, schema-free per-category `data` blobs. Schema changes are NOT required to add new factor types. Seed categories are suggestions, not enumerations. Each factor entry carries a stable `factor_id` (auto-incrementing integer scoped to the artifact, tracked via `artifact.metadata.next_factor_id`). All mutation operations (edit, delete) use `factor_id`, not `category` — two factors can share a category.
 
 14. **Diligence finalization is never blocked on completion state** — [ENFORCED by service layer]. Users can finalize handoffs with any combination of `empty/draft/confirmed` section states. Forcing completion creates rubber-stamp incentive.
 
@@ -617,11 +669,15 @@ These are the architecture rules that must hold across all code. Each invariant 
 ### AI-Excel-Addin (new research layer)
 | File | Owns |
 |---|---|
-| `api/research/routes.py` | REST endpoints for research CRUD (files, threads, messages, documents, extractions, annotations, handoffs, build-model); validates inputs; delegates to services |
+| `api/research/routes.py` | REST endpoints for research CRUD (files, threads, messages, documents, extractions, annotations, diligence/{activate, state, sections, factors, prepopulate, opening-take}, handoffs, handoffs/{id}/build-model, re-annotate, export, download); validates inputs; delegates to services |
 | `api/research/repository.py` | `ResearchRepository` + factory; per-user file routing; connection lifecycle (connection-per-request); lazy schema migrations; all SQLite access for research tables |
 | `api/research/policy.py` | **Research-Mode Policy Layer (prompt routing only)** — `is_research_workspace(context)` predicate and `build_research_prompt_stack(context)` which assembles research-specific system prompt blocks + the file context block from `context.py`. Does NOT restrict tool access: the agent retains full `memory_*` + `run_agent` + all other tools because all ai-excel-addin state is per-user (Invariant 1). The policy layer's sole job is routing research turns to a research-appropriate prompt stack that doesn't drag in inappropriate guidance from the generic prompt path. |
 | `api/research/context.py` | `build_research_context(user_id, research_file_id, thread_id, tab_context)` — assembles the research context prompt block from repository queries. Called from `policy.build_research_prompt_stack()`. |
 | `api/research/handoff.py` | Handoff artifact assembly from research state; `research_handoffs` row construction; diligence state snapshot. |
+| `api/research/diligence_service.py` | **Phase 3** — orchestrates diligence section operations with validation. Per-section completion state management. |
+| `api/research/prepopulate.py` | **Phase 3** — server-side pre-population orchestration. Fetch-parallel, merge-once pattern via `asyncio.gather` for 7 core section pullers + qualitative factor data. Single `batch_update_handoff_sections()` write. |
+| `api/research/factor_data_registry.py` | **Phase 3** — decorator-based registry for `fetch_data_for(category, ticker)`. 3 seed pullers (`short_interest`, `street_view`, `positioning`). Each returns `{data, source_refs}`. |
+| `api/research/synthesis.py` | **Phase 3** — opening take synthesis from threads + diligence state. Replace-latest semantics via `upsert_artifact_message()`. |
 | `api/research/build_model_orchestrator.py` | **Phase 4** — orchestrates the two-step `model_build()` → `annotate_model_with_research()` sequence for the `POST /handoffs/{id}/build-model` endpoint. Not a direct MCP path from the frontend. |
 | `api/research/document_service.py` | **Phase 2** — reads filings from shared `data/filings/`, parses sections, calls langextract for extractions. Stateless read-only service. |
 | `api/agent/interactive/runtime.py` (extended) | Chat runtime hooks for server-side message persistence (pre-turn save of user message committed to disk BEFORE first SSE yield, post-stream save of agent message). When `purpose='research_workspace'`, delegates prompt assembly to the research policy layer. Tool catalog and local handlers are UNCHANGED for research turns — agent has full tool surface. |
@@ -648,7 +704,7 @@ These are the architecture rules that must hold across all code. Each invariant 
 ### New MCP Tools (Phase 4)
 | Tool | Owns |
 |---|---|
-| `annotate_model_with_research(model_path, handoff_id)` | Load handoff, write assumptions to driver cells, write research context to hidden metadata sheet, save with `fullCalcOnLoad=True` + `forceFullCalc=True`, clear model-engine cache. **Does NOT perform server-side readback** — openpyxl can't verify recalc. Workbook is only valid once Excel opens it. |
+| `annotate_model_with_research(model_path, handoff_id, user_id)` | Load handoff from per-user `research.db` via `ResearchRepositoryFactory.get(user_id)`, write assumptions to driver cells, write research context to hidden metadata sheet, save with `fullCalcOnLoad=True` + `forceFullCalc=True`, clear model-engine cache (defense-in-depth). **Does NOT perform server-side readback** — openpyxl can't verify recalc. Workbook is only valid once Excel opens it. |
 
 ---
 
@@ -660,7 +716,7 @@ What each phase delivers, anchored to this architecture:
 
 - **Phase 2** — Document tabs (filing + transcript rendering via existing tooling), annotation schema + UI, text-selection → agent panel plumbing, agent highlights from langextract extractions, 3 new langextract schemas, filing content-hash versioning, deterministic paragraph split rule. **No diligence, no handoff.**
 
-- **Phase 3** — Diligence checklist UI (9 core + qualitative factors), per-section state model, agent initial pull sequence, style-aware factor suggestions, `fetch_data_for(category, ticker)` registry. **No handoff, no model build.**
+- **Phase 3** — Diligence checklist UI (9 core + qualitative factors with stable `factor_id`), per-section state model, server-side parallel data pull (direct MCP tool calls, not agent-mediated), style-aware factor suggestions, `fetch_data_for(category, ticker)` registry (moved forward from Phase 4), draft `research_handoffs` rows (`status='draft'`) for progressive diligence state storage, opening take synthesis. **No FINALIZED handoff, no model build.** Draft handoff rows store diligence state only; finalization is Phase 4.
 
 - **Phase 4** — `research_handoffs` table + lifecycle, handoff artifact assembly, "Finalize Report" flow, `annotate_model_with_research()` MCP tool, SIA driver-name → cell-address mapping, workbook recalc safeguards. **This closes the pipeline.**
 

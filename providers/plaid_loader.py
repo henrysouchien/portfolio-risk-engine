@@ -17,7 +17,6 @@ from brokerage.plaid.client import (
     create_client,
     create_hosted_link_token,
     create_update_link_token,
-    fetch_plaid_balances,
     fetch_plaid_holdings,
     get_institution_info,
     wait_for_public_token,
@@ -148,8 +147,23 @@ def normalize_plaid_holdings(holdings: list, securities: list) -> pd.DataFrame:
 
 # --- Infer Margin Balances ---------------------------------
 
+import math
 import pandas as pd
 import numpy as np
+
+
+def _as_finite_float(value, default=0.0, *, context: str = "") -> float:
+    if value is None:
+        return default
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        portfolio_logger.warning("Non-numeric value for %s: %r", context, value)
+        return default
+    if not math.isfinite(result):
+        portfolio_logger.warning("Non-finite value for %s: %r", context, value)
+        return default
+    return result
 
 
 def calc_cash_gap(df_acct: pd.DataFrame, balances: dict, tol: float = 0.01) -> float:
@@ -169,9 +183,21 @@ def calc_cash_gap(df_acct: pd.DataFrame, balances: dict, tol: float = 0.01) -> f
     -------
     float   (0.0 if |gap| < tol)
     """
-    pos_total   = df_acct["value"].sum(skipna=True)
-    acct_total  = float(balances.get("current", 0.0))
-    gap = round(acct_total - pos_total, 2)          # round for cleanliness
+    current = balances.get("current")
+    if current is None:
+        portfolio_logger.warning(
+            "[%s] Skipping cash-gap detection: balances.current is None",
+            balances.get("iso_currency_code") or "UNKNOWN",
+        )
+        return 0.0
+
+    acct_total = _as_finite_float(current, context="balances.current")
+    pos_total = df_acct["value"].sum(skipna=True)
+    margin_loan = _as_finite_float(
+        balances.get("margin_loan_amount"),
+        context="balances.margin_loan_amount",
+    )
+    gap = round(acct_total - pos_total - margin_loan, 2)
 
     return 0.0 if abs(gap) < tol else gap
 
@@ -285,15 +311,80 @@ def patch_cash_gap_from_balance(
     pd.DataFrame
         Holdings with synthetic cash row added if a material gap is detected.
     """
-    gap = calc_cash_gap(df_acct, balances)
+    margin_loan = _as_finite_float(
+        balances.get("margin_loan_amount"),
+        context="balances.margin_loan_amount",
+    )
+    current = balances.get("current")
+    holdings_total = _as_finite_float(
+        df_acct["value"].sum(skipna=True),
+        context="holdings_total",
+    )
+    account_id = df_acct["account_id"].iloc[0] if "account_id" in df_acct.columns and not df_acct.empty else None
+    native_cash_present = should_skip_cash_patch(df_acct)
 
     # ── STEP 0: bail out if Plaid already sent a 'cash' position ───────────
-    if should_skip_cash_patch(df_acct):
+    if native_cash_present:
+        if margin_loan > 0:
+            cash_mask = df_acct["type"].eq("cash")
+            if cash_mask.any():
+                df_acct = df_acct.copy()
+                cash_values = pd.to_numeric(df_acct.loc[cash_mask, "value"], errors="coerce").fillna(0.0)
+                target_idx = cash_values.abs().idxmax()
+                native_cash_total = round(float(cash_values.sum()) - margin_loan, 2)
+                df_acct.at[target_idx, "value"] = (
+                    _as_finite_float(df_acct.at[target_idx, "value"], context="cash_row.value")
+                    - margin_loan
+                )
+                if "quantity" in df_acct.columns:
+                    df_acct.at[target_idx, "quantity"] = (
+                        _as_finite_float(df_acct.at[target_idx, "quantity"], context="cash_row.quantity")
+                        - margin_loan
+                    )
+                if "cost_basis" in df_acct.columns:
+                    df_acct.at[target_idx, "cost_basis"] = None
+                portfolio_logger.warning(
+                    "[%s] Adjusted native cash row in-place for margin_loan_amount=%.2f",
+                    institution,
+                    margin_loan,
+                )
+                portfolio_logger.info(
+                    "Plaid margin cash-gap context institution=%s account_id=%s current=%r holdings_total=%.2f margin_loan_amount=%.2f net_cash=%r native_cash_present=%s branch=%s",
+                    institution,
+                    account_id,
+                    current,
+                    holdings_total,
+                    margin_loan,
+                    native_cash_total,
+                    True,
+                    "native_cash_adjust",
+                )
         if verbose:
-            portfolio_logger.debug(f"[{institution}] Margin Calculation: Skipped — 'cash' present in holdings. Balance / Holdings Difference: {gap:,.2f}")
+            portfolio_logger.debug(
+                "[%s] Margin Calculation: Skipped - 'cash' present in holdings.",
+                institution,
+            )
         return df_acct
-        
+
     # ── STEP 1: calculate the gap ──────────────────────────────────────────
+    gap = calc_cash_gap(df_acct, balances)
+    if margin_loan > 0:
+        branch = "gap_with_margin"
+        net_cash = gap
+        if current is None:
+            branch = "skipped_current_none"
+            net_cash = None
+        portfolio_logger.info(
+            "Plaid margin cash-gap context institution=%s account_id=%s current=%r holdings_total=%.2f margin_loan_amount=%.2f net_cash=%r native_cash_present=%s branch=%s",
+            institution,
+            account_id,
+            current,
+            holdings_total,
+            margin_loan,
+            net_cash,
+            False,
+            branch,
+        )
     if verbose:
         tag = "idle cash" if gap > 0 else "margin debit" if gap < 0 else "balanced"
         portfolio_logger.debug(f"[{institution}] Margin calculation: Balance / Holdings Cash Difference: {gap:,.2f} → {tag}")
@@ -525,8 +616,8 @@ def load_all_user_holdings(user_id: str, region_name: str, client: plaid_api.Pla
 
     For each institution linked to the user:
       • Retrieves long-lived Plaid access token from AWS Secrets Manager
-      • Fetches both investment holdings and account balances
-      • Loops through each individual account in balances payload
+      • Fetches investment holdings with bundled account balances
+      • Loops through each individual account in the holdings payload
       • Normalizes holdings at the account level (via `normalize_plaid_holdings`)
       • Applies synthetic 'cash' or 'margin' rows if Plaid omits them (via `patch_cash_gap_from_balance`)
       • Tags each row with institution name for downstream attribution
@@ -565,10 +656,9 @@ def load_all_user_holdings(user_id: str, region_name: str, client: plaid_api.Pla
         )
         access_token = token_data["access_token"]
         holdings_data = fetch_plaid_holdings(access_token, client)
-        balances_data = fetch_plaid_balances(access_token, client)
 
         # Patch each account separately
-        for acct in balances_data["accounts"]:
+        for acct in holdings_data["accounts"]:
             acct_id  = acct["account_id"]
             acct_bal = acct["balances"]
 

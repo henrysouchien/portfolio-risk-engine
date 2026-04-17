@@ -130,13 +130,13 @@ All work in no-DB mode once `PositionService` cache ops are guarded.
 
 > get_risk_analysis, get_risk_score, set_risk_profile, run_optimization,
 > run_whatif, run_backtest, compare_scenarios, get_leverage_capacity,
-> generate_rebalance_trades, get_factor_analysis, get_factor_recommendations,
+> preview_rebalance_trades, get_factor_analysis, get_factor_recommendations,
 > get_trading_analysis, suggest_tax_loss_harvest, get_positions, get_performance,
 > export_holdings
 
 #### Tools that hard-require DB (`@require_db`)
 
-> ingest_transactions, list_transactions, list_ingestion_batches,
+> fetch_provider_transactions, list_transactions, list_ingestion_batches,
 > inspect_transactions, list_flow_events, list_income_events,
 > refresh_transactions, transaction_coverage,
 > create_basket, list_baskets, get_basket, update_basket, delete_basket,
@@ -493,7 +493,7 @@ def require_db(fn: Callable) -> Callable:
 ```python
 @handle_mcp_errors
 @require_db
-def ingest_transactions(...):
+def fetch_provider_transactions(...):
     ...
 ```
 
@@ -522,7 +522,7 @@ python mcp_server.py
 # get_risk_analysis() → "No brokerage positions found"
 
 # 5. DB-required tools — clear error message
-# ingest_transactions() → "This feature requires a PostgreSQL database"
+# fetch_provider_transactions() → "This feature requires a PostgreSQL database"
 
 # 6. Verify existing DB users are unaffected
 export DATABASE_URL=postgresql://postgres@localhost:5432/risk_module_db
@@ -634,7 +634,7 @@ the word "normalizer" but have completely different interfaces, locations, and o
 | **Output** | `NormalizeResult` with `list[PositionRecord]` | `tuple[list[NormalizedTrade], list[NormalizedIncome], list[dict]]` |
 | **Purpose** | CSV → current holdings snapshot | API/Flex → trade + income history |
 | **Extension** | Agent drops `.py` files in `~/.risk_module/normalizers/` | Edit `providers/normalizers/` source code |
-| **Used by** | `import_portfolio` MCP tool | `ingest_transactions` MCP tool |
+| **Used by** | `import_portfolio` MCP tool | `fetch_provider_transactions` MCP tool |
 
 Both may parse the same physical file (e.g., IBKR Activity Statement) but extract
 different sections. The IBKR position normalizer extracts "Open Positions"; the

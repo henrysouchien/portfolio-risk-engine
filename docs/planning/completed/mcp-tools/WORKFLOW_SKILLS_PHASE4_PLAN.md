@@ -10,7 +10,7 @@ Same pattern as Phase 2: markdown choreography files in AI-excel-addin that chai
 
 Key difference from WORKFLOW_DESIGN.md: two major gaps have been **closed** since the design was written:
 - `compare_scenarios()` now exists — batch what-if and optimization comparison with ranking
-- `generate_rebalance_trades()` now exists — target weights → sequenced BUY/SELL legs
+- `preview_rebalance_trades()` now exists — target weights → sequenced BUY/SELL legs
 
 ---
 
@@ -49,7 +49,7 @@ Key tool chain:
 - Step 2: `run_whatif(delta_changes={...}, format="agent")` — single scenario
 - Step 3: `compare_scenarios(mode="whatif", scenarios="[...]", rank_by="vol_delta", rank_order="asc")` — batch (scenarios is a JSON string)
 - Step 4: `run_whatif` (tweaked) or `run_optimization`
-- Step 5: `generate_rebalance_trades` → `preview_trade` → `execute_trade(preview_id=...)`
+- Step 5: `preview_rebalance_trades` → `preview_trade` → `execute_trade(preview_id=...)`
 
 Audit: `record_workflow_action(workflow_name="scenario_analysis", recommendation_type="rebalance", recommendation_text="...", source_tool="compare_scenarios")` at step 3.
 
@@ -68,7 +68,7 @@ Key tool chain:
 - Step 2: `run_optimization(optimization_type="min_variance"|"max_return", format="agent")`
 - Step 3: `compare_scenarios(mode="optimization", scenarios="[{...}]", rank_by="trades_required"|"hhi", rank_order="asc")` — batch variant comparison (scenarios is a JSON string)
 - Step 4: `run_whatif(target_weights={optimized}, format="agent")` for validation, `create_basket(name="...", tickers="AAPL,MSFT,...", weighting_method="custom", weights={...})` to save
-- Step 5: `generate_rebalance_trades` → `preview_trade` → `execute_trade(preview_id=...)`
+- Step 5: `preview_rebalance_trades` → `preview_trade` → `execute_trade(preview_id=...)`
 
 Audit: `record_workflow_action(workflow_name="strategy_design", recommendation_type="rebalance", recommendation_text="...", source_tool="run_optimization")` at step 4.
 
@@ -106,7 +106,7 @@ These files contain the actual tool signatures and behavior that the skills must
 | File | What to verify |
 |------|---------------|
 | `mcp_tools/compare.py` | `compare_scenarios()` signature, `_WHATIF_RANK_KEYS`, `_OPTIMIZATION_RANK_KEYS`, scenario format validation |
-| `mcp_tools/rebalance.py` | `generate_rebalance_trades()` signature (target_weights, weight_changes, preview, format) |
+| `mcp_tools/rebalance.py` | `preview_rebalance_trades()` signature (target_weights, weight_changes, preview, format) |
 | `mcp_tools/trading.py` | `preview_trade()` and `execute_trade(preview_id)` signatures |
 | `mcp_tools/audit.py` | `_ALLOWED_WORKFLOWS` set, `record_workflow_action()` and `update_action_status()` signatures |
 | `mcp_tools/whatif.py` | `run_whatif()` signature, `delta_changes` string format support |
@@ -160,7 +160,7 @@ description: <one-line description>
 ## Key Design Decisions
 
 1. **`compare_scenarios` replaces manual loops** — All three skills use the batch comparison tool instead of sequential `run_whatif` calls. Hedging compares hedge approaches, scenario-analysis compares what-if variants, strategy-design compares optimization variants.
-2. **`generate_rebalance_trades` at execution** — Scenario analysis and strategy design use this to convert target weights to sequenced trade legs. Hedging uses direct `preview_trade(ticker=..., quantity=..., side=..., account_id=...)` since hedges are typically single-instrument trades.
+2. **`preview_rebalance_trades` at execution** — Scenario analysis and strategy design use this to convert target weights to sequenced trade legs. Hedging uses direct `preview_trade(ticker=..., quantity=..., side=..., account_id=...)` since hedges are typically single-instrument trades.
 3. **Hedging is instrument-agnostic** — Skill covers ETF, options, and futures hedges using different tool chains per instrument type, converging at `compare_scenarios` for impact comparison.
 4. **Scenario analysis has no predefined templates** — Agent must construct `delta_changes` from natural language. Documented as a workaround, not a gap-filler.
 5. **Strategy design saves as basket** — `create_basket` at step 4 persists the optimized weights for reuse. No strategy versioning beyond differently-named baskets.

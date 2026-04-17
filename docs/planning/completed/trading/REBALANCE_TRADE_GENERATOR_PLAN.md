@@ -109,7 +109,7 @@ All four functions promoted to public API. Update `basket_trading.py` to import 
 
 ```python
 @handle_mcp_errors
-def generate_rebalance_trades(
+def preview_rebalance_trades(
     target_weights: Optional[Dict[str, float]] = None,    # Absolute weights (~1.0)
     weight_changes: Optional[Dict[str, float]] = None,    # Signed deltas
     account_id: Optional[str] = None,                     # Filter to specific account
@@ -188,7 +188,7 @@ Add import + `@mcp.tool()` wrapper following existing pattern. Docstring:
 | `core/rebalance_flags.py` | NEW — generate_rebalance_flags(snapshot) + 8 flag types |
 | `mcp_tools/trading_helpers.py` | NEW — promoted public helpers (compute_rebalance_legs, fetch_current_prices, safe_float, normalize_ticker) |
 | `mcp_tools/basket_trading.py` | Update imports to use trading_helpers (delete private copies) |
-| `mcp_tools/rebalance.py` | NEW — generate_rebalance_trades() MCP tool + _build_agent_response() |
+| `mcp_tools/rebalance.py` | NEW — preview_rebalance_trades() MCP tool + _build_agent_response() |
 | `mcp_server.py` | Register tool |
 | `tests/core/test_rebalance_flags.py` | NEW — flag generation tests |
 | `tests/mcp_tools/test_rebalance_agent_format.py` | NEW — agent format + MCP tool tests |
@@ -247,4 +247,4 @@ Add import + `@mcp.tool()` wrapper following existing pattern. Docstring:
 Call with real portfolio positions, verify trade list makes sense. Compare output to manually computed expected trades.
 
 ### 4. MCP test
-After `/mcp` reconnect, verify `generate_rebalance_trades` appears in tool list. Call with `target_weights` from a `run_optimization()` result.
+After `/mcp` reconnect, verify `preview_rebalance_trades` appears in tool list. Call with `target_weights` from a `run_optimization()` result.

@@ -204,7 +204,7 @@ Re-runs ingest for a provider (or all), fetching fresh data from provider APIs a
 }
 ```
 
-**Implementation**: Calls `ingest_transactions()` internally for each provider. The existing upsert logic handles idempotent re-ingest. This is essentially a convenience wrapper — but valuable because it:
+**Implementation**: Calls `fetch_provider_transactions()` internally for each provider. The existing upsert logic handles idempotent re-ingest. This is essentially a convenience wrapper — but valuable because it:
 1. Picks up new transactions since last ingest
 2. Re-normalizes with any normalizer fixes (e.g., the IBKR cash-row fix from Phase 2)
 3. Updates `ingestion_batches` metadata
@@ -640,6 +640,6 @@ After using inspection tools to diagnose and fix data quality issues:
 1. Enable `TRANSACTION_STORE_READ=true` by default in settings.py
 2. Remove feature flag branches (simplify code)
 3. Deprecate live-fetch path in `_analyze_realized_performance_single_scope()`
-4. Move `ingest_transactions` to automatic trigger (on performance run if stale)
+4. Move `fetch_provider_transactions` to automatic trigger (on performance run if stale)
 
 This is deferred until the store-read path has been validated in production use.

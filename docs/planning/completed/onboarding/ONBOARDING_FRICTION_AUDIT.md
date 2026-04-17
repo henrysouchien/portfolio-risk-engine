@@ -48,7 +48,7 @@ For a new user, the unlock order is: Positions first (80% of tool value) → Tra
 | # | Blocker | Issue |
 |---|---------|-------|
 | U1 | **No onboarding wizard** | User sees blank dashboard with no guidance on what to do next. |
-| U2 | **No CSV/paste import path** | No way to quickly load positions without an API connection. The simplest current path is raw JSON via `ingest_transactions` MCP tool. |
+| U2 | **No CSV/paste import path** | No way to quickly load positions without an API connection. The simplest current path is raw JSON via `fetch_provider_transactions` MCP tool. |
 | U3 | **No `.env` validation** | Missing env vars produce cryptic runtime errors instead of helpful "you need to set X" messages. |
 | U4 | **No demo/sample portfolio** | Can't try the system without real data. No way to see what the tools do before committing to setup. |
 | U5 | **50+ MCP tools, no guidance** | Overwhelming tool list. No "start here" or recommended first-use flow. |
@@ -97,7 +97,7 @@ Blockers H1-H3 are unavoidable infrastructure setup (~30 min). But blocker **S1*
 2. **SnapTrade** — similar complexity
 3. **Schwab direct** — requires Schwab developer account + 7-day expiring tokens
 4. **IBKR Flex** — requires IBKR account + Flex Query setup
-5. **`ingest_transactions` MCP tool** — accepts raw JSON, but no CSV support and requires knowing the exact schema
+5. **`fetch_provider_transactions` MCP tool** — accepts raw JSON, but no CSV support and requires knowing the exact schema
 
 None of these are "upload a CSV from your brokerage and go." Every brokerage (Schwab, Fidelity, Vanguard, IBKR, Merrill, E*Trade) lets users download CSV exports of positions and transactions. Supporting that would bypass all brokerage API friction entirely.
 
@@ -148,7 +148,7 @@ and API is needed — the API replaces CSV as the source of truth.
 | **Transaction store** | ingest/list/inspect_transactions, list_ingestion_batches, list_flow_events, list_income_events, refresh_transactions, transaction_coverage | **Heavy Postgres** — JSONB upsert, complex dedup, provider normalization. NOT needed day one. |
 | **Performance** | get_performance (mode=realized) | Uses transaction store. `mode=hypothetical` is DB-free. |
 | **Factor intelligence** | get_factor_analysis, get_factor_recommendations | Optional basket reads. |
-| **Rebalance** | generate_rebalance_trades | Optional allocation reads. |
+| **Rebalance** | preview_rebalance_trades | Optional allocation reads. |
 
 ### Key Insight: Three-Tier Strategy
 

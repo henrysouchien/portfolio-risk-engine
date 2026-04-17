@@ -52,19 +52,19 @@ Registered via `@mcp.tool()` decorators. All import from `mcp_tools/*.py`. No se
 **By category:**
 - Positions/risk (8): get_positions, get_risk_analysis, get_risk_score, get_risk_profile, set_risk_profile, get_leverage_capacity, monitor_hedge_positions, check_exit_signals
 - Performance (2): get_performance, get_income_projection
-- Scenarios (7): run_whatif, run_optimization, run_backtest, get_efficient_frontier, compare_scenarios, suggest_tax_loss_harvest, generate_rebalance_trades
+- Scenarios (7): run_whatif, run_optimization, run_backtest, get_efficient_frontier, compare_scenarios, suggest_tax_loss_harvest, preview_rebalance_trades
 - Trading (11): get_trading_analysis, get_orders, preview_trade, execute_trade, cancel_order, preview_basket_trade, execute_basket_trade, preview_futures_roll, execute_futures_roll, preview_option_trade, execute_option_trade
 - Stock analysis (2): analyze_stock, analyze_option_chain, analyze_option_strategy
 - Factor (3): get_factor_analysis, get_factor_recommendations, get_futures_curve
 - Portfolio mgmt (8): list_portfolios, create_portfolio, delete_portfolio, update_portfolio_accounts, list_accounts, account_activate, account_deactivate, import_portfolio
 - Baskets (7): list_baskets, get_basket, create_basket, update_basket, delete_basket, create_basket_from_etf, analyze_basket
-- Transactions (8): ingest_transactions, list_transactions, list_ingestion_batches, inspect_transactions, list_flow_events, list_income_events, refresh_transactions, transaction_coverage
+- Transactions (8): fetch_provider_transactions, list_transactions, list_ingestion_batches, inspect_transactions, list_flow_events, list_income_events, refresh_transactions, transaction_coverage
 - Allocation (2): set_target_allocation, get_target_allocation
 - Market data (3): get_quote, get_portfolio_news, get_portfolio_events_calendar
 - Normalizer builder (5): normalizer_sample_csv, normalizer_stage, normalizer_test, normalizer_activate, normalizer_list
 - Config (2): manage_instrument_config, manage_ticker_config
 - Audit (3): record_workflow_action, update_action_status, get_action_history
-- Import/export (2): export_holdings, import_transactions
+- Import/export (2): export_holdings, import_transaction_file
 - Internal (1): get_mcp_context
 
 ### fmp-mcp (19 tools in `fmp/server.py`)
@@ -87,7 +87,7 @@ All 56 tools import the **same function** from `mcp_tools/*.py` via `_unwrap()` 
 |----------|----------|-------------|
 | `export_holdings` | import/export | Likely oversight — supports `output="inline"`, works without file I/O |
 | `import_portfolio` | portfolio mgmt | Uses `file_path` param (not `backfill_path`) — file system interaction |
-| `import_transactions` | transactions | Uses `file_path` param — file system interaction |
+| `import_transaction_file` | transactions | Uses `file_path` param — file system interaction |
 | `list_accounts` | portfolio mgmt | Likely oversight — read-only, safe for agent |
 | `list_portfolios` | portfolio mgmt | Likely oversight — read-only, safe for agent |
 | `manage_instrument_config` | config | Admin config mutation — intentional exclusion |
@@ -106,10 +106,10 @@ All 56 tools import the **same function** from `mcp_tools/*.py` via `_unwrap()` 
 | `get_mcp_context` | internal | Internal MCP diagnostic — intentional exclusion |
 
 **Classification:**
-- **Intentional exclusions (10)**: File system tools (`import_portfolio`, `import_transactions`, normalizer family ×5), admin config tools (`manage_instrument_config`, `manage_ticker_config`), internal MCP diagnostic (`get_mcp_context`)
+- **Intentional exclusions (10)**: File system tools (`import_portfolio`, `import_transaction_file`, normalizer family ×5), admin config tools (`manage_instrument_config`, `manage_ticker_config`), internal MCP diagnostic (`get_mcp_context`)
 - **Likely oversights (9)**: `export_holdings`, `list_accounts`, `list_portfolios`, `set_target_allocation`, `get_target_allocation`, `get_portfolio_news`, `get_portfolio_events_calendar`, `analyze_basket`, `get_action_history`
 
-Note: `BLOCKED_PARAMS` only covers `backfill_path`, `output`, and `debug_inference`. The file-path exclusions for `import_portfolio`/`import_transactions` are based on their `file_path` parameter (not blocked by `BLOCKED_PARAMS` but inappropriate for agent API). `export_holdings` supports inline mode and could work in the registry.
+Note: `BLOCKED_PARAMS` only covers `backfill_path`, `output`, and `debug_inference`. The file-path exclusions for `import_portfolio`/`import_transaction_file` are based on their `file_path` parameter (not blocked by `BLOCKED_PARAMS` but inappropriate for agent API). `export_holdings` supports inline mode and could work in the registry.
 
 ### Building blocks (10, not in MCP)
 
@@ -153,7 +153,7 @@ These are intentionally NOT MCP tools — they're lower-level primitives for age
 | `POST /api/monte-carlo` | Monte Carlo building block | Yes |
 | `POST /api/direct/stock` | `analyze_stock()` | Yes |
 | `GET/POST /api/allocations/target` | `get/set_target_allocation()` | Yes |
-| `POST /api/allocations/rebalance` | `generate_rebalance_trades()` | Yes |
+| `POST /api/allocations/rebalance` | `preview_rebalance_trades()` | Yes |
 | `GET /api/income/projection` | `get_income_projection()` | Yes |
 | `POST /api/tax-harvest` | `suggest_tax_loss_harvest()` | Yes |
 | `GET /api/positions/holdings` | `get_positions()` | Yes |
@@ -241,7 +241,7 @@ v2 is not a full replacement for v1 — it adds account management but lacks get
 | Recent MCP Tool | In Agent Registry? | Has REST equivalent? |
 |-----------------|-------------------|---------------------|
 | `monitor_hedge_positions` | Yes | Yes (`/api/hedge-monitor`) |
-| `generate_rebalance_trades` | Yes | Yes (`/api/allocations/rebalance`) |
+| `preview_rebalance_trades` | Yes | Yes (`/api/allocations/rebalance`) |
 | `compare_scenarios` | Yes | No (MCP-only, agent use case) |
 | `get_portfolio_events_calendar` | **No** | No |
 | `get_portfolio_news` | **No** | No |

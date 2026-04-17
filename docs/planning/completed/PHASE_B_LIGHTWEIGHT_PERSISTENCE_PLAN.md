@@ -37,7 +37,7 @@ claude mcp add portfolio-mcp -e RISK_MODULE_USER_EMAIL=you@example.com -- python
 | **Basket Trading** | preview_basket_trade, execute_basket_trade | 2 |
 | **Allocations** | set_target_allocation, get_target_allocation | 2 |
 | **Audit** | record_workflow_action, update_action_status, get_action_history | 3 |
-| **Transactions** | ingest_transactions, list_transactions, + 6 more | 8 |
+| **Transactions** | fetch_provider_transactions, list_transactions, + 6 more | 8 |
 | **Instrument Config** | manage_instrument_config | 1 |
 
 Phase B targets: **Baskets (7) + Basket Trading (2) + Allocations (2) + Audit (3) + Instrument Config (1) = 15 tools**.

@@ -125,7 +125,7 @@ Step 5: Propose Actions
 
 Step 6: Execute Approved Actions
   → User approves/rejects each. Uses existing tools:
-    generate_rebalance_trades(), set_target_allocation(),
+    preview_rebalance_trades(), set_target_allocation(),
     record_workflow_action()
 
 Step 7: Snapshot & Schedule
@@ -140,7 +140,7 @@ Step 7: Snapshot & Schedule
 | Financial context pull | `financial_summary()`, `liquidity()`, `spending_trends()`, `debt_dashboard()` |
 | Portfolio state check | `get_risk_analysis()`, `get_performance()`, `get_risk_score()`, `get_target_allocation()` |
 | Action audit trail | `record_workflow_action()`, `update_action_status()`, `get_action_history()` |
-| Trade execution | `generate_rebalance_trades(preview=True)` |
+| Trade execution | `preview_rebalance_trades(preview=True)` |
 | Risk profile management | `set_risk_profile()`, `get_risk_profile()` |
 | Allocation management | `set_target_allocation()`, `get_target_allocation()` |
 | Income projection | `get_income_projection()` |

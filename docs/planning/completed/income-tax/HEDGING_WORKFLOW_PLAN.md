@@ -54,7 +54,7 @@ Response shape (from `WhatIfResult.get_summary()` + derived beta from `portfolio
   - `action="execute"`: `{ action: "execute", preview_ids: str[] }` — only `preview_ids` required
 - The frontend wraps this with two separate API methods (`executeHedgePreview` / `executeHedgeTrades`) that each POST to the same endpoint with different `action` values and field sets.
 - Gate: Check `TRADING_ENABLED` at route level (imported from `settings.py`). Return 400 with `"Trading is disabled"` if false.
-- **Do NOT call the MCP-wrapped `generate_rebalance_trades()`** — it uses `@handle_mcp_errors` (stdout swapping). Instead, replicate the core logic inline in the route:
+- **Do NOT call the MCP-wrapped `preview_rebalance_trades()`** — it uses `@handle_mcp_errors` (stdout swapping). Instead, replicate the core logic inline in the route:
   1. `PositionService(user_email)` → `get_all_positions(consolidate=True, account=account_id)` (same as `rebalance.py:121-127`)
   2. Build `position_values`, `held_quantities`, `current_weights` (same as `rebalance.py:133-160`)
   3. Apply `weight_changes={hedge_ticker: suggested_weight}` to `current_weights` (same as `rebalance.py:173-186`)
@@ -202,7 +202,7 @@ Net effect: ~250 lines removed from RiskAnalysis.tsx, ~300 lines in new HedgeWor
 ## Codex v1 Findings (Addressed in v2)
 
 1. **`_load_portfolio_for_analysis()` is MCP-scoped** — has MCP-specific user resolution via env vars. **Fix**: Route replicates portfolio loading inline using `PositionService(user_email)` from auth context, same as `portfolio_service.py:755-765`.
-2. **`generate_rebalance_trades()` wrapped in `@handle_mcp_errors`** — stdout swapping is wrong for route context. **Fix**: Route replicates core rebalance logic inline using the same helpers (`compute_rebalance_legs`, `fetch_current_prices` from `trading_helpers.py`).
+2. **`preview_rebalance_trades()` wrapped in `@handle_mcp_errors`** — stdout swapping is wrong for route context. **Fix**: Route replicates core rebalance logic inline using the same helpers (`compute_rebalance_legs`, `fetch_current_prices` from `trading_helpers.py`).
 3. **`WhatIfResult.get_summary()` fields incorrect** — Plan claimed `before/after` with `volatility/portfolio_beta/hhi` but actual fields are `volatility_change.current/scenario/delta`, `concentration_change`, etc. Beta is not in `get_summary()` — it's in `result.current_metrics.portfolio_factor_betas`. **Fix**: Updated response shape to match actual `WhatIfResult` structure. Beta extracted separately from factor betas dict.
 4. **`account_id` required for trade preview** — `rebalance.py:91` enforces `account_id` when `preview=True`. **Fix**: Made `account_id` required in execute endpoint. Frontend shows account selector in Step 3.
 5. **`preview_ids` required for execution** — Can't execute without preview IDs. **Fix**: Made `preview_ids` required when `action="execute"`.
@@ -221,7 +221,7 @@ Net effect: ~250 lines removed from RiskAnalysis.tsx, ~300 lines in new HedgeWor
 |------|-------------------|
 | `mcp_tools/whatif.py:67-169` | `run_whatif()` — full what-if flow: load portfolio, load risk limits, call ScenarioService |
 | `mcp_tools/trading.py:36-72` | `preview_trade()` + `execute_trade()` — TradeExecutionService calls |
-| `mcp_tools/rebalance.py` | `generate_rebalance_trades()` — weight changes → trade legs |
+| `mcp_tools/rebalance.py` | `preview_rebalance_trades()` — weight changes → trade legs |
 | `mcp_tools/risk.py` | `_load_portfolio_for_analysis()` — shared helper for loading portfolio data |
 | `services/scenario_service.py` | `ScenarioService.analyze_what_if()` — core scenario engine |
 | `services/trade_execution_service.py` | `TradeExecutionService` — preview + execute |

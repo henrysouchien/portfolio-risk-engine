@@ -57,7 +57,7 @@ Replace the cramped 6-tab ScenarioAnalysisContainer + 3-tab StrategyBuilderConta
 | `usePortfolioOptimization` | 45 | `run_optimization` (now deferred — Prep B) | `connectors/features/optimize/hooks/` |
 | `useEfficientFrontier` | — | `get_efficient_frontier` | `connectors/features/efficientFrontier/hooks/` |
 | `useBacktest` | 126 | `run_backtest` | `connectors/features/backtest/hooks/` |
-| `useRebalanceTrades` | 20 | `generate_rebalance_trades` | `connectors/features/allocation/hooks/` |
+| `useRebalanceTrades` | 20 | `preview_rebalance_trades` | `connectors/features/allocation/hooks/` |
 | `useScenarioHistory` | 246 | (client state) | `portfolio/scenario/useScenarioHistory.ts` |
 
 ### Remaining Gaps

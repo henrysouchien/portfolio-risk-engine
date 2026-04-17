@@ -69,8 +69,8 @@ description: Portfolio allocation drift check — assess current vs target, gene
   - For each asset class, distribute target weight pro-rata across current holdings in that class.
   - Example: if equity target is 60% and current equity holdings are AAPL (40%) + MSFT (60%) of equity sleeve, then AAPL target = 0.24, MSFT target = 0.36.
   - If an asset class has no current holdings (empty sleeve), ask the user which tickers to use for that allocation.
-- `generate_rebalance_trades(target_weights={"AAPL": 0.24, "MSFT": 0.36, ...}, format="agent")`: get sequenced BUY/SELL legs.
-- `record_workflow_action(workflow_name="allocation_review", recommendation_type="rebalance", recommendation_text="Rebalance to target allocation: ...", source_tool="generate_rebalance_trades")`: record the recommendation.
+- `preview_rebalance_trades(target_weights={"AAPL": 0.24, "MSFT": 0.36, ...}, format="agent")`: get sequenced BUY/SELL legs.
+- `record_workflow_action(workflow_name="allocation_review", recommendation_type="rebalance", recommendation_text="Rebalance to target allocation: ...", source_tool="preview_rebalance_trades")`: record the recommendation.
 - Present trade plan to user: sells first, then buys, estimated values, cash impact.
 
 5. Preview impact.
@@ -81,7 +81,7 @@ description: Portfolio allocation drift check — assess current vs target, gene
 
 6. Execute (only with explicit user approval).
 - First update audit trail: `update_action_status(action_id, "accepted")` for the recommendation from step 4.
-- `generate_rebalance_trades(target_weights={...}, preview=True, account_id="...")`: preview each leg with broker. Each leg returns a `preview_id`.
+- `preview_rebalance_trades(target_weights={...}, preview=True, account_id="...")`: preview each leg with broker. Each leg returns a `preview_id`.
 - For each approved leg: `execute_trade(preview_id="<preview_id from previous step>")`. The tool takes only `preview_id`, not ticker/side/quantity.
 - `update_action_status(action_id, "executed", execution_result={...})`: update audit trail with execution details.
 - After execution: `get_risk_analysis(format="full")` to verify drift resolved.
@@ -163,7 +163,7 @@ description: Portfolio risk assessment — identify violations, diagnose drivers
 
 4. Recommend mitigations.
 - For each material issue, generate specific actions:
-  - **Concentration**: reduce overweight positions via `generate_rebalance_trades(weight_changes={"AAPL": -0.05, ...})`. Values are decimal deltas.
+  - **Concentration**: reduce overweight positions via `preview_rebalance_trades(weight_changes={"AAPL": -0.05, ...})`. Values are decimal deltas.
   - **Factor exposure**: `get_factor_recommendations(format="agent")` for hedge candidates.
   - **Tax efficiency**: `suggest_tax_loss_harvest(format="agent")` to check if any mitigation trades are also tax-efficient.
   - **Exit signals**: For each flagged ticker, call `check_exit_signals(ticker="AAPL", format="agent")` individually. This is a single-ticker tool — loop through flagged positions one at a time.
@@ -180,7 +180,7 @@ description: Portfolio risk assessment — identify violations, diagnose drivers
 
 6. Execute (only with explicit user approval).
 - First: `update_action_status(action_id, "accepted")` for each recommendation the user approves. For rejected ones: `update_action_status(action_id, "rejected", status_reason="<reason>")`.
-- `generate_rebalance_trades(target_weights={...} or weight_changes={...}, preview=True, account_id="...")`: each leg returns a `preview_id`.
+- `preview_rebalance_trades(target_weights={...} or weight_changes={...}, preview=True, account_id="...")`: each leg returns a `preview_id`.
 - For each approved leg: `execute_trade(preview_id="<preview_id>")`. The tool takes only `preview_id`.
 - `update_action_status(action_id, "executed", execution_result={...})` for each executed recommendation.
 - After execution: `get_risk_analysis(format="agent")` to verify violations resolved. Optionally `get_risk_score(format="agent")` if risk limits are configured (may error without them — treat as informational).
@@ -241,7 +241,7 @@ description: Portfolio risk assessment — identify violations, diagnose drivers
 5. **Allocation Review is the simpler skill** — Steps 1-3 are often sufficient (drift check, report, done). Steps 4-6 only if rebalance needed. Risk Review always has more diagnosis steps.
 6. **Ticker weight conversion in the skill** — The allocation review skill describes how to convert asset-class targets to ticker weights (pro-rata across current holdings). This is agent logic, not a backend tool, since the mapping depends on interpretation. Empty asset class sleeves require user input.
 7. **Allocation review uses `format="full"`** — The agent format snapshot (`get_summary()`) does not include drift data. The full API response includes `asset_allocation` array with `target_pct`, `drift_pct`, `drift_status`, `drift_severity` per asset class. Risk review uses `format="agent"` since it doesn't need drift.
-8. **`execute_trade` takes `preview_id` only** — The tool signature is `execute_trade(preview_id: str)`. All order details (ticker, side, quantity, account) are resolved from the preview. Skills must first call `generate_rebalance_trades(preview=True)` to get preview IDs.
+8. **`execute_trade` takes `preview_id` only** — The tool signature is `execute_trade(preview_id: str)`. All order details (ticker, side, quantity, account) are resolved from the preview. Skills must first call `preview_rebalance_trades(preview=True)` to get preview IDs.
 9. **Weight units** — `target_weights` and `weight_changes` use decimal notation (0.24 = 24%). `delta_changes` also supports string format (`"+5%"`, `"-200bp"`). Skills explicitly note this to prevent confusion.
 10. **What-if does not produce risk scores** — The what-if tool outputs volatility, compliance, and factor changes but not a 0-100 risk score. Skills do not claim before/after risk score in impact previews.
 11. **What-if and compare_scenarios require risk limits** — Both tools hard-error without configured risk limits. Skills include fallback language: skip preview, inform user, suggest `set_risk_profile`.

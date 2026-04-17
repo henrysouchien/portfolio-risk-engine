@@ -30,7 +30,7 @@ Build a dedicated Trading view (`ViewId: 'trading'`) that surfaces the existing 
 | Option combos | `preview_option_trade`, `execute_option_trade` | None (MCP only — stays) |
 | Futures rolls | `preview_futures_roll`, `execute_futures_roll` | None (MCP only — stays) |
 | Hedge monitoring | `monitor_hedge_positions` | None (need to add) |
-| Rebalance | `generate_rebalance_trades` | `POST /api/allocations/rebalance` |
+| Rebalance | `preview_rebalance_trades` | `POST /api/allocations/rebalance` |
 | Hedging workflow | — | `POST /api/hedging/preview`, `POST /api/hedging/execute` |
 
 ### Frontend (partial)

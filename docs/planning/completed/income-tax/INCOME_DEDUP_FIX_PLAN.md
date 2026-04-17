@@ -294,7 +294,7 @@ No code fix needed. These are part of the broader "19 missing opening trades" is
 
 1. `pytest tests/ibkr/test_flex.py -x`
 2. `pytest tests/inputs/test_transaction_store.py -x`
-3. Live: `ingest_transactions(provider="ibkr_flex")` → verify income row count ≈ 60 (not 285)
+3. Live: `fetch_provider_transactions(provider="ibkr_flex")` → verify income row count ≈ 60 (not 285)
 4. Live: `get_performance(mode="realized", segment="equities")` → verify dividend/interest totals match actuals
 
 ## Codex Review Findings

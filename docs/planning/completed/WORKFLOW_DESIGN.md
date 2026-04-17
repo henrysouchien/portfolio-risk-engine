@@ -366,7 +366,7 @@ impact_comparison:
 - `preview_basket_trade(name, action="buy", total_value=X)` → `execute_basket_trade(preview_ids)` — basket hedge
 - `preview_futures_roll(symbol, ...)` → `execute_futures_roll(preview_id)` — futures hedge
 - **Gap: No multi-leg options execution** — must execute legs individually. Future: `preview_option_trade(legs=[...])` for atomic spread/collar orders.
-- **Gap: No rebalance trade generator** — must manually translate what-if weight deltas into trade list. Future: `generate_rebalance_trades(target_weights)` → trade list with share quantities and sequencing.
+- **Gap: No rebalance trade generator** — must manually translate what-if weight deltas into trade list. Future: `preview_rebalance_trades(target_weights)` → trade list with share quantities and sequencing.
 
 **Inputs:** Selected hedge(s) from Step 4 with sizing from Step 3
 
@@ -619,7 +619,7 @@ final_scenario:
 **Tools:**
 - `preview_trade(ticker, quantity, side)` → `execute_trade(preview_id)` — per position change
 - `preview_basket_trade()` → `execute_basket_trade()` — if rebalance maps to a basket
-- **Gap: No rebalance trade generator** — must manually translate weight deltas to share quantities. Same gap as Hedging Step 5. Future: `generate_rebalance_trades(current_weights, target_weights, portfolio_value)` → ordered trade list with share quantities and sequencing (sells before buys to free capital).
+- **Gap: No rebalance trade generator** — must manually translate weight deltas to share quantities. Same gap as Hedging Step 5. Future: `preview_rebalance_trades(current_weights, target_weights, portfolio_value)` → ordered trade list with share quantities and sequencing (sells before buys to free capital).
 
 **Inputs:** Final scenario position changes from Step 4
 
@@ -825,7 +825,7 @@ drift_analysis:
 **Tools:**
 - `run_optimization(optimization_type="min_variance", format="agent")` — finds optimal weights within risk profile constraints. Returns `weight_changes` (top changes with before/after/bps), `trades_required` count, compliance status. The optimizer respects all risk limits (volatility, concentration, factor bounds).
 - `run_whatif(target_weights={...})` — preview a specific target allocation. Returns before/after risk comparison, position changes, compliance checks.
-- **Gap: No dedicated rebalance trade generator.** Must translate weight changes to share quantities manually. `run_optimization()` returns weights, not trade orders. Future: `generate_rebalance_trades(target_weights, portfolio_value)` → ordered trade list.
+- **Gap: No dedicated rebalance trade generator.** Must translate weight changes to share quantities manually. `run_optimization()` returns weights, not trade orders. Future: `preview_rebalance_trades(target_weights, portfolio_value)` → ordered trade list.
 
 **Inputs:** Drift analysis from Step 2 + risk profile constraints
 
@@ -940,7 +940,7 @@ rebalance_impact:
 **Tools:**
 - `preview_trade(ticker, quantity, side)` → `execute_trade(preview_id)` — per position change
 - `preview_basket_trade()` → `execute_basket_trade()` — if rebalance maps to a basket
-- **Gap: No rebalance trade generator.** Must manually convert weight deltas → share quantities → trade orders. Shared gap with Hedging and Scenario Analysis workflows. Future: `generate_rebalance_trades(current_weights, target_weights, portfolio_value)` → sequenced trade list (sells first to free capital).
+- **Gap: No rebalance trade generator.** Must manually convert weight deltas → share quantities → trade orders. Shared gap with Hedging and Scenario Analysis workflows. Future: `preview_rebalance_trades(current_weights, target_weights, portfolio_value)` → sequenced trade list (sells first to free capital).
 - **Gap: No tax-aware rebalancing.** `suggest_tax_loss_harvest()` exists but isn't integrated into the rebalance workflow. Future: check lots before selling, prefer tax-loss positions, flag wash sale risks.
 
 **Inputs:** Approved rebalance plan from Step 4
@@ -2441,7 +2441,7 @@ For each of the 7 workflows, define: steps, inputs/outputs, existing tools used,
 
 ### Phase 2: Backend Cross-Cutting Gaps — COMPLETE
 Three cross-cutting tools that unblock execution in all workflows:
-- `generate_rebalance_trades()` — target weights → sequenced BUY/SELL legs. Commit `e19f9e28`.
+- `preview_rebalance_trades()` — target weights → sequenced BUY/SELL legs. Commit `e19f9e28`.
 - `compare_scenarios()` — batch what-if/optimization comparison with ranking. Commit `56d773a8`.
 - `record_workflow_action()` / `update_action_status()` / `get_action_history()` — action audit trail.
 

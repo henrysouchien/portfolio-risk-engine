@@ -235,7 +235,7 @@ Step 4: Gap Analysis
   → Research ideas ready but no capital allocated?
 
 Step 5: Recommendations
-  → Rebalance trades (generate_rebalance_trades)
+  → Rebalance trades (preview_rebalance_trades)
   → Contribution changes (redirect surplus)
   → Risk adjustments (set_risk_profile)
   → Plan revisions (set_target_allocation)
@@ -297,7 +297,7 @@ This is the advisor's "resume from where we left off" artifact.
 | Portfolio state | `get_risk_analysis()`, `get_performance()`, `get_risk_score()` |
 | Target allocation | `get_target_allocation()`, `set_target_allocation()` |
 | Risk profile | `get_risk_profile()`, `set_risk_profile()` |
-| Rebalancing | `generate_rebalance_trades(preview=True)` |
+| Rebalancing | `preview_rebalance_trades(preview=True)` |
 | What-if analysis | `run_whatif()`, `compare_scenarios()` |
 | Income projection | `get_income_projection()` |
 | Action audit | `record_workflow_action()`, `get_action_history()` |

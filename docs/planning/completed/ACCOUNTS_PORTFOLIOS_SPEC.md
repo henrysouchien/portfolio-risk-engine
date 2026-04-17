@@ -490,7 +490,7 @@ The following also call `PositionService.get_all_positions()` and need portfolio
 - `mcp_tools/positions.py` — `get_positions()` (already accepts `portfolio_name` but doesn't filter) and `export_holdings()` (no portfolio param)
 - `routes/positions.py` — REST positions endpoint
 - `routes/hedging.py` — hedging analysis endpoint
-- `mcp_tools/rebalance.py` — `generate_rebalance_trades()` loads positions for rebalancing
+- `mcp_tools/rebalance.py` — `preview_rebalance_trades()` loads positions for rebalancing
 
 All must resolve scope and filter for VIRTUAL_FILTERED, pass through for VIRTUAL_ALL. A grep-based audit during implementation (`grep -rn 'get_all_positions' mcp_tools/ routes/ services/`) will surface any remaining call sites.
 
@@ -662,9 +662,9 @@ For realized performance specifically: `account_filters` must thread through the
 The `source` param is preserved throughout (allows filtering by provider within the scoped accounts). The `institution`/`account` string params are ignored when `account_filters` is provided — the scope resolver has already resolved the correct account set.
 
 **CSV transaction sources (deferred):** `aggregation.py` line 85-92 checks `CSVTransactionProvider.has_source()` BEFORE the DB store path. CSV storage is global (file-based, not per-user or per-account) — `CSVTransactionProvider` stores by source name only, and imported rows typically lack `institution`/`account_id` metadata. Portfolio-scoped CSV analysis is NOT supported in Phase 2. When `account_filters` is provided AND the source hits the CSV path:
-- Realized performance: skip CSV path, fall through to DB store path (CSV data should have been ingested to DB via `ingest_transactions` for scoped analysis)
+- Realized performance: skip CSV path, fall through to DB store path (CSV data should have been ingested to DB via `fetch_provider_transactions` for scoped analysis)
 - Trading analysis: same — skip CSV, use DB store
-- If the user explicitly requests a CSV-only source with a non-CURRENT_PORTFOLIO, return a clear error: "CSV sources do not support portfolio scoping. Use 'ingest_transactions' to import into the transaction store first."
+- If the user explicitly requests a CSV-only source with a non-CURRENT_PORTFOLIO, return a clear error: "CSV sources do not support portfolio scoping. Use 'fetch_provider_transactions' to import into the transaction store first."
 
 CSV storage redesign (per-user, per-import keyed) is deferred to follow-up work.
 
@@ -689,7 +689,7 @@ def get_trading_analysis(user_email=None, portfolio_name="CURRENT_PORTFOLIO", ..
         if scope.strategy == LoadStrategy.VIRTUAL_FILTERED:
             raise ValueError(
                 "CSV sources do not support portfolio scoping. "
-                "Use 'ingest_transactions' to import into the transaction store first."
+                "Use 'fetch_provider_transactions' to import into the transaction store first."
             )
         # VIRTUAL_ALL: existing CSV path unchanged
         store_data = csv_store.load_transactions(user, source)

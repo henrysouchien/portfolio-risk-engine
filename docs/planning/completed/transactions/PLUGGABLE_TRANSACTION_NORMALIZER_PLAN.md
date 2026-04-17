@@ -5,7 +5,7 @@
 
 ## Context
 
-`import_transactions` currently only handles IBKR statement directories (`*__all.csv` tables). Users with Schwab, Fidelity, or other brokerage CSVs have no import path for transactions. The position import tool (`import_portfolio`) already has a pluggable normalizer system with auto-detection, user normalizer discovery, and `needs_normalizer` response — this plan replicates that pattern for transactions.
+`import_transaction_file` currently only handles IBKR statement directories (`*__all.csv` tables). Users with Schwab, Fidelity, or other brokerage CSVs have no import path for transactions. The position import tool (`import_portfolio`) already has a pluggable normalizer system with auto-detection, user normalizer discovery, and `needs_normalizer` response — this plan replicates that pattern for transactions.
 
 **Related plans**: `BROKERAGE_STATEMENT_IMPORT_PLAN.md` (DB-backed store, class-based normalizers — different system). `FILESYSTEM_TRANSACTION_STORE_PLAN.md` (Phase A+B done — the store we wire into). The Schwab action mappings from the BROKERAGE plan (Phase 2b) inform our built-in Schwab normalizer.
 
@@ -17,7 +17,7 @@
 
 **D1: Mirror position normalizer pattern.** Module-based (`detect(lines)` + `normalize(lines, filename)`), NOT class-based. Agents write standalone `.py` files to `~/.risk_module/transaction_normalizers/`, matching the position normalizer UX.
 
-**D2: Two input modes coexist.** Directory → existing IBKR path (unchanged). Single CSV file → pluggable normalizer protocol (new). The `import_transactions` tool accepts both.
+**D2: Two input modes coexist.** Directory → existing IBKR path (unchanged). Single CSV file → pluggable normalizer protocol (new). The `import_transaction_file` tool accepts both.
 
 **D3: Normalizer returns dicts, not dataclasses.** `TransactionNormalizeResult` contains `fifo_transactions: list[dict]` and `income_events: list[dict]` — plain dicts that serialize directly to JSON. User-written normalizers don't need to import domain dataclasses.
 
@@ -215,7 +215,7 @@ Reference normalizer (not loaded — `_` prefix). Fully commented skeleton showi
 
 ### 6. `mcp_server.py` (~2 lines)
 
-Update `import_transactions` docstring to mention single CSV file support.
+Update `import_transaction_file` docstring to mention single CSV file support.
 
 ---
 
@@ -262,7 +262,7 @@ Update `import_transactions` docstring to mention single CSV file support.
 
 **Note on `IBKR_TRANSACTION_SOURCES`**: `schwab_csv` must NOT be added to this frozenset. It controls IBKR-specific behaviors (option multiplier suppression, statement cash anchoring). Schwab CSV transactions get the non-IBKR code path, which is correct (Schwab options need ×100 multiplier via `OPTION_MULTIPLIER_NAV_ENABLED`).
 
-**For agent-written normalizers** (e.g., `fidelity_csv`): Dynamic source keys that are not in the `Literal` enum will be rejected by MCP client-side schema validation before reaching the server. This is a known limitation. The workaround for agent-written normalizers is to use `source="all"` (which won't include CSV data) and instead query via `import_transactions(action="list")` to verify imported data, then access it through the trading analysis pipeline by having the agent add the source to the Literal enum in a follow-up step. **Alternatively**, this is deferred to a future plan that introduces a separate free-form `source_key: str` parameter alongside the existing `source: Literal[...]` parameter. For this plan, the scope is limited to built-in normalizers (`schwab_csv`) which are in the Literal enum.
+**For agent-written normalizers** (e.g., `fidelity_csv`): Dynamic source keys that are not in the `Literal` enum will be rejected by MCP client-side schema validation before reaching the server. This is a known limitation. The workaround for agent-written normalizers is to use `source="all"` (which won't include CSV data) and instead query via `import_transaction_file(action="list")` to verify imported data, then access it through the trading analysis pipeline by having the agent add the source to the Literal enum in a follow-up step. **Alternatively**, this is deferred to a future plan that introduces a separate free-form `source_key: str` parameter alongside the existing `source: Literal[...]` parameter. For this plan, the scope is limited to built-in normalizers (`schwab_csv`) which are in the Literal enum.
 
 ---
 
@@ -323,7 +323,7 @@ Uses real Schwab CSV at `docs/Individual_XXX252_Transactions_20260310-171524.csv
 ```
 1. User: "Import my Fidelity transactions from ~/exports/fidelity.csv"
 
-2. Agent calls import_transactions(file_path="~/exports/fidelity.csv")
+2. Agent calls import_transaction_file(file_path="~/exports/fidelity.csv")
    → {status: "needs_normalizer", first_20_lines: [...], message: "...write to ~/.risk_module/transaction_normalizers/fidelity.py..."}
 
 3. Agent reads inputs/transaction_normalizers/_example.py for the protocol
@@ -333,11 +333,11 @@ Uses real Schwab CSV at `docs/Individual_XXX252_Transactions_20260310-171524.csv
 5. Agent writes ~/.risk_module/transaction_normalizers/fidelity.py
    with detect(lines) and normalize(lines, filename)
 
-6. Agent calls import_transactions(file_path="...", dry_run=true)
+6. Agent calls import_transaction_file(file_path="...", dry_run=true)
    → {status: "ok", trade_count: 23, income_count: 15, preview: [...]}
 
-7. User confirms → Agent calls import_transactions(dry_run=false)
-   → Transactions saved and verifiable via import_transactions(action="list").
+7. User confirms → Agent calls import_transaction_file(dry_run=false)
+   → Transactions saved and verifiable via import_transaction_file(action="list").
 
    NOTE: This workflow demonstrates the import side. For built-in normalizers
    (schwab_csv), data is immediately queryable via get_trading_analysis(source="schwab_csv").
@@ -366,8 +366,8 @@ Uses real Schwab CSV at `docs/Individual_XXX252_Transactions_20260310-171524.csv
 ## Verification
 
 1. `pytest tests/inputs/test_transaction_normalizer_registry.py tests/inputs/test_schwab_csv_normalizer.py tests/mcp_tools/test_import_transactions_csv.py -v`
-2. Live test: `import_transactions(file_path="docs/Individual_XXX252_Transactions_20260310-171524.csv", dry_run=true)` → Schwab auto-detected, preview shows trades + income
-3. Live test: `import_transactions(file_path="docs/Individual_XXX252_Transactions_20260310-171524.csv", dry_run=false)` → saved
+2. Live test: `import_transaction_file(file_path="docs/Individual_XXX252_Transactions_20260310-171524.csv", dry_run=true)` → Schwab auto-detected, preview shows trades + income
+3. Live test: `import_transaction_file(file_path="docs/Individual_XXX252_Transactions_20260310-171524.csv", dry_run=false)` → saved
 4. Live test: `get_trading_analysis(source="schwab_csv")` → includes Schwab trades (note: `source="all"` does NOT include CSV imports)
 5. Live test: `get_performance(source="schwab_csv", mode="realized")` → returns performance data for Schwab CSV transactions
 6. Live test: `suggest_tax_loss_harvest(source="schwab_csv")` → returns tax-loss harvest suggestions (or empty if no losses)

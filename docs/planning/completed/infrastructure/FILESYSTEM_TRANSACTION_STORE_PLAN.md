@@ -99,7 +99,7 @@ Wire stored transactions into trading analysis, tax harvest, and realized perfor
 
 ### Modified Files
 
-**5. `mcp_server.py`** — Register `import_transactions` MCP tool
+**5. `mcp_server.py`** — Register `import_transaction_file` MCP tool
 
 ### Phase A does NOT:
 - Modify any caller sites (trading_analysis, tax_harvest, realized_perf)
@@ -109,8 +109,8 @@ Wire stored transactions into trading analysis, tax harvest, and realized perfor
 
 ### Phase A Verification
 1. `pytest tests/providers/test_csv_transactions.py tests/mcp_tools/test_import_transactions.py`
-2. Live MCP test: `import_transactions(file_path=..., dry_run=true)` → inspect preview
-3. Live MCP test: `import_transactions(file_path=..., dry_run=false)` → `import_transactions(action="list")` → `import_transactions(action="clear")`
+2. Live MCP test: `import_transaction_file(file_path=..., dry_run=true)` → inspect preview
+3. Live MCP test: `import_transaction_file(file_path=..., dry_run=false)` → `import_transaction_file(action="list")` → `import_transaction_file(action="clear")`
 4. `pytest tests/` — no regressions
 
 ---

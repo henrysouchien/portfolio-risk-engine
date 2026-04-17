@@ -270,10 +270,10 @@ or switch to the Dec-Dec one.
 
 #### 2e. MCP tool for one-time ingestion
 
-Add a one-time ingestion command or extend `ingest_transactions`:
+Add a one-time ingestion command or extend `fetch_provider_transactions`:
 
 ```python
-ingest_transactions(provider="ibkr_statement")
+fetch_provider_transactions(provider="ibkr_statement")
 ```
 
 This triggers the normalizer → store pipeline. Run once to populate.

@@ -170,7 +170,7 @@ Pattern follows existing `GET /api/allocations/target`. Calls `get_allocation_pr
 
 ### 3a. New Parameter
 
-**File**: `mcp_tools/rebalance.py` — add to `generate_rebalance_trades()`:
+**File**: `mcp_tools/rebalance.py` — add to `preview_rebalance_trades()`:
 
 ```python
 asset_class_targets: Optional[Dict[str, float]] = None,
@@ -206,7 +206,7 @@ def _decompose_asset_class_targets(
 ### 3c. REST + MCP Updates
 
 - **`app.py`**: Make `target_weights` Optional on `RebalanceTradesRequest`, add `asset_class_targets: Optional[Dict[str, float]] = None`.
-- **`mcp_server.py`**: Add `asset_class_targets` param to registered `generate_rebalance_trades` tool
+- **`mcp_server.py`**: Add `asset_class_targets` param to registered `preview_rebalance_trades` tool
 - **`frontend/packages/chassis/src/services/APIService.ts`**:
   - Request type (line ~172): make `target_weights` optional, add `asset_class_targets?: Record<string, number>`, add `include_diagnostics?: boolean`
   - Request builder `generateRebalanceTrades()` (line ~1259): serialize `asset_class_targets` and `include_diagnostics` in the body alongside existing fields
@@ -244,7 +244,7 @@ Follows existing flag pattern: `{"type": str, "severity": str, "message": str, .
 
 **Agent format** (`mcp_tools/rebalance.py`): add optional `risk_snapshot: Optional[Dict[str, Any]] = None` param. When provided + `format="agent"`, generate diagnostic flags and merge with trade flags.
 
-**MCP surface** (`mcp_server.py`): add `include_diagnostics: bool = False` to the registered `generate_rebalance_trades` tool. When `True`, the MCP wrapper fetches risk analysis internally by calling `get_risk_analysis(format="full")` (must use `format="full"` or `format="agent"` — the default `format="summary"` does NOT include `asset_class_risk`). Extract `asset_class_risk` contributions and compliance data from the result to build the `risk_snapshot`, then pass to the underlying tool. This means MCP agents don't need to pass raw risk data — they just set a flag.
+**MCP surface** (`mcp_server.py`): add `include_diagnostics: bool = False` to the registered `preview_rebalance_trades` tool. When `True`, the MCP wrapper fetches risk analysis internally by calling `get_risk_analysis(format="full")` (must use `format="full"` or `format="agent"` — the default `format="summary"` does NOT include `asset_class_risk`). Extract `asset_class_risk` contributions and compliance data from the result to build the `risk_snapshot`, then pass to the underlying tool. This means MCP agents don't need to pass raw risk data — they just set a flag.
 
 **REST/full format** (`core/result_objects/rebalance.py`): The current `to_api_response()` (line ~77) has no `flags` field — diagnostic flags would be invisible to REST/frontend callers. Add an optional `diagnostic_flags` field to `RebalanceTradeResult`:
 ```python
@@ -258,7 +258,7 @@ Include in `to_api_response()`:
 1. Add `include_diagnostics: bool = False` to `RebalanceTradesRequest`
 2. When `include_diagnostics=True`, the endpoint attempts a **non-blocking cache peek** via `peek_analysis_result_snapshot()` (`services/portfolio/result_cache.py:247`). This returns a cached risk analysis result if one exists for the current user/portfolio, or `None` if not cached. **If not cached, skip diagnostics** — set `diagnostic_flags=[]` and proceed with trade generation. Do NOT block on a full risk computation.
 3. From the cached risk result, call `get_asset_class_risk_contributions()` and `get_asset_class_factor_betas()` to build the `risk_snapshot`
-4. Pass `risk_snapshot` to `generate_rebalance_trades()`
+4. Pass `risk_snapshot` to `preview_rebalance_trades()`
 5. The MCP tool generates diagnostic flags and populates `RebalanceTradeResult.diagnostic_flags`
 6. `to_api_response()` includes the populated flags
 
@@ -330,5 +330,5 @@ This ensures diagnostic flags are visible to both agent and frontend consumers.
 ## Verification
 
 1. **Unit tests**: `pytest tests/core/test_asset_class_risk_attribution.py tests/core/test_rebalance_diagnostic_flags.py tests/mcp_tools/test_allocation_presets.py tests/mcp_tools/test_rebalance_asset_class_targets.py -v`
-2. **MCP live test**: Call `get_risk_analysis(format="agent")` → verify `asset_class_risk` in response. Call `get_allocation_presets()` → verify 6+ presets with system-format keys. Call `generate_rebalance_trades(asset_class_targets={"equity": 60, "bond": 25, "real_estate": 10, "cash": 5})` → verify trade legs generated.
+2. **MCP live test**: Call `get_risk_analysis(format="agent")` → verify `asset_class_risk` in response. Call `get_allocation_presets()` → verify 6+ presets with system-format keys. Call `preview_rebalance_trades(asset_class_targets={"equity": 60, "bond": 25, "real_estate": 10, "cash": 5})` → verify trade legs generated.
 3. **Regression**: `pytest tests/ -x --timeout=120` — full suite, no regressions

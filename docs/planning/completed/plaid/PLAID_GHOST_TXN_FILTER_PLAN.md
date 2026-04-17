@@ -56,7 +56,7 @@ After fix, re-ingest Plaid transactions and confirm:
 
 ## Verification Results
 1. `python -m pytest tests/providers/normalizers/test_plaid.py -v` — 17 passed (16 existing + 1 new with 7 sub-cases)
-2. Re-ingest: `ingest_transactions(provider="plaid")` — income_row_count=49 (unchanged)
+2. Re-ingest: `fetch_provider_transactions(provider="plaid")` — income_row_count=49 (unchanged)
 3. DB cleanup: deleted 27 ghost rows from `normalized_transactions` (58→31 plaid trades)
 4. `inspect_transactions(provider="plaid", symbol="DSU")` — 20 real trades, 0 qty=0 ghosts, total_buy_qty=2031.49 preserved
 

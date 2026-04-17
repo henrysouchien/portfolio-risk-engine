@@ -1,8 +1,8 @@
 # Research Workspace — Architecture Decisions Log
 
 **Status:** Phase 1+ planning anchor
-**Last updated:** 2026-04-11 (coherence review refinements applied)
-**Supersedes:** Pivot 2 from `RESEARCH_WORKSPACE_ARCHITECTURE_CHECKPOINT.md` (2026-04-04). Partially supersedes `RESEARCH_WORKSPACE_PHASE1_PLAN.md` v4 (commit `7b4c8a76`, Codex-reviewed 5 rounds) — see §"Phase 1 Plan Delta" below.
+**Last updated:** 2026-04-13 (final cross-doc consistency sweep)
+**Supersedes:** Pivot 2 from `RESEARCH_WORKSPACE_ARCHITECTURE_CHECKPOINT.md` (2026-04-04). Phase 1 Plan v4 (commit `7b4c8a76`) is fully superseded by `RESEARCH_WORKSPACE_PHASE1_PLAN_V5.md` (Codex PASS R15).
 
 **Codex consult thread history:**
 - `019d792b` — Pivot 2 override to Option X (cohabit research in ai-excel-addin SQLite)
@@ -13,7 +13,7 @@
 **References:**
 - `EQUITY_RESEARCH_WORKSPACE_SPEC.md` — product spec, design consultation, eng review findings
 - `RESEARCH_WORKSPACE_ARCHITECTURE_CHECKPOINT.md` (2026-04-04) — prior hybrid-storage decision
-- `RESEARCH_WORKSPACE_PHASE1_PLAN.md` v4 (commit `7b4c8a76`) — detailed implementation plan, partially superseded
+- `RESEARCH_WORKSPACE_PHASE1_PLAN_V5.md` — Phase 1 implementation plan (Codex PASS R15; supersedes v4)
 - `DESIGN.md` — research workspace design section
 - Design preview: `~/.gstack/projects/henrysouchien-risk_module/designs/research-workspace-20260403/`
 
@@ -59,7 +59,7 @@ Three parallel Explore agents surfaced the following. Full transcripts in task l
 - **Filing retrieval works end-to-end.** `get_filing_sections()` writes markdown to disk under `~/.cache/edgar-mcp/file_output/` (or `EDGAR_MCP_OUTPUT_DIR`). `parse_filing_sections()` at `AI-excel-addin/mcp_servers/langextract_mcp/text_utils.py:11-26` returns `SectionMap: dict[str, tuple[str, int, int]]` — section header → (text, start offset, end offset). **Offsets are exact** — tables are whitespace-filled, not stripped, so character positions are stable.
 - **Rendering unit = filing section** (e.g., "Item 1A Risk Factors"). Each section is a standalone tuple, renderable without reconstructing the full filing.
 - **Langextract** returns structured extractions with `(class, text, attributes, char_start, char_end)` — perfect grounding for agent highlights as overlays on raw section text. 4 hardcoded schemas today: `risk_factors`, `forward_guidance`, `capital_allocation`, `liquidity_leverage`.
-- **Transcripts** via `fmp-mcp-dist/fmp/server.py` `get_earnings_transcript(symbol, year, quarter, format="full")` — returns per-speaker segments with `char_start`/`char_end`, prepared remarks vs Q&A separated.
+- **Transcripts** via `fmp-mcp-dist/fmp/server.py` `get_earnings_transcript(symbol, year, quarter, format="full")` — returns per-speaker segments with prepared remarks vs Q&A separated. **Correction (Phase 2 plan investigation):** FMP transcripts do NOT return `char_start`/`char_end` per speaker segment. The parser returns `speaker`, `role`, `text`, `word_count` only. Phase 2 resolves this by writing transcripts as immutable content-hashed markdown files and using char offsets within that markdown (same approach as filings). The annotation schema remains unified.
 - **Annotations = greenfield.** No existing annotation/highlight schema anywhere. ~30% new work: annotation table, React document tab components, text selection capture, overlay rendering.
 - **Chunks + embeddings store exists but filings don't flow through it today.** If Phase 3+ needs semantic search across research sources, ingestion wiring is new work (can defer).
 - **No paragraph-level addressing.** Char offsets are the only stable reference. If report citations need "Item 7 para 3" strings, a post-processor can inject paragraph markers (Decision 6).
@@ -188,7 +188,7 @@ CREATE TABLE annotations (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   research_file_id INTEGER NOT NULL REFERENCES research_files(id) ON DELETE CASCADE,
   source_type TEXT NOT NULL,                     -- filing|transcript|investor_deck
-  source_id TEXT NOT NULL,                       -- filing_id (content-hashed) / transcript period / deck URL
+  source_id TEXT NOT NULL,                       -- content-hashed source identifier (e.g., `VALE_10K_2024_a3f8b2c1` for filings, `VALE_4Q24_transcript_b7c3e1f2` for transcripts)
   section_header TEXT,
   char_start INTEGER NOT NULL,
   char_end INTEGER NOT NULL,
@@ -318,7 +318,12 @@ Schema sketch (`schema_version: "1.0"`):
 
   "assumptions": [
     {
-      "driver",          // matches SIA template driver row key
+      "driver",          // semantic segment-qualified key resolved to SIA template
+                         // item_id via schema/templates/driver_mapping.yaml.
+                         // Convention: "revenue.segment_1.volume_growth", "tax_rate",
+                         // "dso", etc. The "raw:" prefix passes a literal SIA item_id
+                         // for company-specific overrides (e.g., "raw:tpl.a.revenue_drivers.operating_metric").
+                         // Mapping validated at load time against sia_standard.json item_types.
       "value", "unit", "rationale",
       "source_refs": [...]
     }
@@ -326,6 +331,10 @@ Schema sketch (`schema_version: "1.0"`):
 
   "qualitative_factors": [
     {
+      "id",              // integer — stable identity per factor entry, auto-assigned
+                         // via artifact.metadata.next_factor_id counter (Invariant 13).
+                         // All mutation operations (edit, delete) use factor_id, not category.
+                         // Two factors can share a category.
       "category",        // free-form string — NOT an enum
       "label",           // human-readable display string
       "assessment",      // narrative markdown/text — analyst's judgment
@@ -356,7 +365,7 @@ Schema sketch (`schema_version: "1.0"`):
     {
       "id",              // "src_1", referenced by source_refs above
       "type",            // "filing" | "transcript" | "investor_deck" | "other"
-      "filing_id | source_id",
+      "source_id",              // content-hashed identifier, unified across filings and transcripts
       "section_header",
       "char_start", "char_end",
       "text",
@@ -378,7 +387,7 @@ Schema sketch (`schema_version: "1.0"`):
 1. **`schema_version` is top-level** — artifact will evolve; readers gate on version.
 2. **Indexed sources, not inline citations** — every claim points into `sources[]` via `source_ref`/`source_refs`. Cleaner re-use, easier agent construction, supports one source feeding multiple claims.
 3. **`sources[]` entries back-link to `annotation_id`** — lets the workspace UI navigate "show me where this came from" and re-open the source document at the exact character span.
-4. **`assumptions[]` driver keys map 1:1 to SIA template assumption rows** — that's the integration seam with `model_build()`. Requires a driver-name → cell-address mapping to exist in the template schema.
+4. **`assumptions[]` driver keys are resolved to SIA template item_ids via `driver_mapping.yaml`** — segment-qualified keys (e.g., `revenue.segment_1.volume_growth`) map to specific template input rows. The `raw:` prefix passes literal SIA item_ids for company-specific overrides. Requires the driver mapping YAML + `driver_resolver.py` to exist in the template schema.
 5. **`qualitative_factors[]` is the extension mechanism.** Not overflow for "stuff that didn't fit the 9 core sections" — it's how different investment styles carry their specific lenses on a name. The 9 core sections are universal baseline; qualitative factors are style-scoped. Design details:
    - `category` is free-form string, NOT an enum. Any new category requires no schema change.
    - **Seed categories** (full list in Decision 4): style-independent (`street_view`, `management_team`, `short_interest`, `earnings_view`, `financing`, `positioning`, `management_quality`, `competitive_moat`, `capital_structure`, `esg`), plus style-specific lists surfaced by Phase 3 diligence UI based on `research_files.strategy` (value / special_situation / macro / compounder).
@@ -386,7 +395,7 @@ Schema sketch (`schema_version: "1.0"`):
    - `assessment` is narrative markdown/text — no structure imposed.
    - `rating` is optional qualitative (`high`|`medium`|`low`|`null`), not numeric — avoids false precision.
    - `data` is optional, schema-free per category — carries structured attachments for categories that benefit from them (e.g., `short_interest` → `{ short_pct_float, days_to_cover, borrow_rate }`; `street_view` → `{ analyst_count, median_pt, rating_mix }`). Narrative-first factors (moat, management quality) simply omit `data`.
-   - **`fetch_data_for(category, ticker)` registry in ai-excel-addin** (Phase 4 scope add) — per-category data pullers so the agent can pre-populate `data` during initial pull. Start with 2-3 categories, grow as needed.
+   - **`fetch_data_for(category, ticker)` registry in ai-excel-addin** (ships in Phase 3, moved forward from Phase 4) — per-category data pullers so the pre-population orchestrator can populate `data` during the server-side initial pull. Start with 3 categories, grow as needed.
 6. **`diligence_completion`** per-section state (`empty`|`draft`|`confirmed`) lets the handoff be partial ("draft a model now, finalize research later").
 7. **No `user_id` field** — implicit from the per-user `research.db` the artifact lives in.
 
@@ -399,7 +408,7 @@ CREATE TABLE research_handoffs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   research_file_id INTEGER NOT NULL REFERENCES research_files(id) ON DELETE CASCADE,
   ticker TEXT NOT NULL,
-  version INTEGER NOT NULL DEFAULT 1,      -- incremented on regenerate
+  version INTEGER NOT NULL DEFAULT 1,      -- incremented on create_new_version
   status TEXT NOT NULL DEFAULT 'draft',    -- draft | finalized | superseded
   artifact JSON NOT NULL,                  -- the full schema above
   created_at REAL NOT NULL,
@@ -409,9 +418,9 @@ CREATE INDEX idx_handoffs_file ON research_handoffs(research_file_id, version DE
 ```
 
 **Lifecycle:**
-- **Draft** — created implicitly when Phase 3 diligence section is touched; `artifact` updated on each diligence section confirm/edit.
+- **Draft** — created when diligence tab activates (Phase 3). Updated progressively as sections are populated via `update_handoff_section()` and `batch_update_handoff_sections()`.
 - **Finalized** — user clicks "Finalize Report"; `finalized_at` set; version becomes immutable.
-- **Superseded** — user clicks "New Version" on a finalized handoff; new row with `version+1`, old row stays.
+- **Superseded** — user clicks "New Version" on a finalized handoff; old finalized row updated to `status='superseded'`, new row created with `version+1, status='draft'`.
 
 **Optional JSON export:** on user-triggered "Export Handoff" action → write `data/users/{user_id}/exports/research_handoff_{research_file_id}_v{version}.json`. Keyed by `research_file_id`, NOT ticker, to prevent filename collisions across two labeled files on the same ticker. The export is a materialization for archival/sharing, NOT the source of truth. The row in `research_handoffs` is authoritative.
 
@@ -442,13 +451,14 @@ result = model_build(
 annotate_model_with_research(
     model_path=result.output_path,
     handoff_id=handoff.id,          # loads row from research_handoffs
+    user_id=user_id,                # per-user DB routing
 )
 ```
 
-**New Phase 4 tool: `annotate_model_with_research(model_path, handoff_id)`**
+**New Phase 4 tool: `annotate_model_with_research(model_path, handoff_id, user_id)`**
 
 Lives in ai-excel-addin as a new MCP tool. Responsibilities:
-1. Load `research_handoffs` row by `handoff_id` from the user's `research.db`
+1. Load `research_handoffs` row by `handoff_id` from the user's `research.db` (via `ResearchRepositoryFactory.get(user_id)`)
 2. Open the workbook at `model_path` (openpyxl)
 3. Write `handoff.assumptions[]` to SIA template driver cells (requires driver-name → cell-address mapping — either new YAML or extension of existing driver metadata)
 4. Write research context to a hidden metadata sheet (or named range) — JSON blob of `thesis`, `catalysts`, `risks`, `peers`, `valuation`, `qualitative_factors` for future reference by automation
@@ -479,8 +489,8 @@ Surfaced by architecture coherence review (Codex thread 019d7d6a): Flow 5 origin
 1. Frontend → `POST /api/research/content/handoffs/{handoff_id}/build-model` (authenticated REST call through the research content proxy)
 2. Ai-excel-addin's `BuildModelOrchestrator` (new Phase 4 module at `api/research/build_model_orchestrator.py`) runs the two-step sequence:
    - Step A: `model_build()` with financials from the handoff
-   - Step B: `annotate_model_with_research()` with the handoff_id
-3. Returns `{model_path, handoff_id, build_status}` to the frontend
+   - Step B: `annotate_model_with_research()` with the handoff_id + user_id
+3. Returns `{model_path, handoff_id, build_status, annotation_status}` to the frontend
 
 The MCP tool layer is the transport between the orchestrator and the model engine — internal to ai-excel-addin, not exposed to the frontend.
 
@@ -513,7 +523,7 @@ The MCP tool layer is the transport between the orchestrator and the model engin
 | 2 | **Thesis** | `thesis.statement/direction/strategy/conviction/timeframe` | No | Agent drafts from exploration conversation only |
 | 3 | **Catalysts & Timing** | `catalysts[]` | Partially | FMP events calendar, langextract `forward_guidance` |
 | 4 | **Valuation** | `valuation.method/low/mid/high/current_multiple/rationale` | Partially | FMP multiples, `compare_peers` |
-| 5 | **Assumptions** | `assumptions[]` (driver keys matching SIA template) | Partially | FMP historicals, langextract `forward_guidance` |
+| 5 | **Assumptions** | `assumptions[]` (segment-qualified driver keys resolved via `driver_mapping.yaml`) | Partially | FMP historicals, langextract `forward_guidance` |
 | 6 | **Risks** | `risks[]` | Yes | langextract `risk_factors` schema (already exists — 1 of 4 hardcoded) |
 | 7 | **Peer Comps** | `peers[]` | Yes | FMP profile peers, `compare_peers` |
 | 8 | **Ownership & Flow** | `ownership.institutional_pct/insider_pct/recent_activity` | Yes | `get_institutional_ownership`, `get_insider_trades` |
@@ -549,6 +559,7 @@ The MCP tool layer is the transport between the orchestrator and the model engin
 | **compounder** | brand_strength, long_term_growth_drivers, management_quality, capital_allocation, tam_expansion, reinvestment_runway |
 
 **Factor entry shape** (per Decision 2A qualitative_factors schema):
+- `id` — integer, auto-assigned, stable identity for CRUD operations (scoped to artifact, tracked via `artifact.metadata.next_factor_id`)
 - `category` — free-form identifier
 - `label` — human-readable display (customizable per-name, e.g., `regulatory_exposure` → "Brazilian Mining Licensing")
 - `assessment` — narrative markdown/text
@@ -556,22 +567,22 @@ The MCP tool layer is the transport between the orchestrator and the model engin
 - `data` — optional schema-free JSON blob for structured attachments (short interest %, consensus PT, IV percentile, etc.)
 - `source_refs` — citations into `sources[]`
 
-**Factor data pullers** — new Phase 4 registry in ai-excel-addin: `fetch_data_for(category, ticker) -> dict`. Per-category functions that pre-populate `data` during agent initial pull. Start with 2-3 high-value pullers (short_interest, street_view, ownership-adjacent), grow as needed.
+**Factor data pullers** — ships in **Phase 3** (moved forward from Phase 4 because qualitative factors need data to be useful at creation time). Registry in ai-excel-addin: `fetch_data_for(category, ticker) -> {"data": {...}, "source_refs": [...]}`. Per-category functions that pre-populate `data` and `source_refs` during server-side pre-population orchestration. Each puller returns both a structured data blob and provenance entries. Start with 3 high-value pullers (short_interest, street_view, positioning), grow as needed. Phase 4 may extend with additional pullers if gaps are found.
 
 #### Completion state model
 
 `empty → draft → confirmed` per section. Drives `handoff.metadata.diligence_completion` field.
 
-- Pre-populated by agent = `draft`
+- Pre-populated by server-side orchestrator = `draft`
 - User edit = still `draft`
 - User clicks Confirm = `confirmed`
 - **Finalization is never blocked on section state.** User can finalize with any combination of states. Real analysis is iterative; forcing completion creates rubber-stamp incentive.
 
-#### Agent pre-population flow
+#### Server-side pre-population flow
 
-On research file open (or "Refresh Checklist" action):
-1. Agent runs initial pull sequence **in parallel** across auto-populatable core sections (Business, Catalysts, Valuation, Assumptions, Risks, Peers, Ownership)
-2. For Qualitative Factors: agent fetches `data` via registry for style-appropriate categories (based on `research_files.strategy`), lands as `draft` with data populated, narrative empty
+On diligence activation (or "Refresh Checklist" action):
+1. Server-side orchestrator runs initial pull sequence **in parallel** (direct tool calls) across auto-populatable core sections (Business, Catalysts, Valuation, Assumptions, Risks, Peers, Ownership). Agent intelligence layers on in future phases.
+2. For Qualitative Factors: pre-population orchestrator fetches `data` via registry for style-appropriate categories (based on `research_files.strategy`), lands as `draft` with data populated, narrative empty
 3. Thesis + Monitoring start empty — require analyst judgment + thesis-dependent respectively
 4. **Refresh semantics**: confirmed sections are sticky (preserved), draft sections are volatile (overwritten). User must explicitly click "Re-draft this section" to overwrite a confirmed section.
 5. If user changes `research_files.strategy` after initial pull: agent prompts "You switched from value to special_situation — want me to suggest special situation factors?" Non-destructive; existing factors stay.
@@ -644,7 +655,7 @@ See `RESEARCH_WORKSPACE_ARCHITECTURE.md` Section 3 (Storage Topology) and Invari
 
 1. **`filing_id` must uniquely identify filing + ingest version.** Not generic "VALE_10K_2024" but content-hashed like `VALE_10K_2024_a3f8b2c1` (8-char hash suffix from file content).
 2. **Filing files on disk are content-addressable.** The file at the stored `filing_id` path is the exact text the annotation was created against.
-3. **Re-ingesting the same filing produces a new `filing_id`** (different hash), does not overwrite the old file. Old annotations continue pointing at their original filing version.
+3. **Idempotency model:** Same content bytes → same SHA hash → same filing_id (idempotent). Different normalization of the same SEC filing → different content bytes → different hash → different filing_id. Both old and new versions coexist. The filing_id includes a content hash, so identical content always produces the identical filing_id. Old annotations continue pointing at their original filing version.
 4. **Citation render time:** load exact filing text from stored `filing_id` path, find `char_start` position, count paragraphs before it using the deterministic split rule → "Item 7, para 3".
 
 **Deterministic paragraph split rule** (locked for consistent rendering):
@@ -685,12 +696,12 @@ See `RESEARCH_WORKSPACE_ARCHITECTURE.md` Section 3 (Storage Topology) and Invari
 
 All architectural decisions locked. Remaining work is phase spec drafting + implementation.
 
-1. **Re-review Phase 1 plan** (Codex) — does the v4 plan (minus the deleted steps from §"Phase 1 Plan Delta") hold up cleanly under locked Decisions 1-7? Pay attention to: per-user SQLite routing, `label` column addition, `ResearchRepository` abstraction, gateway proxy changes for research content + metadata CRUD, server-side message persistence via repository.
-2. **Draft Phase 2 spec** — `docs/planning/RESEARCH_WORKSPACE_PHASE2_SPEC.md`. Covers: reading surface (document tabs for filings + transcripts), annotation schema + UI, text-selection → agent panel plumbing, agent highlights from langextract extractions, 3 new langextract schemas (`management_commentary`, `competitive_positioning`, `segment_discussion`), filing_id content-hash versioning, deterministic paragraph split rule.
-3. **Draft Phase 3 spec** — `docs/planning/RESEARCH_WORKSPACE_PHASE3_SPEC.md`. Covers: diligence checklist UI (9 core sections + dynamic Qualitative Factors), per-section state model, agent initial pull sequence, style-aware qualitative factor suggestion, `fetch_data_for(category, ticker)` data puller registry.
-4. **Draft Phase 4 spec** — `docs/planning/RESEARCH_WORKSPACE_PHASE4_SPEC.md`. Covers: `research_handoffs` table schema + lifecycle, artifact shape implementation, `annotate_model_with_research()` MCP tool design (with workbook recalc safeguards per Decision 3), SIA template driver-name → cell-address mapping, optional JSON export flow, "Finalize Report" UX.
-5. **Phase 5 scope doc** — `docs/planning/RESEARCH_WORKSPACE_PHASE5_SCOPE.md` (scope, not spec). Lightweight — captures deferred items (multi-ticker themes, langextract valuation_signals/capital_structure_detail schemas, bidirectional analyst-memory sync, web search integration, PDF/markdown export) without over-designing.
-6. **Ship Phase 1 implementation** — backend-first per v4 plan's dependency batches, with the Phase 1 Plan Delta applied (deletes Steps 1, 2, 4a; modifies Steps 3, 4b, 4c, 4d; adds `label` column; adds `ResearchRepository` abstraction).
+1. ~~**Re-review Phase 1 plan**~~ — **DONE.** `RESEARCH_WORKSPACE_PHASE1_PLAN_V5.md` Codex PASS R15 (14 review rounds). v4 fully superseded.
+2. **Phase 2 plan** — `docs/planning/RESEARCH_WORKSPACE_PHASE2_PLAN.md`. Covers: reading surface (document tabs for filings + transcripts), annotation schema + UI, text-selection → agent panel plumbing, agent highlights from langextract extractions, 3 new langextract schemas (`management_commentary`, `competitive_positioning`, `segment_discussion`), filing_id content-hash versioning, deterministic paragraph split rule.
+3. **Phase 3 plan** — `docs/planning/RESEARCH_WORKSPACE_PHASE3_PLAN.md`. Covers: diligence checklist UI (9 core sections + dynamic Qualitative Factors), per-section state model, server-side parallel data pull (direct tool calls, not agent-mediated), style-aware qualitative factor suggestion, `fetch_data_for(category, ticker)` data puller registry.
+4. **Phase 4 plan** — `docs/planning/RESEARCH_WORKSPACE_PHASE4_PLAN.md`. Covers: `research_handoffs` table schema + lifecycle, artifact shape implementation, `annotate_model_with_research()` MCP tool design (with workbook recalc safeguards per Decision 3), SIA template driver-name → cell-address mapping, optional JSON export flow, "Finalize Report" UX.
+5. **Phase 5: deferred (scope doc TBD).** Captures deferred items (multi-ticker themes, langextract valuation_signals/capital_structure_detail schemas, bidirectional analyst-memory sync, web search integration, PDF/markdown export) without over-designing.
+6. **Ship Phase 1 implementation** — backend-first per `RESEARCH_WORKSPACE_PHASE1_PLAN_V5.md` dependency batches (12 steps, 6 batches, ~68 tests). Implementation in progress.
 7. **Ship Phase 2** — reading surface + annotations + 3 new langextract schemas.
 8. **Ship Phase 3** — diligence checklist + qualitative factor UI + data pullers.
 9. **Ship Phase 4** — report finalization + `annotate_model_with_research()` tool.

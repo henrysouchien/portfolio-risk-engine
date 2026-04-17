@@ -72,7 +72,7 @@ Tier 5: Web App + Agent ($$)       — autonomous workflows, monitoring
 4. "Import my portfolio CSV" → agent calls import_portfolio(file_path, dry_run=True)
 5. Agent reviews dry_run → confirms → import_portfolio(file_path)
 6. Full portfolio analysis available immediately
-7. "Import my transaction history" → import_transactions(file_path, brokerage="ibkr")
+7. "Import my transaction history" → import_transaction_file(file_path, brokerage="ibkr")
 8. Trading analysis, tax harvest, realized performance available
 ```
 
@@ -85,7 +85,7 @@ Also available: `make check` validates env vars and dependencies on first run.
 - Tier 3+ (Web App): Google OAuth by default
 - Single-user web app: `AUTH_MODE=local` (Phase B) — auto-creates dev user, skips Google verification
 
-The CSV import pipeline (`import_portfolio` + `import_transactions` MCP tools) is the universal entry point. It works at every tier. Agent-created normalizers are Tier 1 (local MCP) only — hosted tiers use reviewed built-in normalizers.
+The CSV import pipeline (`import_portfolio` + `import_transaction_file` MCP tools) is the universal entry point. It works at every tier. Agent-created normalizers are Tier 1 (local MCP) only — hosted tiers use reviewed built-in normalizers.
 
 ### Tier 3: Web App + CSV — BACKEND READY, NEEDS WIZARD
 
@@ -130,7 +130,7 @@ Backend supports this today (credential gates, auth error handling, provider rou
 
 | Phase | What | Status | Commit |
 |-------|------|--------|--------|
-| A | JSON store + `import_transactions` MCP tool + IBKR parser | **DONE** | `cb9ba87f` |
+| A | JSON store + `import_transaction_file` MCP tool + IBKR parser | **DONE** | `cb9ba87f` |
 | B | Wire into trading analysis, tax harvest, realized perf | **DONE** | `1699a83d` |
 
 Remaining (backlog): Schwab CSV parser, Merrill PDF parser.
@@ -243,12 +243,12 @@ class MyBrokerageNormalizer:
 ```
 
 **Agent workflow:**
-1. User says "Import my transaction history" → agent calls `import_transactions(file_path, brokerage="auto")`
+1. User says "Import my transaction history" → agent calls `import_transaction_file(file_path, brokerage="auto")`
 2. If no registered normalizer can handle the file → import fails
 3. Agent inspects the CSV (headers, sample rows, date formats, column semantics)
 4. Agent writes a normalizer class following the interface above
 5. Agent registers it in `_NORMALIZER_REGISTRY`
-6. Agent re-runs `import_transactions()` → success
+6. Agent re-runs `import_transaction_file()` → success
 
 **Full design:** `BROKERAGE_STATEMENT_IMPORT_PLAN.md` §§ "Agent-Buildable Normalizer Infrastructure" and "Agent Workflow".
 

@@ -13,7 +13,7 @@ End-to-end validation of the full onboarding pipeline: new user → wizard → p
 **Tools Claude uses:**
 - Chrome browser automation (`mcp__claude-in-chrome__*`) — navigate, click, fill forms, read pages, screenshots
 - File system tools — write test CSVs, write normalizer files, read logs
-- MCP tools — `import_transactions`, `import_portfolio` for direct API testing
+- MCP tools — `import_transaction_file`, `import_portfolio` for direct API testing
 - HTTP via browser — verify API responses, check endpoints
 
 **User assists with:**
@@ -91,9 +91,9 @@ End-to-end validation of the full onboarding pipeline: new user → wizard → p
 
 | # | Step | Actor | How | Verify |
 |---|------|-------|-----|--------|
-| 4.1 | Dry run Schwab transactions | Claude | MCP `import_transactions(file_path="docs/Individual_XXX252_Transactions_20260310-171524.csv", dry_run=true)` | `status: "ok"`, `trade_count > 0`, `income_count > 0`, `brokerage: "Charles Schwab"` |
+| 4.1 | Dry run Schwab transactions | Claude | MCP `import_transaction_file(file_path="docs/Individual_XXX252_Transactions_20260310-171524.csv", dry_run=true)` | `status: "ok"`, `trade_count > 0`, `income_count > 0`, `brokerage: "Charles Schwab"` |
 | 4.2 | Verify auto-detection | Claude | Check response `provider_name` | `schwab_csv` |
-| 4.3 | Import for real | Claude | MCP `import_transactions(file_path="...", dry_run=false)` | Transactions saved |
+| 4.3 | Import for real | Claude | MCP `import_transaction_file(file_path="...", dry_run=false)` | Transactions saved |
 | 4.4 | Verify in store | Claude | MCP `list_transactions(source="schwab_csv")` | Returns trades matching import count |
 | 4.5 | Verify income events | Claude | MCP `list_income_events(source="schwab_csv")` | Returns dividends/interest from Schwab CSV |
 | 4.6 | Verify trading analysis | Claude | MCP `get_trading_analysis(source="all")` | Includes Schwab trades in analysis |
@@ -107,12 +107,12 @@ End-to-end validation of the full onboarding pipeline: new user → wizard → p
 | # | Step | Actor | How | Verify |
 |---|------|-------|-----|--------|
 | 5.1 | Create a fake "Acme Brokerage" CSV | Claude | Write file to `/tmp/acme_transactions.csv` with custom columns: `Trade Date, Type, Ticker, Shares, Price Per Share, Commission, Total` and 5-10 sample rows | File created |
-| 5.2 | Attempt import | Claude | MCP `import_transactions(file_path="/tmp/acme_transactions.csv", dry_run=true)` | `status: "needs_normalizer"`, `first_20_lines` present, `message` points to `_example.py` |
+| 5.2 | Attempt import | Claude | MCP `import_transaction_file(file_path="/tmp/acme_transactions.csv", dry_run=true)` | `status: "needs_normalizer"`, `first_20_lines` present, `message` points to `_example.py` |
 | 5.3 | Read the example normalizer | Claude | Read `inputs/transaction_normalizers/_example.py` | Understand the protocol (detect + normalize functions) |
 | 5.4 | Read the sample lines | Claude | From step 5.2 response `first_20_lines` | Identify column mapping |
 | 5.5 | Write normalizer | Claude | Write `~/.risk_module/transaction_normalizers/acme.py` with `detect(lines)` and `normalize(lines, filename)` matching the Acme CSV format | File created with correct protocol |
-| 5.6 | Dry run again | Claude | MCP `import_transactions(file_path="/tmp/acme_transactions.csv", dry_run=true)` | `status: "ok"`, trades detected, `brokerage: "Acme Brokerage"` |
-| 5.7 | Import for real | Claude | MCP `import_transactions(file_path="/tmp/acme_transactions.csv", dry_run=false)` | Transactions saved |
+| 5.6 | Dry run again | Claude | MCP `import_transaction_file(file_path="/tmp/acme_transactions.csv", dry_run=true)` | `status: "ok"`, trades detected, `brokerage: "Acme Brokerage"` |
+| 5.7 | Import for real | Claude | MCP `import_transaction_file(file_path="/tmp/acme_transactions.csv", dry_run=false)` | Transactions saved |
 | 5.8 | Verify in store | Claude | MCP `list_transactions(source="all")` | Acme trades present |
 | 5.9 | Clean up | Claude | Delete `/tmp/acme_transactions.csv` and `~/.risk_module/transaction_normalizers/acme.py` | Cleaned |
 

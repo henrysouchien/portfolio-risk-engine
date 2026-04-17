@@ -708,7 +708,7 @@ Revert `utils/logging.py` changes. Fully reversible; no data migration.
 Current tool count by module:
 - Portfolio management: 7 (list_accounts, list_portfolios, create_portfolio, update_portfolio_accounts, delete_portfolio, account_deactivate, account_activate)
 - Positions: 2 (get_positions, export_holdings)
-- Import: 2 (import_portfolio, import_transactions)
+- Import: 2 (import_portfolio, import_transaction_file)
 - Risk: 5 (get_risk_score, get_risk_analysis, get_leverage_capacity, set_risk_profile, get_risk_profile)
 - Allocation: 2 (set_target_allocation, get_target_allocation)
 - Audit: 3 (record_workflow_action, update_action_status, get_action_history)
@@ -728,7 +728,7 @@ Current tool count by module:
 - News/events: 2 (get_portfolio_news, get_portfolio_events_calendar)
 - Tax: 1 (suggest_tax_loss_harvest)
 - Baskets: 9 (create, list, get, analyze, update, delete, create_from_etf, preview_trade, execute_trade)
-- Rebalance: 1 (generate_rebalance_trades)
+- Rebalance: 1 (preview_rebalance_trades)
 - Trading: 5 (preview_trade, get_quote, execute_trade, get_orders, cancel_order)
 - Futures roll: 2 (preview_futures_roll, execute_futures_roll)
 - Multi-leg options: 2 (preview_option_trade, execute_option_trade)

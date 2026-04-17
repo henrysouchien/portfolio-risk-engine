@@ -327,7 +327,7 @@ run_backtest(
 **Step 1**: `run_optimization(optimization_type="min_variance", format="agent")`
 **Step 2**: `run_whatif(target_weights=<step 1 weights>, format="agent")`
 **Step 3**: `run_backtest(weights=<step 2 weights>, period="5Y", format="agent")`
-**Step 4**: `generate_rebalance_trades(target_weights=<step 3 weights>)` (via portfolio-mcp)
+**Step 4**: `preview_rebalance_trades(target_weights=<step 3 weights>)` (via portfolio-mcp)
 
 **Pass criteria**:
 - [ ] Weights flow through all 4 steps unchanged

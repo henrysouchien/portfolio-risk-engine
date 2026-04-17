@@ -188,7 +188,7 @@ All `TransactionStore` methods are scoped by `user_id` in every query (consisten
 ### Phase 1: Schema + Full Ingest Pipeline ✅ COMPLETE (`6f2ae001`, `a8f47dc1`)
 - Migration: `database/migrations/20260303_add_transaction_store.sql` — 6 tables, 28 indexes, 6 triggers
 - Module: `inputs/transaction_store.py` (1,199 lines) — TransactionStore class
-- MCP tools: `mcp_tools/transactions.py` — `ingest_transactions()`, `list_transactions()`
+- MCP tools: `mcp_tools/transactions.py` — `fetch_provider_transactions()`, `list_transactions()`
 - Tests: `tests/inputs/test_transaction_store.py` — 7 tests, 170 total pass
 - **Live validation**: All 3 providers ingested (Schwab 348/101, IBKR 259/77, Plaid 127/58). Re-ingest idempotent. GLBE RECEIVE_AND_DELIVER gap confirmed via store query.
 
@@ -260,9 +260,9 @@ All 10 production call sites of `fetch_transactions_for_source()` documented. Ph
 psql -d risk_module_db -f database/migrations/20260303_add_transaction_store.sql
 
 # Ingest via MCP
-ingest_transactions(provider="schwab")
-ingest_transactions(provider="ibkr_flex")
-ingest_transactions(provider="plaid")
+fetch_provider_transactions(provider="schwab")
+fetch_provider_transactions(provider="ibkr_flex")
+fetch_provider_transactions(provider="plaid")
 
 # Verify raw rows
 SELECT provider, count(*), min(transaction_date), max(transaction_date) FROM raw_transactions GROUP BY provider;
@@ -275,7 +275,7 @@ SELECT raw_data->>'action' as action, raw_data->>'symbol' as symbol
 FROM raw_transactions WHERE provider='schwab' AND raw_data->>'action' LIKE '%RECEIVE%';
 
 # Re-ingest should be idempotent (same row count)
-ingest_transactions(provider="schwab")
+fetch_provider_transactions(provider="schwab")
 SELECT count(*) FROM raw_transactions WHERE provider='schwab';  -- same as before
 ```
 

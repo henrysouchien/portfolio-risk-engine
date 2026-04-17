@@ -106,7 +106,7 @@ Each card opens a full-width section (not a tab in a card). Sections can cross-r
 - Active Strategies tab (was always empty, no persistence)
 - Strategy Marketplace tab (move to a sidebar or "Templates" dropdown within Optimize)
 
-**Tools surfaced**: `run_whatif`, `run_optimization`, `get_efficient_frontier`, `run_backtest`, `compare_scenarios`, `suggest_tax_loss_harvest`, `generate_rebalance_trades`
+**Tools surfaced**: `run_whatif`, `run_optimization`, `get_efficient_frontier`, `run_backtest`, `compare_scenarios`, `suggest_tax_loss_harvest`, `preview_rebalance_trades`
 
 ### 5. Trading (ViewId: `trading`) — NEW
 

@@ -31,7 +31,7 @@ Prior work:
 |------|------------|------------------|
 | `get_mcp_context` | `mcp_server.py` | Internal diagnostic (PID, cwd, dotenv path). Leaks server internals. |
 | `import_portfolio` | `mcp_tools/import_portfolio.py` | Mixed-action filesystem-backed mutator — `file_path` param enables arbitrary reads, also writes to DB |
-| `import_transactions` | `mcp_tools/import_transactions.py` | Mixed-action filesystem-backed mutator — `file_path` param enables arbitrary reads, also writes to DB |
+| `import_transaction_file` | `mcp_tools/import_transactions.py` | Mixed-action filesystem-backed mutator — `file_path` param enables arbitrary reads, also writes to DB |
 | `normalizer_sample_csv` | `mcp_tools/normalizer_builder.py` | `file_path` param → arbitrary filesystem read |
 | `normalizer_stage` | `mcp_tools/normalizer_builder.py` | Writes Python code to disk (code injection vector) |
 | `normalizer_test` | `mcp_tools/normalizer_builder.py` | Dynamically imports and executes staged Python + `file_path` param (code execution + filesystem read) |
@@ -80,7 +80,7 @@ _register(
 #
 # get_mcp_context           — Internal diagnostic (PID, cwd). Leaks server internals.
 # import_portfolio          — file_path param: filesystem-backed mutator (read + DB write)
-# import_transactions       — file_path param: filesystem-backed mutator (read + DB write)
+# import_transaction_file       — file_path param: filesystem-backed mutator (read + DB write)
 # normalizer_sample_csv     — file_path param: arbitrary filesystem read
 # normalizer_stage          — Writes Python code to disk (code injection vector)
 # normalizer_test           — Executes staged Python + file_path param (code exec + fs read)
@@ -115,7 +115,7 @@ assert functions["manage_ticker_config"]["category"] == "config"
 **2d.** Add exclusion assertion to verify intentionally excluded tools stay out:
 
 ```python
-for excluded in ("import_portfolio", "import_transactions", "get_mcp_context",
+for excluded in ("import_portfolio", "import_transaction_file", "get_mcp_context",
                  "normalizer_stage", "manage_instrument_config"):
     assert excluded not in functions
 ```

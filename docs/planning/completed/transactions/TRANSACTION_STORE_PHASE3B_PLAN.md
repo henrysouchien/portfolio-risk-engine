@@ -28,7 +28,7 @@ Live-fetch path retained behind `TRANSACTION_STORE_READ=false` as escape hatch.
 
 **File:** `mcp_tools/transactions.py`
 
-The current `ingest_transactions()` is wrapped with `@handle_mcp_errors`, which swallows exceptions into `{"status": "error"}` and swaps stdout. Internal callers need raw exceptions for proper error handling.
+The current `fetch_provider_transactions()` is wrapped with `@handle_mcp_errors`, which swallows exceptions into `{"status": "error"}` and swaps stdout. Internal callers need raw exceptions for proper error handling.
 
 ```python
 def _ingest_transactions_inner(
@@ -108,7 +108,7 @@ def _ingest_transactions_inner(
     #         raise
 
 @handle_mcp_errors
-def ingest_transactions(
+def fetch_provider_transactions(
     user_email: Optional[str] = None,
     provider: Provider = "all",
 ) -> dict:
@@ -371,7 +371,7 @@ This patches all 4 locations where the flag is imported by value. Existing tests
 | R3 | MEDIUM | Retry storm — failed ingests don't update `completed_at`, so every request retries | FIXED: retry cooldown via `get_latest_failed_batch_time()` (changes #4, #5) |
 | R4 | MEDIUM | Empty store + ingest failure = no data and no stale fallback | FIXED: exception caught, empty data → downstream no-data error paths (change #5) |
 | R5 | MEDIUM | Circular import — `inputs/transaction_store.py` → `mcp_tools/transactions.py` → `inputs/transaction_store.py` | FIXED: function-local import (change #5) |
-| R6 | MEDIUM | `ingest_transactions` is MCP-decorated, swallows exceptions | FIXED: extracted `_ingest_transactions_inner()` (change #2) |
+| R6 | MEDIUM | `fetch_provider_transactions` is MCP-decorated, swallows exceptions | FIXED: extracted `_ingest_transactions_inner()` (change #2) |
 | R7 | LOW | Tests don't set `TRANSACTION_STORE_READ` — flipping default could break CI | FIXED: autouse fixture pins `false` in tests (change #8) |
 
 ### Round 2

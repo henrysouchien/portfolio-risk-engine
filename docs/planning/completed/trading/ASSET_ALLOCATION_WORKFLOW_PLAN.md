@@ -2,7 +2,7 @@
 
 ## Context
 
-The Asset Allocation view currently displays real allocation data from `useRiskAnalysis()` — asset class breakdowns with drift indicators (target_pct, drift_pct, drift_status, drift_severity). Backend MCP tools exist for setting targets (`set_target_allocation`), reading targets (`get_target_allocation`), and generating rebalance trades (`generate_rebalance_trades`). However, **no REST API endpoints** expose these capabilities, so the frontend can only display drift data passively.
+The Asset Allocation view currently displays real allocation data from `useRiskAnalysis()` — asset class breakdowns with drift indicators (target_pct, drift_pct, drift_status, drift_severity). Backend MCP tools exist for setting targets (`set_target_allocation`), reading targets (`get_target_allocation`), and generating rebalance trades (`preview_rebalance_trades`). However, **no REST API endpoints** expose these capabilities, so the frontend can only display drift data passively.
 
 **Goal:** Upgrade from data-display to an interactive **monitor → set targets → rebalance** workflow. Users should be able to: (1) view current allocation vs targets with drift, (2) set/edit target allocations inline, (3) generate and preview rebalance trades.
 
@@ -27,7 +27,7 @@ No new service file needed — the MCP tools are thin wrappers around `Portfolio
 
 **`POST /api/allocations/rebalance`**
 - Body: `{"target_weights": {"AAPL": 0.10, ...}, "min_trade_value": 100}`
-- Delegates to `generate_rebalance_trades()` from `mcp_tools/rebalance.py` (pass `user_email=user['email']`, `format="full"`). This reuses the full MCP function including validation, unmanaged positions, skipped trades, warnings — not just the low-level `compute_rebalance_legs()`.
+- Delegates to `preview_rebalance_trades()` from `mcp_tools/rebalance.py` (pass `user_email=user['email']`, `format="full"`). This reuses the full MCP function including validation, unmanaged positions, skipped trades, warnings — not just the low-level `compute_rebalance_legs()`.
 - Returns: `RebalanceTradeResult.to_api_response()` shape (trades array + summary)
 
 ### 2. Frontend: Query Keys + APIService
@@ -77,7 +77,7 @@ Wire into `connectors/src/index.ts`.
 
 **Reused backend (no changes):**
 - `mcp_tools/allocation.py` — `_validate_and_normalize_allocations()` imported for target endpoints
-- `mcp_tools/rebalance.py` — `generate_rebalance_trades()` called directly for rebalance endpoint
+- `mcp_tools/rebalance.py` — `preview_rebalance_trades()` called directly for rebalance endpoint
 - `inputs/portfolio_repository.py` — `save_target_allocations()`, `get_target_allocations()`
 
 **Frontend (9 files):**
