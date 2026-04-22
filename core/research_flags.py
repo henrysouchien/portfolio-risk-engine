@@ -119,11 +119,146 @@ def _diligence_flags(snapshot: dict[str, Any]) -> list[dict[str, str]]:
 
 def _handoff_flags(snapshot: dict[str, Any]) -> list[dict[str, str]]:
     status = str(snapshot.get("status") or "")
-    if status == "finalized":
+    if status != "finalized":
+        return []
+
+    flags = [{
+        "flag": "handoff_finalized",
+        "severity": "success",
+        "message": "Research handoff is finalized",
+    }]
+    if not _handoff_uses_v1_1_contract(snapshot):
+        return flags
+
+    if _handoff_count(snapshot, "differentiated_view_count", artifact_field="differentiated_view") == 0:
+        flags.append({
+            "flag": "missing_differentiated_view",
+            "severity": "warning",
+            "message": "No differentiated view captured",
+        })
+    if _handoff_count(snapshot, "invalidation_trigger_count", artifact_field="invalidation_triggers") == 0:
+        flags.append({
+            "flag": "missing_invalidation_triggers",
+            "severity": "warning",
+            "message": "No invalidation triggers captured",
+        })
+
+    strategy = str(_handoff_strategy(snapshot) or "")
+    if strategy in {"special_situation", "macro"} and not _handoff_has_industry_analysis(snapshot):
+        flags.append({
+            "flag": "missing_industry_analysis",
+            "severity": "info",
+            "message": f"Industry analysis is recommended for {strategy.replace('_', ' ')} theses",
+        })
+
+    flags.extend(_handoff_scorecard_flags(snapshot))
+    return flags
+
+
+def _handoff_uses_v1_1_contract(snapshot: dict[str, Any]) -> bool:
+    original_schema_version = _handoff_original_schema_version(snapshot)
+    if original_schema_version is not None:
+        return str(original_schema_version) == "1.1"
+    return str(_handoff_schema_version(snapshot) or "") == "1.1"
+
+
+def _handoff_schema_version(snapshot: dict[str, Any]) -> Any:
+    if snapshot.get("schema_version") is not None:
+        return snapshot.get("schema_version")
+    artifact = snapshot.get("artifact")
+    if isinstance(artifact, dict):
+        return artifact.get("schema_version")
+    return None
+
+
+def _handoff_original_schema_version(snapshot: dict[str, Any]) -> Any:
+    if snapshot.get("_original_schema_version") is not None:
+        return snapshot.get("_original_schema_version")
+    artifact = snapshot.get("artifact")
+    if isinstance(artifact, dict):
+        return artifact.get("_original_schema_version")
+    return None
+
+
+def _handoff_count(snapshot: dict[str, Any], key: str, *, artifact_field: str) -> int:
+    value = snapshot.get(key)
+    if value is None:
+        summary = snapshot.get("artifact_summary")
+        if isinstance(summary, dict):
+            value = summary.get(key)
+    if value is not None:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            pass
+    artifact = snapshot.get("artifact")
+    if isinstance(artifact, dict):
+        items = artifact.get(artifact_field)
+        if isinstance(items, list):
+            return len(items)
+    return 0
+
+
+def _handoff_has_industry_analysis(snapshot: dict[str, Any]) -> bool:
+    value = snapshot.get("industry_analysis_present")
+    if value is None:
+        summary = snapshot.get("artifact_summary")
+        if isinstance(summary, dict) and "industry_analysis_present" in summary:
+            value = summary.get("industry_analysis_present")
+    if value is not None:
+        return bool(value)
+    artifact = snapshot.get("artifact")
+    return isinstance(artifact, dict) and artifact.get("industry_analysis") is not None
+
+
+def _handoff_strategy(snapshot: dict[str, Any]) -> Any:
+    if snapshot.get("thesis_strategy") is not None:
+        return snapshot.get("thesis_strategy")
+    artifact = snapshot.get("artifact")
+    if not isinstance(artifact, dict):
+        return None
+    thesis = artifact.get("thesis")
+    if isinstance(thesis, dict):
+        return thesis.get("strategy")
+    return None
+
+
+def _handoff_scorecard_summary_status(snapshot: dict[str, Any]) -> str:
+    value = snapshot.get("scorecard_summary_status")
+    if value is None:
+        summary = snapshot.get("artifact_summary")
+        if isinstance(summary, dict):
+            value = summary.get("scorecard_summary_status")
+    if value is not None:
+        return str(value)
+    artifact = snapshot.get("artifact")
+    if not isinstance(artifact, dict):
+        return ""
+    scorecard_ref = artifact.get("scorecard_ref")
+    if isinstance(scorecard_ref, dict) and scorecard_ref.get("summary_status") is not None:
+        return str(scorecard_ref.get("summary_status"))
+    return ""
+
+
+def _handoff_scorecard_flags(snapshot: dict[str, Any]) -> list[dict[str, str]]:
+    summary_status = _handoff_scorecard_summary_status(snapshot)
+    if summary_status == "invalidated":
         return [{
-            "flag": "handoff_finalized",
+            "flag": "invalidated",
+            "severity": "error",
+            "message": "Handoff scorecard is invalidated",
+        }]
+    if summary_status == "at_risk":
+        return [{
+            "flag": "at_risk",
+            "severity": "warning",
+            "message": "Handoff scorecard is at risk",
+        }]
+    if summary_status == "on_track":
+        return [{
+            "flag": "on_track",
             "severity": "success",
-            "message": "Research handoff is finalized",
+            "message": "Handoff scorecard is on track",
         }]
     return []
 
