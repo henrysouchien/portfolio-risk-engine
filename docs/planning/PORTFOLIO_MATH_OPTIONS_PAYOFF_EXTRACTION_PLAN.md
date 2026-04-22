@@ -429,7 +429,7 @@ All R1 findings resolved in v2:
 1. **Blocker #1 (Option B breaks imports)** → Plan now defaults to **Option A (flat module)**. Subpackage conversion rejected with explicit reason: `portfolio_math/options.py:7-8` uses sibling-relative imports to `portfolio_math._utils` and `portfolio_math.types`; subpackage move breaks both. §4 rewritten.
 2. **Blocker #2 (no characterization tests)** → Step 1 (new, run before any code moves) adds `tests/options/test_serialization_contract.py` locking full `to_dict` / `to_summary` / `get_agent_snapshot` payloads across representative strategies (long call, debit spread, iron condor, stock leg).
 3. **Recommend #3 (use Option A)** → Accepted. See §4.
-4. **Recommend #4 (curate root payoff exports)** → Accepted. Only `leg_payoff`, `strategy_payoff`, `find_breakevens`, `payoff_table` + `OptionLeg`, `OptionStrategy` at root. Other 6 payoff functions via `from portfolio_math.options import ...`. See §4 and Step 3.
+4. **Recommend #4 (curate root payoff exports)** → Accepted at ship time. Reversed 2026-04-22 by `PORTFOLIO_MATH_OPTIONS_ROOT_EXPORT_FIX_PLAN.md`; see §13. Only `leg_payoff`, `strategy_payoff`, `find_breakevens`, `payoff_table` + `OptionLeg`, `OptionStrategy` shipped at root in v3. The other 6 payoff functions were later promoted to `portfolio_math.*` root to match Phase 2's un-curated pricing-primitive pattern.
 5. **Recommend #5 (keep `analyze_leg` in `options/payoff.py` shim)** → Accepted. Rationale tightened: real coverage is `tests/options/test_analyzer.py`, not `tests/options/test_payoff.py`. See §5.2 and Step 4.
 6. **Recommend #6 (keep `LegAnalysis` out of scope)** → Confirmed. No change needed.
 7. **Recommend #7 (explicit alias identity tests)** → Step 5 added: `tests/options/test_alias_identity.py`.
@@ -440,7 +440,14 @@ All R1 findings resolved in v2:
 
 ## 11. Ship log
 
-_(To be filled on ship.)_
+**Implementation note**: Codex harness rejected git mutation commands during implementation; code was verified locally (206 tests pass) then staged and committed from Claude per explicit user approval. Per-step scoping preserved except Steps 2 + 3 which are entangled on `portfolio_math/options.py` / `portfolio_math/__init__.py` (same files appended in both steps) — combined into one commit.
+
+- 2026-04-22 — Step 1 complete (`f73c02ef`). `tests/options/test_serialization_contract.py` added; characterization oracle for `to_dict`/`to_summary`/`get_agent_snapshot` across long call, debit spread, iron condor, naked short call, stock-only leg fixtures with monkeypatched `datetime` for timestamp determinism. Required regression suite: `171 passed`.
+- 2026-04-22 — Steps 2 + 3 complete (`ec9bd7b0`). `OptionLeg`, `OptionStrategy`, `_parse_expiration`, and 10 pure payoff functions appended to `portfolio_math/options.py` under section headers. `portfolio_math/__init__.py` adds root exports for domain types + 4 curated payoff helpers (`leg_payoff`, `strategy_payoff`, `find_breakevens`, `payoff_table`); other 6 via `from portfolio_math.options import ...`. New tests `tests/test_portfolio_math_options_types.py` + `tests/test_portfolio_math_options_payoff.py`; extended `tests/test_portfolio_math_sandbox_usage.py` with curated-root debit-spread smoke. Required regression suite: `203 passed`. Later reversed by `PORTFOLIO_MATH_OPTIONS_ROOT_EXPORT_FIX_PLAN.md` — see §13.
+- 2026-04-22 — Step 4 complete (`684d5ec1`). `options/data_objects.py` → 7-line alias shim; `options/payoff.py` → thin shim re-exporting 10 payoff functions with `analyze_leg` preserved locally (returns `LegAnalysis` which stays in `options/result_objects.py`). Full regression suite including Step 1 serialization oracle passed byte-identically. All consumer imports (`mcp_tools/`, `services/`, `brokerage/`, tests) unchanged.
+- 2026-04-22 — Step 5 complete (`c712da3b`). `tests/options/test_alias_identity.py` added: `options.data_objects.OptionLeg is portfolio_math.options.OptionLeg` and parallel assertions for `OptionStrategy` and a payoff function (`find_breakevens`). Required regression suite: `206 passed`.
+- 2026-04-22 — Step 8 complete (this commit). `portfolio_math/README.md` Deferred-Scope block updated (option payoff helpers + domain types removed from deferred list). `docs/planning/AGENT_SURFACE_AUDIT.md` Phase 3D row flipped to ✅ SHIPPED. `docs/TODO.md` PM3 entry reflects 3D DONE, 3C ACTIONABLE, optimizer + PM1B DEFERRED. Ship log finalized with real commit SHAs.
+- 2026-04-22 — Steps 6 + 7 complete (AI-excel-addin cross-repo, commits `021e8c0` + `9d30875` on branch `feat/investment-idea-plan-4`). Plan: `docs/planning/PORTFOLIO_MATH_OPTIONS_AI_EXCEL_ADDIN_PLAN.md`. Step 6 added `test_code_execute_subprocess_imports_portfolio_math_options` to AI-excel-addin `tests/test_code_execute.py` — mirrors the PM1A template (same `register_docker=False` + `PORTFOLIO_MATH_PATH` env override), pins four canonical values (`pnl=0.0`, `breakevens=[102.0]`, `max_profit=None`, `max_loss=-200.0`) for a long 100 call at $2 premium evaluated at $102; test count went 11 → 12. Step 7 extended `api/agent/shared/system_prompt.py` Portfolio & Risk Data section with explicit root-surface enumeration (pricing / domain types / 10 payoff functions / correlation+stats) so agents don't have to discover `OptionLeg`'s strict constructor signature via `dir()`; existing `tests/test_system_prompt.py:test_code_execution_guidance_includes_risk_section` pinned with 4 new substring assertions (`OptionLeg`, `OptionStrategy`, `strategy_payoff`, `find_breakevens`). AI-excel-addin prompt suite: `3 passed`; broader sweep: `93 passed`. Agent-surface exposure for Phase 3D now end-to-end live — sandbox can `import portfolio_math as pm` and compose `pm.OptionStrategy` + payoff primitives locally without HTTP. Commits land on `main` when `feat/investment-idea-plan-4` merges.
 
 ---
 
@@ -456,3 +463,16 @@ _(To be filled on ship.)_
 **v2 (2026-04-21)**: Revised per Codex R1 FAIL. Two blockers fixed (Option B → Option A; characterization tests added as Step 1). Seven recommends integrated (curated root exports, `analyze_leg` placement rationale, `LegAnalysis` scope confirmed, alias identity tests, consumer list correction, serialization coupling clarification). Implementation expanded from 7 steps to 8 (Step 1 is new characterization phase).
 
 **v1 (2026-04-21)**: Initial draft. FAIL at Codex R1.
+
+---
+
+## 13. Post-ship correction (2026-04-22)
+
+`PORTFOLIO_MATH_OPTIONS_ROOT_EXPORT_FIX_PLAN.md` reversed the curated root-export decision from Step 3 and promoted the remaining 6 payoff functions (`max_profit`, `max_loss`, `intrinsic_value`, `extrinsic_value`, `cost_of_leverage_annualized`, `pnl_per_dollar_move`) to `portfolio_math.*` root.
+
+Rationale for the reversal:
+1. The "accept Codex scope reduction early" rule was applied to an API-surface decision rather than to implementation scope. Re-exporting the full payoff surface has effectively zero marginal implementation cost, so the curation needed its own justification and did not have one.
+2. Curating the "4 most-used" payoff helpers at root repeated the same workflow-prediction anti-pattern rejected in `docs/planning/AGENT_SURFACE_AUDIT.md` on 2026-04-21. Capability extraction is about enabling local composition, not predicting in advance which helpers the agent will prefer.
+3. The curated payoff surface was inconsistent with Phase 2, which exported all 5 pricing primitives at `portfolio_math.*` root without curation. The default for peer capability packages is symmetry unless there is a concrete collision or maintenance cost.
+
+Historical note: this section records the reversal only. §4 and §6 Step 3 remain historically accurate descriptions of what v3 shipped on 2026-04-22 before the follow-up root-export correction landed.

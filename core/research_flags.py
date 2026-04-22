@@ -20,6 +20,9 @@ def generate_research_flags(snapshot: dict[str, Any], context: str = "file") -> 
 
 
 def _file_flags(snapshot: dict[str, Any]) -> list[dict[str, str]]:
+    if str(snapshot.get("status") or "") == "error":
+        return _error_file_flags(snapshot)
+
     files = snapshot.get("files")
     if not isinstance(files, list):
         files = []
@@ -54,7 +57,44 @@ def _file_flags(snapshot: dict[str, Any]) -> list[dict[str, str]]:
             "severity": "info",
             "message": "Existing research file was reused",
         })
+    idea_seeded = _is_truthy(snapshot.get("idea_seeded"))
+    thesis_bootstrapped = _is_truthy(snapshot.get("thesis_bootstrapped"))
+    idea_backfilled = _is_truthy(snapshot.get("idea_backfilled"))
+
+    if idea_seeded and thesis_bootstrapped:
+        flags.append({
+            "flag": "research_started_from_idea",
+            "severity": "info",
+            "message": "Research workspace was seeded from an investment idea",
+        })
+    if idea_seeded and idea_backfilled:
+        flags.append({
+            "flag": "idea_backfilled_to_existing_file",
+            "severity": "info",
+            "message": "Investment idea provenance was backfilled onto an existing research file",
+        })
+    if (
+        idea_seeded
+        and _is_truthy(snapshot.get("existing_file_reused"))
+        and snapshot.get("thesis_bootstrapped") is not None
+        and not thesis_bootstrapped
+    ):
+        flags.append({
+            "flag": "thesis_preserved_existing",
+            "severity": "info",
+            "message": "Existing thesis content was preserved during idea seeding",
+        })
     return flags
+
+
+def _error_file_flags(snapshot: dict[str, Any]) -> list[dict[str, str]]:
+    if _is_truthy(snapshot.get("idea_conflict")):
+        return [{
+            "flag": "idea_conflict",
+            "severity": "warning",
+            "message": "Requested investment idea conflicts with the existing research file",
+        }]
+    return []
 
 
 def _diligence_flags(snapshot: dict[str, Any]) -> list[dict[str, str]]:
@@ -304,6 +344,14 @@ def _build_flags(snapshot: dict[str, Any]) -> list[dict[str, str]]:
 def _sort_flags(flags: list[dict[str, str]]) -> list[dict[str, str]]:
     order = {"error": 0, "warning": 1, "info": 2, "success": 3}
     return sorted(flags, key=lambda flag: order.get(flag.get("severity", "info"), 2))
+
+
+def _is_truthy(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    return str(value or "").strip().lower() in {"1", "true", "yes"}
 
 
 __all__ = ["generate_research_flags", "_sort_flags"]
