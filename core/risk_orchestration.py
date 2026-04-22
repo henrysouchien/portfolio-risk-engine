@@ -966,11 +966,12 @@ def run_realized_performance(
     from services.position_service import PositionService
     from services.portfolio_service import PortfolioService
     from mcp_tools.performance import _format_realized_report
-    from settings import get_default_user
+    from settings import UserContextError, resolve_user_email
 
-    # Resolve user email: explicit > TEST_USER_EMAIL > RISK_MODULE_USER_EMAIL
-    user = user_email or os.getenv("TEST_USER_EMAIL") or get_default_user()
-    if not user:
+    resolved_user_input = user_email or os.getenv("TEST_USER_EMAIL") or None
+    try:
+        user = str(resolve_user_email(resolved_user_input))
+    except UserContextError:
         print("Error: No user email provided. Use --user-email or set TEST_USER_EMAIL / RISK_MODULE_USER_EMAIL.")
         return None
 

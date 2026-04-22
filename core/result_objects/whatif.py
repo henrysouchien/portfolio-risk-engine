@@ -215,7 +215,7 @@ class WhatIfResult:
 
     def get_summary(self) -> Dict[str, Any]:
         """Get summary of scenario impact using real metrics."""
-        return {
+        return make_json_safe({
             "scenario_name": self.scenario_name,
             "volatility_change": {
                 "current": round(self.current_metrics.volatility_annual, 4),
@@ -234,7 +234,7 @@ class WhatIfResult:
             },
             "risk_improvement": self.risk_improvement,
             "concentration_improvement": self.concentration_improvement
-        }
+        })
 
     def get_agent_snapshot(self) -> Dict[str, Any]:
         """Compact metrics for agent consumption."""
@@ -339,10 +339,17 @@ class WhatIfResult:
         factor_deltas: Dict[str, Dict[str, float]] = {}
         try:
             factor_comparison = self.get_factor_exposures_comparison()
-            sorted_factors = sorted(
-                factor_comparison.items(),
-                key=lambda item: (-abs(item[1].get("delta", 0)), item[0]),
-            )
+            def _delta_rank(item):
+                delta = item[1].get("delta", 0)
+                try:
+                    delta_f = float(delta)
+                except (TypeError, ValueError):
+                    return (1, 0.0, item[0])  # non-numeric / None -> last
+                if not math.isfinite(delta_f):
+                    return (1, 0.0, item[0])  # NaN / +/-Inf -> last
+                return (0, -abs(delta_f), item[0])  # finite -> ranked by |delta| desc, alpha tiebreak
+
+            sorted_factors = sorted(factor_comparison.items(), key=_delta_rank)
             for factor, values in sorted_factors[:3]:
                 factor_deltas[factor] = {
                     "current": values.get("current", 0),
@@ -427,7 +434,7 @@ class WhatIfResult:
             "new_tickers": self.new_tickers,
         }
 
-        return snapshot
+        return make_json_safe(snapshot)
     
     def get_factor_exposures_comparison(self) -> Dict[str, Dict[str, float]]:
         """Compare factor exposures between current and scenario portfolios."""
@@ -446,7 +453,7 @@ class WhatIfResult:
                 "delta": round(scenario_beta - current_beta, 3)
             }
         
-        return comparison
+        return make_json_safe(comparison)
     
     def to_cli_report(self) -> str:
         """

@@ -51,6 +51,13 @@ import hashlib
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from portfolio_math.correlation import (
+    compute_correlation_matrix as _pm_compute_correlation_matrix,
+    compute_covariance_matrix as _pm_compute_covariance_matrix,
+    compute_herfindahl as _pm_compute_herfindahl,
+    compute_portfolio_volatility as _pm_compute_portfolio_volatility,
+    compute_risk_contributions as _pm_compute_risk_contributions,
+)
 from core.cash_helpers import is_cur_ticker
 from core.coverage_tracking import (
     FactorCoverage,
@@ -348,7 +355,7 @@ def compute_covariance_matrix(
     """
     Compute the sample covariance matrix of asset returns.
     """
-    return returns.cov()
+    return _pm_compute_covariance_matrix(returns)
 
 def compute_correlation_matrix(
     returns: pd.DataFrame
@@ -362,7 +369,7 @@ def compute_correlation_matrix(
     Returns:
         pd.DataFrame: Correlation matrix between assets.
     """
-    return returns.corr()
+    return _pm_compute_correlation_matrix(returns)
 
 @log_errors("high")
 @log_timing(1.0)
@@ -373,10 +380,7 @@ def compute_portfolio_volatility(
     """
     Compute portfolio volatility = sqrt(w^T Σ w).
     """
-    w = normalize_weights(weights)
-    w_vec = np.array([w[t] for t in cov_matrix.index])
-    var_p = float(w_vec.T.dot(cov_matrix.values).dot(w_vec))
-    return np.sqrt(var_p)
+    return _pm_compute_portfolio_volatility(normalize_weights(weights), cov_matrix)
 
 @log_errors("high")
 @log_timing(1.0)
@@ -389,13 +393,7 @@ def compute_risk_contributions(
     RC_i = w_i * (Σ w)_i / σ_p
     Returns a Series indexed by ticker.
     """
-    w = normalize_weights(weights)
-    w_vec = np.array([w[t] for t in cov_matrix.index])
-    sigma_p = compute_portfolio_volatility(weights, cov_matrix)
-    # marginal contributions = (Σ w)_i
-    marg = cov_matrix.values.dot(w_vec)
-    rc = w_vec * marg / sigma_p
-    return pd.Series(rc, index=cov_matrix.index, name="risk_contrib")
+    return _pm_compute_risk_contributions(normalize_weights(weights), cov_matrix)
 
 def compute_herfindahl(
     weights: Dict[str, float],
@@ -405,26 +403,17 @@ def compute_herfindahl(
     Compute the Herfindahl index = sum(w_i^2).
     Indicates portfolio concentration (0 = fully diversified, 1 = single asset).
     """
-    if security_types:
-        filtered_weights: Dict[str, float] = {}
-        for ticker, weight in (weights or {}).items():
-            ticker_key = str(ticker or "")
-            security_type = security_types.get(ticker_key)
-            if security_type is None:
-                security_type = security_types.get(ticker_key.upper())
-            if str(security_type or "").lower() in DIVERSIFIED_SECURITY_TYPES:
-                continue
-            filtered_weights[ticker] = weight
-        weights = filtered_weights
-
     if not weights:
         return 0.0
 
     if sum(abs(w) for w in weights.values()) == 0:
         return 0.0
 
-    w = normalize_weights(weights)
-    return float(sum([w_i ** 2 for w_i in w.values()]))
+    return _pm_compute_herfindahl(
+        normalize_weights(weights),
+        security_types=security_types,
+        diversified_types=DIVERSIFIED_SECURITY_TYPES,
+    )
 
 # Example usage snippet (to paste in your notebook):
 #

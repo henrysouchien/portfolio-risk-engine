@@ -28,6 +28,7 @@ from utils.user_context import (
     _normalize_email_value,
     _read_env_or_dotenv,
     _read_key_from_env_file,
+    UserContextError,
     format_missing_user_error,
     get_default_user,
     get_default_user_context,

@@ -38,6 +38,7 @@ certifi>=2026.0.0  # SSL fix for IBKR Flex (ibkr/flex.py), also used by provider
 # Installed version is 46.0.5 (works fine, SnapTrade's cap is overly conservative).
 # On fresh installs from requirements.lock: pip install cryptography>=46.0.5 after.
 # TODO: remove this comment when SnapTrade loosens their upper bound.
+cryptography==46.0.5
 
 # AI & Language Models
 anthropic>=0.84.0
