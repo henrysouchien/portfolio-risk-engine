@@ -905,7 +905,7 @@ def fetch_snaptrade_holdings(user_email: str, client: SnapTrade) -> List[Dict]:
                         snaptrade_user_id,
                     )
                 else:
-                    rotate_snaptrade_user_secret(user_email, client)
+                    rotate_snaptrade_user_secret(user_email)
 
             user_secret = get_snaptrade_user_secret(user_email)
             if not user_secret:
@@ -1627,214 +1627,6 @@ def with_snaptrade_retry(operation_name: str, max_retries: int = 3):
 # 🔄 RETRY-WRAPPED API CALLS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-@with_snaptrade_retry("register_snap_trade_user")
-def _register_snap_trade_user_with_retry(client: SnapTrade, user_id: str):
-    """Register user with SnapTrade API with retry logic."""
-    return client.authentication.register_snap_trade_user(user_id=user_id)
-
-@with_snaptrade_retry("login_snap_trade_user")
-def _login_snap_trade_user_with_retry(
-    client: SnapTrade,
-    user_id: str,
-    user_secret: str,
-    broker=None,
-    immediate_redirect=True,
-    custom_redirect=None,
-    connection_type: Optional[str] = None,
-    reconnect: Optional[str] = None,
-):
-    """Create SnapTrade connection URL with retry logic."""
-    kwargs: Dict[str, Any] = dict(
-        user_id=user_id,
-        user_secret=user_secret,
-        broker=broker,
-        immediate_redirect=immediate_redirect,
-        custom_redirect=custom_redirect,
-    )
-    if connection_type is not None:
-        kwargs["connection_type"] = connection_type
-    if reconnect is not None:
-        kwargs["reconnect"] = reconnect
-    return client.authentication.login_snap_trade_user(**kwargs)
-
-@with_snaptrade_retry("list_user_accounts")
-def _list_user_accounts_with_retry(client: SnapTrade, user_id: str, user_secret: str):
-    """List user accounts with retry logic."""
-    return client.account_information.list_user_accounts(
-        user_id=user_id,
-        user_secret=user_secret
-    )
-
-@with_snaptrade_retry("detail_brokerage_authorization")
-def _detail_brokerage_authorization_with_retry(
-    client: SnapTrade,
-    authorization_id: str,
-    user_id: str,
-    user_secret: str,
-):
-    """Get brokerage authorization details with retry logic."""
-    return client.connections.detail_brokerage_authorization(
-        authorization_id=authorization_id,
-        user_id=user_id,
-        user_secret=user_secret,
-    )
-
-@with_snaptrade_retry("get_user_account_positions")
-def _get_user_account_positions_with_retry(client: SnapTrade, user_id: str, user_secret: str, account_id: str):
-    """Get account positions with retry logic."""
-    return client.account_information.get_user_account_positions(
-        user_id=user_id,
-        user_secret=user_secret,
-        account_id=account_id
-    )
-
-@with_snaptrade_retry("get_user_account_balance")
-def _get_user_account_balance_with_retry(client: SnapTrade, user_id: str, user_secret: str, account_id: str):
-    """Get account balance with retry logic."""
-    return client.account_information.get_user_account_balance(
-        user_id=user_id,
-        user_secret=user_secret,
-        account_id=account_id
-    )
-
-@with_snaptrade_retry("remove_brokerage_authorization")
-def _remove_brokerage_authorization_with_retry(client: SnapTrade, user_id: str, user_secret: str, authorization_id: str):
-    """Remove brokerage authorization with retry logic."""
-    return client.connections.remove_brokerage_authorization(
-        user_id=user_id,
-        user_secret=user_secret,
-        authorization_id=authorization_id
-    )
-
-@with_snaptrade_retry("delete_snap_trade_user")
-def _delete_snap_trade_user_with_retry(client: SnapTrade, user_id: str):
-    """Delete SnapTrade user with retry logic."""
-    return client.authentication.delete_snap_trade_user(user_id=user_id)
-
-@with_snaptrade_retry("symbol_search_user_account")
-def _symbol_search_user_account_with_retry(
-    client: SnapTrade,
-    user_id: str,
-    user_secret: str,
-    account_id: str,
-    substring: str,
-):
-    """Search symbols supported by a specific account with retry logic."""
-    return client.reference_data.symbol_search_user_account(
-        user_id=user_id,
-        user_secret=user_secret,
-        account_id=account_id,
-        substring=substring,
-    )
-
-@with_snaptrade_retry("get_order_impact")
-def _get_order_impact_with_retry(
-    client: SnapTrade,
-    user_id: str,
-    user_secret: str,
-    account_id: str,
-    side: str,
-    universal_symbol_id: str,
-    order_type: str,
-    time_in_force: str,
-    quantity: float,
-    limit_price: Optional[float] = None,
-    stop_price: Optional[float] = None,
-):
-    """Preview order impact with retry logic."""
-    return client.trading.get_order_impact(
-        user_id=user_id,
-        user_secret=user_secret,
-        account_id=account_id,
-        action=side,
-        universal_symbol_id=universal_symbol_id,
-        order_type=order_type,
-        time_in_force=time_in_force,
-        units=quantity,
-        price=limit_price,
-        stop=stop_price,
-    )
-
-@with_snaptrade_retry("place_order")
-def _place_order_with_retry(
-    client: SnapTrade,
-    user_id: str,
-    user_secret: str,
-    trade_id: str,
-    wait_to_confirm: bool = True,
-):
-    """Place a previously checked order with retry logic."""
-    return client.trading.place_order(
-        user_id=user_id,
-        user_secret=user_secret,
-        trade_id=trade_id,
-        wait_to_confirm=wait_to_confirm,
-    )
-
-@with_snaptrade_retry("get_user_account_orders")
-def _get_user_account_orders_with_retry(
-    client: SnapTrade,
-    user_id: str,
-    user_secret: str,
-    account_id: str,
-    state: str = "all",
-    days: int = 30,
-):
-    """List account orders with retry logic."""
-    return client.account_information.get_user_account_orders(
-        user_id=user_id,
-        user_secret=user_secret,
-        account_id=account_id,
-        state=state,
-        days=days,
-    )
-
-@with_snaptrade_retry("cancel_order")
-def _cancel_order_with_retry(
-    client: SnapTrade,
-    user_id: str,
-    user_secret: str,
-    account_id: str,
-    brokerage_order_id: str,
-):
-    """Cancel a brokerage order with retry logic."""
-    return client.trading.cancel_order(
-        user_id=user_id,
-        user_secret=user_secret,
-        account_id=account_id,
-        brokerage_order_id=brokerage_order_id,
-    )
-
-
-def _extract_snaptrade_body(response: Any) -> Any:
-    """Unwrap SDK ApiResponse objects and return plain body payload."""
-    if hasattr(response, "body"):
-        return response.body
-    return response
-
-
-def _get_snaptrade_identity(user_email: str) -> tuple[str, str]:
-    """Resolve SnapTrade user_id/user_secret pair from user email."""
-    user_id = get_snaptrade_user_id_from_email(user_email)
-    user_secret = get_snaptrade_user_secret(user_email)
-    if not user_secret:
-        raise ValueError(f"No SnapTrade user secret found for {user_email}")
-    return user_id, user_secret
-
-
-def _to_float(value: Any) -> Optional[float]:
-    """Best-effort numeric conversion helper."""
-    try:
-        if value is None:
-            return None
-        result = float(value)
-        if math.isinf(result):
-            return None
-        return result
-    except (TypeError, ValueError):
-        return None
-
-
 def search_snaptrade_symbol(
     user_email: str,
     account_id: str,
@@ -2166,19 +1958,26 @@ from brokerage.snaptrade.client import (  # noqa: E402
     _cancel_order_with_retry as _extracted_cancel_order_with_retry,
     _delete_snap_trade_user_with_retry as _extracted_delete_snap_trade_user_with_retry,
     _detail_brokerage_authorization_with_retry as _extracted_detail_brokerage_authorization_with_retry,
+    _get_account_activities_with_retry as _extracted_get_account_activities_with_retry,
+    _get_activities_with_retry as _extracted_get_activities_with_retry,
     _get_order_impact_with_retry as _extracted_get_order_impact_with_retry,
+    _get_or_create_client as _extracted_get_or_create_client,
     _get_user_account_balance_with_retry as _extracted_get_user_account_balance_with_retry,
     _get_user_account_orders_with_retry as _extracted_get_user_account_orders_with_retry,
     _get_user_account_positions_with_retry as _extracted_get_user_account_positions_with_retry,
     _list_user_accounts_with_retry as _extracted_list_user_accounts_with_retry,
+    _list_user_brokerage_authorizations_with_retry as _extracted_list_user_brokerage_authorizations_with_retry,
     _login_snap_trade_user_with_retry as _extracted_login_snap_trade_user_with_retry,
     _place_order_with_retry as _extracted_place_order_with_retry,
+    _refresh_brokerage_authorization_with_retry as _extracted_refresh_brokerage_authorization_with_retry,
+    _require_snaptrade_client as _extracted_require_snaptrade_client,
     _reset_snap_trade_user_secret_with_retry as _extracted_reset_snap_trade_user_secret_with_retry,
     _register_snap_trade_user_with_retry as _extracted_register_snap_trade_user_with_retry,
     _remove_brokerage_authorization_with_retry as _extracted_remove_brokerage_authorization_with_retry,
     _symbol_search_user_account_with_retry as _extracted_symbol_search_user_account_with_retry,
-    get_snaptrade_client as _extracted_get_snaptrade_client,
-    snaptrade_client as _extracted_snaptrade_client,
+    get_account_activities as _extracted_get_account_activities,
+    get_activities as _extracted_get_activities,
+    list_user_accounts as _extracted_public_list_user_accounts,
 )
 from brokerage.snaptrade.recovery import (  # noqa: E402
     _get_rotation_lock as _extracted_get_rotation_lock,
@@ -2190,6 +1989,8 @@ from brokerage.snaptrade.connections import (  # noqa: E402
     check_snaptrade_connection_health as _extracted_check_snaptrade_connection_health,
     create_snaptrade_connection_url as _extracted_create_snaptrade_connection_url,
     list_snaptrade_connections as _extracted_list_snaptrade_connections,
+    list_user_brokerage_authorizations as _extracted_list_user_brokerage_authorizations,
+    refresh_brokerage_authorization as _extracted_refresh_brokerage_authorization,
     remove_snaptrade_connection as _extracted_remove_snaptrade_connection,
     upgrade_snaptrade_connection_to_trade as _extracted_upgrade_snaptrade_connection_to_trade,
 )
@@ -2212,8 +2013,6 @@ from brokerage.snaptrade.users import (  # noqa: E402
     get_snaptrade_user_id_from_email as _extracted_get_snaptrade_user_id_from_email,
     register_snaptrade_user as _extracted_register_snaptrade_user,
 )
-
-get_snaptrade_client = _extracted_get_snaptrade_client
 store_snaptrade_app_credentials = _extracted_store_snaptrade_app_credentials
 get_snaptrade_app_credentials = _extracted_get_snaptrade_app_credentials
 store_snaptrade_user_secret = _extracted_store_snaptrade_user_secret
@@ -2234,11 +2033,15 @@ ApiException = _extracted_ApiException
 _register_snap_trade_user_with_retry = _extracted_register_snap_trade_user_with_retry
 _login_snap_trade_user_with_retry = _extracted_login_snap_trade_user_with_retry
 _list_user_accounts_with_retry = _extracted_list_user_accounts_with_retry
+_list_user_brokerage_authorizations_with_retry = _extracted_list_user_brokerage_authorizations_with_retry
 _detail_brokerage_authorization_with_retry = _extracted_detail_brokerage_authorization_with_retry
+_get_account_activities_with_retry = _extracted_get_account_activities_with_retry
+_get_activities_with_retry = _extracted_get_activities_with_retry
 _get_user_account_positions_with_retry = _extracted_get_user_account_positions_with_retry
 _get_user_account_balance_with_retry = _extracted_get_user_account_balance_with_retry
 _remove_brokerage_authorization_with_retry = _extracted_remove_brokerage_authorization_with_retry
 _delete_snap_trade_user_with_retry = _extracted_delete_snap_trade_user_with_retry
+_refresh_brokerage_authorization_with_retry = _extracted_refresh_brokerage_authorization_with_retry
 _reset_snap_trade_user_secret_with_retry = _extracted_reset_snap_trade_user_secret_with_retry
 _symbol_search_user_account_with_retry = _extracted_symbol_search_user_account_with_retry
 _get_order_impact_with_retry = _extracted_get_order_impact_with_retry
@@ -2247,16 +2050,20 @@ _get_user_account_orders_with_retry = _extracted_get_user_account_orders_with_re
 _cancel_order_with_retry = _extracted_cancel_order_with_retry
 _extract_snaptrade_body = _extracted_extract_snaptrade_body
 _get_snaptrade_identity = _extracted_get_snaptrade_identity
+_get_or_create_client = _extracted_get_or_create_client
+_require_snaptrade_client = _extracted_require_snaptrade_client
 _to_float = _extracted_to_float
 _get_rotation_lock = _extracted_get_rotation_lock
 _try_rotate_secret = _extracted_try_rotate_secret
 rotate_snaptrade_user_secret = _extracted_rotate_snaptrade_user_secret
 recover_snaptrade_auth = _extracted_recover_snaptrade_auth
+list_user_brokerage_authorizations = _extracted_list_user_brokerage_authorizations
+list_user_accounts = _extracted_public_list_user_accounts
+get_account_activities = _extracted_get_account_activities
+get_activities = _extracted_get_activities
+refresh_brokerage_authorization = _extracted_refresh_brokerage_authorization
 search_snaptrade_symbol = _extracted_search_snaptrade_symbol
 preview_snaptrade_order = _extracted_preview_snaptrade_order
 place_snaptrade_checked_order = _extracted_place_snaptrade_checked_order
 get_snaptrade_orders = _extracted_get_snaptrade_orders
 cancel_snaptrade_order = _extracted_cancel_snaptrade_order
-
-# Initialize default client on module import (if enabled)
-snaptrade_client = _extracted_snaptrade_client

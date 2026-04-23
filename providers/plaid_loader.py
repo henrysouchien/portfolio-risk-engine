@@ -13,8 +13,6 @@ from __future__ import annotations
 from brokerage._logging import portfolio_logger
 from brokerage.config import AWS_DEFAULT_REGION
 from brokerage.plaid.client import (
-    client,
-    create_client,
     create_hosted_link_token,
     create_update_link_token,
     fetch_plaid_holdings,
@@ -609,7 +607,7 @@ def convert_plaid_df_to_yaml_input(
 
 # --- RUNNER: Load all holdings with Plaid ---------------------------------
 
-def load_all_user_holdings(user_id: str, region_name: str, client: plaid_api.PlaidApi) -> pd.DataFrame:
+def load_all_user_holdings(user_id: str, region_name: str) -> pd.DataFrame:
     """
     Fetch and normalize Plaid investment holdings across all institutions for a user,
     with account-level cash gap detection and synthetic cash/margin patching.
@@ -628,8 +626,6 @@ def load_all_user_holdings(user_id: str, region_name: str, client: plaid_api.Pla
         Unique user identifier (used in Secrets Manager path, e.g., email address)
     region_name : str
         AWS region to locate Plaid access tokens (e.g., 'us-east-1')
-    client : plaid_api.PlaidApi
-        Initialized Plaid API client instance
 
     Returns
     -------
@@ -655,7 +651,7 @@ def load_all_user_holdings(user_id: str, region_name: str, client: plaid_api.Pla
             region_name=region_name
         )
         access_token = token_data["access_token"]
-        holdings_data = fetch_plaid_holdings(access_token, client)
+        holdings_data = fetch_plaid_holdings(access_token)
 
         # Patch each account separately
         for acct in holdings_data["accounts"]:
