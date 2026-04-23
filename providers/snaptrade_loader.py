@@ -847,7 +847,18 @@ def _map_snaptrade_code_to_internal(snaptrade_code: str) -> str:
 # 💼 HOLDINGS AND PORTFOLIO FUNCTIONS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def fetch_snaptrade_holdings(user_email: str, client: SnapTrade) -> List[Dict]:
+def _budget_kwargs(budget_user_id: int | None) -> Dict[str, int]:
+    if budget_user_id is None:
+        return {}
+    return {"budget_user_id": budget_user_id}
+
+
+def fetch_snaptrade_holdings(
+    user_email: str,
+    client: SnapTrade,
+    *,
+    budget_user_id: int | None = None,
+) -> List[Dict]:
     """
     Fetch all holdings for a SnapTrade user across all their accounts.
     
@@ -890,7 +901,12 @@ def fetch_snaptrade_holdings(user_email: str, client: SnapTrade) -> List[Dict]:
             
         # Get all user accounts first (with retry logic)
         try:
-            accounts_response = _list_user_accounts_with_retry(client, snaptrade_user_id, user_secret)
+            accounts_response = _list_user_accounts_with_retry(
+                client,
+                snaptrade_user_id,
+                user_secret,
+                **_budget_kwargs(budget_user_id),
+            )
         except ApiException as e:
             if not is_snaptrade_secret_error(e):
                 raise
@@ -905,13 +921,21 @@ def fetch_snaptrade_holdings(user_email: str, client: SnapTrade) -> List[Dict]:
                         snaptrade_user_id,
                     )
                 else:
-                    rotate_snaptrade_user_secret(user_email)
+                    rotate_snaptrade_user_secret(
+                        user_email,
+                        **_budget_kwargs(budget_user_id),
+                    )
 
             user_secret = get_snaptrade_user_secret(user_email)
             if not user_secret:
                 raise ValueError(f"No SnapTrade user secret found for {user_email}")
 
-            accounts_response = _list_user_accounts_with_retry(client, snaptrade_user_id, user_secret)
+            accounts_response = _list_user_accounts_with_retry(
+                client,
+                snaptrade_user_id,
+                user_secret,
+                **_budget_kwargs(budget_user_id),
+            )
         
         # Extract accounts from API response
         accounts = accounts_response.body if hasattr(accounts_response, 'body') else accounts_response
@@ -927,7 +951,11 @@ def fetch_snaptrade_holdings(user_email: str, client: SnapTrade) -> List[Dict]:
             # 1. Get securities positions (SnapTrade recommended endpoint) (with retry logic)
             try:
                 positions_response = _get_user_account_positions_with_retry(
-                    client, snaptrade_user_id, user_secret, account_id
+                    client,
+                    snaptrade_user_id,
+                    user_secret,
+                    account_id,
+                    **_budget_kwargs(budget_user_id),
                 )
                 
                 # Extract positions from API response
@@ -1018,7 +1046,11 @@ def fetch_snaptrade_holdings(user_email: str, client: SnapTrade) -> List[Dict]:
             # 2. Get cash balances for this account (with retry logic)
             try:
                 balances_response = _get_user_account_balance_with_retry(
-                    client, snaptrade_user_id, user_secret, account_id
+                    client,
+                    snaptrade_user_id,
+                    user_secret,
+                    account_id,
+                    **_budget_kwargs(budget_user_id),
                 )
                 
                 # Extract balances from API response
@@ -1891,8 +1923,13 @@ def cancel_snaptrade_order(
 # 🎯 HIGH-LEVEL INTEGRATION FUNCTIONS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def load_all_user_snaptrade_holdings(user_email: str, region_name: str = "us-east-1", 
-                                    client: Optional[SnapTrade] = None) -> pd.DataFrame:
+def load_all_user_snaptrade_holdings(
+    user_email: str,
+    region_name: str = "us-east-1",
+    client: Optional[SnapTrade] = None,
+    *,
+    budget_user_id: int | None = None,
+) -> pd.DataFrame:
     """
     Load and consolidate all SnapTrade holdings for a user.
     
@@ -1920,7 +1957,11 @@ def load_all_user_snaptrade_holdings(user_email: str, region_name: str = "us-eas
             return pd.DataFrame()  # SnapTrade disabled or unavailable
             
         # Fetch raw holdings
-        raw_holdings = fetch_snaptrade_holdings(user_email, client)
+        raw_holdings = fetch_snaptrade_holdings(
+            user_email,
+            client,
+            budget_user_id=budget_user_id,
+        )
         
         if not raw_holdings:
             return pd.DataFrame()
