@@ -10,6 +10,8 @@ def generate_research_flags(snapshot: dict[str, Any], context: str = "file") -> 
 
     if context == "file":
         return _sort_flags(_file_flags(snapshot))
+    if context == "template":
+        return _sort_flags(_template_flags(snapshot))
     if context == "diligence":
         return _sort_flags(_diligence_flags(snapshot))
     if context == "handoff":
@@ -84,6 +86,27 @@ def _file_flags(snapshot: dict[str, Any]) -> list[dict[str, str]]:
             "severity": "info",
             "message": "Existing thesis content was preserved during idea seeding",
         })
+    if _is_truthy(snapshot.get("process_template_applied")):
+        flags.append({
+            "flag": "research_template_applied",
+            "severity": "info",
+            "message": "Suggested process template was applied to the research workspace",
+        })
+
+    suggested_template_id = _suggested_process_template_id(snapshot)
+    if (
+        suggested_template_id
+        and snapshot.get("process_template_applied") is not None
+        and not _is_truthy(snapshot.get("process_template_applied"))
+        and not _is_truthy(snapshot.get("existing_file_reused"))
+    ):
+        flags.append({
+            "flag": "process_template_unknown",
+            "severity": "warning",
+            "message": (
+                "Suggested process template could not be resolved, so research started without it"
+            ),
+        })
     return flags
 
 
@@ -93,6 +116,19 @@ def _error_file_flags(snapshot: dict[str, Any]) -> list[dict[str, str]]:
             "flag": "idea_conflict",
             "severity": "warning",
             "message": "Requested investment idea conflicts with the existing research file",
+        }]
+    return []
+
+
+def _template_flags(snapshot: dict[str, Any]) -> list[dict[str, str]]:
+    if str(snapshot.get("status") or "") == "error":
+        return []
+
+    if snapshot.get("research_file_id") is not None and snapshot.get("template_id"):
+        return [{
+            "flag": "process_template_switched",
+            "severity": "info",
+            "message": "Process template was applied to the active research file",
         }]
     return []
 
@@ -159,6 +195,12 @@ def _diligence_flags(snapshot: dict[str, Any]) -> list[dict[str, str]]:
 
 def _handoff_flags(snapshot: dict[str, Any]) -> list[dict[str, str]]:
     status = str(snapshot.get("status") or "")
+    if status == "error" and str(snapshot.get("error_type") or "") == "template_requirements_unmet":
+        return [{
+            "flag": "finalize_template_gates_failed",
+            "severity": "warning",
+            "message": "Process template finalize gates failed",
+        }]
     if status != "finalized":
         return []
 
@@ -352,6 +394,14 @@ def _is_truthy(value: Any) -> bool:
     if isinstance(value, (int, float)):
         return value != 0
     return str(value or "").strip().lower() in {"1", "true", "yes"}
+
+
+def _suggested_process_template_id(snapshot: dict[str, Any]) -> str:
+    idea = snapshot.get("idea_provenance")
+    if not isinstance(idea, dict):
+        return ""
+    value = idea.get("suggested_process_template_id")
+    return str(value or "").strip()
 
 
 __all__ = ["generate_research_flags", "_sort_flags"]

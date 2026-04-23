@@ -996,7 +996,7 @@ Not decided by this document:
 
 ## 12. Follow-On Implementation Plans
 
-Once this doc is approved, these implementation plans get written. **Order reflects actual dependencies** (fixed from R1):
+Once this doc is approved, these implementation plans get written. Shipped plans are marked inline in the `Plan` column. **Order reflects actual dependencies** (fixed from R1):
 
 | # | Plan | Closes | Dependencies |
 |---|---|---|---|
@@ -1004,7 +1004,7 @@ Once this doc is approved, these implementation plans get written. **Order refle
 | 2 | `HANDOFF_ARTIFACT_V1_1_PLAN.md` | G5, G9, G11, G13-snapshot, G14, G15 | Thesis contract |
 | 3 | `MODEL_BUILD_CONTEXT_PLAN.md` | G2 | HandoffArtifact v1.1 |
 | 4 | `INVESTMENT_IDEA_INGRESS_PLAN.md` | G1 | HandoffArtifact v1.1 |
-| 5 | `PROCESS_TEMPLATE_PLAN.md` | G7, G12 | HandoffArtifact v1.1 |
+| 5 | `PROCESS_TEMPLATE_PLAN.md` (SHIPPED) | G7, G12 | HandoffArtifact v1.1 |
 | 6 | `MODEL_INSIGHTS_PRICE_TARGET_PLAN.md` | G3, G4 | ModelBuildContext |
 | 7 | `INDUSTRY_RESEARCH_TOOLS_PLAN.md` | G5 (tools side) | HandoffArtifact v1.1 |
 | 8 | `EDGAR_FMP_PRECEDENCE_PLAN.md` | G8 (request-time overrides) | ModelBuildContext |

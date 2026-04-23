@@ -1,8 +1,8 @@
 # Plan #5 — `ProcessTemplate` v1.0 (Investment Schema Unification)
 
-**Status**: 🟡 **DRAFT R3** — awaiting Codex R4 review.
+**Status**: ✅ **PASS (Codex R7)** — implementation-ready.
 
-**Last revised**: 2026-04-22 (R2 → R3 after Codex R3 FAIL: 4 blockers, 2 should-fix, 1 nit — all resolved via architecture deep-read; disposition in §15).
+**Last revised**: 2026-04-22 (R6 → R7 PASS; convergence sequence R0 6 → R1 6 → R2 4 → R3 4 → R4 2 → R5 1 → R6 1 → R7 PASS. Full disposition in §15).
 
 **Authoritative design reference**: `docs/planning/INVESTMENT_SCHEMA_UNIFICATION_PLAN.md` §6.5 (Codex PASS R6). This plan implements what §6.5 designed.
 
@@ -54,7 +54,7 @@ Specifically:
 | C | `start_research(idea)` hook — Thesis seed + draft artifact mirror | `thesis_service.bootstrap_from_idea()` extended; factors mirrored into draft artifact via `handoff.build_draft_artifact_from_thesis()`; `research_service.start_research_from_idea` response includes `process_template_applied: bool` | ~1.5 days | A, B, plan #4 |
 | D | Explicit template setter + audit | `POST /files/{id}/process_template` route; `research_service.set_process_template()`; inline SQL insertion of `research_file_history` row with `event_type='process_template_applied'` | ~1 day | B |
 | E | Template-aware diligence state + prepopulate | `DiligenceService.get_state()` filters + orders sections per template (falls back to full 9-tuple natural order when no template); `api/research/prepopulate.py` scopes section processing to template's `required` | ~1.5 days | B, D |
-| F | Finalize validation — G7/G12 closure | `HandoffService.finalize_handoff()` + `_assemble_artifact()` consult template; enforce `min_completion`, `valuation_methods_allowed`, `required_source_coverage`; raise 409 `template_requirements_unmet` with detail payload listing failed gates | ~1.5 days | B, D, E |
+| F | Finalize validation — G7/G12 closure | `HandoffService.finalize_handoff()` wraps full flow in `_handoff_lock`; `_assemble_artifact` → `_assemble_artifact_locked` (caller-owned lock) consults template; enforces `min_completion`, `valuation_methods_allowed`, `required_source_coverage`; raises 409 `template_requirements_unmet` with detail payload | ~1.5 days | B, D, E |
 | G | risk_module MCP surface | 3 MCP tools + `TemplateSwitchError` gateway classifier + `TemplateRequirementsError` gateway classifier + 3 agent flags | ~1 day | A–F |
 | H | Default catalog + E2E tests | 4 YAML templates; integration tests across ingress→research→thesis→diligence→finalize chain; boundary + pinned snapshot | ~1 day | A–G |
 | I | Docs — `SKILL_CONTRACT_MAP.md` + `INVESTMENT_SCHEMA_UNIFICATION_PLAN.md` §12 | Mechanical doc updates | ~0.5 day | H |
@@ -95,12 +95,12 @@ Specifically:
 ### 3.1 Scope fences (enforced as exit gates)
 
 - **Section space immutable in v1**: `DILIGENCE_SECTION_KEYS` stays a 9-tuple. Template `section_config.required/order/min_completion` keys MUST be validated against that exact tuple. No template may reference a key outside it.
-- **`DILIGENCE_SECTION_KEYS` relocates to `schema/_shared_slice.py`** (R3 blocker #4 resolution): R2 proposed importing the constant from `research.repository` into `schema/process_template.py`, which would create a `schema → repository → schema` cycle. Sub-phase A's first step MOVES the tuple from `repository.py:226` to `schema/_shared_slice.py` (already imported by repository at line 16 via `SHARED_SLICE_FIELD_PATHS` — zero new import direction). 4 live references (definition + consumers at `synthesis.py:6,33` + `diligence_service.py:8,67`) updated to import from the new location. Additive migration — no behavior change.
+- **`DILIGENCE_SECTION_KEYS` relocates to `schema/_shared_slice.py`** (R3 blocker #4 resolution): R2 proposed importing the constant from `research.repository` into `schema/process_template.py`, which would create a `schema → repository → schema` cycle. Sub-phase A's first step MOVES the tuple from `repository.py:226` to `schema/_shared_slice.py` (already imported by repository at line 16 via `SHARED_SLICE_FIELD_PATHS` — zero new import direction). **6 pre-move live sites** (definition at `repository.py:226` + consumer at `repository.py:758` + `synthesis.py:6,33` + `diligence_service.py:8,67`) — post-move they all resolve to the single canonical definition via `repository.py`'s re-export. Full inventory + steps in §4.1a. Additive migration — no behavior change.
 - **`QualitativeFactor` shape immutable**: plan #5 seeds instances (`category`, `label`, `assessment` [required str], `rating` [ConfidenceLevel | None], `data` [dict | None], `source_refs` [list]) but does not add fields to `schema/thesis_shared_slice.py:241`.
 - **Plan #2's `HandoffArtifact.process_template_id` field is authoritative**: plan #5 writes via existing `repository.update_process_template_id()` at `repository.py:2643`. `_HANDOFF_ONLY_FIELD_KEYS` frozenset at `repository.py:256` already includes it.
 - **Plan #4's `InvestmentIdea.suggested_process_template_id` shape is authoritative**: plan #5 reads it; does NOT add a parallel idea-side template field.
 - **Factor mirroring invariant**: when factors are written to Thesis, they MUST be mirrored into the draft artifact via `api/research/handoff.build_draft_artifact_from_thesis()` (live helper at `handoff.py:381`) so `DiligenceService.get_state()` (at `diligence_service.py:49-84`, reads `artifact.qualitative_factors` line 82) surfaces them without waiting for a separate sync.
-- **Plan #2 finalize-lock fresh-read** (R3 blocker #3 resolution): sub-phase F adds a 3-line patch to `HandoffService._assemble_artifact()` at `handoff.py:552` that re-reads the draft handoff row FROM THE DB inside the `_handoff_lock()` scope before gate evaluation. Today `_assemble_artifact` operates on the `handoff_row` argument loaded pre-lock (`finalize_handoff` at `handoff.py:494`), so concurrent `set_process_template` could land AFTER the pre-read but BEFORE gate evaluation, leaving finalized gates evaluated against stale state. Fresh read inside lock closes this. This is a MINIMAL additive change to plan #2's shipped code with no API break.
+- **Plan #2 finalize-lock coverage extension** (R4 blocker #1 resolution — lock ownership shifts to `finalize_handoff()` + `_handoff_lock`): sub-phase F rewrites `HandoffService.finalize_handoff()` to acquire `_handoff_lock()` at its top and hold it through the entire flow (fresh-read draft → assemble → artifact write → status flip). R3's "3-line fresh-read inside `_assemble_artifact`" fixed only one of two race windows; this rewrite closes both by moving lock ownership UP the call chain to the top-level finalize flow. `_assemble_artifact` renames to `_assemble_artifact_locked` (caller owns lock; internal method no longer acquires). Live grep confirms `_assemble_artifact` has ONLY ONE caller — `finalize_handoff()` at `handoff.py:498`. `create_new_version()` at `handoff.py:507` does NOT call `_assemble_artifact` — it calls `_build_validated_artifact` directly (which is unaffected by the rename). No API-break — internal method signature + lock-holding shift only. Details + code in §9.2.
 
 ### 3.2 Template identity
 
@@ -161,8 +161,8 @@ Templates seed `qualitative_factors[]` onto the Thesis draft when `bootstrap_fro
 Field lives on `HandoffArtifact v1.1` at `schema/handoff.py:140` (plan #2 shipped). Plan #5 seeds it via three paths:
 
 1. **`start_research(idea)` with resolved template** (sub-phase C): after draft-handoff creation, call `repo.update_process_template_id(handoff_id, template_id)` (live method at `repository.py:2643`).
-2. **`set_process_template(research_file_id, template_id)` explicit call** (sub-phase D): look up draft handoff via `repo.get_latest_handoff(research_file_id, status="draft")` (live method; the R0 draft's `get_draft_handoff(...)` doesn't exist). Call same update hook. If no draft exists (analyst hasn't activated diligence yet) → 409 `no_draft_handoff`. If draft is already finalized → 409 `cannot_change_finalized_template`.
-3. **Finalize pass-through** (plan #2's `handoff.py` finalize path at `finalize_handoff()` line 490): finalized artifact inherits draft's `process_template_id` via `_assemble_artifact()` → `_build_validated_artifact()`. Plan #5 ADDS validation gates in `_assemble_artifact()` (sub-phase F) but does NOT alter the propagation of the field itself.
+2. **`set_process_template(user_id, research_file_id, template_id)` explicit call** (sub-phase D): look up LATEST handoff via `repo.get_latest_handoff(research_file_id, status=None)` (live method; must pass `status=None` explicitly to include finalized/superseded — default is `status="draft"` per `repository.py:2220`). Inspect the returned row's `.status`: (a) None → 409 `no_draft_handoff`, (b) status != "draft" → 409 `cannot_change_finalized_template`, (c) status == "draft" → proceed. Call same update hook. The R0 draft's `get_draft_handoff(...)` doesn't exist as a separate method.
+3. **Finalize pass-through** (plan #2's `handoff.py` finalize path at `finalize_handoff()` line 490): finalized artifact inherits draft's `process_template_id` via `_assemble_artifact_locked()` → `_build_validated_artifact()` (rename per §9.2). Plan #5 ADDS validation gates in `_assemble_artifact_locked()` (sub-phase F) but does NOT alter the propagation of the field itself.
 
 ### 3.6 Cross-plan alignment
 
@@ -183,13 +183,22 @@ Pydantic v2 `ProcessTemplate` + nested types in `AI-excel-addin/schema/process_t
 
 Before writing `process_template.py`, move the tuple from `api/research/repository.py:226` to `schema/_shared_slice.py` as a new top-level constant (and re-export via `schema/__init__.py`). This is a **purely mechanical import-direction fix** — plan #5 proper (this sub-phase A) cannot land without it because `schema/process_template.py` imports the constant, and the schema layer currently cannot import from `api/research/` without inducing a cycle (repository.py imports schema at line 16).
 
+Full live hit inventory pre-move (R4 should-fix #2 correction — R3 miscounted at 4):
+
+1. `api/research/repository.py:226` — definition (will become re-export `from schema._shared_slice import DILIGENCE_SECTION_KEYS`)
+2. `api/research/repository.py:758` — consumer inside `_normalize_section_wrapper()` (imports via module scope — no change needed once repository.py re-exports)
+3. `api/research/synthesis.py:6` — import
+4. `api/research/synthesis.py:33` — usage
+5. `api/research/diligence_service.py:8` — import
+6. `api/research/diligence_service.py:67` — usage
+
 Steps:
 1. Add `DILIGENCE_SECTION_KEYS = ("business_overview", "thesis", "catalysts", "valuation", "assumptions", "risks", "peers", "ownership", "monitoring")` to `schema/_shared_slice.py`.
 2. Add `DILIGENCE_SECTION_KEYS` to `schema/__init__.py` re-exports.
-3. `repository.py:226` changes from defining the tuple to re-exporting it: `from schema._shared_slice import DILIGENCE_SECTION_KEYS` (added to the existing schema-imports block at line 16). Remove the literal definition.
-4. Update `api/research/synthesis.py:6` + `api/research/diligence_service.py:8` to ALSO import from `schema._shared_slice` (or keep importing from `research.repository` since it re-exports — minimal-diff style).
+3. `repository.py:226` changes from defining the tuple to re-exporting it: `from schema._shared_slice import DILIGENCE_SECTION_KEYS` (added to the existing schema-imports block at line 16). Remove the literal definition. Sites 2, 3, 5 continue to import from `research.repository` unchanged — minimal-diff style, no functional impact.
+4. Optional (defer unless needed): switch sites 3 + 5 to import from `schema._shared_slice` directly. Not required for plan #5 correctness.
 
-Verification: `grep -rn DILIGENCE_SECTION_KEYS AI-excel-addin` after the move shows 5 sites; each resolves to the single canonical definition. No behavior change expected; existing tests stay green.
+Verification: `grep -rn DILIGENCE_SECTION_KEYS AI-excel-addin` after the move shows the same 6 sites (+1 for the new definition in `schema/_shared_slice.py`, but the old definition at `repository.py:226` becomes a re-export, so total grep count is 7). Each reference resolves to the single canonical definition. No behavior change; existing tests stay green.
 
 ### 4.2 Design
 
@@ -442,9 +451,9 @@ All write paths invalidate `TemplateCatalog` cache for the current user.
 - Fresh v7 schema creation: table + index present (2)
 - v6→v7 migration: v6 fixture → migration runs → table created → idempotent re-run (3)
 - YAML loader: loads 4 valid defaults (1); rejects malformed YAML with path in error (1); rejects `template_id` mismatch with filename (1); rejects duplicate template_ids across files (1)
-- Catalog `get(template_id)` (user_id read from memory context): default hit, user hit, miss (3)
-- Catalog `list()` (user_id read from memory context): returns defaults + user templates (1)
-- Catalog `get`/`list` raise `RuntimeError` when called outside a memory user scope (regression safety) (1)
+- Catalog `get(user_id, template_id)`: default hit, user hit, miss (3)
+- Catalog `list(user_id)`: returns defaults + user templates (1)
+- Catalog cross-user isolation: user A's custom templates not visible to user B (regression — validates per-user cache keying) (1)
 - Catalog `list()` filters user rows colliding with defaults (R1 should-fix #5) (1)
 - Cache invalidation after create/update/delete (1)
 - Route `POST /process_templates` happy path (1)
@@ -597,7 +606,7 @@ Allow analysts to apply a template post-hoc. Record in `research_file_history` v
 
 **Single atomic repo helper** (R2 blocker #3 resolution — addresses race against `finalize_handoff`):
 
-Define `ResearchRepository.apply_process_template(research_file_id, template_id, seed_factor_rows) -> dict[str, Any]` in `api/research/repository.py`. Runs the entire mutation under the same `_handoff_lock()` that `HandoffService._assemble_artifact()` uses at `handoff.py:553` — ensures `set_process_template` can't interleave with finalize. Single `BEGIN IMMEDIATE` transaction wraps the DB writes. Method body:
+Define `ResearchRepository.apply_process_template(research_file_id, template_id, seed_factor_rows) -> dict[str, Any]` in `api/research/repository.py`. Runs the entire mutation under the same `_handoff_lock()` that `HandoffService.finalize_handoff()` now owns at its top level (per §9.2 rewrite) — ensures `set_process_template` can't interleave with finalize. Single `BEGIN IMMEDIATE` transaction wraps the DB writes. Method body:
 
 ```python
 def apply_process_template(
@@ -613,7 +622,11 @@ def apply_process_template(
     with _handoff_lock(self, file_row=file_row):
         # R2 blocker #3 branch: distinguish "no handoff" from "latest is finalized"
         # by looking up WITHOUT a status filter first.
-        latest_any = self.get_latest_handoff(int(research_file_id))   # status=None — any status
+        # CRITICAL (R6 blocker): get_latest_handoff DEFAULTS status="draft" at
+        # repository.py:2220 — must pass status=None EXPLICITLY to return
+        # finalized/superseded handoffs too, otherwise FinalizedHandoffError branch
+        # collapses into NoDraftHandoffError for finalized cases.
+        latest_any = self.get_latest_handoff(int(research_file_id), status=None)
         if latest_any is None:
             raise NoDraftHandoffError(research_file_id=research_file_id)
         if latest_any["status"] != "draft":
@@ -627,7 +640,13 @@ def apply_process_template(
         if thesis_row is None:
             raise ThesisRequiredError(research_file_id=research_file_id)
 
-        prior_template_id = draft.get("artifact", {}).get("process_template_id") if isinstance(draft.get("artifact"), dict) else None
+        # Parse artifact from raw handoff row. get_latest_handoff returns sqlite3.Row
+        # with artifact stored as JSON TEXT — use _artifact_from_row() from handoff.py
+        # (the same helper HandoffService uses internally). Do NOT attempt draft["artifact"]
+        # as a dict — it's JSON text and .get() on str raises.
+        from research.handoff import _artifact_from_row
+        hydrated_artifact = _artifact_from_row(latest_any, file_row=file_row)
+        prior_template_id = hydrated_artifact.get("process_template_id") if isinstance(hydrated_artifact, dict) else None
 
         with self._conn() as conn:
             self._begin_immediate(conn)
@@ -641,34 +660,85 @@ def apply_process_template(
                 factor["id"] = next_id + i                           # monotonic
             merged_factors = existing_factors + new_factors
 
-            # Thesis write. CRITICAL: the tx helper must delegate to the existing
-            # _persist_thesis_payload() at repository.py:1236 and _persist_shared_slice_write()
-            # at repository.py:2019 so thesis version bumps, decisions_log authorship,
-            # markdown serialization, and artifact normalization behavior are preserved
-            # exactly. The `_tx` suffix means only that it accepts an externally-owned
-            # `conn` instead of opening its own — the rest of the persist path is reused
-            # verbatim. (R3 should-fix #1 resolution.)
-            self._update_thesis_qualitative_factors_tx(conn, thesis_row["id"], merged_factors)
+            # Thesis write (R5 should-fix #1 resolution — concrete against live helpers):
+            # _persist_thesis_payload() at repository.py:1236 ALREADY takes a conn as its
+            # first parameter and writes the full thesis payload (version bump + updated_at
+            # stamp + UPDATE theses SET ... via line 1264). We don't need a new
+            # _update_thesis_qualitative_factors_tx helper — just call _persist_thesis_payload
+            # directly with a payload that has merged_factors substituted:
+            updated_thesis_payload = dict(thesis_row)        # start from the current row
+            updated_thesis_payload["qualitative_factors"] = merged_factors
+            self._persist_thesis_payload(                    # live helper; conn-scoped
+                conn,
+                thesis_row,
+                updated_thesis_payload,
+                increment_version=True,                      # version bump required per §7.2 (a)
+            )
+            # Decisions-log: _persist_thesis_payload does NOT append decisions_log on factor
+            # updates (decisions_log writes are explicit via append_decisions_log at a
+            # different call path). For template-seeded audit parity, apply_process_template
+            # writes the research_file_history row below — that's the audit trail for this
+            # action. Thesis-level decisions_log stays untouched.
+            #
+            # Markdown: save_thesis_markdown() at thesis_service.py:116 is called AFTER
+            # commit by apply_process_template's caller (the service-layer wrapper), outside
+            # the DB transaction. Best-effort; not tx-atomic.
 
-            # Rebuild draft artifact via handoff.build_draft_artifact_from_thesis,
-            # then persist via _update_handoff_artifact_tx. This helper delegates to the
-            # existing update_handoff_artifact() at repository.py:2173 internal body —
-            # preserves artifact normalization, schema validation, and metadata recompute
-            # (next_factor_id etc. via _normalized_metadata at handoff.py:410). Only
-            # difference: accepts externally-owned conn. (R3 should-fix #1 resolution.)
+            # Rebuild draft artifact via build_draft_artifact_from_thesis. Note:
+            # _normalized_metadata (which recomputes next_factor_id from qualitative_factors)
+            # runs DURING ARTIFACT ASSEMBLY inside _build_validated_artifact at handoff.py:727
+            # — NOT inside _ensure_handoff_artifact (R6 should-fix #2 correction).
             rebuilt = build_draft_artifact_from_thesis(
-                self, file_row=file_row, handoff_row=draft,
-                draft_artifact=_artifact_from_row(draft, file_row=file_row),
+                self, file_row=file_row, handoff_row=latest_any,
+                draft_artifact=hydrated_artifact,
                 thesis_row={**thesis_row, "qualitative_factors": merged_factors},
             )
-            self._update_handoff_artifact_tx(conn, draft["id"], rebuilt)
 
-            # Set process_template_id on draft handoff (same transaction, same lock —
-            # NOT the separate lock at repository.py:2597 that update_process_template_id()
-            # uses; this repo helper owns the lock and commits in one shot).
-            self._update_process_template_id_tx(conn, draft["id"], template_id)
+            # Set process_template_id directly on the rebuilt artifact BEFORE persistence —
+            # avoids a second update_process_template_id call (which would open its own
+            # conn and deadlock our BEGIN IMMEDIATE anyway). process_template_id is listed
+            # in _HANDOFF_ONLY_FIELD_KEYS at repository.py:256-262 so it survives the
+            # _ensure_handoff_artifact normalization without being stripped.
+            rebuilt["process_template_id"] = template_id
+
+            # Persist rebuilt artifact — inline the FULL body of update_handoff_artifact()
+            # at repository.py:2173-2214 using the externally-owned conn. Steps matching
+            # live body VERBATIM (R6 should-fix correction — previously omitted
+            # _incoming_handoff_schema_version + _log_handoff_id_backfill + reselect):
+            original_schema_version = _incoming_handoff_schema_version(rebuilt)
+            artifact_payload = _ensure_handoff_artifact(
+                rebuilt,
+                file_row=file_row,
+                created_at=latest_any.get("created_at"),
+                handoff_id=int(latest_any["id"]),
+                for_write=True,
+            )
+            artifact_payload, backfill_count = _maybe_backfill_legacy_handoff_ids(
+                artifact_payload,
+                original_schema_version=original_schema_version,
+                status=str(latest_any.get("status") or ""),
+            )
+            artifact_payload = _validate_handoff_artifact(artifact_payload)
+            _log_handoff_id_backfill(
+                backfill_count=backfill_count,
+                original_schema_version=original_schema_version,
+                research_file_id=int(research_file_id),
+                handoff_id=int(latest_any["id"]),
+            )
+            conn.execute(
+                "UPDATE research_handoffs SET artifact=? WHERE id=?",
+                (json.dumps(artifact_payload), int(latest_any["id"])),
+            )
+            # Reselect for return (mirrors live update_handoff_artifact's return):
+            updated_handoff_row = conn.execute(
+                "SELECT * FROM research_handoffs WHERE id=?",
+                (int(latest_any["id"]),),
+            ).fetchone()
 
             # Insert research_file_history row — inline SQL pattern per repository.py:1527.
+            # created_at is REAL epoch time matching existing history writes (line 1533 uses
+            # updates["updated_at"] which is set to time.time() at repository.py:1257).
+            # R4 blocker #1 correction — R3 incorrectly used _now_iso() (ISO string).
             history_changes = json.dumps({
                 "template_id": template_id,
                 "prior_template_id": prior_template_id,
@@ -677,30 +747,32 @@ def apply_process_template(
             conn.execute(
                 "INSERT INTO research_file_history (research_file_id, event_type, changes, created_at) "
                 "VALUES (?, 'process_template_applied', ?, ?)",
-                (int(research_file_id), history_changes, _now_iso()),
+                (int(research_file_id), history_changes, time.time()),
             )
 
         # Cache invalidation outside the DB transaction (safe — cache is read-through).
         get_template_catalog().invalidate_user(self._current_user_id())
 
+        # Re-read thesis row for caller's markdown sync (R7 should-fix resolution).
+        updated_thesis_row = self.get_thesis_by_research_file(int(research_file_id))
+
         return {
             "research_file_id": int(research_file_id),
             "template_id": template_id,
             "prior_template_id": prior_template_id,
-            "handoff_id": int(draft["id"]),
+            "handoff_id": int(latest_any["id"]),
             "seeded_factor_count": len(new_factors),
+            "thesis_row": updated_thesis_row,   # for post-commit save_thesis_markdown() in action layer
         }
 ```
 
-**Action layer** (`AI-excel-addin/api/research/research_service.py` — new function `set_process_template(research_file_id, template_id)` — no user_id param; reads from memory context):
+**Action layer** (`AI-excel-addin/api/research/research_service.py` — new function `set_process_template(user_id, research_file_id, template_id)` — explicit user_id parameter matching the DI pattern the route layer already uses via `get_trusted_user_id` at `routes.py:81`; same signature shape as `bootstrap_from_idea(user_id, ...)`):
 
-1. Resolve template via `get_template_catalog().get(user_id, template_id)` → 404 `template_not_found` if miss (typed as `TemplateNotFoundError` in `errors.py`).
+1. Resolve template via `get_template_catalog().get(user_id, template_id)` → raise `TemplateNotFoundError` if miss (route maps to 404 `template_not_found`).
 2. Compute `seed_factor_rows` from template's `seed_qualitative_factors` (via `_seed_factor_to_qualitative_factor` helper used in §6.2). IDs are reassigned INSIDE `apply_process_template` to preserve monotonicity against existing factors.
-3. Call `repo.apply_process_template(research_file_id, template_id, seed_factor_rows)` — catches the typed exceptions and maps:
-   - `ThesisRequiredError` → 422 `thesis_required_first`
-   - `NoDraftHandoffError` → 409 `no_draft_handoff`
-   - `FinalizedHandoffError` → 409 `cannot_change_finalized_template`
-4. Return repo's result dict — route hands to JSONResponse.
+3. Call `repo.apply_process_template(research_file_id, template_id, seed_factor_rows)` — returns result dict on success; raises typed exceptions that propagate to the route. Route-level handler maps: `ThesisRequiredError`→422 `thesis_required_first`, `NoDraftHandoffError`→409 `no_draft_handoff`, `FinalizedHandoffError`→409 `cannot_change_finalized_template`.
+4. **Post-commit markdown sync** (R6 should-fix #3 resolution): call `thesis_service.save_thesis_markdown(Thesis.model_validate(updated_thesis_row))` AFTER `apply_process_template` returns. `apply_process_template`'s return dict (see §7.2 repo body) is extended to include `"thesis_row": updated_thesis_row` — the service re-uses it directly here instead of re-reading (R7 should-fix resolution). Markdown is best-effort (not tx-atomic with the DB write); a crash here leaves DB correct and markdown stale — the watcher-import re-sync path at `thesis_service.on_watcher_markdown_change` (line 156) handles the reverse direction on next file touch, but the forward direction has no automatic retry. Document this limitation in the action-layer docstring.
+5. Return repo's result dict — route hands to JSONResponse.
 
 **Typed exceptions** in `api/research/errors.py` (new module — R2 should-fix #2 resolution; mirrors the service-local error pattern `IdeaConflictError` at `research_service.py:13` uses):
 - `TemplateNotFoundError` (404 — unknown template_id on any route that accepts one)
@@ -759,7 +831,7 @@ def set_research_file_process_template(
 |---|---|---|
 | `AI-excel-addin/api/research/routes.py` | New `POST /files/{id}/process_template` route | ~+55 |
 | `AI-excel-addin/api/research/research_service.py` | `set_process_template()` function (thin adapter around repo helper) | ~+60 |
-| `AI-excel-addin/api/research/repository.py` | `apply_process_template()` atomic helper + `_update_thesis_qualitative_factors_tx/_update_handoff_artifact_tx/_update_process_template_id_tx` conn-scoped variants | ~+180 |
+| `AI-excel-addin/api/research/repository.py` | `apply_process_template()` atomic helper (reuses live `_persist_thesis_payload(conn,...)` + INLINES `update_handoff_artifact` body with external conn — no new conn-scoped tx helpers required) | ~+150 |
 | `AI-excel-addin/api/research/errors.py` | **NEW** module — `ThesisRequiredError`, `NoDraftHandoffError`, `FinalizedHandoffError`, `TemplateRequirementsError` (R2 should-fix #2) | ~+40 |
 | `AI-excel-addin/tests/api/research/test_set_process_template.py` | **NEW** — end-to-end tests | ~+240 |
 
@@ -857,7 +929,12 @@ async def trigger_diligence_prepopulate(research_file_id: int, request: Diligenc
         # Route-layer already has user_id from get_trusted_user_id DI (routes.py:81 pattern).
         repo = get_repository_factory().get(user_id)
         handoff = repo.get_latest_handoff(research_file_id, status="draft")
-        template_id = (handoff or {}).get("artifact", {}).get("process_template_id")
+        # NOTE: handoff["artifact"] is JSON TEXT (raw row), not a dict — use
+        # _artifact_from_row() from handoff.py (same pattern as §7.2).
+        from research.handoff import _artifact_from_row
+        file_row = repo.get_file(research_file_id)
+        hydrated = _artifact_from_row(handoff, file_row=file_row) if handoff and file_row else {}
+        template_id = hydrated.get("process_template_id") if isinstance(hydrated, dict) else None
         template = get_template_catalog().get(user_id, template_id) if template_id else None
         if template and template.section_config.required:
             sections = list(template.section_config.required)
@@ -921,10 +998,10 @@ If ANY gate fails, finalize raises a typed exception surfaced as HTTP 409 `templ
 }
 ```
 
-**Source-ID walker** (helper in `template_validation.py`) — **REUSES the live generic ref iterator at `handoff.py:245` `_iter_source_refs()`** (R3 blocker #1 resolution — the hand-rolled walker in R2 missed singular `Catalyst.source_ref` / `Risk.source_ref` at `thesis_shared_slice.py:173,186`, `ConsensusView.citations` at `:125`, `DifferentiatedViewClaim.evidence` at `:130`, and nested `industry_analysis` refs at `:304`. The live iterator already handles every ref topology via `_SOURCE_REF_LIST_KEYS` + `_SOURCE_REF_SCALAR_KEYS`):
+**Source-ID walker** (helper in `template_validation.py`) — **REUSES the live generic ref iterator at `handoff.py:245` (currently `_iter_source_refs`; renamed to public `iter_source_refs` as part of sub-phase F)** (R3 blocker #1 resolution — the hand-rolled walker in R2 missed singular `Catalyst.source_ref` / `Risk.source_ref` at `thesis_shared_slice.py:173,186`, `ConsensusView.citations` at `:125`, `DifferentiatedViewClaim.evidence` at `:130`, and nested `industry_analysis` refs at `:304`. The live iterator already handles every ref topology via `_SOURCE_REF_LIST_KEYS` + `_SOURCE_REF_SCALAR_KEYS`):
 
 ```python
-from research.handoff import _iter_source_refs   # promote to public export in §9.3 file list
+from research.handoff import iter_source_refs   # promote to public export in §9.3 file list
 
 def _count_sources_by_type(artifact: dict[str, Any]) -> dict[str, int]:
     """Bucket unique SourceId references by SourceRecord.type. Only referenced IDs
@@ -936,7 +1013,7 @@ def _count_sources_by_type(artifact: dict[str, Any]) -> dict[str, int]:
     DanglingSourceRefError if it ever observes one (defense-in-depth; finalize
     should never reach this state, but plan #5 surfaces the class explicitly in
     errors.py so the failure mode is typed if it ever occurs)."""
-    referenced_ids = set(_iter_source_refs(artifact))   # live iterator, all ref topologies
+    referenced_ids = set(iter_source_refs(artifact))   # live iterator, all ref topologies
     sources = artifact.get("sources") or []
     by_id = {str(s.get("id") or "").strip(): str(s.get("type") or "").strip()
              for s in sources if isinstance(s, dict)}
@@ -950,52 +1027,84 @@ def _count_sources_by_type(artifact: dict[str, Any]) -> dict[str, int]:
     return counts
 ```
 
-**Promotion of `_iter_source_refs`**: the live symbol is module-private (underscore-prefixed). Sub-phase F's `handoff.py` edit promotes it to a public export by adding a `from research.handoff import _iter_source_refs as iter_source_refs` wrapper in `template_validation.py` OR by renaming the live symbol to `iter_source_refs` (dropping the underscore) and updating `_validate_source_refs_resolve`'s internal use. The rename is cleaner — do the rename. Live tests for handoff source-ref validation catch any breakage.
+**Promotion step** (`iter_source_refs` rename): sub-phase F renames the module-private `_iter_source_refs` at `handoff.py:245` to public `iter_source_refs` (drop underscore). Update the one internal caller `_validate_source_refs_resolve` at `handoff.py:290` (renames reference: `ref for ref in iter_source_refs(...)`). Grep confirms zero external importers of `_iter_source_refs` by name today — safely scoped rename. Live tests for handoff source-ref validation catch any breakage.
 
 Without a template, `finalize_handoff()` behavior is unchanged (backwards compat).
 
 ### 9.2 Design
 
-Extend `HandoffService._assemble_artifact()` at `handoff.py:551`:
+Rewrite `HandoffService.finalize_handoff()` at `handoff.py:490` + rename/extend `_assemble_artifact` → `_assemble_artifact_locked`:
+
+Plan #2's `finalize_handoff()` at `handoff.py:490` today reads the draft, calls `_assemble_artifact()` (which internally acquires `_handoff_lock`), then calls `update_handoff_artifact()` + `finalize_handoff()` OUTSIDE the lock. That leaves two race windows:
+1. Between initial draft read (`handoff.py:494`) and lock acquisition inside assemble.
+2. Between lock release (after assemble) and subsequent writes (`update_handoff_artifact` + status flip at `:499-502`).
+
+A fresh-read inside assemble closes window 1, but `set_process_template` can still slip into window 2 and have its writes silently overwritten by the finalize's pending assembly. **The lock must cover the entire finalize flow, not just assemble.** (R4 blocker #1 resolution.)
+
+### 9.2.1 Minimum change to plan #2's finalize
+
+Rewrite `HandoffService.finalize_handoff()` to acquire `_handoff_lock()` at the top and hold it through assemble + artifact write + status flip. `_assemble_artifact()` is kept as an internal method but no longer acquires the lock itself (caller owns it now).
 
 ```python
-def _assemble_artifact(self, file_row, handoff_row):
-    # R3 blocker #3 fix: acquire _handoff_lock BEFORE reading draft state, and re-read
-    # the draft row from the DB inside the lock. The pre-lock `handoff_row` passed in
-    # by finalize_handoff() at handoff.py:494 could be stale if set_process_template
-    # raced and landed between load and lock acquisition. Fresh read closes the race.
+# AI-excel-addin/api/research/handoff.py — finalize_handoff() rewrite
+
+def finalize_handoff(self, research_file_id: int) -> dict[str, Any]:
+    file_row = self._repo.get_file(research_file_id)
+    if file_row is None:
+        raise ValueError("research file not found")
+
     with _handoff_lock(self._repo, file_row=file_row):
-        fresh_handoff = self._repo.get_handoff(int(handoff_row["id"]))
-        if fresh_handoff is None:
-            raise ValueError("handoff not found (deleted between finalize read and lock)")
-        if fresh_handoff["status"] != "draft":
-            raise ValueError(f"handoff is no longer a draft (status={fresh_handoff['status']})")
-        draft_artifact = _artifact_from_row(fresh_handoff, file_row=file_row)
-        thesis_row = self._resolve_thesis_row(file_row, ...)
-        artifact = self._build_validated_artifact(file_row, fresh_handoff, draft_artifact, thesis_row)
+        # Fresh read INSIDE the lock — no stale state.
+        draft = self._repo.get_latest_handoff(research_file_id, status="draft")
+        if draft is None:
+            raise ValueError("draft handoff not found")
 
-        # NEW: template-aware finalize gates (operate on fresh-read state).
-        # HandoffService holds `self._repo`; thread user_id from its _current_user_id().
-        # (R3 blocker #2 resolution — matches DI pattern; research_files has no user_id column.)
-        user_id = self._repo._current_user_id()
-        template_id = artifact.get("process_template_id")
-        if template_id:
-            template = get_template_catalog().get(user_id, template_id)
-            if template is not None:
-                failed_gates = _evaluate_template_gates(artifact, template)
-                if failed_gates:
-                    raise TemplateRequirementsError(
-                        template_id=template_id,
-                        failed_gates=failed_gates,
-                    )
-            else:
-                # Graceful degradation: template deleted since application. Log + continue.
-                log.warning("finalize: template_id=%s unknown; skipping gate enforcement", template_id)
+        artifact = self._assemble_artifact_locked(file_row, draft)   # NEW: caller owns lock
+        updated = self._repo.update_handoff_artifact(draft["id"], artifact)
+        if updated is None:
+            raise ValueError("handoff not found")
+        finalized = self._repo.finalize_handoff(draft["id"])
+        if finalized is None:
+            raise ValueError("draft handoff not found")
+    return self._serialize_summary(finalized, artifact)
 
-        return artifact
+
+# Renamed from _assemble_artifact. No longer acquires the lock (caller owns it).
+# Signature unchanged otherwise.
+def _assemble_artifact_locked(self, file_row, handoff_row):
+    draft_artifact = _artifact_from_row(handoff_row, file_row=file_row)
+    thesis_row = self._resolve_thesis_row(file_row, ...)
+    artifact = self._build_validated_artifact(file_row, handoff_row, draft_artifact, thesis_row)
+
+    # Template-aware finalize gates (operate on locked state).
+    user_id = self._repo._current_user_id()
+    template_id = artifact.get("process_template_id")
+    if template_id:
+        template = get_template_catalog().get(user_id, template_id)
+        if template is not None:
+            failed_gates = _evaluate_template_gates(artifact, template)
+            if failed_gates:
+                raise TemplateRequirementsError(
+                    template_id=template_id,
+                    failed_gates=failed_gates,
+                )
+        else:
+            log.warning("finalize: template_id=%s unknown; skipping gate enforcement", template_id)
+
+    return artifact
 ```
 
-**The 3-line fix to plan #2's `_assemble_artifact`** (listed above as fresh-handoff read + status check + using `fresh_handoff` in place of `handoff_row` thereafter) is the minimum code delta to make finalize atomic with `set_process_template`. Pre-existing callers of `_assemble_artifact` are unaffected — the signature doesn't change. `_build_validated_artifact` receives `fresh_handoff` instead of the stale `handoff_row` argument, which is strictly more up-to-date. This is additive hardening of plan #2's shipped code, not a breaking change.
+**Delta vs plan #2's shipped code:**
+1. `finalize_handoff()` body restructured: lock at top; fresh-read inside lock; internal assemble/write/finalize all under the same lock. ~12 line change.
+2. `_assemble_artifact` renamed to `_assemble_artifact_locked` (signal that caller owns lock). No behavior change for other callers — audit + fix them below.
+3. Template gate block added inside the locked assemble helper (new).
+
+**Other callers of `_assemble_artifact`** (live grep audit — R5 should-fix #2 correction):
+- Live grep shows ONLY ONE caller of `_assemble_artifact` — `finalize_handoff()` at `handoff.py:498`. The R4 draft incorrectly claimed `create_new_version()` at `handoff.py:507` also called it; live `create_new_version` instead calls `_build_validated_artifact()` directly under its own `_handoff_lock` block at `:516-537` (which already wraps the full read → supersede → build → write flow correctly). No change needed for `create_new_version`.
+- `build_draft_artifact_from_thesis()` at `handoff.py:381` (module-level helper used by plan #5 sub-phase C) calls `HandoffService._build_validated_artifact()` directly — unaffected by the rename.
+- Net: the `_assemble_artifact` → `_assemble_artifact_locked` rename is a one-site rename (`finalize_handoff` caller + the method definition itself). Scope is smaller than R4 suggested.
+
+This completes finalize atomicity. `apply_process_template()` (which also holds `_handoff_lock`) and `finalize_handoff()` now serialize against each other on the same lock; whichever acquires first completes its mutation before the other reads.
 
 **`_evaluate_template_gates(artifact, template) -> dict`**: dedicated validator module (`api/research/template_validation.py`, new). Three sub-checks (one per gate type). Returns dict of failed_gates (empty if all pass).
 
@@ -1007,7 +1116,7 @@ def _assemble_artifact(self, file_row, handoff_row):
 |---|---|---|
 | `AI-excel-addin/api/research/template_validation.py` | **NEW** — `_evaluate_template_gates()` + `_enumerate_referenced_source_ids()` + `_count_sources_by_type()` helpers | ~+180 |
 | `AI-excel-addin/api/research/errors.py` | (already created in sub-phase D — this adds `TemplateRequirementsError` to the same module) | (see §7.3) |
-| `AI-excel-addin/api/research/handoff.py` | `_assemble_artifact()` calls validator; raises `TemplateRequirementsError` | ~+30 |
+| `AI-excel-addin/api/research/handoff.py` | `finalize_handoff()` rewrite (lock at top, fresh-read draft inside lock); `_assemble_artifact` renamed to `_assemble_artifact_locked`; `_assemble_artifact_locked` calls validator + raises `TemplateRequirementsError`; `_iter_source_refs` renamed to public `iter_source_refs` | ~+40 |
 | `AI-excel-addin/api/research/routes.py` | `POST /handoffs/finalize` maps `TemplateRequirementsError` → 409 | ~+15 |
 | `AI-excel-addin/tests/api/research/test_finalize_template_gates.py` | **NEW** — gate tests incl. source walker | ~+320 |
 
@@ -1306,7 +1415,7 @@ Codex R3 verdict: **FAIL**. 4 blockers + 2 should-fix + 1 nit. Deep architecture
 
 **Blockers resolved:**
 
-1. **Source walker missed citation types**. Fixed: delete the hand-rolled walker, REUSE the live generic recursive iterator `_iter_source_refs()` at `handoff.py:245` (promoted from private to public by renaming to `iter_source_refs`). That iterator already handles every ref topology: `_SOURCE_REF_LIST_KEYS` (source_refs lists, citations lists, evidence lists) + `_SOURCE_REF_SCALAR_KEYS` (singular source_ref fields on Catalyst/Risk/etc. at `thesis_shared_slice.py:173,186`). Also: added `DanglingSourceRefError` raise if the walker observes a referenced src_N not in `artifact.sources[]` — defense-in-depth because `_validate_source_refs_resolve` at `handoff.py:290` already rejects these at write time. §9.2.
+1. **Source walker missed citation types**. Fixed: delete the hand-rolled walker, REUSE the live generic recursive iterator `iter_source_refs()` at `handoff.py:245` (promoted from private to public by renaming to `iter_source_refs`). That iterator already handles every ref topology: `_SOURCE_REF_LIST_KEYS` (source_refs lists, citations lists, evidence lists) + `_SOURCE_REF_SCALAR_KEYS` (singular source_ref fields on Catalyst/Risk/etc. at `thesis_shared_slice.py:173,186`). Also: added `DanglingSourceRefError` raise if the walker observes a referenced src_N not in `artifact.sources[]` — defense-in-depth because `_validate_source_refs_resolve` at `handoff.py:290` already rejects these at write time. §9.2.
 
 2. **TemplateCatalog user-scope mismatch with live request model**. Fixed: reverted R2's memory-context-based design; restored explicit `user_id` parameter on `get()` and `list()`. Research routes use explicit DI via `get_trusted_user_id` at `routes.py:81` — applied to every route. `bootstrap_from_idea(user_id, ...)` + `DiligenceService(repo)` + `HandoffService(repo)` all have user_id at hand (via parameter or `repo._current_user_id()`). Only MBC route at `routes.py:962` uses `memory_user_scope` — because `build_model_context()` internally calls `get_current_user_id()`, and the MBC route WRAPS that call. Most research services do NOT install memory scope, so a context-based catalog would fail silently. R3 call sites threading user_id: §6.2 (bootstrap has user_id param), §8.2 (`self._repo._current_user_id()`), §8.3 (route DI), §9.2 (`self._repo._current_user_id()`). R0/R1's explicit-param design was correct; R2 broke it.
 
@@ -1324,13 +1433,106 @@ Codex R3 verdict: **FAIL**. 4 blockers + 2 should-fix + 1 nit. Deep architecture
 
 1. §5.3 DELETE response contract consistency. Fixed: one contract — 200 with `{"deleted": true, "template_id": "..."}` body. Matches `DELETE /files/{id}` at `routes.py:595-605` which also returns 200 with a body.
 
-### R3 → (pending Codex R4 review)
+### R3 → R4 (2026-04-22)
 
-R3 maintains 9 sub-phases (same as R1/R2). Test count target updated: ~150 (up from R2's 146 after adding fresh-read-inside-lock regression test + iter_source_refs reuse verification + DILIGENCE_SECTION_KEYS relocation verification). Duration estimate +0.5 day: ~12 days (the `iter_source_refs` rename + DILIGENCE_SECTION_KEYS move both need careful grep-updates across the live codebase).
+Codex R4 verdict: **FAIL**. 2 blockers + 2 should-fix + 1 nit. All resolved.
 
-Major architectural decisions now compiling against live symbols:
-- Import graph: `schema/_shared_slice` owns DILIGENCE_SECTION_KEYS; research.repository re-exports for backcompat
-- User scope: explicit `user_id` threaded via DI; services receive via param or `repo._current_user_id()`
-- Finalize lock: re-read draft from DB inside `_handoff_lock` (3-line plan-#2 hardening)
-- Source walker: reuse live `iter_source_refs` iterator (renamed from `_iter_source_refs`)
-- Atomicity: `apply_process_template` runs under same `_handoff_lock`; tx helpers delegate to existing persist paths to preserve normalization/version-bumps
+**Blockers resolved:**
+
+1. **Finalize atomicity still incomplete with R3's inside-assemble fresh-read**. R3 fixed window 1 (pre-lock stale draft read) but missed window 2 (lock released after assemble, writes happen outside). Fixed: **§9.2 rewritten — `HandoffService.finalize_handoff()` acquires `_handoff_lock()` at its TOP and holds through fresh-read + assemble + artifact write + status flip**. `_assemble_artifact` renames to `_assemble_artifact_locked` (caller owns lock). `create_new_version()` callsite already wraps its own flow under `_handoff_lock` at `handoff.py:516-537` — gets the method rename but no other change. Net: `apply_process_template` and `finalize_handoff` now serialize on the same lock end-to-end.
+
+2. **§7.2 action-layer signature still claimed "no user_id param, reads from memory context"** despite R3 reverting the catalog design. Fixed: §7.2 action-layer prose updated to `set_process_template(user_id, research_file_id, template_id)` explicit signature matching `bootstrap_from_idea(user_id, ...)`. §5.5 catalog tests rewritten around explicit `user_id` inputs; deleted memory-scope test cases.
+
+**Should-fix resolved:**
+
+1. Tx helper contract made concrete (R3 comments were partly inaccurate — claimed `_persist_shared_slice_write` did markdown serialization, which it doesn't). Fixed: §7.2 now enumerates the exact factoring: (a) version bump reuses `_persist_thesis_payload`'s SQL, (b) shared-slice write delegates to `_persist_shared_slice_write` at `repository.py:2019` (passes existing conn; JSON persist only, no markdown), (c) markdown save via `save_thesis_markdown()` at `thesis_service.py:116` is called AFTER commit (best-effort, not tx-atomic), (d) decisions_log entry appended with authorship="system" for audit parity. The `_update_handoff_artifact_tx` factoring: inlines `update_handoff_artifact` body preserving `_ensure_handoff_artifact` validation + `_normalized_metadata` recompute; only difference is externally-owned conn.
+
+2. DILIGENCE_SECTION_KEYS relocation inventory undercounted (R3 said 4 sites, Codex flagged 6). Fixed: §4.1a now lists all 6 live sites + clarifies that `repository.py:758` (`_normalize_section_wrapper` consumer) works unchanged because repository.py keeps its own re-export after the move. Post-move grep count = 7 (new definition + 6 existing references preserved).
+
+**Nit resolved:**
+
+1. Source-walker code sketch used `_iter_source_refs` (old underscore name) in some places and `iter_source_refs` (new public name) in others. Fixed: §9.2 consistently uses `iter_source_refs` everywhere in code sketches; prose acknowledges the symbol is currently `_iter_source_refs` and sub-phase F performs the rename.
+
+### R4 → R5 (2026-04-22)
+
+Codex R5 verdict: **FAIL**. 1 blocker + 2 should-fix + 0 nits. Convergence: 6→6→4→4→2→1. All resolved.
+
+**Blocker resolved:**
+
+1. **§7.2 `apply_process_template` sketch had two concrete bugs**. Fixed:
+   - `draft["artifact"]` is JSON TEXT in the raw row returned by `get_latest_handoff()` — R4 incorrectly treated it as a dict via `.get()`, which would crash or collapse `prior_template_id` to None. R5 uses `_artifact_from_row(draft, file_row=file_row)` (the same helper HandoffService uses internally) to hydrate the artifact before reading `process_template_id`.
+   - `research_file_history.created_at` column is `REAL` epoch time (existing writes use `time.time()` / `updates["updated_at"]` numeric, per `repository.py:1257,1533`). R4 wrote `_now_iso()` (ISO string). R5 uses `time.time()` to match column type + existing history-write convention.
+
+**Should-fix resolved:**
+
+1. **Tx helper factoring still inaccurate against live helpers**. Fixed: R5 replaces the custom `_update_thesis_qualitative_factors_tx` helper with a direct call to `self._persist_thesis_payload(conn, thesis_row, updated_payload, increment_version=True)` — live `_persist_thesis_payload` at `repository.py:1236` ALREADY takes a conn parameter; no new helper needed. For the handoff artifact side: R5 INLINES the body of `update_handoff_artifact` (from `repository.py:2173`) into `apply_process_template` (reusing external conn); enumerates the exact body steps (load row, validate via `_ensure_handoff_artifact(for_write=True)`, backfill legacy IDs, schema validation, UPDATE SQL). Removed the incorrect R4 claim about `update_handoff_artifact` owning an `updated_at` bump (it doesn't). Removed the "markdown via `_persist_shared_slice_write`" path (not what that helper does) — markdown save is already spec'd to run after commit via `save_thesis_markdown()` at `thesis_service.py:116` (best-effort, not tx-atomic).
+
+2. **Doc drift between current-state prose and claimed R4 cleanup**. Fixed:
+   - §3.1 DILIGENCE_SECTION_KEYS reference: updated from "4 live references" to "6 pre-move live sites" with pointer to §4.1a for the full inventory.
+   - §3.1 + §9.2 lock-ownership prose: now explicitly anchored to `finalize_handoff()` + `_handoff_lock` (was ambiguously anchored to `_assemble_artifact` in places).
+   - §9.2 `create_new_version()` claim: live grep confirms only ONE caller of `_assemble_artifact` (= `finalize_handoff` at `handoff.py:498`). `create_new_version` calls `_build_validated_artifact` directly (not `_assemble_artifact`) and doesn't need the rename. §9.2 text corrected.
+
+### R5 → R6 (2026-04-22)
+
+Codex R6 verdict: **FAIL**. 1 blocker + 3 should-fix + 1 nit. All resolved.
+
+**Blocker resolved:**
+
+1. **`get_latest_handoff()` defaults `status="draft"`** (live at `repository.py:2220`). R5's `self.get_latest_handoff(int(research_file_id))` call in `apply_process_template` would default to draft-only, collapsing finalized/superseded cases into `NoDraftHandoffError`. Fixed: pass `status=None` explicitly. §3.5 + §7.2 updated.
+
+**Should-fix resolved:**
+
+1. **Tx helper drift**: R5 prose said "inlined" but §7.2 sketch + §7.3 file plan still referenced `_update_handoff_artifact_tx` / `_update_process_template_id_tx` helpers. Fixed: §7.2 sketch now inlines the full `update_handoff_artifact` body verbatim (including `_incoming_handoff_schema_version`, `_ensure_handoff_artifact(for_write=True)`, `_maybe_backfill_legacy_handoff_ids`, `_validate_handoff_artifact`, `_log_handoff_id_backfill`, UPDATE SQL, and reselect). `process_template_id` set directly on the rebuilt artifact dict before persistence (no separate update_process_template_id call — avoids deadlock since that helper opens its own conn). §7.3 file plan rewritten to remove the phantom helpers.
+
+2. **Inline body still missing steps**: Codex flagged `_incoming_handoff_schema_version` + `_log_handoff_id_backfill` + reselect omissions, and a wrong attribution of `_normalized_metadata` recompute to `_ensure_handoff_artifact` (it actually runs during `_build_validated_artifact` at `handoff.py:727`). Fixed: §7.2 comment and code both corrected — metadata recompute attributed to artifact assembly (not `_ensure_handoff_artifact`); all body steps listed.
+
+3. **`save_thesis_markdown` missing from action-layer steps**: R5 had it only in an inline comment. Fixed: added as explicit step 4 in the action-layer procedure with a docstring note about the best-effort (non-tx-atomic) nature + watcher-side re-sync behavior.
+
+**Nit resolved:**
+
+1. Stale `_assemble_artifact` anchors (without `_locked` suffix). Fixed in §2 sub-phase table, §7.2 apply_process_template prose, §9.1 prose, §9.2 section heading, §9.3 file changes.
+
+### R6 → R7 ✅ **PASS** (2026-04-22)
+
+Codex R7 verdict: **PASS**. "I would start sub-phase A without another review round." — Codex R7.
+
+Two should-fix items cleaned up post-PASS (non-gating):
+1. Prepopulate route sketch in §8.3 now uses `_artifact_from_row()` to hydrate `handoff["artifact"]` (was treating JSON text as dict — same correction §7.2 already had).
+2. `apply_process_template` return dict now includes `"thesis_row"` so the service-layer markdown sync has the updated row without re-reading.
+
+Header status bumped to ✅ PASS.
+
+### Convergence summary
+
+| Round | Blockers | Should-fix | Nits | Disposition |
+|---|---|---|---|---|
+| R0 | 6 | 3 | 0 | FAIL — first draft |
+| R1 | 6 | 7 | 3 | FAIL — deeper research surfaced |
+| R2 | 4 | 2 | 3 | FAIL — user_id scope wrong direction |
+| R3 | 4 | 2 | 1 | FAIL — architecture deep-read |
+| R4 | 2 | 2 | 1 | FAIL — lock coverage incomplete |
+| R5 | 1 | 2 | 0 | FAIL — tx helper factoring |
+| R6 | 1 | 3 | 1 | FAIL — get_latest_handoff default |
+| R7 | 0 | 2 | 2 | ✅ **PASS** — non-gating cleanup |
+
+7 rounds total (comparable to plan #4's 11). Each round surfaced substantive real issues; no bikeshedding.
+
+Architectural decisions (stable from R5 onward):
+- Import graph: `schema/_shared_slice` owns `DILIGENCE_SECTION_KEYS`; repository re-exports
+- User scope: explicit `user_id` via `get_trusted_user_id` DI; services use param or `repo._current_user_id()`
+- Finalize lock: `finalize_handoff()` owns `_handoff_lock` at top, holds through entire flow; `_assemble_artifact` → `_assemble_artifact_locked` rename
+- Source walker: reuses `iter_source_refs` (rename of live `_iter_source_refs`)
+- Tx composition: `_persist_thesis_payload(conn, ...)` called directly (already conn-scoped); `update_handoff_artifact` body fully inlined with external conn
+- `process_template_id` set on rebuilt artifact before persistence (no separate call — avoids nested transaction deadlock)
+- History writes: `time.time()` numeric timestamp
+- Post-commit markdown sync via `save_thesis_markdown` — best-effort, not tx-atomic
+
+Architectural decisions stable across R5/R6:
+- Import graph: `schema/_shared_slice` owns `DILIGENCE_SECTION_KEYS`; repository re-exports
+- User scope: explicit `user_id` via `get_trusted_user_id` DI; services use param or `repo._current_user_id()`
+- Finalize lock: `finalize_handoff()` owns `_handoff_lock` at top, holds through entire flow
+- Source walker: reuses `iter_source_refs` (rename of live `_iter_source_refs`)
+- Tx composition: `_persist_thesis_payload(conn, ...)` called directly (already conn-scoped); `update_handoff_artifact` body fully inlined with external conn
+- History writes: `time.time()` numeric timestamp
+- `process_template_id` set on rebuilt artifact before persistence (no separate update_process_template_id call — avoids nested transaction deadlock)
+- Post-commit markdown sync via `save_thesis_markdown` — best-effort, not tx-atomic
