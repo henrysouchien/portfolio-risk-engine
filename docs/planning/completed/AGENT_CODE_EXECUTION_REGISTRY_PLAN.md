@@ -657,11 +657,21 @@ Gated behind `AGENT_API_ALLOW_WRITES=true`. Stricter rate limit (10/minute).
 
 ## Phase 3 — Multi-User
 
-| Step | What |
-|------|------|
-| 3.1 | DB-backed `agent_api_keys` table |
-| 3.2 | Key management endpoints |
-| 3.3 | Per-user scoping (already works via user_email injection) |
+**Superseded 2026-04-22.** This Phase 3 design was **not** implemented.
+
+Multi-user Agent API auth shipped via the gateway-signed HMAC-SHA256 user-claim design in `docs/planning/AGENT_API_SIGNED_USER_CLAIM_PLAN.md`, reusing the existing `routes/internal_resolver.py` signing pattern instead of creating a parallel DB-backed key-management surface.
+
+| Original step | Original proposal | Status |
+|------|------|------|
+| 3.1 | DB-backed `agent_api_keys` table | Superseded — no DB table was added |
+| 3.2 | Key management endpoints | Superseded — replaced by gateway-signed claim headers |
+| 3.3 | Per-user scoping (already works via user_email injection) | Superseded — now enforced by signed `user_id` + `user_email` claims |
+
+Shipped implementation commits:
+- `risk_module`: `2fe96075`, `6e9cc689`, `6d2a131f`
+- `AI-excel-addin`: `5099f18`, `b16e8e2`, `985d30a`
+
+Ops runbook: `docs/ops/AGENT_API_MULTI_USER_ACTIVATION.md`
 
 ---
 

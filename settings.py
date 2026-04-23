@@ -20,6 +20,16 @@ FRONTEND_BASE_URL = os.getenv('FRONTEND_BASE_URL', 'http://localhost:3000')
 BACKEND_BASE_URL = os.getenv('BACKEND_BASE_URL', 'http://localhost:5001')
 AGENT_API_KEY = os.environ.get("AGENT_API_KEY", "")
 AGENT_API_ALLOW_WRITES = os.environ.get("AGENT_API_ALLOW_WRITES", "").lower() == "true"
+AGENT_API_USER_CLAIM_HMAC_KEY = os.environ.get("AGENT_API_USER_CLAIM_HMAC_KEY", "")
+AGENT_API_SIGNED_CLAIM_ENABLED = os.environ.get(
+    "AGENT_API_SIGNED_CLAIM_ENABLED",
+    "true",
+).lower() == "true"
+AGENT_API_LEGACY_BEARER_ENABLED = os.environ.get(
+    "AGENT_API_LEGACY_BEARER_ENABLED",
+    "true",
+).lower() == "true"
+AGENT_API_CLAIM_MAX_TTL_SECONDS = int(os.environ.get("AGENT_API_CLAIM_MAX_TTL_SECONDS", "600"))
 
 
 from utils.user_context import (
