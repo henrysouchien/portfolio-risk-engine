@@ -491,6 +491,29 @@ Shipped 2026-04-22. This log records the implementation commits that landed acro
 
 Rollout activation remains manual and is documented in `docs/ops/AGENT_API_MULTI_USER_ACTIVATION.md`.
 
+### Live verification (2026-04-23 session)
+
+| Check | Method | Result |
+|---|---|---|
+| Verifier accepts valid signed claim (all 6 canonical fields + HMAC) | `curl` with real HMAC-SHA256 | ✅ 200, `X-Agent-Claim-User-Id` resolved |
+| Verifier rejects bad signature | `curl` with zeroed signature | ✅ 401 "Invalid signed user claim" |
+| Verifier rejects expired claim (`now > expiry`) | `curl` with past expiry | ✅ 401 |
+| Verifier rejects wrong audience | `curl` with `"agent_api_v999"` | ✅ 401 |
+| Verifier rejects missing header | `curl` without `X-Agent-Claim-Nonce` | ✅ 401 |
+| Legacy bearer still works under dual-auth | `curl` with `Authorization: Bearer $AGENT_API_KEY` | ✅ 200 |
+| Step 5 registry fetcher uses signed-claim live | Gateway restart → `_fetch_risk_function_catalog` hits `/api/agent/registry?tier=...` | ✅ 200 from gateway's signed-claim path |
+| `/chat/init` accepts + persists `user_email` | backend POST with `user_email=hc@henrychien.com` | ✅ session created |
+| Signer reaches `code_execute` tool call with `host='subprocess'` | gateway log: `Tool call: code_execute` | ✅ invoked via `web` channel |
+
+**Not covered live** (covered by Step 4 unit tests):
+- Sandbox env vars actually injected at spawn.
+- `AGENT_API_USER_CLAIM_HMAC_KEY` confirmed absent from sandbox env.
+- End-to-end: sandbox `risk_client` → `/api/agent/call` with `X-Agent-Claim-*` → risk_module logs `source: signed_claim`.
+
+Blocker that prevented full E2E verification: Hank frontend requests `claude-opus-4-7` but ai-excel-addin's `ALLOWED_MODELS` at `tool_catalog.py:54` only lists `claude-sonnet-4-6` + `claude-opus-4-6`. Gateway rejects with 400 before code_execute is dispatched. This is package-version drift (stale published ai-agent-gateway vs current source), unrelated to Phase 3 but blocking the live test. Filed separately in TODO as an architectural package-publish issue.
+
+**Cutover readiness**: verifier side is production-safe (all reject paths tested with real HMAC + signed-claim path live via Step 5 fetcher). Rollout activation (flip `AGENT_API_LEGACY_BEARER_ENABLED=false`) not yet executed. Dual-auth mode remains active; cutover reversible via single env-var flip.
+
 ---
 
 ## 11. Change log
