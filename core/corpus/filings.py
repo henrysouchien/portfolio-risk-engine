@@ -19,7 +19,11 @@ from core.corpus.types import (
     InvalidInputError,
     SearchResponse,
 )
-from core.corpus.validation import validate_read_path, validate_search_inputs
+from core.corpus.validation import (
+    _validate_canonical_ticker,
+    validate_read_path,
+    validate_search_inputs,
+)
 
 
 FILINGS_FAMILY_FORM_TYPES = frozenset({'10-K', '10-Q', '8-K'})
@@ -161,6 +165,7 @@ def filings_list(
     clauses = ["d.source = 'edgar'", f"d.form_type IN ({', '.join('?' for _ in resolved_form_types)})"]
     params: list[object] = [*resolved_form_types]
     if ticker is not None:
+        _validate_canonical_ticker(ticker, field='ticker')
         clauses.append('d.ticker = ?')
         params.append(ticker)
     if fiscal_period is not None:
@@ -257,6 +262,7 @@ def _resolve_filing_document_row(
         raise InvalidInputError(
             'provide document_id or the full (ticker, form_type, fiscal_period) tuple'
         )
+    _validate_canonical_ticker(ticker, field='ticker')
 
     rows = db.execute(
         """

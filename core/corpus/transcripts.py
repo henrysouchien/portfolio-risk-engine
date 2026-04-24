@@ -9,7 +9,11 @@ from core.corpus.db import open_corpus_db
 from core.corpus.frontmatter import parse_frontmatter
 from core.corpus.search import _resolved_source_url_sql, _search
 from core.corpus.types import DocumentMetadata, ExcerptUnavailableError, InvalidInputError, SearchResponse
-from core.corpus.validation import validate_read_path, validate_search_inputs
+from core.corpus.validation import (
+    _validate_canonical_ticker,
+    validate_read_path,
+    validate_search_inputs,
+)
 from fmp.tools.transcripts import get_earnings_transcript
 
 
@@ -178,6 +182,7 @@ def transcripts_list(
     clauses = ["d.source = 'fmp_transcripts'", "d.form_type = 'TRANSCRIPT'"]
     params: list[object] = []
     if ticker is not None:
+        _validate_canonical_ticker(ticker, field='ticker')
         clauses.append('d.ticker = ?')
         params.append(ticker)
     if fiscal_period is not None:
