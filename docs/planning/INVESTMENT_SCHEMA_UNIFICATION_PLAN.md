@@ -1005,11 +1005,34 @@ Once this doc is approved, these implementation plans get written. Shipped plans
 | 3 | `MODEL_BUILD_CONTEXT_PLAN.md` | G2 | HandoffArtifact v1.1 |
 | 4 | `INVESTMENT_IDEA_INGRESS_PLAN.md` | G1 | HandoffArtifact v1.1 |
 | 5 | `PROCESS_TEMPLATE_PLAN.md` (SHIPPED) | G7, G12 | HandoffArtifact v1.1 |
-| 6 | `MODEL_INSIGHTS_PRICE_TARGET_PLAN.md` | G3, G4 | ModelBuildContext |
+| 6 | `MODEL_INSIGHTS_PRICE_TARGET_PLAN.md` (SHIPPED) | G3, G4 | ModelBuildContext |
 | 7 | `INDUSTRY_RESEARCH_TOOLS_PLAN.md` | G5 (tools side) | HandoffArtifact v1.1 |
 | 8 | `EDGAR_FMP_PRECEDENCE_PLAN.md` | G8 (request-time overrides) | ModelBuildContext |
 | 9 | `KNOWLEDGE_WIKI_SCHEMA_PLAN.md` | G6 | ProcessTemplate |
 | 10 | `RESEARCH_EDITORIAL_PIPELINE_PLAN.md` | G10 (rendering) | HandoffArtifact v1.1 |
+
+**Plan #6 ship notes (2026-04-24)**:
+
+**Commit refs**:
+- AI-excel-addin (branch `feat/plan-6-model-insights`):
+  - `fa02ce9` — A-prereq (MBC `ValuationMethod` widen)
+  - `eb02369` — A+C (`ModelInsights` + `HandoffPatchOp` schemas, 21 concrete op classes, `threshold_direction` fix)
+  - `0b073dd` — B (`PriceTarget`)
+  - `2f5ab7e` — D (v8 migration + `ModelInsights` storage + service + UUIDv5 helpers)
+  - `29750e6` — E (OCC patch engine + dry-fold + CAS)
+  - `882abb5` — F (studio orchestrator emit hook)
+  - `e799667` — G part 2 (HTTP route handlers)
+  - `429f832` — H (E2E integration tests + skill contract map)
+  - `8611733` — snapshot regeneration cleanup
+- risk_module:
+  - `4d88846d` — G part 1 (MCP surface — 4 tools + 7 agent flags + 8 classifier entries + 8 typed errors) on branch `feat/plan-6-mcp-surface`
+  - `99ee8301` — docs (R2.8 plan doc + V5 ship notes) landed on `main`
+
+**Stats**:
+- Closes G3 (typed `ModelInsights`) + G4 (typed `PriceTarget`) per §6.4
+- ~200+ new tests across all sub-phases + 9 E2E integration scenarios
+- 10 Codex review rounds (R1–R10) with architectural pivot at R2.4: retrofit `_handoff_lock` → OCC CAS on `theses.version`
+- V2.P9 status after plan #6: **6 SHIPPED / 4 DESIGNED** (plans #7–#10 not yet drafted)
 
 **Parallel-shippable**: `THESIS_LIVING_ARTIFACT_PLAN` and the thesis-as-SSoT skill triad (per `AI-excel-addin/docs/design/thesis-as-source-of-truth-skill-architecture.md`). Skills can start with a constrained markdown template before the full typed contracts ship.
 

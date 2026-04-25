@@ -1,8 +1,8 @@
 # Plan #6 — `ModelInsights` + `PriceTarget` + `HandoffPatchOp` v1.0 (Investment Schema Unification)
 
-**Status**: 🟢 **R2.8 COMPLETE** — §2.1 dependency graph label corrected (`lock audit + MBC method widen` → `MBC method widen`). Final one-line sweep. Ready for Codex R10.
+**Status**: ✅ **SHIPPED 2026-04-24** — Sub-phases A-prereq through H implemented across AI-excel-addin + risk_module; closes G3 (typed `ModelInsights`) + G4 (typed `PriceTarget`) per master plan §6.4.
 
-**Last revised**: 2026-04-24 (R2.8 after Codex R9 caught remaining graph label).
+**Last revised**: 2026-04-24 (SHIPPED — final status banner + ship log).
 
 **Authoritative design reference**: `docs/planning/INVESTMENT_SCHEMA_UNIFICATION_PLAN.md` §6.4 (Codex PASS R6). This plan implements what §6.4 designed.
 
@@ -1905,3 +1905,25 @@ Three residual active-section stale refs swept:
 **Nit applied (Codex R8)**: §8.3 now directs the new CAS method to reuse a shared private helper `_prepare_thesis_row_fields(thesis, row)` extracted from `_persist_thesis_payload` rather than reimplement normalization (`_coerce_thesis_input`, label normalization, markdown-path derivation, `updated_at` + `schema_version` stamping) ad hoc. Eliminates drift risk between CAS writes and existing sink writes.
 
 **Ready for Codex R9 review.**
+
+## 17. Ship log
+
+Plan #6 is **SHIPPED** (2026-04-24) across two repos.
+
+**AI-excel-addin** (branch `feat/plan-6-model-insights`):
+- `fa02ce9` — A-prereq (MBC `ValuationMethod` widen)
+- `eb02369` — A+C (`ModelInsights` + `HandoffPatchOp` schemas, 21 concrete op classes, `threshold_direction` fix)
+- `0b073dd` — B (`PriceTarget`)
+- `2f5ab7e` — D (v8 migration + `ModelInsights` storage + service + UUIDv5 helpers)
+- `29750e6` — E (OCC patch engine + dry-fold + CAS)
+- `882abb5` — F (studio orchestrator emit hook)
+- `e799667` — G part 2 (HTTP route handlers)
+- `429f832` — H (E2E integration tests + skill contract map)
+- `8611733` — snapshot regeneration cleanup
+
+**risk_module**:
+- `99ee8301` — docs (R2.8 plan doc + V5 ship notes) landed on `main`
+- `4d88846d` — G part 1 (MCP surface — 4 tools + 7 agent flags + 8 classifier entries + 8 typed errors) on branch `feat/plan-6-mcp-surface`
+
+**Key architectural learning**:
+- 10 Codex review rounds (R1–R10) converged on the OCC pivot at R2.4: retrofitting `_handoff_lock` across writers deadlocks; CAS on `theses.version` isolates concurrency safety to the patch engine.
