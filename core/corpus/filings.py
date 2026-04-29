@@ -3,12 +3,9 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import sqlite3
-import sys
 
-import httpx
-
+from core.corpus import edgar_api_client
 from core.corpus.db import open_corpus_db
-from core.corpus.edgar_urls import SEC_USER_AGENT, fetch_primary_document_html
 from core.corpus.frontmatter import parse_frontmatter
 from core.corpus.search import _resolved_source_url_sql, _search
 from core.corpus.section_map import corpus_header_to_edgar_id, parse_sections
@@ -38,8 +35,10 @@ _EXCERPT_FORM_TYPES = {
 }
 _FILING_SOURCE_LOOKUP_COLUMNS = (
     'document_id',
+    'ticker',
     'cik',
     'form_type',
+    'fiscal_period',
     'source_url_deep',
     'source_accession',
 )
@@ -134,6 +133,16 @@ def filings_source_excerpt(
             reason=f"form_type {row['form_type']} unsupported in Phase 0; proxy support is Phase 1",
         )
 
+    form_type = str(row['form_type'])
+    if form_type.endswith('/A'):
+        raise ExcerptUnavailableError(
+            resolved_document_id,
+            reason=(
+                f'amendment form {form_type} cannot be source-excerpted via API '
+                '(F43: amendment routing deferred; API cannot target accession)'
+            ),
+        )
+
     canonical_section_id = corpus_header_to_edgar_id(section, normalized_form_type)
     if canonical_section_id is None:
         raise ExcerptUnavailableError(
@@ -141,14 +150,97 @@ def filings_source_excerpt(
             reason=f"section {section!r} unsupported for form_type {row['form_type']}",
         )
 
-    html_content = _fetch_filing_html(row)
-    parsed = parse_filing_sections(html_content, normalized_form_type)
-    section_payload = (parsed.get('sections') or {}).get(canonical_section_id)
-    text = str((section_payload or {}).get('text') or '').strip()
-    if not text:
+    ticker_value = str(row['ticker'])
+    year, quarter, source_param = _resolve_api_params_from_row(row)
+
+    expected_accession = (str(row['source_accession']).strip() or None) if row['source_accession'] else None
+    if expected_accession is None:
         raise ExcerptUnavailableError(
             resolved_document_id,
-            reason=f"section {section!r} not found in source filing",
+            reason='row missing source_accession; cannot verify API alignment',
+        )
+
+    try:
+        filings_payload = edgar_api_client.get_filings(ticker_value, year, quarter)
+    except edgar_api_client.EdgarAPIError as exc:
+        raise ExcerptUnavailableError(
+            resolved_document_id,
+            reason=f'edgar_api /api/filings failed: {exc}',
+        ) from exc
+
+    base_form = normalized_form_type
+    matching = [
+        filing for filing in (filings_payload.get('filings') or [])
+        if str(filing.get('form', '')) == base_form
+    ]
+    if not matching:
+        raise ExcerptUnavailableError(
+            resolved_document_id,
+            reason=f'no {base_form} filings in API response for {ticker_value} {year}Q{quarter}',
+        )
+
+    matching.sort(
+        key=lambda filing: (str(filing.get('filing_date', '')), str(filing.get('accession', ''))),
+        reverse=True,
+    )
+    latest_filing_date = str(matching[0].get('filing_date', '')).strip()
+    if not latest_filing_date:
+        raise ExcerptUnavailableError(
+            resolved_document_id,
+            reason=(
+                f'/api/filings returned {len(matching)} {base_form} filing(s) for '
+                f'{ticker_value} {year}Q{quarter} with no filing_date - cannot verify '
+                'accession alignment'
+            ),
+        )
+
+    same_date_matches = [
+        filing for filing in matching
+        if str(filing.get('filing_date', '')) == latest_filing_date
+    ]
+    if len(same_date_matches) > 1:
+        raise ExcerptUnavailableError(
+            resolved_document_id,
+            reason=(
+                f'{len(same_date_matches)} {base_form} filings on {latest_filing_date} for '
+                f'{ticker_value} {year}Q{quarter}; API cannot disambiguate (F43 territory)'
+            ),
+        )
+
+    latest_accession = str(matching[0].get('accession', ''))
+    if latest_accession != expected_accession:
+        raise ExcerptUnavailableError(
+            resolved_document_id,
+            reason=(
+                f'corpus row accession {expected_accession} is not the latest for '
+                f'{ticker_value} {year}Q{quarter} {base_form} (API has {latest_accession}); '
+                'API cannot target older/amended/superseded filings'
+            ),
+        )
+
+    try:
+        api_payload = edgar_api_client.get_filing_sections(
+            ticker=ticker_value,
+            year=year,
+            quarter=quarter,
+            sections=[canonical_section_id],
+            format='full',
+            source=source_param,
+            max_words='none',
+        )
+    except edgar_api_client.EdgarAPIError as exc:
+        raise ExcerptUnavailableError(
+            resolved_document_id,
+            reason=f'edgar_api /api/sections failed: {exc}',
+        ) from exc
+
+    section_payload = (api_payload.get('sections') or {}).get(canonical_section_id) or {}
+    state = str(section_payload.get('state', ''))
+    text = str(section_payload.get('text') or '').strip()
+    if state == 'missing' or not text:
+        raise ExcerptUnavailableError(
+            resolved_document_id,
+            reason=f"section {section!r} not available from API (state={state!r})",
         )
     return text
 
@@ -205,22 +297,6 @@ def filings_list(
     ]
 
 
-def parse_filing_sections(html_content: bytes | str, filing_type: str) -> dict:
-    parser = _load_edgar_section_parser()
-    return parser.parse_filing_sections(html_content, filing_type)
-
-
-def _load_edgar_section_parser():
-    try:
-        import edgar_parser.section_parser as section_parser
-    except ModuleNotFoundError:
-        edgar_root = Path(__file__).resolve().parents[3] / 'Edgar_updater'
-        if str(edgar_root) not in sys.path:
-            sys.path.insert(0, str(edgar_root))
-        import edgar_parser.section_parser as section_parser
-    return section_parser
-
-
 def _resolve_filings_form_types(form_type: list[str] | None) -> list[str]:
     if form_type is None:
         return list(_FILINGS_FAMILY_DEFAULT_FORM_TYPES)
@@ -239,6 +315,42 @@ def _resolve_filings_form_types(form_type: list[str] | None) -> list[str]:
             f"form_type {offending!r} not in filings family; valid form types: {valid_family}"
         )
     return list(form_type)
+
+
+def _resolve_api_params_from_row(row: sqlite3.Row) -> tuple[int, int, str | None]:
+    """Map a documents row to (year, quarter, source) for edgar_api."""
+    form_type = str(row['form_type'])
+    fiscal_period = str(row['fiscal_period'] or '').strip()
+    base_form = form_type[:-2] if form_type.endswith('/A') else form_type
+    source: str | None = '8k' if base_form == '8-K' else None
+
+    if not fiscal_period:
+        raise InvalidInputError(f"row missing fiscal_period for form_type {form_type}")
+
+    try:
+        if fiscal_period.endswith('-FY'):
+            year = int(fiscal_period[:4])
+            return year, 4, source
+        if len(fiscal_period) == 7 and fiscal_period[4] == '-' and fiscal_period[5] == 'Q':
+            year = int(fiscal_period[:4])
+            quarter = int(fiscal_period[6])
+            if not 1 <= quarter <= 4:
+                raise InvalidInputError(f'invalid quarter {quarter} in {fiscal_period!r}')
+            return year, quarter, source
+        if len(fiscal_period) == 10 and fiscal_period[4] == '-' and fiscal_period[7] == '-':
+            year = int(fiscal_period[:4])
+            month = int(fiscal_period[5:7])
+            if not 1 <= month <= 12:
+                raise InvalidInputError(f'invalid month {month} in {fiscal_period!r}')
+            return year, ((month - 1) // 3) + 1, source
+    except ValueError as exc:
+        raise InvalidInputError(
+            f'malformed fiscal_period {fiscal_period!r} for form_type {form_type}: {exc}'
+        ) from exc
+
+    raise InvalidInputError(
+        f'unsupported fiscal_period format {fiscal_period!r} for form_type {form_type}'
+    )
 
 
 def _resolve_filing_document_row(
@@ -266,7 +378,7 @@ def _resolve_filing_document_row(
 
     rows = db.execute(
         """
-        SELECT document_id, cik, form_type, source_url_deep, source_accession
+        SELECT document_id, ticker, cik, form_type, fiscal_period, source_url_deep, source_accession
         FROM documents
         WHERE ticker = ?
           AND form_type = ?
@@ -290,34 +402,6 @@ def _resolve_filing_document_row(
             fiscal_period=fiscal_period,
         )
     return rows[0]
-
-
-def _fetch_filing_html(row: sqlite3.Row) -> str:
-    source_url_deep = row['source_url_deep']
-    if source_url_deep:
-        response = httpx.get(
-            str(source_url_deep),
-            headers={'User-Agent': SEC_USER_AGENT},
-            timeout=30.0,
-        )
-        response.raise_for_status()
-        return response.text
-
-    cik = row['cik']
-    accession = row['source_accession']
-    if cik and accession:
-        try:
-            return fetch_primary_document_html(str(cik), str(accession))
-        except Exception as exc:
-            raise ExcerptUnavailableError(
-                str(row['document_id']),
-                reason=f'accession-keyed SEC fetch failed: {exc}',
-            ) from exc
-
-    raise ExcerptUnavailableError(
-        str(row['document_id']),
-        reason='missing source_url_deep and accession/cik fallback',
-    )
 
 
 def _slice_text(text: str, char_start: int | None, char_end: int | None) -> str:

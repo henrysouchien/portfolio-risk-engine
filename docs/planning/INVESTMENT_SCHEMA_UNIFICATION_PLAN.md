@@ -75,7 +75,7 @@ Diligence shape across the whole flow:
    which valuation methods are required for this investor's process.  ◄── contract #5
 ```
 
-**Six typed contracts.** All Pydantic source-of-truth in `AI-excel-addin/schema/` (extending the existing `schema/models.py` pattern). The handoff artifact v1.0 anchors the center; the other five formalize existing seams or fill them.
+**Seven typed contract groups.** All Pydantic source-of-truth in `AI-excel-addin/schema/` (extending the existing `schema/models.py` pattern). The handoff artifact v1.0 anchors the center; the other groups formalize existing seams or fill them.
 
 ---
 
@@ -85,7 +85,7 @@ Diligence shape across the whole flow:
 |---|---|
 | `investment_tools` | Idea sourcing (screens, findings, analyst actions). **Emits `InvestmentIdea`** (a superset of existing `IdeaPayload`). |
 | `risk_module` | Research workspace UI + MCP tool surface + portfolio-mcp + gateway client. Proxies to AI-excel-addin backend via gateway. |
-| `AI-excel-addin` | Research workspace **backend** (`api/research/`), agent brain + skills, modelling studio (`schema/`), Excel add-in host, ticker memory. **Pydantic source of truth for all six contracts.** |
+| `AI-excel-addin` | Research workspace **backend** (`api/research/`), agent brain + skills, modelling studio (`schema/`), Excel add-in host, ticker memory. **Pydantic source of truth for all seven contract groups.** |
 | `edgar_updater` (+ `edgar-mcp`, `edgar-parser`) | Raw SEC data layer. Feeds modelling studio + workspace prepopulate via existing MCP tools. **Consumer of no contract defined here.** |
 
 **Why AI-excel-addin owns the types**: it already owns `schema/models.py` (FinancialModel) and `api/research/repository.py` (handoff persistence). The living Thesis + THESIS.md pattern lives next to the skill runtime. Colocating the schema with the runtime that mutates it is the simpler model.
@@ -636,6 +636,17 @@ ProcessTemplate v1.0:
 - Does not override `DriverCategory` enum (future: per-template driver taxonomy via template schema v2).
 - Does not redefine qualitative factor shape — only seeds which categories to pre-populate.
 
+**Plan #5b extension** — `EXTENSIBLE_STRATEGY_CATEGORY_PLAN.md` (SHIPPED 2026-04-26)
+converts `StrategyBias` from a frozen `Literal` to `StrategyCategoryId =
+Annotated[str, AfterValidator(validate_strategy_category_id)]` backed by a
+runtime registry (`schema/strategy_categories/`). The 4 built-ins ship in
+`defaults.yaml` and remain locked; deployments register additional categories
+(e.g. `growth`, `income`, `garp`, `event_driven`) via a YAML referenced by
+`STRATEGY_CATEGORY_REGISTRY_PATH`. `StrategyBias` is preserved as a
+backward-compat alias so plan #6 / plan #9 imports stay green. Plan #9's
+`MethodologyUnit.process_template_categories: list[StrategyBias]`
+automatically picks up the wider registered set with no plan #9 code change.
+
 ### 6.6 `Thesis` + `ThesisLink` + `ThesisScorecard` (new) — closes G13
 
 The centering living artifact + typed linkage to model + outcome tracker. Subsumes F3c.
@@ -875,6 +886,51 @@ ThesisScorecard v1.0:
 - `/thesis-pre-mortem` stress-tests before initiation
 - Ticker-scoped skills read Thesis as their first step (via CLAUDE.md hook in the skill-runtime project, not this repo's CLAUDE.md)
 
+### 6.7 `MethodologyUnit` + `WikiArticle` (new) — closes G6
+
+Closes G6 by typing YAML frontmatter on the existing markdown knowledge layer: 62 wiki articles plus ~20 methodology units. Markdown stays the source of truth; plan #9 validates and indexes the frontmatter so agents can retrieve relevant methodology deterministically without extracting the bodies into a database.
+
+```
+MethodologyUnit v1.0:
+  path                                      # repo-relative markdown path
+  title                                     # human-readable unit title
+  module                                    # SIA module / methodology folder
+  sia_phase?                                # workflow phase alignment
+  concept?                                  # primary concept or lens
+  summary?                                  # short retrieval synopsis
+  source_refs: [string]                     # source material / wiki refs
+  tool_mappings: [string]                   # MCP/tools used in Execute Mode
+  typed_outputs: [string]                   # contract fields the unit writes
+  process_template_categories: [StrategyBias]
+                                            # plan #5 binding for template-driven surfacing
+  methodology_tags: [string]                # free-form tags, registry-validated
+                                            # registry: schema/methodology_tag_registry.yaml
+  schema_version = "1.0"
+```
+
+```
+WikiArticle v1.0:
+  path                                      # repo-relative markdown path
+  title                                     # human-readable article title
+  slug                                      # stable lookup key
+  article_type                              # concept | case | framework | pattern | field_note
+  summary?                                  # short retrieval synopsis
+  aliases: [string]                         # alternate names for lookup
+  concepts: [string]                        # concept vocabulary
+  cases: [string | object]                  # live-data quirk: mixed scalar/object shape
+  related: [string]                         # resolves across wiki and methodology records
+  source_refs: [string]                     # source material refs
+  schema_version = "1.0"
+```
+
+**Producer**: human authors writing markdown.
+
+**Consumer**: skills + agents via `find_methodology` / `lookup_wiki` (library) and four MCP tools: `find_methodology_units`, `get_methodology_unit`, `lookup_wiki_articles`, `get_wiki_article`.
+
+**Markdown stays source of truth.** No DB extraction; typed objects are loaded from frontmatter and joined back to markdown bodies on demand.
+
+**Coupling**: `process_template_categories` consumes `StrategyBias` (today: plan #5's literal; post-plan #5b: registry-validated extensible identifier). Full design depth lives in `docs/planning/KNOWLEDGE_WIKI_SCHEMA_PLAN.md`.
+
 ---
 
 ## 7. Type Location & Ownership
@@ -923,7 +979,7 @@ Consumers pin to **major**. HandoffArtifact goes from `"1.0"` → `"1.1"` on the
 
 Confirmed from the design discussion:
 
-- **Structural layer** = the six contracts in §6. Defines *what* information exists, *how it's typed*, *how consumers read it*.
+- **Structural layer** = the seven contract groups in §6. Defines *what* information exists, *how it's typed*, *how consumers read it*.
 - **Editorial layer** = rendering concern over structure. Voice, layout, density, visual emphasis. Not a schema concern.
 
 **Implication**: human-readable report, Excel model, and workspace UI all read the same structured core. Editorial differences live in the render layer (F25 `HandoffSectionRenderer` for workspace UI, a future research-editorial pipeline for PDF/export, modelling-studio renderer for Excel) — not in separate data schemas.
@@ -933,6 +989,8 @@ Confirmed from the design discussion:
 **Round-trip mechanism** (§10 decision): constrained sections with schema-enforced headers. A markdown parser with known section names populates structured fields; fields not found in markdown default to null. Free-form prose within each section is preserved verbatim. No AST-level markdown parsing — too fragile.
 
 The existing `core/overview_editorial/` pipeline (portfolio overview brief) is a **proven pattern** that can be cloned for research report rendering when that becomes priority. Future project, not decided here.
+
+The research-editorial pipeline anticipated above shipped 2026-04-28 as plan #10 (`RESEARCH_EDITORIAL_PIPELINE_PLAN.md`). v1 ships the deterministic three-generator pipeline (ThesisDifferentiation, CatalystRisk, ValuationConviction) + workspace UI section + cross-repo MCP surface. LLM arbiter, markdown/PDF export, and editorial_memory coupling are Phase 2.
 
 ---
 
@@ -1007,9 +1065,9 @@ Once this doc is approved, these implementation plans get written. Shipped plans
 | 5 | `PROCESS_TEMPLATE_PLAN.md` (SHIPPED) | G7, G12 | HandoffArtifact v1.1 |
 | 6 | `MODEL_INSIGHTS_PRICE_TARGET_PLAN.md` (SHIPPED) | G3, G4 | ModelBuildContext |
 | 7 | `INDUSTRY_RESEARCH_TOOLS_PLAN.md` | G5 (tools side) | HandoffArtifact v1.1 |
-| 8 | `EDGAR_FMP_PRECEDENCE_PLAN.md` | G8 (request-time overrides) | ModelBuildContext |
-| 9 | `KNOWLEDGE_WIKI_SCHEMA_PLAN.md` | G6 | ProcessTemplate |
-| 10 | `RESEARCH_EDITORIAL_PIPELINE_PLAN.md` | G10 (rendering) | HandoffArtifact v1.1 |
+| 8 | `EDGAR_FMP_PRECEDENCE_PLAN.md` (SHIPPED) | G8 (request-time overrides) | ModelBuildContext |
+| 9 | `KNOWLEDGE_WIKI_SCHEMA_PLAN.md` (SHIPPED) | G6 | ProcessTemplate |
+| 10 | `RESEARCH_EDITORIAL_PIPELINE_PLAN.md` (SHIPPED 2026-04-28) | G10 (rendering) | HandoffArtifact v1.1 |
 
 **Plan #6 ship notes (2026-04-24)**:
 
@@ -1036,6 +1094,128 @@ Once this doc is approved, these implementation plans get written. Shipped plans
 
 **Parallel-shippable**: `THESIS_LIVING_ARTIFACT_PLAN` and the thesis-as-SSoT skill triad (per `AI-excel-addin/docs/design/thesis-as-source-of-truth-skill-architecture.md`). Skills can start with a constrained markdown template before the full typed contracts ship.
 
+**Plan #9 ship notes (2026-04-25)**:
+
+**Commit refs** (AI-excel-addin):
+- `cd1b389` — sub-phase A (Pydantic contracts)
+- `f167fda` — sub-phase B (loader + indexes)
+- `6ee2c63` — sub-phase C (typed retrieval library)
+- `ff7a6a3` — sub-phase D (MCP tools)
+- `d4e0315` — sub-phase E (backfill)
+- `f1d05c0` — sub-phase F (CI gate)
+
+**Commit refs** (risk_module):
+- `fcc03458` — sub-phase D gateway error wiring
+- `daad5e71` — sub-phase F ship marker
+
+**Stats**:
+- Closes G6 (knowledge wiki not materialized as data) per §6.7
+- 82 cumulative tests in the methodology suite
+- Two-field categorization: `process_template_categories` (binding) + `methodology_tags` (free-form, registry-validated)
+- Sub-phase G (risk_module MCP mirror) cut at R1
+- Sub-phases H + I (this doc batch)
+
+**V2.P9 status after plan #9**: 7 SHIPPED / 3 DESIGNED (plans #7, #8, #10).
+
+**Plan #5b ship notes (2026-04-26)**:
+
+**Commit refs** (AI-excel-addin):
+- `ef52372` — sub-phase A (registry primitives)
+- `3b4c4b5` — sub-phase B (type swap; 4 snapshots regenerated)
+- `cdea623` — sub-phase C (canonicalizer rewrite)
+- `30a1897` — sub-phase D (env-var edge case tests)
+- `a6f7d0e` — sub-phase E (test migration sweep)
+- `552af11` — sub-phase F (MCP tool + research route)
+
+**Commit refs** (risk_module):
+- `c3e93191` — sub-phase F (gateway error + frontend dynamic dropdown)
+- `(G commit)` — migration safety check
+- `(H commit)` — docs
+
+**Stats**:
+- Closes G16 (NEW — strategy categorization not user-extensible)
+- 35+ tests in test_strategy_category_registry.py + 5 MCP tool tests + CI fixture suite
+- StrategyBias preserved as alias indefinitely; no consumer code change required
+- 4 schema snapshots regenerated cleanly (enum-removal-only diffs)
+- Production-code follow-up filed: api/memory/ingest.py:18 _ALLOWED_STRATEGIES
+  is plan #4 IdeaPayload-era legacy; out of plan #5b scope
+
+**V2.P9 status after plan #5b**: 8 SHIPPED / 3 DESIGNED (plans #7, #8, #10).
+
+**Plan #7 ship notes (2026-04-28)**:
+
+**Commit refs** (AI-excel-addin):
+- Sub-phase A (schema + canonicalizer + patch ops): merged via PR #52 — `industry_analysis` added to `DILIGENCE_SECTION_KEYS` + hardcoded `SectionKey` Literal, `SECTION_TITLES["industry_analysis"]` entry + `_section_data_from_artifact` wrapper for `list_sections`, 4 patch op classes (all `target: None = None`), `canonicalize_time_horizon` strict canonicalizer, patch engine `_apply_industry_analysis_patch` helper.
+- Sub-phase C (3 industry skills): merged via PR #53 — `industry-landscape`, `industry-macro-overlay`, `structural-trends` skill markdown files + 6 fixture-validation tests.
+- Sub-phase E (orchestration hook): merged via PR #55 — new step 7 in `position-initiation.md` with explicit `get_process_template` load + `template.section_config.required` gate + four sequential `apply_patch_ops` calls (landscape last) + 4 new tests (3 orchestration runner + 1 route-level E2E walking through four sequential FastAPI POSTs).
+
+**Commit refs** (risk_module):
+- Sub-phases B + D (deterministic peer comp tool + typed error): merged via PR #22 — `mcp_tools/industry.py::industry_peer_comparison(symbol, peers, limit)` wraps `fmp.tools.peers.compare_peers(format="summary")` and reshapes to `IndustryPeerComparison` dict layout. Returns plain dict (no cross-repo Pydantic import; type validation at request boundary). Includes focal ticker as `peers[0]` (R7 review fix). Handles both FMP failure modes — `{"status": "error"}` return AND raised exceptions both surface as `IndustryToolUpstreamError(ActionInfrastructureError)`.
+
+**Stats**:
+- Closes G5 (industry research tools side) per master plan §5.
+- ~48 tests total (43 unit + 5 route-level E2E across both repos).
+- 7 Codex review rounds (R1-R7 PASS): R1-R3 caught architectural blockers (invented `process_template.required_sections` field, wrong concurrency model, `relative_position` race, fabricated `register_source` / `UnknownSourceCitationError` surface, FMP signature mismatch); R4-R7 caught editorial drift (cross-repo Pydantic-import contradictions, lingering "engine validates" wording, ASCII graph mismatch with prose, test-count drift).
+- Plan locked at R7; all 4 R7 should-fix items addressed.
+- Tools-only plan — schema/write surface/frontend renderer all already shipped (sub-phase A bumps the `SectionKey` Literal; no new schema types).
+
+**V2.P9 status after plan #7**: 9 SHIPPED / 2 DESIGNED (plans #8, #10).
+
+**Plan #8 ship notes (2026-04-28)**:
+
+**Commit refs** (AI-excel-addin, branch `feat/plan-8-phase-a-resolver-populate` PR #54 + fix branch `fix/plan-8-routed-parity-with-legacy` PR #56):
+
+PR #54 (rebase-merged):
+- `332464b` — Phase A (resolver + populate refactor + telemetry + Pydantic validator)
+- `7a15ff3` — Phase B (MBC wiring + `mbc_service._build_base_payload()` fix + eligibility)
+- `34dbe4b` — Phase C (MCP `model_build` `historical_sources` param + EDGAR-fetcher trigger fix)
+- `aa7ee18` — Phase D (E2E integration tests, 9 scenarios)
+
+PR #56 — post-merge parity fix (rebase-merged):
+- `14665c9` — routed mode parity with legacy populate (synthetic-zero + EDGAR all-fail raise)
+- `cb616d2` — source-aware overlay guard (FMP-only routes always synthesize zero, matching legacy `populate_from_fmp`)
+
+**Commit refs** (risk_module):
+- `94309d24` — plan doc R5 PASS
+
+**Stats**:
+- Closes G8 (EDGAR ↔ FMP precedence concept-level only) per §6.3 `historical_sources`
+- 245 tests across 7 test modules (resolver, validator, populate refactor, MBC dispatch, mbc_service, MCP tool, E2E integration)
+- 5 plan review rounds (R1 FAIL → R2 FAIL → R3 FAIL → R4 "very close" → R5 PASS)
+- 1 post-merge implementation review round caught 2 routed-vs-legacy parity gaps that 234 phase-A-D tests missed (synthetic-zero + EDGAR all-fail raise); 1 follow-up review caught a third (source-aware overlay guard) — 3 fixes total in PR #56
+- Architectural pivot at R3 → R4: split legacy/routed code paths (legacy `source: str` callers bypass routing entirely, preserving today's behavior bit-identically; routed mode opt-in via `historical_sources`). Resolver + buffer + dispatch only fire on opt-in.
+- Pre-shipped contract preserved: `populate_from_fmp` / `populate_from_edgar` internals untouched; warning at `build.py:356` kept for legacy mode
+- Segment-mode coexistence verified: `build.py:680` + `model_engine_mcp_server.py:370` source-force only mutates global `source` var, doesn't touch `historical_sources`. Routing survives segment forcing.
+- No risk_module code changes — model-engine MCP runs directly from AI-excel-addin source via stdio spawn; no -dist sync, no PyPI publish, no service restart needed
+- Out of scope deferred: HandoffArtifact v1.1 routing block (v1.2 schema work, separate plan); CLI surface (no `build_model` CLI exists today); removing segment-mode forced-source rule (coexistence in scope, removal not)
+
+**V2.P9 status after plan #8**: 9 SHIPPED / 2 DESIGNED (plans #7, #10 remaining; plan #10 has shipped sub-phases B + C in flight).
+
+**Plan #10 ship notes (2026-04-28)**:
+
+**Commit refs** (AI-excel-addin):
+- `f7a33ca` — sub-phase A (ResearchBrief Pydantic contracts + arch boundary scaffold)
+- `02bf99c` — sub-phase B (ResearchContext builder + handoff_loader lift)
+- `756579c` — sub-phase C (3 generators + Protocol)
+- `4a71d74` — sub-phase D (policy layer + brief cache)
+- `c627529` — sub-phase E (editorial service + finalize-hook + brief endpoint)
+- `79d7245` — sub-phase H (eval fixtures + golden snapshots)
+
+**Commit refs** (risk_module):
+- `888eefe2` — plan-doc commit (Codex PASS R3)
+- `e07580e9` — sub-phase F (get_research_brief MCP tool)
+- `11403b46` — sub-phase G (frontend ResearchBriefSection + polling hook)
+
+**Stats**:
+- Closes G10 per §9 (render-layer; no new typed contract group added to master plan)
+- ~95+ new tests cumulative across 9 sub-phases
+- 89 editorial-suite tests + 91 full editorial+adjacent + 6 eval-scenario snapshot tests
+- 11 frontend tests (component + hook)
+- Codex review iterations: R1 FAIL → R2 FAIL → R3 PASS (5+4 High issues caught across iterations; multi-user cache safety, schema field paths, TemplateCatalog API, finalize-hook seam all corrected)
+- V2.P9 status after plan #10: 10 SHIPPED / 1 DESIGNED (at the time my session committed; merged-in Plan #7 ship in parallel — final post-merge V2.P9 = **11 SHIPPED / 0 DESIGNED**)
+
+**Plan #6 follow-on (2026-04-28)**: `BUILD_MODEL_FOR_HANDOFF_MCP_PLAN.md` — closes the build-side skill integration gap from the Plan #6 audit. Wires AI-excel-addin's `build-model` skill to dispatch finalized-handoff builds through `portfolio-mcp.build_model` (existing tool at `actions/research.py:709`) so the orchestrator emits ModelInsights + PriceTarget atomically. R0 5B/5S/1N caught a duplicate-tool premise → scope pivoted to skill prose + frontmatter rewire only → R4 PASS. AI-excel-addin TODO #22 closed.
+
 ---
 
 ## 13. Skill integration reference
@@ -1061,7 +1241,7 @@ When a contract field changes, every row in `SKILL_CONTRACT_MAP.md` that referen
 
 ## 14. Summary
 
-One canonical **investment schema** lives in AI-excel-addin as Pydantic source of truth. It's composed of **six typed contracts, centered on the thesis**:
+One canonical **investment schema** lives in AI-excel-addin as Pydantic source of truth. It's composed of **seven typed contract groups, centered on the thesis**:
 
 1. **InvestmentIdea** — typed ingress, superset of `IdeaPayload`, adds provenance (G1, G14)
 2. **HandoffArtifact v1.1** — strictly additive evolution; differentiated view, industry research, lineage, shape consistency (G5, G9, G11, G13-partial, G14, G15)
@@ -1069,6 +1249,7 @@ One canonical **investment schema** lives in AI-excel-addin as Pydantic source o
 4. **ModelInsights + PriceTarget + HandoffPatchOp** — typed back-channel with typed patch grammar (G3, G4)
 5. **ProcessTemplate** — configurable diligence, scoped to config (not schema-overriding) in v1 (G7, G12)
 6. **Thesis + ThesisLink + ThesisScorecard** — centering living artifact, aligned with HandoffArtifact field names, keyed by `(user_id, ticker, label)`, multi-anchor resolution (G13)
+7. **MethodologyUnit + WikiArticle** — typed frontmatter and retrieval for the markdown knowledge layer (G6)
 
 **Architectural spine**: `Thesis` (living, THESIS.md) is the analyst-authored source of intent that every view challenges or adjusts. `HandoffArtifact` is the structured snapshot that programmatic consumers bind to. All other contracts plug into that spine.
 

@@ -146,3 +146,13 @@ def corpus_header_to_edgar_id(header: str, form_type: str) -> str | None:
     """Map a corpus filing header back to Edgar_updater's canonical section id."""
     base_form_type = form_type[:-2] if form_type.endswith('/A') else form_type
     return _EDGAR_CORPUS_HEADER_TO_ID.get(base_form_type, {}).get(header)
+
+
+def edgar_id_to_corpus_header(canonical_id: str, form_type: str) -> str | None:
+    """Map Edgar_updater's canonical section id back to the corpus header string."""
+    base_form_type = form_type[:-2] if form_type.endswith('/A') else form_type
+    forward = _EDGAR_CORPUS_HEADER_TO_ID.get(base_form_type) or {}
+    for header, cid in forward.items():
+        if cid == canonical_id:
+            return header
+    return None

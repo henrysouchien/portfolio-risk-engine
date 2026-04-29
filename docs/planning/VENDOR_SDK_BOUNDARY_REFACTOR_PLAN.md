@@ -198,7 +198,7 @@ Sourced from three parallel Explore passes plus Codex round 1 corrections.
 | `scripts/explore_transactions.py:62` | `client.transactions_and_reporting.get_activities(...)` | `get_activities(...)` |
 | `scripts/run_snaptrade.py:25` | Direct loader import | Use `from brokerage.snaptrade import ...` |
 | `routes/snaptrade.py:151` | (verify; refactor away raw-client import) | Use boundary functions |
-| `routes/provider_routing.py:420` | (verify; refactor away raw-client import) | Use boundary functions |
+| ~~`routes/provider_routing.py:420`~~ | ~~(verify; refactor away raw-client import)~~ | ~~Use boundary functions~~ — **RESOLVED by V1b (commit `89acc99a`, 2026-04-25)**: the entire fallback machinery (including `_fetch_snaptrade_holdings` at the cited line) was deleted as dead code, since per-provider routing in `providers/routing_config.py` superseded the design and zero callers existed. See `VENDOR_PROVIDER_ROUTING_FALLBACK_REMOVAL_PLAN.md`. |
 | `services/trade_execution_service.py:46` | `from snaptrade_client.exceptions import ApiException as SnapTradeApiException` | `from brokerage.snaptrade import SnapTradeApiException` |
 | `services/position_service.py` (SnapTrade refs) | Direct client access | Boundary functions |
 | `routes/onboarding.py:30` (Codex round 3 — was miscategorized as Plaid in v3) | Direct SnapTrade loader/client import | Use `brokerage.snaptrade` boundary functions |
