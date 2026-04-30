@@ -47,6 +47,8 @@ Key components:
 
 Default `httpx` client timeout was 30s. Mega-cap historical 10-K/10-Q parses regularly exceed that on cold cache (JPM/C/GS were 100% timeout in initial bulk; MS/BAC heavily affected). Added env-var override in `core/corpus/edgar_api_client.py::_resolve_default_timeout` so operators can bump for batch jobs without code changes.
 
+**Follow-up 2026-04-30:** the fallback default is now 600s, matching Edgar_updater's nginx ceiling. `EDGAR_API_TIMEOUT` still overrides the default when operators want a shorter or longer per-process setting.
+
 ```python
 # .env or shell
 EDGAR_API_TIMEOUT=120
@@ -140,7 +142,7 @@ Validates:
 Phase 1 ships the buildable surface. Phase 2 is a natural ramp:
 
 1. Pull another 50 tickers from S&P 500 by 13F holder count + aggregate value
-2. Re-run ingest cycle (now with 120s timeout default for batch jobs)
+2. Re-run ingest cycle (now with 600s fallback timeout; `EDGAR_API_TIMEOUT` can override per environment)
 3. Re-validate coverage gates against 100-ticker universe
 4. Begin transcripts ingest (deferred from Phase 1 per architecture)
 

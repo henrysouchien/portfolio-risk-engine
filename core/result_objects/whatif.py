@@ -1,6 +1,6 @@
 """Whatif result objects."""
 
-from typing import Dict, Any, Optional, List, Union, Tuple
+from typing import Dict, Any, Optional, List, Union, Tuple, Mapping
 import numbers
 import math
 import pandas as pd
@@ -35,6 +35,50 @@ def _violation_keys(
             keys.add(f"proxy:{ticker}")
 
     return keys
+
+
+def _normalize_factor_beta_values(
+    factor_betas: Any,
+    *,
+    source: str,
+) -> Dict[Any, Optional[float]]:
+    """Return numeric factor betas, preserving missing values as None."""
+    if factor_betas is None:
+        raise ValueError(f"{source}.portfolio_factor_betas is required")
+
+    if isinstance(factor_betas, pd.Series):
+        beta_series = factor_betas.copy()
+    elif isinstance(factor_betas, Mapping):
+        beta_series = pd.Series(dict(factor_betas))
+    else:
+        raise TypeError(
+            f"{source}.portfolio_factor_betas must be a pandas Series or mapping, "
+            f"got {type(factor_betas).__name__}"
+        )
+
+    try:
+        numeric_betas = pd.to_numeric(beta_series, errors="raise")
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"{source}.portfolio_factor_betas must contain only numeric or missing values"
+        ) from exc
+
+    normalized: Dict[Any, Optional[float]] = {}
+    for factor, value in numeric_betas.items():
+        if pd.isna(value):
+            normalized[factor] = None
+            continue
+
+        numeric_value = float(value)
+        normalized[factor] = numeric_value if math.isfinite(numeric_value) else None
+
+    return normalized
+
+
+def _round_optional_factor_beta(value: Optional[float]) -> Optional[float]:
+    if value is None:
+        return None
+    return round(value, 3)
 
 
 class WhatIfResult:
@@ -336,28 +380,31 @@ class WhatIfResult:
         except Exception:
             pass
 
-        factor_deltas: Dict[str, Dict[str, float]] = {}
-        try:
-            factor_comparison = self.get_factor_exposures_comparison()
-            def _delta_rank(item):
-                delta = item[1].get("delta", 0)
-                try:
-                    delta_f = float(delta)
-                except (TypeError, ValueError):
-                    return (1, 0.0, item[0])  # non-numeric / None -> last
-                if not math.isfinite(delta_f):
-                    return (1, 0.0, item[0])  # NaN / +/-Inf -> last
-                return (0, -abs(delta_f), item[0])  # finite -> ranked by |delta| desc, alpha tiebreak
+        factor_deltas: Dict[str, Dict[str, Optional[float]]] = {}
+        factor_comparison = self.get_factor_exposures_comparison()
 
-            sorted_factors = sorted(factor_comparison.items(), key=_delta_rank)
-            for factor, values in sorted_factors[:3]:
-                factor_deltas[factor] = {
-                    "current": values.get("current", 0),
-                    "scenario": values.get("scenario", 0),
-                    "delta": values.get("delta", 0),
-                }
-        except Exception:
-            pass
+        def _delta_rank(item):
+            delta = item[1].get("delta", 0)
+            factor_name = str(item[0])
+            try:
+                delta_f = float(delta)
+            except (TypeError, ValueError):
+                return (1, 0.0, factor_name)  # non-numeric / None -> last
+            if not math.isfinite(delta_f):
+                return (1, 0.0, factor_name)  # NaN / +/-Inf -> last
+            return (0, -abs(delta_f), factor_name)  # finite -> ranked by |delta| desc, alpha tiebreak
+
+        sorted_factors = sorted(factor_comparison.items(), key=_delta_rank)
+        for factor, values in sorted_factors:
+            if _delta_rank((factor, values))[0] != 0:
+                continue
+            factor_deltas[factor] = {
+                "current": values.get("current"),
+                "scenario": values.get("scenario"),
+                "delta": values.get("delta"),
+            }
+            if len(factor_deltas) == 3:
+                break
 
         raw_vol_delta_pct = self.volatility_delta * 100
         raw_conc_delta = self.concentration_delta
@@ -436,21 +483,32 @@ class WhatIfResult:
 
         return make_json_safe(snapshot)
     
-    def get_factor_exposures_comparison(self) -> Dict[str, Dict[str, float]]:
+    def get_factor_exposures_comparison(self) -> Dict[str, Dict[str, Optional[float]]]:
         """Compare factor exposures between current and scenario portfolios."""
-        current_betas = self.current_metrics.portfolio_factor_betas.to_dict()
-        scenario_betas = self.scenario_metrics.portfolio_factor_betas.to_dict()
+        current_betas = _normalize_factor_beta_values(
+            getattr(self.current_metrics, "portfolio_factor_betas", None),
+            source="current_metrics",
+        )
+        scenario_betas = _normalize_factor_beta_values(
+            getattr(self.scenario_metrics, "portfolio_factor_betas", None),
+            source="scenario_metrics",
+        )
         
         comparison = {}
         all_factors = set(current_betas.keys()) | set(scenario_betas.keys())
         
         for factor in all_factors:
-            current_beta = current_betas.get(factor, 0)
-            scenario_beta = scenario_betas.get(factor, 0)
+            current_beta = current_betas.get(factor, 0.0)
+            scenario_beta = scenario_betas.get(factor, 0.0)
+            delta = (
+                scenario_beta - current_beta
+                if current_beta is not None and scenario_beta is not None
+                else None
+            )
             comparison[factor] = {
-                "current": round(current_beta, 3),
-                "scenario": round(scenario_beta, 3),
-                "delta": round(scenario_beta - current_beta, 3)
+                "current": _round_optional_factor_beta(current_beta),
+                "scenario": _round_optional_factor_beta(scenario_beta),
+                "delta": _round_optional_factor_beta(delta),
             }
         
         return make_json_safe(comparison)

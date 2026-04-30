@@ -13,27 +13,36 @@ from typing import Any
 import httpx
 
 
+_DEFAULT_TIMEOUT = 600.0
+_TIMEOUT_ENV_VAR = "EDGAR_API_TIMEOUT"
+
+
 def _resolve_default_timeout() -> float:
-    """Read EDGAR_API_TIMEOUT env var (seconds); fall back to 30s.
+    """Read EDGAR_API_TIMEOUT env var (seconds); fall back to 600s.
 
-    Bulk ingest of mega-cap historical filings hits cold-cache parses that
-    exceed the default. Operators bump via env var (e.g., EDGAR_API_TIMEOUT=120)
-    for batch jobs without touching code.
+    Edgar_updater's nginx ceiling is 600s. Cold-cache mega-cap filings can take
+    30-200s, so the default must match that server-side ceiling.
     """
-    raw = os.getenv("EDGAR_API_TIMEOUT", "").strip()
+    raw = os.getenv(_TIMEOUT_ENV_VAR, "").strip()
     if not raw:
-        return 30.0
+        return _DEFAULT_TIMEOUT
     try:
-        return float(raw)
+        timeout = float(raw)
     except ValueError:
-        return 30.0
-
-
-_DEFAULT_TIMEOUT = _resolve_default_timeout()
+        return _DEFAULT_TIMEOUT
+    if timeout <= 0:
+        return _DEFAULT_TIMEOUT
+    return timeout
 
 
 class EdgarAPIError(Exception):
     """API call to edgar_api failed (network, auth, rate limit, server error)."""
+
+
+def _resolve_timeout(timeout: float | None) -> float:
+    if timeout is None:
+        return _resolve_default_timeout()
+    return timeout
 
 
 def _config() -> tuple[str, str]:
@@ -44,14 +53,15 @@ def _config() -> tuple[str, str]:
     return base_url, api_key
 
 
-def _request_json(path: str, params: dict[str, Any], *, timeout: float) -> dict[str, Any]:
+def _request_json(path: str, params: dict[str, Any], *, timeout: float | None) -> dict[str, Any]:
     base_url, api_key = _config()
+    resolved_timeout = _resolve_timeout(timeout)
     try:
         resp = httpx.get(
             f"{base_url}{path}",
             params=params,
             headers={"Authorization": f"Bearer {api_key}"},
-            timeout=timeout,
+            timeout=resolved_timeout,
         )
     except httpx.RequestError as exc:
         raise EdgarAPIError(f"network error calling {path}: {exc}") from exc
@@ -73,7 +83,7 @@ def get_filing_sections(
     source: str | None = None,
     max_words: int | str | None = None,
     include_tables: bool = False,
-    timeout: float = _DEFAULT_TIMEOUT,
+    timeout: float | None = None,
 ) -> dict[str, Any]:
     params: dict[str, Any] = {
         "ticker": ticker,
@@ -97,7 +107,7 @@ def get_filings(
     year: int,
     quarter: int,
     *,
-    timeout: float = _DEFAULT_TIMEOUT,
+    timeout: float | None = None,
 ) -> dict[str, Any]:
     return _request_json(
         "/api/filings",
