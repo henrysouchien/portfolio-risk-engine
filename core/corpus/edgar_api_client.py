@@ -13,7 +13,23 @@ from typing import Any
 import httpx
 
 
-_DEFAULT_TIMEOUT = 30.0
+def _resolve_default_timeout() -> float:
+    """Read EDGAR_API_TIMEOUT env var (seconds); fall back to 30s.
+
+    Bulk ingest of mega-cap historical filings hits cold-cache parses that
+    exceed the default. Operators bump via env var (e.g., EDGAR_API_TIMEOUT=120)
+    for batch jobs without touching code.
+    """
+    raw = os.getenv("EDGAR_API_TIMEOUT", "").strip()
+    if not raw:
+        return 30.0
+    try:
+        return float(raw)
+    except ValueError:
+        return 30.0
+
+
+_DEFAULT_TIMEOUT = _resolve_default_timeout()
 
 
 class EdgarAPIError(Exception):

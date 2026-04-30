@@ -237,12 +237,22 @@ def filings_source_excerpt(
     section_payload = (api_payload.get('sections') or {}).get(canonical_section_id) or {}
     state = str(section_payload.get('state', ''))
     text = str(section_payload.get('text') or '').strip()
-    if state == 'missing' or not text:
+    # Phase 4 v10 critical-key rescue (Edgar_updater abbf412, deployed 2026-04-29)
+    # splits rescued sections as text=heading + tables[*]=content. Concatenate to
+    # preserve verbatim excerpt parity with bridge ingest body assembly.
+    tables = section_payload.get('tables') or []
+    parts: list[str] = [text] if text else []
+    for table in tables:
+        table_str = str(table or '').strip()
+        if table_str:
+            parts.append(table_str)
+    combined = '\n\n'.join(parts).strip()
+    if state == 'missing' or not combined:
         raise ExcerptUnavailableError(
             resolved_document_id,
             reason=f"section {section!r} not available from API (state={state!r})",
         )
-    return text
+    return combined
 
 
 def filings_list(

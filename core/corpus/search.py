@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import sqlite3
 
-from core.corpus.types import SearchHit, SearchResponse
+from core.corpus.types import InvalidInputError, SearchHit, SearchResponse
+from core.corpus.validation import normalize_fts5_query
 
 
 _LOW_CONFIDENCE_SUPERSEDER_EXISTS_SQL = (
@@ -18,6 +19,13 @@ _TRANSCRIPT_SECTION_FILTERS = {
     'qa': 'Q&A Session',
     'both': None,
 }
+_FTS5_ERROR_MARKERS = (
+    'fts5:',
+    'unknown special query',
+    'no such column',
+    'parse error in',
+    'unterminated string',
+)
 
 
 def _resolved_source_url_sql(document_alias: str = 'd') -> str:
@@ -37,6 +45,26 @@ def _resolved_source_url_sql(document_alias: str = 'd') -> str:
         "END"
         ")"
     )
+
+
+def _execute_match(
+    db: sqlite3.Connection,
+    sql: str,
+    params: list[object],
+    *,
+    query: str,
+) -> sqlite3.Cursor:
+    """Execute a MATCH-bearing query; convert FTS5 errors to InvalidInputError."""
+    try:
+        return db.execute(sql, params)
+    except sqlite3.OperationalError as exc:
+        msg = str(exc).lower()
+        if any(marker in msg for marker in _FTS5_ERROR_MARKERS):
+            raise InvalidInputError(
+                f'FTS5 rejected query {query!r}: {exc}. '
+                'Use simpler whitespace-separated terms or quoted phrases like "cloud revenue".'
+            ) from exc
+        raise
 
 
 def _search(
@@ -69,6 +97,11 @@ def _search(
         'limit': limit,
     }
 
+    normalized_query, query_warnings = normalize_fts5_query(query)
+    applied_filters['raw_query'] = query
+    if normalized_query != query:
+        applied_filters['normalized_query'] = normalized_query
+
     if not form_types or not sources or (universe is not None and len(universe) == 0):
         return SearchResponse(
             hits=[],
@@ -76,7 +109,17 @@ def _search(
             total_matches=0,
             has_superseded_matches=False,
             has_low_confidence_supersession=False,
-            query_warnings=[],
+            query_warnings=query_warnings,
+        )
+
+    if not normalized_query:
+        return SearchResponse(
+            hits=[],
+            applied_filters=applied_filters,
+            total_matches=0,
+            has_superseded_matches=False,
+            has_low_confidence_supersession=False,
+            query_warnings=query_warnings,
         )
 
     where_clauses, where_params = _build_where_clause(
@@ -92,9 +135,10 @@ def _search(
         include_low_confidence_supersession=include_low_confidence_supersession,
     )
     where_sql = ' AND '.join(where_clauses + ['s.content MATCH ?'])
-    base_params = [*where_params, query]
+    base_params = [*where_params, normalized_query]
 
-    rows = db.execute(
+    rows = _execute_match(
+        db,
         f"""
         SELECT
             d.document_id,
@@ -122,6 +166,7 @@ def _search(
         LIMIT ?
         """,
         [*base_params, limit],
+        query=normalized_query,
     ).fetchall()
 
     total_matches = int(
@@ -158,7 +203,7 @@ def _search(
                 JOIN sections_fts s USING (document_id)
                 WHERE {' AND '.join(superseded_variant_where + ['s.content MATCH ?'])}
                 """,
-                [*superseded_variant_params, query],
+                [*superseded_variant_params, normalized_query],
             ).fetchone()['count']
         )
         has_superseded_matches = superseded_count > total_matches
@@ -193,7 +238,7 @@ def _search(
         total_matches=total_matches,
         has_superseded_matches=has_superseded_matches,
         has_low_confidence_supersession=any(hit.has_low_confidence_supersession for hit in hits),
-        query_warnings=[],
+        query_warnings=query_warnings,
     )
 
 
