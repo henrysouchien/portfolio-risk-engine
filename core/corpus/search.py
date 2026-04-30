@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import sqlite3
 
 from core.corpus.types import InvalidInputError, SearchHit, SearchResponse
@@ -26,6 +27,8 @@ _FTS5_ERROR_MARKERS = (
     'parse error in',
     'unterminated string',
 )
+_FTS5_EXPLICIT_OPERATOR_RE = re.compile(r'\b(AND|OR|NOT)\b')
+_TOKEN_RE = re.compile(r'"[^"]*"|\S+')
 
 
 def _resolved_source_url_sql(document_alias: str = 'd') -> str:
@@ -65,6 +68,89 @@ def _execute_match(
                 'Use simpler whitespace-separated terms or quoted phrases like "cloud revenue".'
             ) from exc
         raise
+
+
+def _run_match_queries(
+    db: sqlite3.Connection,
+    where_clauses: list[str],
+    where_params: list[object],
+    match_expr: str,
+    limit: int,
+    *,
+    include_superseded: bool,
+    superseded_variant_clauses: list[str] | None,
+    superseded_variant_params: list[object] | None,
+) -> tuple[list[sqlite3.Row], int, int]:
+    """Run rows + total count + (optional) superseded-variant count with one MATCH expr.
+
+    Returns (rows, total_matches, superseded_count). superseded_count is 0
+    when include_superseded=True (no variant query needed).
+    """
+    where_sql = ' AND '.join(where_clauses + ['s.content MATCH ?'])
+    base_params = [*where_params, match_expr]
+
+    rows = _execute_match(
+        db,
+        f"""
+        SELECT
+            d.document_id,
+            d.ticker,
+            COALESCE(d.company_name, '') AS company_name,
+            d.source,
+            d.form_type,
+            COALESCE(d.fiscal_period, '') AS fiscal_period,
+            COALESCE(CAST(d.filing_date AS TEXT), '') AS filing_date,
+            d.is_superseded_by IS NOT NULL AS is_superseded,
+            {_LOW_CONFIDENCE_SUPERSEDER_EXISTS_SQL} AS has_low_confidence_supersession,
+            s.section,
+            snippet(sections_fts, 2, '<b>', '</b>', '...', 20) AS snippet,
+            d.file_path,
+            s.char_start,
+            s.char_end,
+            {_resolved_source_url_sql('d')} AS source_url,
+            d.source_url_deep,
+            d.source_accession,
+            bm25(sections_fts) AS rank
+        FROM documents d
+        JOIN sections_fts s USING (document_id)
+        WHERE {where_sql}
+        ORDER BY rank ASC, d.document_id ASC, s.char_start ASC
+        LIMIT ?
+        """,
+        [*base_params, limit],
+        query=match_expr,
+    ).fetchall()
+
+    total_matches = int(
+        db.execute(
+            f"""
+            SELECT COUNT(*) AS count
+            FROM documents d
+            JOIN sections_fts s USING (document_id)
+            WHERE {where_sql}
+            """,
+            base_params,
+        ).fetchone()['count']
+    )
+
+    if include_superseded:
+        return rows, total_matches, 0
+
+    assert superseded_variant_clauses is not None
+    assert superseded_variant_params is not None
+    superseded_count = int(
+        db.execute(
+            f"""
+            SELECT COUNT(*) AS count
+            FROM documents d
+            JOIN sections_fts s USING (document_id)
+            WHERE {' AND '.join(superseded_variant_clauses + ['s.content MATCH ?'])}
+            """,
+            [*superseded_variant_params, match_expr],
+        ).fetchone()['count']
+    )
+
+    return rows, total_matches, superseded_count
 
 
 def _search(
@@ -134,54 +220,9 @@ def _search(
         include_superseded=include_superseded,
         include_low_confidence_supersession=include_low_confidence_supersession,
     )
-    where_sql = ' AND '.join(where_clauses + ['s.content MATCH ?'])
-    base_params = [*where_params, normalized_query]
 
-    rows = _execute_match(
-        db,
-        f"""
-        SELECT
-            d.document_id,
-            d.ticker,
-            COALESCE(d.company_name, '') AS company_name,
-            d.source,
-            d.form_type,
-            COALESCE(d.fiscal_period, '') AS fiscal_period,
-            COALESCE(CAST(d.filing_date AS TEXT), '') AS filing_date,
-            d.is_superseded_by IS NOT NULL AS is_superseded,
-            {_LOW_CONFIDENCE_SUPERSEDER_EXISTS_SQL} AS has_low_confidence_supersession,
-            s.section,
-            snippet(sections_fts, 2, '<b>', '</b>', '...', 20) AS snippet,
-            d.file_path,
-            s.char_start,
-            s.char_end,
-            {_resolved_source_url_sql('d')} AS source_url,
-            d.source_url_deep,
-            d.source_accession,
-            bm25(sections_fts) AS rank
-        FROM documents d
-        JOIN sections_fts s USING (document_id)
-        WHERE {where_sql}
-        ORDER BY rank ASC, d.document_id ASC, s.char_start ASC
-        LIMIT ?
-        """,
-        [*base_params, limit],
-        query=normalized_query,
-    ).fetchall()
-
-    total_matches = int(
-        db.execute(
-            f"""
-            SELECT COUNT(*) AS count
-            FROM documents d
-            JOIN sections_fts s USING (document_id)
-            WHERE {where_sql}
-            """,
-            base_params,
-        ).fetchone()['count']
-    )
-
-    has_superseded_matches = False
+    superseded_variant_clauses = None
+    superseded_variant_params = None
     if not include_superseded:
         superseded_variant_where, superseded_variant_params = _build_where_clause(
             form_types=form_types,
@@ -195,17 +236,40 @@ def _search(
             include_superseded=True,
             include_low_confidence_supersession=include_low_confidence_supersession,
         )
-        superseded_count = int(
-            db.execute(
-                f"""
-                SELECT COUNT(*) AS count
-                FROM documents d
-                JOIN sections_fts s USING (document_id)
-                WHERE {' AND '.join(superseded_variant_where + ['s.content MATCH ?'])}
-                """,
-                [*superseded_variant_params, normalized_query],
-            ).fetchone()['count']
+        superseded_variant_clauses = superseded_variant_where
+
+    rows, total_matches, superseded_count = _run_match_queries(
+        db,
+        where_clauses,
+        where_params,
+        normalized_query,
+        limit,
+        include_superseded=include_superseded,
+        superseded_variant_clauses=superseded_variant_clauses,
+        superseded_variant_params=superseded_variant_params,
+    )
+
+    if (
+        total_matches == 0
+        and len(_TOKEN_RE.findall(normalized_query)) >= 3
+        and not _FTS5_EXPLICIT_OPERATOR_RE.search(normalized_query)
+    ):
+        tokens = _TOKEN_RE.findall(normalized_query)
+        or_expr = ' OR '.join(tokens)
+        rows, total_matches, superseded_count = _run_match_queries(
+            db,
+            where_clauses=where_clauses,
+            where_params=where_params,
+            match_expr=or_expr,
+            limit=limit,
+            include_superseded=include_superseded,
+            superseded_variant_clauses=superseded_variant_clauses,
+            superseded_variant_params=superseded_variant_params,
         )
+        query_warnings = list(query_warnings) + ['fallback_or_search_used']
+
+    has_superseded_matches = False
+    if not include_superseded:
         has_superseded_matches = superseded_count > total_matches
 
     hits = [

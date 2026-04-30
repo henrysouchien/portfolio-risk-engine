@@ -32,7 +32,7 @@ pyyaml>=6.0
 
 # Authentication & Security
 google-auth>=2.48.0  # google.oauth2.id_token + google.auth.transport in services/auth_service.py
-certifi>=2026.0.0  # SSL fix for IBKR Flex (ibkr/flex.py), also used by providers/plaid_loader.py
+certifi>=2026.0.0  # SSL fix for IBKR Flex (ibkr/flex.py), also used by Plaid HTTPS calls
 # NOTE: cryptography should be >=46.0.5 (CVE-2024-12797 + CVE-2026-26007), but
 # snaptrade-python-sdk 11.0.169 pins cryptography<44.0.0 — blocking the fix.
 # Installed version is 46.0.5 (works fine, SnapTrade's cap is overly conservative).
@@ -55,7 +55,7 @@ ib_async>=2.1.0
 nest-asyncio>=1.6.0  # Required for ib_async inside FastMCP event loop (ibkr/market_data.py)
 schwab-py==1.5.0
 
-# AWS (Secrets Manager for Plaid/SnapTrade credentials)
+# AWS (KMS for credential encryption)
 boto3>=1.42.0
 
 # Testing Dependencies
