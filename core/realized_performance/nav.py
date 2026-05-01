@@ -903,6 +903,64 @@ def compute_twr_monthly_returns(
 
     return monthly_returns.dropna().sort_index(), warnings
 
+def compute_twr_daily_returns(
+    daily_nav: pd.Series,
+    external_flows: List[Tuple[datetime, float]],
+) -> Tuple[pd.Series, List[str]]:
+    """Compute daily GIPS flow-adjusted returns from daily NAV and external flows."""
+    warnings: List[str] = []
+    if daily_nav is None or daily_nav.empty:
+        return pd.Series(dtype=float), ["Daily NAV series is empty; cannot compute TWR returns."]
+
+    nav = _helpers._series_from_cache(daily_nav).dropna()
+    if nav.empty:
+        return pd.Series(dtype=float), ["Daily NAV series has no valid values; cannot compute TWR returns."]
+
+    nav_idx = pd.DatetimeIndex(pd.to_datetime(nav.index)).sort_values()
+    nav = nav.reindex(nav_idx)
+
+    flows_by_day: Dict[pd.Timestamp, List[float]] = defaultdict(lambda: [0.0, 0.0])
+    for flow_date, amount in external_flows:
+        amt = _helpers._as_float(amount, 0.0)
+        if not np.isfinite(amt) or abs(amt) < 1e-12:
+            continue
+        flow_day = pd.Timestamp(flow_date).normalize()
+        pos = int(nav_idx.searchsorted(flow_day, side="left"))
+        if pos >= len(nav_idx):
+            snapped_day = nav_idx[-1]
+        else:
+            snapped_day = nav_idx[pos]
+        if amt > 0:
+            flows_by_day[snapped_day][0] += amt
+        else:
+            flows_by_day[snapped_day][1] += amt
+
+    daily_returns = pd.Series(index=nav_idx, dtype=float)
+    prev_nav = 0.0
+    for idx, day in enumerate(nav_idx):
+        day_nav = _helpers._as_float(nav.loc[day], 0.0)
+        cf_in, cf_out = flows_by_day.get(day, (0.0, 0.0))
+
+        if idx == 0:
+            prev_nav = day_nav
+            continue
+
+        numer = day_nav - cf_out
+        denom = prev_nav + cf_in
+
+        if denom > 1e-12:
+            r_day = (numer / denom) - 1.0
+        elif abs(day_nav) < 1e-12:
+            r_day = 0.0
+        else:
+            r_day = 0.0
+            warnings.append(f"{day.date().isoformat()}: denominator ~0, return set to 0")
+
+        daily_returns.loc[day] = r_day
+        prev_nav = day_nav
+
+    return daily_returns.dropna().sort_index(), warnings
+
 def _safe_treasury_rate(start_date: datetime, end_date: datetime) -> float:
     """Fetch mean 3M treasury yield and return annual decimal rate."""
     treasury_fetcher = fetch_monthly_treasury_rates
@@ -999,6 +1057,7 @@ __all__ = [
     'compute_monthly_external_flows',
     'compute_monthly_returns',
     'compute_twr_monthly_returns',
+    'compute_twr_daily_returns',
     '_safe_treasury_rate',
     '_compute_unrealized_pnl_usd',
     '_compute_net_contributions_usd',

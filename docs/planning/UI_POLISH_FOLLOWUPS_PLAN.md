@@ -54,7 +54,7 @@
 
 ## Research Workspace — MSFT file (`#research/MSFT`)
 
-### W1. Raw tool-output JSON bleeds into conversation feed
+### W1. Raw tool-output JSON bleeds into conversation feed — FIXED 2026-04-30
 - **Where**: Main thread panel, analyst turns. Example content rendered inline:
   ```
   START THREAD: {"STATUS": "SUCCESS", "SYMBOL": "MSFT", ...}
@@ -63,6 +63,7 @@
 - **Why it hurts**: F26 previously cleaned up `tool_call` payloads into the compact "Used {tool_name}" pill — that works, I see `Used fmp_profile` / `Used fmp_fetch` rendering correctly. But there's a **second** message type prefixed `START THREAD:` that is still dumping raw JSON. Looks like a different contentType path the F26 fix didn't cover.
 - **Suggested fix**: Trace the `START THREAD:` renderer. Either (a) collapse behind the same "Show details" affordance F26 introduced, or (b) suppress entirely if the thread was already created and the creation artifact is captured on the right rail.
 - **Severity**: high — it's the single most un-analyst-like element on the page. Carry-over regression-class of F26.
+- **Fix shipped 2026-04-30**: research message normalization now maps snake-case `content_type` rows to `contentType`, so upstream `tool_call` rows use the compact tool renderer. `ConversationFeed` also gates seeded-thread actions to real analyst `message` rows, preventing `Start thread: {...}` labels on tool-call payloads.
 
 ### W2. Thread tab names are messy
 - **Where**: Thread tab bar at the top of the workspace.
@@ -108,7 +109,7 @@
 
 | Priority | Items | Why |
 |----------|-------|-----|
-| **P1 — ship first** | W1 (JSON bleed), W5 (panel overlap), G1 (hash routing) | Highest cognitive/structural cost. W1 is a regression-class miss. W5 is the structural reason Research feels weaker. G1 quietly breaks deep links. |
+| **P1 — ship first** | W5 (panel overlap), G1 (hash routing) | Highest cognitive/structural cost. W1 is fixed; W5 is the structural reason Research feels weaker. G1 quietly breaks deep links. |
 | **P2 — before broader launch** | R1 (briefing voice), W2 (thread names), W3 (diligence 0/9), G3 (floating %), R3 (TEST file cleanup) | Voice + data-context consistency. Each is independent; cumulatively they drag the briefing feel. |
 | **P3 — cosmetic** | R2 (header case), G2 (LIVE→timestamp), W4 (conviction label), W6 (progress dots) | Polish, not blockers. |
 

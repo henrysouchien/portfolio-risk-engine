@@ -21,6 +21,7 @@ Caching model:
 
 Core data loaders:
 - fetch_monthly_close: Month-end close prices (fallback path)
+- fetch_daily_close: Daily close prices for partial-period benchmarks
 - fetch_monthly_total_return_price: Dividend-adjusted total return prices (preferred)
 - fetch_monthly_treasury_rates: Treasury yield levels (percent)
 - fetch_dividend_history: Dividend events between month-end bounds using FMP /dividends
@@ -173,6 +174,36 @@ def fetch_monthly_close(
         pd.Series: Month-end close prices indexed by date.
     """
     return get_price_provider().fetch_monthly_close(
+        ticker,
+        start_date,
+        end_date,
+        ticker_alias=ticker_alias,
+        ticker_alias_map=ticker_alias_map,
+        ticker_resolver=ticker_resolver,
+        instrument_type=instrument_type,
+        contract_identity=contract_identity,
+    )
+
+
+@log_errors("high")
+def fetch_daily_close(
+    ticker: str,
+    start_date: Optional[Union[str, datetime]] = None,
+    end_date: Optional[Union[str, datetime]] = None,
+    *,
+    ticker_alias: Optional[str] = None,
+    ticker_alias_map: Optional[dict[str, str]] = None,
+    ticker_resolver: Any | None = None,
+    instrument_type: str | None = None,
+    contract_identity: dict[str, Any] | None = None,
+) -> pd.Series:
+    """
+    Fetch daily closing prices for a given ticker from the active price provider.
+
+    Args match ``fetch_monthly_close`` so callers can switch frequency without
+    changing provider routing or ticker-alias behavior.
+    """
+    return get_price_provider().fetch_daily_close(
         ticker,
         start_date,
         end_date,
