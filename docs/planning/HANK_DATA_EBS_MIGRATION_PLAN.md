@@ -681,6 +681,7 @@ Effective `USER_DATA_DIR` value: **`/var/www/risk_module/data`** (the base direc
 --exclude='data/corpus/corpus.db'
 --exclude='data/corpus/corpus.db-wal'
 --exclude='data/corpus/corpus.db-shm'
+--exclude='data/corpus/cache'        ← Cutover #1 verification (947 phase2 seed cache files)
 --exclude='data/corpus/health'
 --exclude='data/corpus/logs'         ← Codex R2
 --exclude='data/backups'

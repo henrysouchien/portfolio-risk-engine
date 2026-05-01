@@ -65,7 +65,10 @@ class OverviewBriefArbiter:
         timeout_s: float = 10.0,
     ) -> None:
         editorial_provider_name = provider_name or os.getenv("EDITORIAL_LLM_PROVIDER", "").strip().lower() or None
-        editorial_model = model or os.getenv("EDITORIAL_LLM_MODEL", "").strip() or None
+        if completion_provider is not _UNSET and model is None:
+            editorial_model = None
+        else:
+            editorial_model = model or os.getenv("EDITORIAL_LLM_MODEL", "").strip() or None
         self.model = editorial_model
         self.timeout_s = timeout_s
         self._provider_name = editorial_provider_name
