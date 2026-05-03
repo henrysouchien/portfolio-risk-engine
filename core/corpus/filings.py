@@ -18,6 +18,7 @@ from core.corpus.types import (
 )
 from core.corpus.validation import (
     _validate_canonical_ticker,
+    resolve_corpus_ticker_alias,
     validate_read_path,
     validate_search_inputs,
 )
@@ -268,6 +269,7 @@ def filings_list(
     params: list[object] = [*resolved_form_types]
     if ticker is not None:
         _validate_canonical_ticker(ticker, field='ticker')
+        ticker = resolve_corpus_ticker_alias(db, ticker)
         clauses.append('d.ticker = ?')
         params.append(ticker)
     if fiscal_period is not None:
@@ -385,6 +387,7 @@ def _resolve_filing_document_row(
             'provide document_id or the full (ticker, form_type, fiscal_period) tuple'
         )
     _validate_canonical_ticker(ticker, field='ticker')
+    ticker = resolve_corpus_ticker_alias(db, ticker)
 
     rows = db.execute(
         """

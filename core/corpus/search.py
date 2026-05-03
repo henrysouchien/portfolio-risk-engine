@@ -4,7 +4,7 @@ import re
 import sqlite3
 
 from core.corpus.types import InvalidInputError, SearchHit, SearchResponse
-from core.corpus.validation import normalize_fts5_query
+from core.corpus.validation import normalize_fts5_query, resolve_corpus_universe_aliases
 
 
 _LOW_CONFIDENCE_SUPERSEDER_EXISTS_SQL = (
@@ -169,6 +169,8 @@ def _search(
     limit: int = 20,
 ) -> SearchResponse:
     """Run a metadata-filtered FTS query across the unified corpus index."""
+    raw_universe = list(universe) if universe is not None else None
+    universe, alias_warnings = resolve_corpus_universe_aliases(db, universe)
     applied_filters = {
         'form_types': list(form_types),
         'sources': list(sources),
@@ -184,9 +186,12 @@ def _search(
     }
 
     normalized_query, query_warnings = normalize_fts5_query(query)
+    query_warnings.extend(alias_warnings)
     applied_filters['raw_query'] = query
     if normalized_query != query:
         applied_filters['normalized_query'] = normalized_query
+    if raw_universe is not None and raw_universe != universe:
+        applied_filters['raw_universe'] = raw_universe
 
     if not form_types or not sources or (universe is not None and len(universe) == 0):
         return SearchResponse(
