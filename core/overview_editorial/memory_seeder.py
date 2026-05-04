@@ -20,6 +20,7 @@ from .vocabulary import CATEGORIES, TAGS
 _logger = logging.getLogger(__name__)
 _DEFAULT_PORTFOLIO_NAME = "CURRENT_PORTFOLIO"
 _EDITORIAL_MODEL = os.getenv("EDITORIAL_LLM_MODEL") or None
+_EPHEMERAL_CACHE_CONTROL = {"type": "ephemeral"}
 
 
 def _resolve_user_email_for_user_id(user_id: int) -> str | None:
@@ -150,6 +151,7 @@ def _llm_seed_from_summary(user_id: int, summary: dict[str, Any]) -> dict[str, A
             temperature=0.2,
             max_tokens=1200,
             timeout=20,
+            cache_control=_EPHEMERAL_CACHE_CONTROL,
         )
     except Exception:
         _logger.warning("overview auto-seed structured parse failed", exc_info=True)

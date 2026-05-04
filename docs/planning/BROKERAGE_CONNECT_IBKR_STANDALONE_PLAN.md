@@ -1,6 +1,12 @@
 # Brokerage-connect — IBKR provider standalone install (Class B-IBKR)
 
-## Status: v2.1 — **CODEX PASS** 2026-05-03 (filed v1 → Codex FAIL R1 → v2 polish → Codex PASS R2 with minor edits → v2.1 cleanup applied. Ready to schedule for implementation.)
+## Status: v2.1 — **SHIPPED 2026-05-03** (v1 → Codex FAIL R1 → v2 polish → Codex PASS R2 with minor edits → v2.1 cleanup → impl + verification + push + PyPI publish all completed in one session)
+
+PyPI: https://pypi.org/project/brokerage-connect/0.6.0/
+Source impl commit: `a45365f7` (risk_module main)
+Source plan-file commit: `1b2e2542` (this file)
+Source TODO update commit: `89c3077a`
+Dist commit: `3888257` (brokerage-connect main)
 
 ## Problem
 
@@ -373,4 +379,5 @@ Run sync script; verify dist git status; commit + push monorepo + dist; publish 
   5. **REVISE F — Q-C heavy dep tree.** Codex confirmed `fastmcp` is lazy (server entrypoint only, not loaded by sibling imports). v2 picks "accept and document" path; upstream `[server]` extra split filed as `V7-tail` followup if it becomes a real concern.
   6. **REVISE G — Drift check + timing note.** v2 drift check now catches `from options import OptionStrategy` (was just OptionLeg). Added timing note explaining env-parse-at-instance vs env-parse-at-import semantic difference (theoretical only; recommendation is for monorepo callers to pass `account_map=` explicitly to preserve byte-identical semantics).
   Sent to Codex (resumed session) — **PASS WITH MINOR EDITS** R2. Two cleanup items: (1) `_parse_expiration` docstring said "byte-for-byte" but file had a docstring vs. source had none — wording updated to "body copied exactly from portfolio_math/options.py:363-375"; (2) constructor snippet was ambiguous about kwarg ordering — v2.1 shows the explicit signature with `*,` separator after `on_refresh` so `account_map` is keyword-only and existing positional callers don't break.
-- **2026-05-03 (v2.1)** — Two minor cleanup edits applied per Codex R2 PASS-with-edits. No structural changes; plan content equivalent to v2 PASS verdict. **Ready to schedule for implementation.**
+- **2026-05-03 (v2.1)** — Two minor cleanup edits applied per Codex R2 PASS-with-edits. No structural changes; plan content equivalent to v2 PASS verdict.
+- **2026-05-03 (SHIPPED)** — Implementation via `mcp__codex__codex` (threadId `019deee7-9ce9-72f3-a2d2-86cae6537d9f`) completed in one shot, no scope-gap pauses (unlike V6 v4.1). All 4 clean-wheel extras pass including IBKR (`from brokerage.ibkr.adapter import IBKRBrokerAdapter` succeeds in fresh venv with `interactive-brokers-mcp` pulled in transitively). Parity test suite at `tests/brokerage/options_types/test_parity_with_portfolio_math.py`: 63 tests pass, no drift surfaced. Monorepo subset (tests/brokerage/, IBKR + trade execution): 244 pass. **Live monorepo parity test**: restarted `risk_module` service, verified IBKRBrokerAdapter loads cleanly, BudgetExceededError shim resolves to real `app_platform.api_budget.exceptions` (no-op in monorepo case), OptionLeg correctly resolves from `brokerage.options_types`, `account_map` keyword-only kwarg present, field parity OK between brokerage.options_types.OptionLeg and portfolio_math.options.OptionLeg (9 fields match). Pushed both repos; published 0.6.0 to PyPI via `scripts/publish_brokerage_connect.sh --use-source-version --yes`. **SHIPPED**.

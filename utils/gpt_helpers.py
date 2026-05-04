@@ -8,6 +8,21 @@ from utils.logging import (
     portfolio_logger,
 )
 
+DEFAULT_OPENAI_PEERS_MODEL = "gpt-5.4-mini"
+_EPHEMERAL_CACHE_CONTROL = {"type": "ephemeral"}
+
+
+def _resolve_peers_model(provider) -> str | None:
+    model_override = os.getenv("LLM_PEERS_MODEL", "").strip()
+    if model_override:
+        return model_override
+
+    if str(getattr(provider, "provider_name", "")).strip().lower() == "openai":
+        return DEFAULT_OPENAI_PEERS_MODEL
+
+    return None
+
+
 @log_errors("high")
 @log_operation("ai_interpretation")
 @log_timing(3.0)
@@ -39,6 +54,7 @@ def interpret_portfolio_risk(diagnostics_text: str) -> str:
         model=os.getenv("LLM_INTERPRETATION_MODEL") or None,
         max_tokens=2000,
         temperature=0.5,
+        cache_control=_EPHEMERAL_CACHE_CONTROL,
     )
 
 # ── Peer-generator helper ─────────────────────────────────────────────
@@ -130,7 +146,7 @@ Industry: {industry}
     try:
         content = provider.complete(
             prompt,
-            model=os.getenv("LLM_PEERS_MODEL") or None,
+            model=_resolve_peers_model(provider),
             max_tokens=max_tokens,
             temperature=temperature,
         )

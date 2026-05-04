@@ -63,7 +63,8 @@ Single guard call site at `providers/completion.py:403-410`. All callers default
 - `core/overview_editorial/memory_seeder.py:144` (editorial memory, max_tokens=1200)
 - `core/overview_editorial/llm_arbiter.py:145` (editorial arbiter, max_tokens=1600)
 - `utils/gpt_helpers.py:36` (interpretation, system prompt "You are a portfolio risk analysis expert.", max_tokens=2000)
-- `utils/gpt_helpers.py:131` (peers helper, max_tokens=200) — supports env override `LLM_PEERS_MODEL`
+
+Excluded after root-cause review: `utils/gpt_helpers.py:131` (peers helper, max_tokens=200) intentionally stays on OpenAI via `LLM_PROVIDER=openai`; `LLM_PEERS_MODEL` is only an optional model override, not a provider selector.
 
 Pre-launch monthly spend ~$22 — the levers shift the % cost but absolute savings are small until launch.
 
@@ -85,11 +86,11 @@ Sorted by `$ savings/effort ratio`. Effort: trivial (env var) < small (1-2 days)
 | # | Lever | Provider | Savings (est) | Effort | Plan-PR target |
 |---|---|---|---|---|---|
 | 1 | **Drop orders sync interval 300s → 1800s (or on-demand only)** | SnapTrade | ~$28/active user/month (if sync enabled) | Trivial — `SYNC_ORDERS_INTERVAL_SECONDS=1800` env var | **V4b.1** |
-| 2 | **Wire `item_remove` into stale-data-source cleanup** | Plaid | $0.18-$1.03/dead-Item/month, scales with churn | Small — extend `scripts/cleanup_stale_data_sources.py` | **V4b.2** |
+| 2 | ~~**Wire `item_remove` into stale-data-source cleanup**~~ | ~~Plaid~~ | Shipped 2026-05-04 — admin cleanup now revokes selected Plaid items with stored tokens before local deactivation | Done | ~~**V4b.2**~~ |
 | 3 | **Orphan SnapTrade-user cleanup task** | SnapTrade | $1.50/orphan/month | Small — sweep + delete users with no `data_sources` | **V4b.3** |
-| 4 | **Haiku downshift for `peers_helper`** | Anthropic | 67% reduction on those calls (~$1-3/month at current volume) | Trivial — `LLM_PEERS_MODEL=claude-haiku-4-5` env var | **V4b.4** |
+| 4 | ~~**Haiku downshift for `peers_helper`**~~ | ~~Anthropic~~ | Closed as misfiled 2026-05-04 — peers should remain OpenAI, not Anthropic/Haiku | No action | ~~**V4b.4**~~ |
 | 5 | **Wire prompt caching for editorial system prompts + tool schemas** | Anthropic | 25-90% input-token reduction (~$5-15/month current; scales with launch) | Medium — V4e schema is shipped 2026-04-27; needs caller-side `cache_control` wiring | **V4b.5** (V4e schema ready) |
-| 6 | **Plaid dead-Item detection from webhooks (PENDING_DISCONNECT, ITEM_LOGIN_REQUIRED)** | Plaid | Same as #2 but proactive | Medium — webhook handler + grace period | **V4b.6** |
+| 6 | ~~**Plaid dead-Item detection from webhooks (PENDING_DISCONNECT, ITEM_LOGIN_REQUIRED)**~~ | ~~Plaid~~ | Patched 2026-05-04 — webhook lifecycle state plus delayed `item_remove` sweep | Done | ~~**V4b.6**~~ |
 
 **Headline**: Lever #1 is the dominant single intervention (env-var change for ~$28/user/month). Levers #2-#3 are housekeeping (small per-instance, accumulative). Levers #4-#6 are launch-scaling preparation.
 

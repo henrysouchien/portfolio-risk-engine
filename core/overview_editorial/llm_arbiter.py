@@ -16,6 +16,7 @@ from providers.completion import build_completion_provider, complete_structured,
 
 _logger = logging.getLogger(__name__)
 _UNSET = object()
+_EPHEMERAL_CACHE_CONTROL = {"type": "ephemeral"}
 
 
 class ArbiterExitRamp(BaseModel):
@@ -159,6 +160,7 @@ class OverviewBriefArbiter:
                 temperature=0.2,
                 max_tokens=1600,
                 timeout=self.timeout_s,
+                cache_control=_EPHEMERAL_CACHE_CONTROL,
             )
         except Exception:
             _logger.warning("overview LLM arbiter structured parse failed", exc_info=True)

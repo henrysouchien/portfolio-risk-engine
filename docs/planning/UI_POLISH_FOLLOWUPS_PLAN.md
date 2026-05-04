@@ -8,11 +8,12 @@
 
 ## Global / Cross-View
 
-### G1. Hash routing silently resolves to wrong view
+### G1. Hash routing silently resolves to wrong view — FIXED 2026-05-03
 - **Where**: Navigating directly to `http://localhost:3000/#stress` loads the **Risk** view, not Stress Test. Clicking the sidebar item updates the URL to `#scenarios/stress-test` (the real route).
 - **Why it hurts**: Deep-links from editorial cards, bookmarks, and future agent-generated URLs rely on the short form. Silent fallback to Risk is confusing.
 - **Suggested fix**: Add aliases for top-level scenario verbs (`#stress`, `#whatif`, `#montecarlo`, `#optimize`, `#taxharvest`) → canonical `#scenarios/*`. Mirror the existing `#factors` → `#risk` legacy alias pattern (`parseHash` + localStorage migration, `cd0a7c5d`).
 - **Severity**: medium — erodes trust in deep-linking.
+- **Fix shipped 2026-05-03**: `@risk/connectors` hash sync now centralizes short scenario aliases in `scenarioHashAliases.ts` and uses them in both `parseHash()` and initial UI-store hydration. Direct links like `#stress` hydrate to `activeView="scenarios"` + `activeTool="stress-test"` and are then canonicalized to `#scenarios/stress-test` by the existing hash-sync loop. Focused Vitest coverage pins all five aliases plus initial `#stress` hydration.
 
 ### G2. Top strip "Updated" state transition is abrupt
 - **Where**: Top editorial strip. First render: `UPDATED LIVE` (green). Briefing later resolves to: `UPDATED 12:19 PM` (timestamp, neutral color).
@@ -109,7 +110,7 @@
 
 | Priority | Items | Why |
 |----------|-------|-----|
-| **P1 — ship first** | W5 (panel overlap), G1 (hash routing) | Highest cognitive/structural cost. W1 is fixed; W5 is the structural reason Research feels weaker. G1 quietly breaks deep links. |
+| **P1 — ship first** | W5 (panel overlap) | W1 and G1 are fixed. W5 is the structural reason Research feels weaker and needs a design decision before implementation. |
 | **P2 — before broader launch** | R1 (briefing voice), W2 (thread names), W3 (diligence 0/9), G3 (floating %), R3 (TEST file cleanup) | Voice + data-context consistency. Each is independent; cumulatively they drag the briefing feel. |
 | **P3 — cosmetic** | R2 (header case), G2 (LIVE→timestamp), W4 (conviction label), W6 (progress dots) | Polish, not blockers. |
 
