@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import sqlite3
 
+from core.corpus.migrations.runner import apply_migrations_to_connection
 from core.corpus.predicate import register_predicate_functions
 
 
@@ -27,6 +28,7 @@ def open_corpus_db(path: Path) -> sqlite3.Connection:
 
     with db:
         db.executescript(_SCHEMA_PATH.read_text(encoding='utf-8'))
+    apply_migrations_to_connection(db)
 
     return db
 
