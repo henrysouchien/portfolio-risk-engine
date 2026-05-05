@@ -659,7 +659,7 @@ Gated behind `AGENT_API_ALLOW_WRITES=true`. Stricter rate limit (10/minute).
 
 **Superseded 2026-04-22.** This Phase 3 design was **not** implemented.
 
-Multi-user Agent API auth shipped via the gateway-signed HMAC-SHA256 user-claim design in `docs/planning/AGENT_API_SIGNED_USER_CLAIM_PLAN.md`, reusing the existing `routes/internal_resolver.py` signing pattern instead of creating a parallel DB-backed key-management surface.
+Multi-user Agent API auth shipped via the gateway-signed HMAC-SHA256 user-claim design in `docs/planning/completed/AGENT_API_SIGNED_USER_CLAIM_PLAN.md`, reusing the existing `routes/internal_resolver.py` signing pattern instead of creating a parallel DB-backed key-management surface.
 
 | Original step | Original proposal | Status |
 |------|------|------|

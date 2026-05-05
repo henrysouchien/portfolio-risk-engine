@@ -388,7 +388,7 @@ ModelBuildContext v1.0:
                                           # MBC construction rejects segment_config without a populated
                                           # segment_profile_snapshot (typed `MissingSegmentSnapshot`).
                                           # Requires a build_model() behavior change (tracked in
-                                          # MODEL_BUILD_CONTEXT_PLAN.md) — today's builder re-discovers.
+                                          # completed/MODEL_BUILD_CONTEXT_PLAN.md) — today's builder re-discovers.
 
   # Drivers — dict-based, keyed by driver_key (eliminates list ambiguity)
   drivers:
@@ -636,7 +636,7 @@ ProcessTemplate v1.0:
 - Does not override `DriverCategory` enum (future: per-template driver taxonomy via template schema v2).
 - Does not redefine qualitative factor shape — only seeds which categories to pre-populate.
 
-**Plan #5b extension** — `EXTENSIBLE_STRATEGY_CATEGORY_PLAN.md` (SHIPPED 2026-04-26)
+**Plan #5b extension** — `completed/EXTENSIBLE_STRATEGY_CATEGORY_PLAN.md` (SHIPPED 2026-04-26)
 converts `StrategyBias` from a frozen `Literal` to `StrategyCategoryId =
 Annotated[str, AfterValidator(validate_strategy_category_id)]` backed by a
 runtime registry (`schema/strategy_categories/`). The 4 built-ins ship in
@@ -653,7 +653,7 @@ The centering living artifact + typed linkage to model + outcome tracker. Subsum
 
 **Shared-slice isomorphism** (locked in R3, completed in R4): `Thesis` uses the *identical field shapes* as `HandoffArtifact v1.1` for every concept that appears in both. Shared-slice fields mirror HandoffArtifact verbatim. Thesis-only fields (decisions_log, model_links, markdown_path, quantitative_framing, position_metadata) live at the top level alongside.
 
-**R4 source-registry ownership** (closes Codex R3 finding #1): `Thesis.sources[]` is the **canonical source registry**. HandoffArtifact derivation copies `sources[]` verbatim — source IDs (`src_n`) persist across snapshots. The current `_SourceRegistry` behavior in `handoff.py:83` that generates snapshot-local IDs is superseded: under v1.1 assembly, the source registry reads from Thesis and preserves IDs. (Implementation detail for `HANDOFF_ARTIFACT_V1_1_PLAN.md`.)
+**R4 source-registry ownership** (closes Codex R3 finding #1): `Thesis.sources[]` is the **canonical source registry**. HandoffArtifact derivation copies `sources[]` verbatim — source IDs (`src_n`) persist across snapshots. The current `_SourceRegistry` behavior in `handoff.py:83` that generates snapshot-local IDs is superseded: under v1.1 assembly, the source registry reads from Thesis and preserves IDs. (Implementation detail for `completed/HANDOFF_ARTIFACT_V1_1_PLAN.md`.)
 
 **Keying** (unchanged from R2): `(user_id, ticker, label)` matches `research_files`. Markdown path:
 - `theses/{TICKER}.md` when no label
@@ -854,7 +854,7 @@ ThesisLink v1.0:                                  # typed bridge from claim → 
 
 **Template invariant for new-linkage items** (R3): when `/thesis-link` creates new `ThesisLink` entries, the skill requires at least one of `{driver_key, data_concept_id, structural_fingerprint}` to be populated. Pure `model_item_id`-only links are rejected at creation (only tolerated when reading legacy data).
 
-**Known anchor-strength gap** (R5, called out by Codex R5 medium #3): the current SIA template populates `repeat_group_id` / `repeat_group_role` on expanded revenue Assumptions + `Financial_model.income_statement` rows (strong primary match). It does **not** populate them on expanded `Financial_model.margins` or `Financial_model.growth_rates` segment rows (per `sia_standard.json:18563, 19373` — those rows have `repeat_group_id: null`). Links to margin/growth rows will fall through step 3.1 and resolve via the weaker `{section_id, driver_category}` + `label_pattern` + `position_index` path. This is a template-data gap, not a schema gap: the fix is to populate `repeat_group_id` on those rows during `expand_segments()`. Tracked in `MODEL_BUILD_CONTEXT_PLAN.md` as a prereq for robust linkage to margin/growth drivers.
+**Known anchor-strength gap** (R5, called out by Codex R5 medium #3): the current SIA template populates `repeat_group_id` / `repeat_group_role` on expanded revenue Assumptions + `Financial_model.income_statement` rows (strong primary match). It does **not** populate them on expanded `Financial_model.margins` or `Financial_model.growth_rates` segment rows (per `sia_standard.json:18563, 19373` — those rows have `repeat_group_id: null`). Links to margin/growth rows will fall through step 3.1 and resolve via the weaker `{section_id, driver_category}` + `label_pattern` + `position_index` path. This is a template-data gap, not a schema gap: the fix is to populate `repeat_group_id` on those rows during `expand_segments()`. Tracked in `completed/MODEL_BUILD_CONTEXT_PLAN.md` as a prereq for robust linkage to margin/growth drivers.
 
 ```
 ThesisScorecard v1.0:
@@ -929,7 +929,7 @@ WikiArticle v1.0:
 
 **Markdown stays source of truth.** No DB extraction; typed objects are loaded from frontmatter and joined back to markdown bodies on demand.
 
-**Coupling**: `process_template_categories` consumes `StrategyBias` (today: plan #5's literal; post-plan #5b: registry-validated extensible identifier). Full design depth lives in `docs/planning/KNOWLEDGE_WIKI_SCHEMA_PLAN.md`.
+**Coupling**: `process_template_categories` consumes `StrategyBias` (today: plan #5's literal; post-plan #5b: registry-validated extensible identifier). Full design depth lives in `docs/planning/completed/KNOWLEDGE_WIKI_SCHEMA_PLAN.md`.
 
 ---
 
@@ -990,7 +990,7 @@ Confirmed from the design discussion:
 
 The existing `core/overview_editorial/` pipeline (portfolio overview brief) is a **proven pattern** that can be cloned for research report rendering when that becomes priority. Future project, not decided here.
 
-The research-editorial pipeline anticipated above shipped 2026-04-28 as plan #10 (`RESEARCH_EDITORIAL_PIPELINE_PLAN.md`). v1 ships the deterministic three-generator pipeline (ThesisDifferentiation, CatalystRisk, ValuationConviction) + workspace UI section + cross-repo MCP surface. LLM arbiter, markdown/PDF export, and editorial_memory coupling are Phase 2.
+The research-editorial pipeline anticipated above shipped 2026-04-28 as plan #10 (`completed/RESEARCH_EDITORIAL_PIPELINE_PLAN.md`). v1 ships the deterministic three-generator pipeline (ThesisDifferentiation, CatalystRisk, ValuationConviction) + workspace UI section + cross-repo MCP surface. LLM arbiter, markdown/PDF export, and editorial_memory coupling are Phase 2.
 
 ---
 
@@ -1013,7 +1013,7 @@ Eleven decisions. Items the R1 review flagged as "can't be left open" are locked
 11. **Cross-repo distribution**: no shared PyPI package in v1. Dev uses PYTHONPATH (`analyst.py:58-65` pattern extended to new contracts); production uses gateway JSON.
 12. **`assumption_id` carry-forward rule**: IDs are stable across Thesis edits that preserve the `driver` key (same driver, updated value → same `assumption_id`). IDs are stable across HandoffArtifact snapshot re-derivation (snapshot derives from Thesis; Thesis assumption IDs flow through). Delete + re-add with the same `driver` key produces a **new** `assumption_id` (lineage correctness — prior lineage entries still reference the old ID, which is now an orphan marker in `assumption_lineage`). `assumption_id` is assigned by the Thesis backend on first write; never by the agent or frontend.
 13. **Shared-slice isomorphism is load-bearing**: any change to a shared-slice field requires updating both `Thesis` and `HandoffArtifact v1.1` schemas in the same PR (§6.6). Enforced by a schema boundary test.
-14. **Source registry ownership**: `Thesis.sources[]` is canonical. HandoffArtifact `sources[]` is a verbatim copy; source IDs (`src_n`) persist across snapshots. The current behavior in `handoff.py:_SourceRegistry` (generating snapshot-local IDs) is superseded by v1.1 assembly, which reads from Thesis. Tracked in `HANDOFF_ARTIFACT_V1_1_PLAN.md`.
+14. **Source registry ownership**: `Thesis.sources[]` is canonical. HandoffArtifact `sources[]` is a verbatim copy; source IDs (`src_n`) persist across snapshots. The current behavior in `handoff.py:_SourceRegistry` (generating snapshot-local IDs) is superseded by v1.1 assembly, which reads from Thesis. Tracked in `completed/HANDOFF_ARTIFACT_V1_1_PLAN.md`.
 15. **Segment-mode driver resolution — three categories** (R6 corrected):
 
     Category assignment depends on whether the post-expansion item is `ItemType.input` (driver targets must be inputs per `driver_resolver._validate_mapping` at `driver_resolver.py:55`).
@@ -1025,15 +1025,15 @@ Eleven decisions. Items the R1 review flagged as "can't be left open" are locked
       Both B1 and B2 → MBC Phase 2 rejects with typed `UnsupportedInSegmentMode(driver_key, reason)`. Analysts/agents must either drop the assumption or use a different driver.
     - **Category C — non-segment drivers** (`tax_rate`, `dso`, `capex_pct`, `debt_change`, etc.): unaffected by expansion. Static YAML validation (Phase 1) is sufficient; Phase 2 passes them through.
 
-    The `driver_mapping.yaml` rework (emit segment-expansion-aware resolutions for Category A + explicit Category B flags) is tracked in `MODEL_BUILD_CONTEXT_PLAN.md` as a first-class task. Until rework lands, Category A keys MUST use `raw:` in segment mode; Category B keys are rejected.
+    The `driver_mapping.yaml` rework (emit segment-expansion-aware resolutions for Category A + explicit Category B flags) is tracked in `completed/MODEL_BUILD_CONTEXT_PLAN.md` as a first-class task. Until rework lands, Category A keys MUST use `raw:` in segment mode; Category B keys are rejected.
 16. **Stable IDs on list-shaped sections**: `assumption_id`, `risk_id`, `catalyst_id`, `trigger_id` (for `invalidation_triggers`), and `claim_id` (for `differentiated_view[]`) are all backend-assigned on first write. Stable across Thesis edits that preserve identity; delete + re-add produces a new ID (same rule as §10a.12 for `assumption_id`). `HandoffPatchOp` targets use these IDs, never array indices.
 
 ### 10b — Still-open questions (genuinely deferrable)
 
 1. **Industry research sourcing for G5**: who populates `industry_analysis`? New dedicated tools vs. agent-synthesized from FMP peers + filings. Affects industry tools plan, not schema.
-2. **ProcessTemplate storage**: versioned YAML only, SQLite-only, or both? Lean both (defaults as YAML, user overrides in SQLite). Decide in `PROCESS_TEMPLATE_PLAN.md`.
+2. **ProcessTemplate storage**: versioned YAML only, SQLite-only, or both? Lean both (defaults as YAML, user overrides in SQLite). Decided in `completed/PROCESS_TEMPLATE_PLAN.md`.
 3. **Knowledge wiki schema (G6)**: shape of "actionable bite" + agent retrieval pattern. Out of scope here; follow-on plan.
-4. **investment_tools outbound shape**: Pydantic import via PYTHONPATH vs. producing JSON. Both options are viable under §7; decide in `INVESTMENT_IDEA_INGRESS_PLAN.md` based on deployment model.
+4. **investment_tools outbound shape**: Pydantic import via PYTHONPATH vs. producing JSON. Both options are viable under §7; decided in `completed/INVESTMENT_IDEA_INGRESS_PLAN.md`.
 
 ---
 
@@ -1058,16 +1058,16 @@ Once this doc is approved, these implementation plans get written. Shipped plans
 
 | # | Plan | Closes | Dependencies |
 |---|---|---|---|
-| 1 | `THESIS_LIVING_ARTIFACT_PLAN.md` | G13 (schema side) | This doc |
-| 2 | `HANDOFF_ARTIFACT_V1_1_PLAN.md` | G5, G9, G11, G13-snapshot, G14, G15 | Thesis contract |
-| 3 | `MODEL_BUILD_CONTEXT_PLAN.md` | G2 | HandoffArtifact v1.1 |
-| 4 | `INVESTMENT_IDEA_INGRESS_PLAN.md` | G1 | HandoffArtifact v1.1 |
-| 5 | `PROCESS_TEMPLATE_PLAN.md` (SHIPPED) | G7, G12 | HandoffArtifact v1.1 |
-| 6 | `MODEL_INSIGHTS_PRICE_TARGET_PLAN.md` (SHIPPED) | G3, G4 | ModelBuildContext |
-| 7 | `INDUSTRY_RESEARCH_TOOLS_PLAN.md` | G5 (tools side) | HandoffArtifact v1.1 |
-| 8 | `EDGAR_FMP_PRECEDENCE_PLAN.md` (SHIPPED) | G8 (request-time overrides) | ModelBuildContext |
-| 9 | `KNOWLEDGE_WIKI_SCHEMA_PLAN.md` (SHIPPED) | G6 | ProcessTemplate |
-| 10 | `RESEARCH_EDITORIAL_PIPELINE_PLAN.md` (SHIPPED 2026-04-28) | G10 (rendering) | HandoffArtifact v1.1 |
+| 1 | `completed/THESIS_LIVING_ARTIFACT_PLAN.md` (SHIPPED) | G13 (schema side) | This doc |
+| 2 | `completed/HANDOFF_ARTIFACT_V1_1_PLAN.md` (SHIPPED) | G5, G9, G11, G13-snapshot, G14, G15 | Thesis contract |
+| 3 | `completed/MODEL_BUILD_CONTEXT_PLAN.md` (SHIPPED) | G2 | HandoffArtifact v1.1 |
+| 4 | `completed/INVESTMENT_IDEA_INGRESS_PLAN.md` (SHIPPED) | G1 | HandoffArtifact v1.1 |
+| 5 | `completed/PROCESS_TEMPLATE_PLAN.md` (SHIPPED) | G7, G12 | HandoffArtifact v1.1 |
+| 6 | `completed/MODEL_INSIGHTS_PRICE_TARGET_PLAN.md` (SHIPPED) | G3, G4 | ModelBuildContext |
+| 7 | `completed/INDUSTRY_RESEARCH_TOOLS_PLAN.md` (SHIPPED) | G5 (tools side) | HandoffArtifact v1.1 |
+| 8 | `completed/EDGAR_FMP_PRECEDENCE_PLAN.md` (SHIPPED) | G8 (request-time overrides) | ModelBuildContext |
+| 9 | `completed/KNOWLEDGE_WIKI_SCHEMA_PLAN.md` (SHIPPED) | G6 | ProcessTemplate |
+| 10 | `completed/RESEARCH_EDITORIAL_PIPELINE_PLAN.md` (SHIPPED 2026-04-28) | G10 (rendering) | HandoffArtifact v1.1 |
 
 **Plan #6 ship notes (2026-04-24)**:
 
@@ -1092,7 +1092,7 @@ Once this doc is approved, these implementation plans get written. Shipped plans
 - 10 Codex review rounds (R1–R10) with architectural pivot at R2.4: retrofit `_handoff_lock` → OCC CAS on `theses.version`
 - V2.P9 status after plan #6: **6 SHIPPED / 4 DESIGNED** (plans #7–#10 not yet drafted)
 
-**Parallel-shippable**: `THESIS_LIVING_ARTIFACT_PLAN` and the thesis-as-SSoT skill triad (per `AI-excel-addin/docs/design/thesis-as-source-of-truth-skill-architecture.md`). Skills can start with a constrained markdown template before the full typed contracts ship.
+**Parallel-shippable**: `completed/THESIS_LIVING_ARTIFACT_PLAN.md` and the thesis-as-SSoT skill triad (per `AI-excel-addin/docs/design/thesis-as-source-of-truth-skill-architecture.md`). Skills can start with a constrained markdown template before the full typed contracts ship.
 
 **Plan #9 ship notes (2026-04-25)**:
 
@@ -1255,4 +1255,4 @@ One canonical **investment schema** lives in AI-excel-addin as Pydantic source o
 
 **Editorial/voice** stays a pure render-layer concern (G10) — with the special case that `THESIS.md` is itself a rendering of `Thesis` (analyst-authored + skill-authored, round-trippable via constrained sections).
 
-**Decision requested**: approve the six-contract design + per-contract versioning + decisions in §10a. Then `THESIS_LIVING_ARTIFACT_PLAN.md` and `HANDOFF_ARTIFACT_V1_1_PLAN.md` get written first (Thesis → Handoff v1.1 → the rest follows the dependency chain).
+**Decision requested**: approve the six-contract design + per-contract versioning + decisions in §10a. Then `completed/THESIS_LIVING_ARTIFACT_PLAN.md` and `completed/HANDOFF_ARTIFACT_V1_1_PLAN.md` get written first (Thesis → Handoff v1.1 → the rest follows the dependency chain).

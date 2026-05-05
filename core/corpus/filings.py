@@ -14,6 +14,7 @@ from core.corpus.types import (
     DocumentMetadata,
     ExcerptUnavailableError,
     InvalidInputError,
+    ReadResult,
     SearchResponse,
 )
 from core.corpus.validation import (
@@ -40,6 +41,7 @@ _FILING_SOURCE_LOOKUP_COLUMNS = (
     'cik',
     'form_type',
     'fiscal_period',
+    'source_url',
     'source_url_deep',
     'source_accession',
 )
@@ -86,24 +88,48 @@ def filings_read(
     section: str | None = None,
     char_start: int | None = None,
     char_end: int | None = None,
-) -> str:
+) -> ReadResult:
     path = validate_read_path(file_path, _corpus_root())
     text = path.read_text(encoding='utf-8')
+    metadata, _body = parse_frontmatter(text)
 
     if section is None and char_start is None and char_end is None:
-        return text
+        return ReadResult(
+            content=text,
+            document_id=str(metadata['document_id']),
+            section=None,
+            char_start=0,
+            char_end=len(text),
+            url=_source_url_from_metadata(metadata),
+        )
 
     scoped_text = text
+    scoped_start = 0
+    resolved_section: str | None = None
     if section is not None:
-        _metadata, body = parse_frontmatter(text)
-        for row in parse_sections(body, source='edgar'):
+        for row in parse_sections(text, source='edgar'):
             if row.section == section:
                 scoped_text = row.content
+                scoped_start = row.char_start
+                resolved_section = row.section
                 break
         else:
             raise InvalidInputError(f"section {section!r} not found in filing")
 
-    return _slice_text(scoped_text, char_start, char_end)
+    content, resolved_start, resolved_end = _slice_text_with_offsets(
+        scoped_text,
+        char_start,
+        char_end,
+        base_start=scoped_start,
+    )
+    return ReadResult(
+        content=content,
+        document_id=str(metadata['document_id']),
+        section=resolved_section,
+        char_start=resolved_start,
+        char_end=resolved_end,
+        url=_source_url_from_metadata(metadata),
+    )
 
 
 def filings_source_excerpt(
@@ -114,7 +140,7 @@ def filings_source_excerpt(
     fiscal_period: str | None = None,
     *,
     db: sqlite3.Connection,
-) -> str:
+) -> ReadResult:
     if section is None:
         raise InvalidInputError('section is required for filings_source_excerpt')
 
@@ -253,7 +279,14 @@ def filings_source_excerpt(
             resolved_document_id,
             reason=f"section {section!r} not available from API (state={state!r})",
         )
-    return combined
+    return ReadResult(
+        content=combined,
+        document_id=resolved_document_id,
+        section=section,
+        char_start=0,
+        char_end=len(combined),
+        url=_source_url_from_row(row),
+    )
 
 
 def filings_list(
@@ -391,7 +424,7 @@ def _resolve_filing_document_row(
 
     rows = db.execute(
         """
-        SELECT document_id, ticker, cik, form_type, fiscal_period, source_url_deep, source_accession
+        SELECT document_id, ticker, cik, form_type, fiscal_period, source_url, source_url_deep, source_accession
         FROM documents
         WHERE ticker = ?
           AND form_type = ?
@@ -417,16 +450,30 @@ def _resolve_filing_document_row(
     return rows[0]
 
 
-def _slice_text(text: str, char_start: int | None, char_end: int | None) -> str:
+def _slice_text_with_offsets(
+    text: str,
+    char_start: int | None,
+    char_end: int | None,
+    *,
+    base_start: int,
+) -> tuple[str, int, int]:
     if char_start is None and char_end is None:
-        return text
+        return text, base_start, base_start + len(text)
     start = 0 if char_start is None else char_start
     end = len(text) if char_end is None else char_end
     if start < 0 or end < 0:
         raise InvalidInputError('char_start and char_end must be >= 0')
     if end < start:
         raise InvalidInputError('char_end must be >= char_start')
-    return text[start:end]
+    return text[start:end], base_start + start, base_start + end
+
+
+def _source_url_from_metadata(metadata: dict) -> str:
+    return str(metadata.get('source_url_deep') or metadata.get('source_url') or '')
+
+
+def _source_url_from_row(row: sqlite3.Row) -> str:
+    return str(row['source_url_deep'] or row['source_url'] or '')
 
 
 def _corpus_root() -> Path:

@@ -2,8 +2,8 @@
 
 **Status**: DRAFT v4 — revised per Codex R3 FAIL (§5 tool-approval drift only; trivial one-line fix). See §11 change log.
 **Date**: 2026-04-24
-**Parent plan**: `docs/planning/AGENT_API_SIGNED_USER_CLAIM_PLAN.md` (Phase 3 multi-user auth, shipped 2026-04-22)
-**Sibling plan**: `docs/planning/AGENT_API_EXCEL_ADDIN_USER_EMAIL_PLAN.md` (Excel addin equivalent, shipped 2026-04-23 as PR #30)
+**Parent plan**: `docs/planning/completed/AGENT_API_SIGNED_USER_CLAIM_PLAN.md` (Phase 3 multi-user auth, shipped 2026-04-22)
+**Sibling plan**: `docs/planning/completed/AGENT_API_EXCEL_ADDIN_USER_EMAIL_PLAN.md` (Excel addin equivalent, shipped 2026-04-23 as PR #30)
 **Blocking**: Phase 3 cutover (flip `AGENT_API_LEGACY_BEARER_ENABLED=false`). TODO 6D-F3. Live verification on 2026-04-24 confirmed TUI `tui/src/backend-client.ts:158` sends only `{ api_key }` on `/chat/init` — no `user_id`, no `user_email`.
 
 ---

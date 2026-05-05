@@ -298,7 +298,7 @@ Rationale:
 
 ##### C. Model-engine tools — **DEFERRED from v1**
 
-**r4 decision:** the orchestrator is `BuildModelOrchestrator.build_and_annotate(handoff_id, user_id)` — requires a finalized handoff + user context. The `ModelBuildContext` (MBC) work that would enable a cleaner ticker-only path is in-flight on another track (`docs/planning/MODEL_BUILD_CONTEXT_PLAN.md`, Codex PASS R8, ~22.5 working days of engineering ahead).
+**r4 decision:** the orchestrator is `BuildModelOrchestrator.build_and_annotate(handoff_id, user_id)` — requires a finalized handoff + user context. The `ModelBuildContext` (MBC) work that would enable a cleaner ticker-only path is in-flight on another track (`docs/planning/completed/MODEL_BUILD_CONTEXT_PLAN.md`, Codex PASS R8, ~22.5 working days of engineering ahead).
 
 For v1 benchmark sprint, **financial_modeling questions route to `hank_code_execution` instead**. System prompt (§4.2.2) guides the agent to build DCFs / projections via Python in the sandbox for the baseline run.
 
@@ -648,7 +648,7 @@ Per sprint plan Day 2 checklist: "Per-question trace logging: question ID, confi
 **Why deferred:**
 
 - **r3 plan wrapped `build_model_from_ticker` — that function doesn't exist.** The real orchestrator is `BuildModelOrchestrator.build_and_annotate(handoff_id, user_id)` (`AI-excel-addin/api/research/build_model_orchestrator.py:62`) which requires a **finalized handoff** in the repo + user_id — not a ticker.
-- Building a "synthetic handoff shim" for the benchmark would be 2-3 engineering days. The cleaner path is the typed `ModelBuildContext` (MBC) bridge being built on the schema-unification track (`docs/planning/MODEL_BUILD_CONTEXT_PLAN.md`, Codex PASS R8, ~22.5 engineering days of sub-phases A-J).
+- Building a "synthetic handoff shim" for the benchmark would be 2-3 engineering days. The cleaner path is the typed `ModelBuildContext` (MBC) bridge being built on the schema-unification track (`docs/planning/completed/MODEL_BUILD_CONTEXT_PLAN.md`, Codex PASS R8, ~22.5 engineering days of sub-phases A-J).
 - MBC is actively in-flight on `feat/thesis-living-artifact-plan-1` (Plan #1 prereq). When MBC ships, `build_model_from_mbc(mbc)` gives us a clean ticker-style entry point.
 - Coupling v1 benchmark sprint to MBC implementation = coupling two risky projects. Better to defer and iterate in.
 
@@ -1713,7 +1713,7 @@ Diminishing returns kick in. Expected fixes:
 Deferred from v1 Day 1 per §3.2.8. Triggered when MBC track delivers `build_model_from_mbc(mbc)` + model-engine MCP tool support for `model_build_context_id`.
 
 **Trigger preconditions:**
-- MBC track merged (per `MODEL_BUILD_CONTEXT_PLAN.md` sub-phase G)
+- MBC track merged (per `completed/MODEL_BUILD_CONTEXT_PLAN.md` sub-phase G)
 - `build_model_from_mbc(mbc)` importable + smoke-tested
 - MCP tools (`model_summarize`, `model_find`, `model_values`, `model_scenario`) verified to take `file_path` + `item_ids` per Codex-verified signatures
 - A benchmark-side synthetic-MBC constructor built (takes ticker, derives defaults)

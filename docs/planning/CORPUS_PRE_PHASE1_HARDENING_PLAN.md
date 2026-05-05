@@ -216,7 +216,7 @@ Down from v1's 2-3 weeks (which assumed a multi-week upstream parser ship was on
 
 - `docs/planning/CORPUS_ARCHITECTURE.md` — V2.P1 architecture (Codex PASS R7, 2026-04-21)
 - `docs/planning/CORPUS_IMPL_PLAN.md` — Phase 0 implementation plan (Codex PASS R14, 2026-04-22)
-- `docs/planning/CORPUS_PHASE0_CHECKPOINT.md` — Phase 0 ship signal (G4 at `c167043d`)
+- `docs/planning/completed/CORPUS_PHASE0_CHECKPOINT.md` — Phase 0 ship signal (G4 at `c167043d`)
 - `Edgar_updater/docs/plans/PLAN-section-parser-layered-architecture.md` — original layered plan (Phase 3 portion shipped)
 - `Edgar_updater/docs/plans/PLAN-section-parser-phase4-toc-first.md` — Phase 4 plan (shipped, default-on)
 - `Edgar_updater/docs/plans/PLAN-section-parser-phase5-xbrl-refinement.md` — Phase 5 plan (paused 2026-04-27)

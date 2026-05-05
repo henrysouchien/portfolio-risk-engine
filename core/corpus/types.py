@@ -50,6 +50,18 @@ class DocumentMetadata:
     source_url: str
 
 
+@dataclass(frozen=True)
+class ReadResult:
+    """Return type for read/excerpt tools with citation primitives."""
+
+    content: str
+    document_id: str
+    section: str | None
+    char_start: int
+    char_end: int
+    url: str
+
+
 class AmbiguousDocumentError(Exception):
     """Raised when a tuple lookup matches multiple non-superseded documents."""
 
@@ -82,6 +94,7 @@ __all__ = [
     'DocumentMetadata',
     'ExcerptUnavailableError',
     'InvalidInputError',
+    'ReadResult',
     'SearchHit',
     'SearchResponse',
 ]

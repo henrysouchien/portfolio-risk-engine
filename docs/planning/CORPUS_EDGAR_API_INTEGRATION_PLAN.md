@@ -2,7 +2,7 @@
 
 ## Status: v8 — addresses Codex R7 FAIL (1 P1 + 1 P2) on 2026-04-28
 
-Replaces `CORPUS_LAYERED_PARSER_PLUMBING_PLAN.md` (abandoned). Switches corpus's edgar integration from direct Python imports of `edgar_parser` to HTTP calls against `/api/sections` and `/api/filings` at edgarparser.com.
+Replaces `completed/CORPUS_LAYERED_PARSER_PLUMBING_PLAN.md` (abandoned). Switches corpus's edgar integration from direct Python imports of `edgar_parser` to HTTP calls against `/api/sections` and `/api/filings` at edgarparser.com.
 
 This is the corrected Track 3 of `CORPUS_PRE_PHASE1_HARDENING_PLAN.md` v2.
 
@@ -661,7 +661,7 @@ Add `test_assemble_body_all_missing` — only `state='missing'` entries → rais
 ## References
 
 - `CORPUS_PRE_PHASE1_HARDENING_PLAN.md` v2 Track 3 — parent milestone
-- `CORPUS_LAYERED_PARSER_PLUMBING_PLAN.md` — abandoned predecessor
+- `completed/CORPUS_LAYERED_PARSER_PLUMBING_PLAN.md` — abandoned predecessor
 - `CORPUS_ARCHITECTURE.md` §5.1 — SearchResponse envelope (no change)
 - `Edgar_updater/edgar_api/routes/sections.py:32-111` — `/api/sections` endpoint contract
 - `Edgar_updater/edgar_api/routes/filings.py` — `/api/filings` endpoint

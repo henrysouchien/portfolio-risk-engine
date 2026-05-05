@@ -53,7 +53,7 @@ Skipped against the original Phase 0 fixture (`/tmp/corpus_canary/` is wiped aft
 - **46/46 targeted** in `pytest tests/test_edgar_api_client.py tests/test_filings_tools.py tests/test_corpus_ingest_accession.py -v`
 - **Live E2E via T4.4 spot-checks below** confirming source-excerpt path returns real content for AES + MSFT + EQH
 
-No engine regression observed. The canary acceptance tests would re-prove this against the Phase 0 fixture but require re-priming `/tmp/corpus_canary/` per `CORPUS_PHASE0_CHECKPOINT.md §7`.
+No engine regression observed. The canary acceptance tests would re-prove this against the Phase 0 fixture but require re-priming `/tmp/corpus_canary/` per `completed/CORPUS_PHASE0_CHECKPOINT.md §7`.
 
 ## T4.3 — Coverage measurement
 
@@ -217,7 +217,7 @@ Pre-Phase-1 hardening milestone (`CORPUS_PRE_PHASE1_HARDENING_PLAN.md` v2) is CO
 
 - `docs/planning/CORPUS_PRE_PHASE1_HARDENING_PLAN.md` v2 — parent milestone
 - `docs/planning/CORPUS_EDGAR_API_INTEGRATION_PLAN.md` v8 — Track 3 plan (Codex R8 PASS)
-- `docs/planning/CORPUS_LAYERED_PARSER_PLUMBING_PLAN.md` — abandoned Track 3 predecessor
+- `docs/planning/completed/CORPUS_LAYERED_PARSER_PLUMBING_PLAN.md` — abandoned Track 3 predecessor
 - `docs/planning/CORPUS_ARCHITECTURE.md` — V2.P1 architecture
 - Validation DB: `/tmp/corpus_validation_25/filings.db`
 - Ingest logs: `/tmp/corpus_validation_25/ingest.jsonl`, `retry.jsonl`

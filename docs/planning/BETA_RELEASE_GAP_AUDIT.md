@@ -253,7 +253,7 @@ These three are the difference between "impressive prototype" and "we could sell
 **How it relates to beta:**
 
 - The schema plan is **enabling infrastructure**, not a beta deliverable. None of it is user-facing.
-- The **Thesis living artifact** pattern (G13 / `THESIS_LIVING_ARTIFACT_PLAN`) is arguably the highest-leverage piece — it's the "centering artifact every other view adjusts." If shipped, it closes the loop on research→model→portfolio and becomes a genuine differentiator.
+- The **Thesis living artifact** pattern (G13 / `completed/THESIS_LIVING_ARTIFACT_PLAN.md`) is arguably the highest-leverage piece — it's the "centering artifact every other view adjusts." If shipped, it closes the loop on research→model→portfolio and becomes a genuine differentiator.
 - T1/T2 items above are **compatible with the schema plan** — they slot into the right contracts (citations → `sources[]`, alerts → `InvestmentIdea` provenance, agentic output → `HandoffArtifact` + `ModelInsights`, skills → referenced in `ProcessTemplate`).
 
 **Recommendation:** Parallel-ship the schema work (Thesis + HandoffArtifact v1.1 as per the plan's dependency order) alongside T1 beta blockers. Don't wait for full schema migration before starting T1.

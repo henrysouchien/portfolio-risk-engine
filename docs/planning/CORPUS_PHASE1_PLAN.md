@@ -384,7 +384,7 @@ New questions:
 - `CORPUS_ARCHITECTURE.md` — V2.P1 architecture (R7 PASS) — §13 phasing locks transcripts to Phase 3
 - `CORPUS_PRE_PHASE1_HARDENING_PLAN.md` v2 — pre-Phase-1 hardening milestone (complete)
 - `CORPUS_PHASE1_VALIDATION_REPORT.md` v2 — Track 4 results + Level 3 finding
-- `CORPUS_PHASE0_CHECKPOINT.md` — Phase 0 ship signal + canonical convention
+- `completed/CORPUS_PHASE0_CHECKPOINT.md` — Phase 0 ship signal + canonical convention
 - `Edgar_updater/docs/plans/PLAN-targeted-corpus-prewarm-strategy.md` v1 — universe selection signals (ex-ante importance proxies)
 - `AI-excel-addin e1abb24` — RESOLVED 2026-04-29 (gateway dispatcher channel wiring)
 - `Edgar_updater de7c533` — RESOLVED 2026-04-29 (nginx 502 mega-cap)

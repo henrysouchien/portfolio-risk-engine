@@ -21,11 +21,12 @@
 - **Suggested fix**: Decide the semantic. Options: (a) keep `LIVE` and only swap to timestamp if data goes stale, (b) always show timestamp once data is resolved and drop `LIVE` entirely, (c) add a subtle fade/crossfade. Pick one — the current mix looks like two states fighting.
 - **Severity**: low — cosmetic, but eye-catching.
 
-### G3. "BXMT Risk Load" card in right rail shows a number with no label
+### G3. "BXMT Risk Load" card in right rail shows a number with no label — FIXED 2026-05-04
 - **Where**: Overview right rail, under "ABOUT BXMT RISK LOAD": body text reads "BXMT still sits inside the book's main concentration pocket." and then a floating `-66.0%` with no accompanying label.
 - **Why it hurts**: Ambiguous — is it a beta? YTD? Factor contribution? The rest of the briefing is explicit about units.
 - **Suggested fix**: Label the number (e.g., `Rate 2Y beta: -66.0%` or whatever the generator intends). If the generator knows the metric name, thread it through. If not, drop the raw number.
 - **Severity**: medium — violates the "every number has context" rule.
+- **Fix shipped 2026-05-04**: `ChatMargin` now normalizes summary percent-like inputs before drawing the overview risk-load sketch and prefixes the highlighted SVG value with the metric label (`DD -66.0%`, `VOL 17.6%`, etc.). Focused Vitest coverage pins the BXMT/drawdown case so the rail cannot regress to a context-free value.
 
 ---
 
@@ -111,7 +112,7 @@
 | Priority | Items | Why |
 |----------|-------|-----|
 | **P1 — ship first** | W5 (panel overlap) | W1 and G1 are fixed. W5 is the structural reason Research feels weaker and needs a design decision before implementation. |
-| **P2 — before broader launch** | R1 (briefing voice), W2 (thread names), W3 (diligence 0/9), G3 (floating %), R3 (TEST file cleanup) | Voice + data-context consistency. Each is independent; cumulatively they drag the briefing feel. |
+| **P2 — before broader launch** | R1 (briefing voice), W2 (thread names), W3 (diligence 0/9), R3 (TEST file cleanup) | Voice + data-context consistency. Each is independent; cumulatively they drag the briefing feel. G3 is fixed. |
 | **P3 — cosmetic** | R2 (header case), G2 (LIVE→timestamp), W4 (conviction label), W6 (progress dots) | Polish, not blockers. |
 
 ---

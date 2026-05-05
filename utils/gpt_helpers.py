@@ -10,6 +10,56 @@ from utils.logging import (
 
 DEFAULT_OPENAI_PEERS_MODEL = "gpt-5.4-mini"
 _EPHEMERAL_CACHE_CONTROL = {"type": "ephemeral"}
+_PEER_GENERATION_SYSTEM_PROMPT = """
+You are a fundamental equity analyst.
+Given stock details, return 5-10 peer tickers that best represent the stock's
+subindustry or closest competitive group, ideally companies that compete with
+or operate in similar business models.
+
+Only include currently publicly listed equities from the U.S., Canada, or U.K.
+Do not include companies that have been acquired, merged, or delisted.
+
+Return a clean Python list of tickers, no explanation.
+
+Example Input:
+
+Ticker: NVDA
+Name: NVIDIA Corporation
+Industry: Semiconductors
+
+Expected Output:
+
+["AMD", "INTC", "AVGO", "QCOM", "TSM", "MRVL", "TXN"]
+""".strip()
+_ASSET_CLASSIFICATION_SYSTEM_PROMPT = """
+You are a financial asset classification expert.
+Classify securities into exactly one of these asset classes: equity, bond,
+real_estate, commodity, crypto, cash, mixed, unknown.
+
+Focus on the investment exposure, not the legal structure. For example:
+- A bond fund should be classified as "bond"
+- A REIT or real estate fund should be classified as "real_estate"
+- A mining company or fund (gold, silver, copper, etc.) should be classified as "commodity"
+- A cryptocurrency fund or crypto-themed ETF should be classified as "crypto"
+- A regular stock should be classified as "equity"
+- A money market or ultra-short-term bond fund should be classified as "cash"
+- A multi-asset fund should be classified as "mixed"
+- If unclear or insufficient information, use "unknown"
+
+Respond in this exact format: "asset_class,confidence_score"
+Where confidence_score is between 0.00 and 1.00
+Return only that one line. Do not include explanation, prose, Markdown, code fences, or extra text.
+
+Examples:
+- "bond,0.95" for a bond fund
+- "equity,0.85" for a regular stock
+- "real_estate,0.90" for a REIT or real estate fund
+- "commodity,0.80" for a mining company or mining fund
+- "crypto,0.90" for a cryptocurrency fund or crypto-themed ETF
+- "cash,0.95" for a money market or ultra-short-term bond fund
+- "mixed,0.75" for a target-date fund
+- "unknown,0.30" if insufficient information
+""".strip()
 
 
 def _resolve_peers_model(provider) -> str | None:
@@ -104,36 +154,6 @@ def generate_subindustry_peers(
     '["AMD", "INTC", "AVGO", "QCOM", "TSM", "MRVL", "TXN"]'
     """
     prompt = f"""
-You’re a fundamental equity analyst.
-Given the following stock details, return 5–10 peer tickers that best
-represent its subindustry or closest competitive group — ideally companies
-that compete with or operate in similar business models.
-
-Only include **currently publicly listed** equities from the U.S., Canada,
-or U.K.  
-
-Do not include companies that have been acquired, merged, or
-delisted.  
-
-Return a clean list of tickers, no explanation.
-
-⸻
-
-Example Input:
-
-Ticker: NVDA
-Name: NVIDIA Corporation
-Industry: Semiconductors
-
-⸻
-
-Expected Output:
-
-["AMD", "INTC", "AVGO", "QCOM", "TSM", "MRVL", "TXN"]
-⸻
-
-Do for this:
-
 Ticker: {ticker}
 Name: {name}
 Industry: {industry}
@@ -146,9 +166,11 @@ Industry: {industry}
     try:
         content = provider.complete(
             prompt,
+            system=_PEER_GENERATION_SYSTEM_PROMPT,
             model=_resolve_peers_model(provider),
             max_tokens=max_tokens,
             temperature=temperature,
+            cache_control=_EPHEMERAL_CACHE_CONTROL,
         )
 
         # Expect something like ["AMD", "INTC", "QCOM", ...]
@@ -191,34 +213,11 @@ def generate_asset_class_classification(ticker: str, company_name: str, descript
         - Confidence range: 0.00-1.00
     """
     prompt = f"""
-Classify the following security into one of these asset classes: equity, bond, real_estate, commodity, crypto, cash, mixed, unknown
-
 Security: {ticker}
 Company: {company_name}
 Description: {description}
 
-Focus on the investment exposure, not the legal structure. For example:
-- A bond fund should be classified as "bond"
-- A REIT or real estate fund should be classified as "real_estate" 
-- A mining company or fund (gold, silver, copper, etc.) should be classified as "commodity"
-- A cryptocurrency fund or crypto-themed ETF should be classified as "crypto"
-- A regular stock should be classified as "equity"
-- A money market or ultra-short-term bond fund should be classified as "cash"
-- A multi-asset fund should be classified as "mixed"
-- If unclear or insufficient information, use "unknown"
-
-Respond in this exact format: "asset_class,confidence_score"
-Where confidence_score is between 0.00 and 1.00
-
-Examples:
-- "bond,0.95" for a bond fund
-- "equity,0.85" for a regular stock
-- "real_estate,0.90" for a REIT or real estate fund
-- "commodity,0.80" for a mining company or mining fund
-- "crypto,0.90" for a cryptocurrency fund or crypto-themed ETF
-- "cash,0.95" for a money market or ultra-short-term bond fund
-- "mixed,0.75" for a target-date fund
-- "unknown,0.30" if insufficient information
+Return only the exact classification string, no explanation.
 """.strip()
 
     provider = get_completion_provider()
@@ -228,11 +227,12 @@ Examples:
     try:
         content = provider.complete(
             prompt,
-            system="You are a financial asset classification expert.",
+            system=_ASSET_CLASSIFICATION_SYSTEM_PROMPT,
             model=os.getenv("LLM_CLASSIFICATION_MODEL") or None,
             max_tokens=50,  # Short response expected
             temperature=0.2,  # Low temperature for consistent classification
             timeout=timeout,
+            cache_control=_EPHEMERAL_CACHE_CONTROL,
         )
         portfolio_logger.debug(f"GPT asset class response for {ticker}: {content}")
         return content

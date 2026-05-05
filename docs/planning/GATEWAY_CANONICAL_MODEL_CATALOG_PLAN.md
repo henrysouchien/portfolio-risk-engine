@@ -3,7 +3,7 @@
 **Status**: ✅ **Codex R4 PASS** (2026-04-23). 4 review rounds (R1-R3 FAIL, R4 PASS). R4's 2 recommends + 1 nit also folded in. Plan is implementable.
 **Date**: 2026-04-23
 **Context**: Discovered during Phase 3 live verification (see TODO 6D-ARCH). `claude-opus-4-7` 400 errors from the web chat because risk_module's resolver returns it but ai-excel-addin's `ALLOWED_MODELS` hardcodes 4-6-only. Deeper root cause: gateway has multiple stale `claude-sonnet-4-6`/`claude-opus-4-6` defaults and allow-lists that need coordinated update.
-**Related**: `docs/planning/AGENT_API_SIGNED_USER_CLAIM_PLAN.md` (Phase 3 multi-user auth — shipped 2026-04-22).
+**Related**: `docs/planning/completed/AGENT_API_SIGNED_USER_CLAIM_PLAN.md` (Phase 3 multi-user auth — shipped 2026-04-22).
 
 ---
 

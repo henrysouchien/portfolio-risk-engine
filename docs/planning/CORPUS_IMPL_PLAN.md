@@ -1462,7 +1462,7 @@ def validate_read_path(file_path: str, corpus_root: Path) -> Path:
 - Verify: `is_superseded_by` is NOT populated for the original; `has_low_confidence_supersession` flag set on search results; `include_low_confidence_supersession=True` hides the original.
 
 **Files touched:**
-- `docs/planning/CORPUS_PHASE0_CANARY.md` — a small companion doc listing the exact tickers, their filings, the manually-authored amendment case, and the low-confidence synthetic case. Canary dataset spec.
+- `docs/planning/completed/CORPUS_PHASE0_CANARY.md` — a small companion doc listing the exact tickers, their filings, the manually-authored amendment case, and the low-confidence synthetic case. Canary dataset spec.
 
 **Depends on:** A2 (frontmatter), B2 (ingestion), C1 (search).
 
@@ -1549,7 +1549,7 @@ def validate_read_path(file_path: str, corpus_root: Path) -> Path:
 - ~~DEF 14A~~ — **dropped from Phase 0 canary.** `Edgar_updater.parse_filing_sections()` rejects DEF 14A at entry (`section_parser.py:198`). Supporting proxy statements requires either extending that helper (scope creep for Phase 0) or implementing a crude-header-match fallback for proxies specifically. Both deferred to Phase 1. Phase 0 filings scope = 10-K, 10-Q, 8-K only. Canary query coverage adjusted accordingly (no query currently depends on DEF 14A).
 
 **Files touched:**
-- `docs/planning/CORPUS_PHASE0_CANARY.md` (from E1) — finalized during this task.
+- `docs/planning/completed/CORPUS_PHASE0_CANARY.md` (from E1) — finalized during this task.
 
 **Depends on:** E1.
 

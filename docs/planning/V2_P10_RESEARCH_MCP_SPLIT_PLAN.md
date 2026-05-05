@@ -1,6 +1,6 @@
 # V2.P10 — Research MCP Server Split
 
-**Status:** SCOPED 2026-05-02 → R2..R17 → R18 PASSED Codex review 2026-05-03 → **R19 revised 2026-05-04 mid-Phase-0 — naming corrected to `research-workbench-mcp` after impl investigation; PR0 scope simplified to catalog-key rename only (no investment_tools commit)**
+**Status:** SCOPED 2026-05-02 → R2..R17 → R18 PASSED Codex review 2026-05-03 → R19 revised 2026-05-04 → **R20 2026-05-04 mid-Phase-0 — PR0a/b/c shipped; cross-session conflict with parallel A6e session resolved by user (PR0a/c manual edits); investment_tools server tool-surfacing in Claude Code catalog flagged as pre-existing issue, separate diagnostic deferred to follow-up session, does NOT block V2.P10 Phase 1**
 **Trigger:** Surfaced during V2.P2 Slice C.2 live testing — citation discipline machinery (Slices A+B+C+C.1+C.2) all shipped, but routinely fails to fire because corpus tools live in deferred-tier `portfolio-mcp` server.
 **Effort:** **R18: ~6-8 weeks full split, ~4-5 weeks Phase-1-only** (Codex sizing stable since R7).
 **Next step (post-R19):** Phase 0b + 0c shipped 2026-05-04 (commits `fdb00f67` + `5f0c7329`). Remaining Phase 0: PR0 catalog-key rename (PR0a manual `~/.claude.json` edit + PR0b Codex AI-excel-addin code edit + PR0c manual cleanup), Phase 0d/e/f/g/h audits + migration script. PR0 frees the `research-mcp` name for V2.P10 use.
@@ -396,6 +396,32 @@ Phase 0b + 0c shipped (commits `fdb00f67` + `5f0c7329`). When investigating PR0 
 115. **Plan-doc replace-all `research-workbench-mcp` → `research-workbench-mcp`** — 17 references swept in this revision.
 
 116. **Effort impact: ~0.5–1 week saved** in Phase 0 — investment_tools dual-registration / publish / re-publish work no longer required. Full split now ~5.5–7.5 weeks; Phase 1-only ~3.5–4.5 weeks.
+
+**2026-05-04 (R20 — mid-Phase-0 cross-session resolution + tool-surfacing finding):**
+
+117. **PR0 shipped end-to-end:**
+    - PR0a (manual user-edit, 2026-05-04): added `research-workbench-mcp` catalog entry to `~/.claude.json`. Backup at `~/.claude.json.bak.20260504-121210`.
+    - PR0b (commit `f7971e4` in AI-excel-addin, 2026-05-04): renamed catalog references in 29 AI-excel-addin code/test/doc files.
+    - PR0c (manual user-edit, 2026-05-04): removed old `research-mcp` catalog entry from `~/.claude.json`. Backup at `~/.claude.json.bak.20260504-133458`. Name `research-mcp` now free for V2.P10's new server.
+
+118. **Cross-session conflict with parallel A6e dev-CLI session resolved.** The parallel A6e session (commit `cc32382` plan doc + uncommitted impl in worktree) had begun a reverse-rename `research-workbench-mcp` → `research-mcp` after diagnosing "load_tools rejected by gating" in AI-excel-addin runtime. PR0a's `~/.claude.json` add of `research-workbench-mcp` resolves their original blocker — `research-workbench-mcp` is now a valid catalog key. Their pending uncommitted reverse-rename can be `git restore`'d by them since the underlying gating issue is gone. V2.P10 won this naming question by shipping first; coordination handled by user.
+
+119. **Tool-surfacing investigation deferred to follow-up session (NOT blocking V2.P10).** Post-PR0a/c verification revealed: investment_tools research server's tools (`add_finding`, `search_findings`, `screen_hit_stats`, `submit_research_task`, etc.) do NOT surface in Claude Code's tool catalog under either `research-mcp` (pre-PR0c) or `research-workbench-mcp` (post-PR0a). Server boots fine standalone (`python3 -m research.server` from investment_tools cwd starts cleanly). Pre-existing issue (tools were also absent from the disconnect list at session start, so weren't loading pre-edit). User will diagnose with separate Claude session. Does NOT block V2.P10 Phase 1 cutover — V2.P10's catalog-name rename is independent of whether the server surfaces tools to Claude Code.
+
+    **2026-05-04 follow-up — diagnosed + workaround applied (filed as F63):** Claude Code's stdio spawn did not apply the `cwd` field for any of 5 servers rooted at `cwd=/Users/henrychien/Documents/Jupyter/investment_tools` (`research-workbench-mcp`, `jobs-mcp`, `options-mcp`, `fred-mcp`, `macro-mcp`). Per-server logs all showed `ModuleNotFoundError: No module named '<subpkg>'` — Python correctly fails when cwd isn't applied. Servers with cwds that lack a root `__init__.py` (`finance-cli`, `fmp-mcp`) work fine; `investment_tools/__init__.py` is the only structural difference. Manual `subprocess.run([...], cwd=investment_tools)` works → not a Python issue. Workaround: added `PYTHONPATH=/Users/henrychien/Documents/Jupyter/investment_tools` to the env block of all 5 entries in `~/.claude.json` (backup `~/.claude.json.bak.20260504-135344`). Restart Claude Code to pick up. Bug filed at `docs/planning/completed/F63_CLAUDE_CODE_MCP_CWD_BUG.md`; upstream bug to file with Anthropic separately.
+
+120. **Phase 0 risk_module/AI-excel-addin work complete:**
+    - `f3420a47` plan R18 PASS
+    - `fdb00f67` Phase 0b shared-module refactor
+    - `5f0c7329` Phase 0c second FastMCP entrypoint
+    - `ebdae66c` plan R19 naming correction
+    - `f7971e4` (AI-excel-addin) PR0b catalog rename
+    - `f915eb76` Phase 0e/0f/0g audit artifacts
+    - `5adf7fdd` Phase 0h migration script + tests + runbook
+    - `1a1f444` (AI-excel-addin) tool_timing_hook sentinel + cost_tracker DB-path env support
+    - PR0a/c manual user-edits to `~/.claude.json`
+
+121. **Ready for Phase 1 cutover** — atomic PR moving the 4 corpus tools (`filings_search`, `transcripts_search`, `filings_list`, `transcripts_list`) from `mcp_server.py` (portfolio-mcp) registration to `mcp_server_research.py` (research-mcp) registration, plus consumer sweep + migration script run.
 
 ---
 

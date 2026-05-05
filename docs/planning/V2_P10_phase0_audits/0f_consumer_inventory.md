@@ -84,7 +84,7 @@ The exact namespaced grep produced 19 lines across 5 files. The broader grep pro
 | `risk_module/docs/TODO.md` | 228 | Docs | Historical F47/F-corpus repro with `mcp__portfolio-mcp__filings_search`. Documentation reference. |
 | `risk_module/docs/planning/CORPUS_PHASE1_PLAN.md` | 16 | Docs | Completed corpus rollout note referencing `mcp__portfolio-mcp__filings_search`. |
 | `risk_module/docs/planning/V2_P10_RESEARCH_MCP_SPLIT_PLAN.md` | 134,211,751,769,777,960,976,1023,1030,1167,1226,1227,1257,1261,1270 | Docs | The active V2.P10 design/acceptance reference. Keep aligned with final migration semantics. |
-| `risk_module/docs/planning/V2_P2_SLICE_A_PLAN.md` | 494 | Docs | Older citation-first plan example using portfolio-mcp namespaced filing tool. |
+| `risk_module/docs/planning/completed/V2_P2_SLICE_A_PLAN.md` | 494 | Docs | Older citation-first plan example using portfolio-mcp namespaced filing tool. |
 
 ## Broad Grep Consumer Inventory
 
@@ -114,16 +114,16 @@ The exact namespaced grep produced 19 lines across 5 files. The broader grep pro
 | `risk_module/docs/interfaces/mcp.md` | 22,25,26,29 | Docs | MCP interface reference. Phase 1 should document research-mcp ownership. |
 | `risk_module/docs/planning/CORPUS_ARCHITECTURE.md` | 361,399,410,446,475,518,519,566,570,593,597,613,628,631,654,782,791,815,844,850,879,885,910,1076,1383,1460,1463 | Docs | Corpus architecture references. |
 | `risk_module/docs/planning/CORPUS_IMPL_PLAN.md` | 13,14,15,18,1205,1304,1317,1322,1327,1337,1363,1415,1458,1684,1689,1691,1695,1702,1703,1713,1720,1728,1746 | Docs | Original corpus implementation plan. |
-| `risk_module/docs/planning/CORPUS_PHASE0_CANARY.md` | 152,158,182 | Docs | Corpus canary documentation. |
-| `risk_module/docs/planning/CORPUS_PHASE0_CHECKPOINT.md` | 122,123,272,273 | Docs | Corpus checkpoint documentation. |
+| `risk_module/docs/planning/completed/CORPUS_PHASE0_CANARY.md` | 152,158,182 | Docs | Corpus canary documentation. |
+| `risk_module/docs/planning/completed/CORPUS_PHASE0_CHECKPOINT.md` | 122,123,272,273 | Docs | Corpus checkpoint documentation. |
 | `risk_module/docs/planning/CORPUS_PHASE1_PLAN.md` | 16 | Docs | Corpus Phase 1 plan reference. |
 | `risk_module/docs/planning/CORPUS_PHASE1_VALIDATION_REPORT.md` | 130,146,148,153,159 | Docs | Corpus validation report references. |
 | `risk_module/docs/planning/CORPUS_PHASE2_REPORT.md` | 187 | Docs | Corpus Phase 2 report reference. |
 | `risk_module/docs/planning/CORPUS_PHASE3_REPORT.md` | 110 | Docs | Corpus Phase 3 report reference. |
 | `risk_module/docs/planning/V2_P10_RESEARCH_MCP_SPLIT_PLAN.md` | 27,134,180,417,425,502,611,630,631,636,639,640,641,751,769,777,846,847,848,849,954,960,1020,1023,1167,1252,1256,1257,1261,1270,1347 | Docs | Active V2.P10 split plan. |
 | `risk_module/docs/planning/V2_P2_CITATION_FIRST_QA_PLAN.md` | 18,49 | Docs | Citation-first QA plan references. |
-| `risk_module/docs/planning/V2_P2_SLICE_A_PLAN.md` | 17,55,67,78,96,291,292,293,294,350,364,400,401,406,472,494 | Docs | V2.P2 Slice A plan references. |
-| `risk_module/docs/planning/V2_P2_SLICE_B_PLAN.md` | 937 | Docs | V2.P2 Slice B reference. |
+| `risk_module/docs/planning/completed/V2_P2_SLICE_A_PLAN.md` | 17,55,67,78,96,291,292,293,294,350,364,400,401,406,472,494 | Docs | V2.P2 Slice A plan references. |
+| `risk_module/docs/planning/completed/V2_P2_SLICE_B_PLAN.md` | 937 | Docs | V2.P2 Slice B reference. |
 | `risk_module/mcp_server.py` | 179,181,183,185,1676,1699,1700,1745,1768,1781,1813,1849,1859,1879,1887,1905,1910,1911,1951,1975,1987,2021,2054,2063,2078 | In-repo implementation / server registration | Portfolio-mcp imports and exposes moved tools today. Phase 1 removes moved registrations from portfolio-mcp and re-registers on research-mcp. |
 | `risk_module/mcp_tools/corpus/filings.py` | 8,10,19,58,59,103,131,144,180,229,240,246,270 | In-repo implementation | Tool wrapper implementation. Phase 1 may move registration, not necessarily implementation. |
 | `risk_module/mcp_tools/corpus/transcripts.py` | 8,10,19,49,54,55,97,126,138,176,215,225,231,248 | In-repo implementation | Tool wrapper implementation. Phase 1 may move registration, not necessarily implementation. |

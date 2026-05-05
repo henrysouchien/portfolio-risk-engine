@@ -1,8 +1,8 @@
 # V4e — LLM Cost-Accuracy + Token-Volume Telemetry
 
 **Parent:** `docs/planning/API_BUDGET_GUARD_PLAN.md` (cost guard cluster)
-**Upstream:** `docs/planning/V4D_PROVIDER_RATE_VERIFICATION_PLAN.md` (R2 §0 surfaced this gap, 2026-04-25)
-**Sibling:** `docs/planning/API_BUDGET_SUBSCRIPTION_DIMENSION_PLAN.md` (V4a — P1 migration shipped at `d3f4e3bb`, full ship at `483374be` 2026-04-26)
+**Upstream:** `docs/planning/completed/V4D_PROVIDER_RATE_VERIFICATION_PLAN.md` (R2 §0 surfaced this gap, 2026-04-25)
+**Sibling:** `docs/planning/completed/API_BUDGET_SUBSCRIPTION_DIMENSION_PLAN.md` (V4a — P1 migration shipped at `d3f4e3bb`, full ship at `483374be` 2026-04-26)
 **Date:** 2026-04-26
 **Status:** Draft (v2 — addresses Codex R1 FAIL: math correctness on `input_tokens` semantics, migration ordering claim, row-scan claim, line-number drift)
 

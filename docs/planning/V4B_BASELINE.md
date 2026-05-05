@@ -87,9 +87,9 @@ Sorted by `$ savings/effort ratio`. Effort: trivial (env var) < small (1-2 days)
 |---|---|---|---|---|---|
 | 1 | **Drop orders sync interval 300s → 1800s (or on-demand only)** | SnapTrade | ~$28/active user/month (if sync enabled) | Trivial — `SYNC_ORDERS_INTERVAL_SECONDS=1800` env var | **V4b.1** |
 | 2 | ~~**Wire `item_remove` into stale-data-source cleanup**~~ | ~~Plaid~~ | Shipped 2026-05-04 — admin cleanup now revokes selected Plaid items with stored tokens before local deactivation | Done | ~~**V4b.2**~~ |
-| 3 | **Orphan SnapTrade-user cleanup task** | SnapTrade | $1.50/orphan/month | Small — sweep + delete users with no `data_sources` | **V4b.3** |
+| 3 | ~~**Orphan SnapTrade-user cleanup task**~~ | ~~SnapTrade~~ | Shipped 2026-05-04 — weekly grace-period sweep deletes only confirmed-empty orphan registrations and repairs live authorizations | Done | ~~**V4b.3**~~ |
 | 4 | ~~**Haiku downshift for `peers_helper`**~~ | ~~Anthropic~~ | Closed as misfiled 2026-05-04 — peers should remain OpenAI, not Anthropic/Haiku | No action | ~~**V4b.4**~~ |
-| 5 | **Wire prompt caching for editorial system prompts + tool schemas** | Anthropic | 25-90% input-token reduction (~$5-15/month current; scales with launch) | Medium — V4e schema is shipped 2026-04-27; needs caller-side `cache_control` wiring | **V4b.5** (V4e schema ready) |
+| 5 | ~~**Wire prompt caching for editorial system prompts + tool schemas**~~ | ~~Anthropic~~ | Shipped 2026-05-04 — editorial callers now pass Anthropic `cache_control` and provider tests cover system/tool payload markers | Done | ~~**V4b.5**~~ |
 | 6 | ~~**Plaid dead-Item detection from webhooks (PENDING_DISCONNECT, ITEM_LOGIN_REQUIRED)**~~ | ~~Plaid~~ | Patched 2026-05-04 — webhook lifecycle state plus delayed `item_remove` sweep | Done | ~~**V4b.6**~~ |
 
 **Headline**: Lever #1 is the dominant single intervention (env-var change for ~$28/user/month). Levers #2-#3 are housekeeping (small per-instance, accumulative). Levers #4-#6 are launch-scaling preparation.
@@ -104,7 +104,7 @@ Per CLAUDE.md "Don't defer to dodge friction" guidance — items below are NAMED
 
 3. **SnapTrade Connected User definition edge cases** — V4c open questions (mid-month deletion proration, Custom Plan volume breakpoints). Out of V4b scope; track via SnapTrade contact when it matters at scale.
 
-4. **Anthropic OAuth-vs-API auth-mode audit** — confirm which production callers use OAuth (`ANTHROPIC_AUTH_MODE=oauth`) vs API key, and pull the OAuth-account billing for the missing half of Anthropic spend. The token-cost math in `LLMUsage → estimate_cost_usd` is correct regardless of auth mode (tokens × rate is the same), but dashboard reconciliation needs both billing surfaces. Filed as **V4b.8**.
+4. ~~**Anthropic OAuth-vs-API auth-mode audit**~~ — resolved 2026-05-04 as a risk-module local config mismatch: direct Anthropic provider calls use `ANTHROPIC_API_KEY`, so the ignored local `.env` was corrected to `ANTHROPIC_AUTH_MODE=api`. Gateway OAuth billing reconciliation remains a separate gateway/accounting concern.
 
 ## §7 V4b Status
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import os
 from pathlib import Path
 import re
@@ -8,7 +9,7 @@ import sqlite3
 from core.corpus.db import open_corpus_db
 from core.corpus.frontmatter import parse_frontmatter
 from core.corpus.search import _resolved_source_url_sql, _search
-from core.corpus.types import DocumentMetadata, ExcerptUnavailableError, InvalidInputError, SearchResponse
+from core.corpus.types import DocumentMetadata, ExcerptUnavailableError, InvalidInputError, ReadResult, SearchResponse
 from core.corpus.validation import (
     _validate_canonical_ticker,
     resolve_corpus_ticker_alias,
@@ -21,13 +22,20 @@ from fmp.tools.transcripts import get_earnings_transcript
 _TRANSCRIPT_DOCUMENT_ID_RE = re.compile(
     r'^fmp_transcripts:(?P<ticker>[^_]+)_(?P<fiscal_period>\d{4}-Q(?P<quarter>[1-4]))$'
 )
-_TRANSCRIPT_SECTION_HEADERS = {
-    'prepared_remarks': 'PREPARED REMARKS',
-    'qa': 'Q&A SESSION',
+_TRANSCRIPT_SECTION_LABELS = {
+    'prepared_remarks': 'Prepared Remarks',
+    'qa': 'Q&A Session',
 }
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _DEFAULT_CORPUS_ROOT = _REPO_ROOT / 'data' / 'filings'
 _DEFAULT_CORPUS_DB_PATH = _REPO_ROOT / 'data' / 'filings.db'
+
+
+@dataclass(frozen=True)
+class _TextSpan:
+    content: str
+    char_start: int
+    char_end: int
 
 
 def transcripts_search(
@@ -70,30 +78,67 @@ def transcripts_read(
     speaker: str | None = None,
     char_start: int | None = None,
     char_end: int | None = None,
-) -> str:
+) -> ReadResult:
     path = validate_read_path(file_path, _corpus_root())
     text = path.read_text(encoding='utf-8')
+    metadata, body = parse_frontmatter(text)
+    body_start = len(text) - len(body)
 
     if section is None and speaker is None and char_start is None and char_end is None:
-        return text
+        return ReadResult(
+            content=text,
+            document_id=str(metadata['document_id']),
+            section=None,
+            char_start=0,
+            char_end=len(text),
+            url=_source_url_from_metadata(metadata),
+        )
 
-    _metadata, body = parse_frontmatter(text)
     scoped_text = body
+    scoped_start = body_start
+    scoped_source_end = body_start + len(body)
+    resolved_section: str | None = None
 
     if section is not None:
         section_key = _validate_transcript_section(section, allow_both=False)
-        section_blocks = _extract_transcript_sections(body)
-        scoped_text = section_blocks.get(section_key, '')
-        if not scoped_text:
+        section_blocks = _extract_transcript_section_spans(body)
+        section_block = section_blocks.get(section_key)
+        if section_block is None:
             raise InvalidInputError(f"section {section!r} not found in transcript")
+        scoped_text = section_block.content
+        scoped_start = body_start + section_block.char_start
+        scoped_source_end = body_start + section_block.char_end
+        resolved_section = _TRANSCRIPT_SECTION_LABELS[section_key]
 
     if speaker is not None:
-        speaker_blocks = _extract_speaker_blocks(scoped_text, speaker)
+        speaker_blocks = _extract_speaker_block_spans(scoped_text, speaker)
         if not speaker_blocks:
             raise InvalidInputError(f"speaker {speaker!r} not found in transcript")
-        scoped_text = '\n\n'.join(speaker_blocks)
+        scoped_text = '\n\n'.join(block.content for block in speaker_blocks)
+        speaker_start = min(block.char_start for block in speaker_blocks)
+        speaker_end = max(block.char_end for block in speaker_blocks)
+        scoped_source_end = scoped_start + speaker_end
+        scoped_start += speaker_start
 
-    return _slice_text(scoped_text, char_start, char_end)
+    if char_start is None and char_end is None:
+        content = scoped_text
+        resolved_start = scoped_start
+        resolved_end = scoped_source_end
+    else:
+        content, resolved_start, resolved_end = _slice_text_with_offsets(
+            scoped_text,
+            char_start,
+            char_end,
+            base_start=scoped_start,
+        )
+    return ReadResult(
+        content=content,
+        document_id=str(metadata['document_id']),
+        section=resolved_section,
+        char_start=resolved_start,
+        char_end=resolved_end,
+        url=_source_url_from_metadata(metadata),
+    )
 
 
 def transcripts_source_excerpt(
@@ -101,7 +146,7 @@ def transcripts_source_excerpt(
     speaker: str | None = None,
     ticker: str | None = None,
     fiscal_period: str | None = None,
-) -> str:
+) -> ReadResult:
     resolved_document_id = document_id
     if resolved_document_id is None:
         if ticker is None or fiscal_period is None:
@@ -171,7 +216,15 @@ def transcripts_source_excerpt(
         for segment in qa:
             lines.append(_format_speaker_segment(segment))
 
-    return '\n\n'.join(lines)
+    content = '\n\n'.join(lines)
+    return ReadResult(
+        content=content,
+        document_id=resolved_document_id,
+        section=_source_excerpt_section(prepared_remarks=prepared_remarks, qa=qa),
+        char_start=0,
+        char_end=len(content),
+        url=_transcript_source_url(symbol, fiscal_period_value),
+    )
 
 
 def transcripts_list(
@@ -224,22 +277,23 @@ def transcripts_list(
     ]
 
 
-def _extract_transcript_sections(body: str) -> dict[str, str]:
+def _extract_transcript_section_spans(body: str) -> dict[str, _TextSpan]:
     matches = list(re.finditer(r'^## (?P<title>PREPARED REMARKS|Q&A SESSION)$', body, flags=re.MULTILINE))
-    blocks: dict[str, str] = {}
+    blocks: dict[str, _TextSpan] = {}
     for index, match in enumerate(matches):
         start = match.start()
         end = matches[index + 1].start() if index + 1 < len(matches) else len(body)
         title = match.group('title')
         key = 'prepared_remarks' if title == 'PREPARED REMARKS' else 'qa'
-        blocks[key] = body[start:end].rstrip()
+        content = body[start:end].rstrip()
+        blocks[key] = _TextSpan(content=content, char_start=start, char_end=start + len(content))
     return blocks
 
 
-def _extract_speaker_blocks(text: str, speaker: str) -> list[str]:
+def _extract_speaker_block_spans(text: str, speaker: str) -> list[_TextSpan]:
     matches = list(re.finditer(r'^### SPEAKER: (?P<header>.+)$', text, flags=re.MULTILINE))
     normalized_target = speaker.strip().casefold()
-    blocks: list[str] = []
+    blocks: list[_TextSpan] = []
 
     for index, match in enumerate(matches):
         next_section = re.search(r'^## ', text[match.end():], flags=re.MULTILINE)
@@ -250,7 +304,8 @@ def _extract_speaker_blocks(text: str, speaker: str) -> list[str]:
 
         speaker_name = match.group('header').split(' (', 1)[0].strip().casefold()
         if speaker_name == normalized_target:
-            blocks.append(text[match.start():end].rstrip())
+            content = text[match.start():end].rstrip()
+            blocks.append(_TextSpan(content=content, char_start=match.start(), char_end=match.start() + len(content)))
 
     return blocks
 
@@ -284,16 +339,51 @@ def _format_speaker_segment(segment: dict) -> str:
     return f"{heading}\n\n{str(segment.get('text') or '').strip()}".rstrip()
 
 
-def _slice_text(text: str, char_start: int | None, char_end: int | None) -> str:
+def _slice_text_with_offsets(
+    text: str,
+    char_start: int | None,
+    char_end: int | None,
+    *,
+    base_start: int,
+) -> tuple[str, int, int]:
     if char_start is None and char_end is None:
-        return text
+        return text, base_start, base_start + len(text)
     start = 0 if char_start is None else char_start
     end = len(text) if char_end is None else char_end
     if start < 0 or end < 0:
         raise InvalidInputError('char_start and char_end must be >= 0')
     if end < start:
         raise InvalidInputError('char_end must be >= char_start')
-    return text[start:end]
+    return text[start:end], base_start + start, base_start + end
+
+
+def _source_excerpt_section(*, prepared_remarks: list[dict], qa: list[dict]) -> str:
+    if prepared_remarks and qa:
+        return 'Prepared Remarks + Q&A Session'
+    if prepared_remarks:
+        return 'Prepared Remarks'
+    return 'Q&A Session'
+
+
+def _source_url_from_metadata(metadata: dict) -> str:
+    source_url = metadata.get('source_url_deep') or metadata.get('source_url')
+    if source_url:
+        return str(source_url)
+    ticker = str(metadata.get('ticker') or '').strip().upper()
+    fiscal_period = str(metadata.get('fiscal_period') or '').strip()
+    if ticker and fiscal_period:
+        return _transcript_source_url(ticker, fiscal_period)
+    return ''
+
+
+def _transcript_source_url(symbol: str, fiscal_period: str) -> str:
+    match = re.fullmatch(r'(?P<year>\d{4})-Q(?P<quarter>[1-4])', fiscal_period)
+    if match is None:
+        return ''
+    return (
+        'https://financialmodelingprep.com/financial-summary/'
+        f'{symbol.upper()}?transcript={match.group("year")}Q{match.group("quarter")}'
+    )
 
 
 def _corpus_root() -> Path:
