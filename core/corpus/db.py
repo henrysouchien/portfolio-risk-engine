@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 import sqlite3
 
+from core.corpus.predicate import register_predicate_functions
+
 
 _SCHEMA_PATH = Path(__file__).with_name('schema.sql')
 
@@ -21,6 +23,7 @@ def open_corpus_db(path: Path) -> sqlite3.Connection:
     db.execute('PRAGMA foreign_keys=ON')
 
     _ensure_fts5_available(db)
+    register_predicate_functions(db)
 
     with db:
         db.executescript(_SCHEMA_PATH.read_text(encoding='utf-8'))
