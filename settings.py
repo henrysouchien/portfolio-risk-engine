@@ -365,33 +365,23 @@ MAX_SINGLE_FACTOR_LOSS = {
 # - cash (5%): Money market/cash equivalents have very low crash risk
 #
 # CENTRALIZED MAPPING SYSTEM:
-# Uses the established 3-tier architecture pattern (Database → YAML → Hardcoded)
-# that is consistent with all other mapping systems in the risk module.
+# Uses database reference data when the database is available. YAML is only the
+# no-database fallback; DB read failures should surface as seed/schema issues.
 def _load_crash_scenario_mappings():
     """
-    Load crash scenario mappings using centralized system.
+    Load crash scenario mappings using the centralized security-type utility.
     
     ARCHITECTURE:
     Calls utils.security_type_mappings.get_crash_scenario_mappings() which uses:
     1. Database: security_type_scenarios table (primary)
-    2. YAML: security_type_mappings.yaml (fallback)
-    3. Hardcoded: Built-in mapping dictionary (ultimate fallback)
+    2. YAML: security_type_mappings.yaml (no-DB fallback)
     
     Returns:
         Dict mapping security types to crash scenario keys
     """
-    try:
-        from utils.security_type_mappings import get_crash_scenario_mappings
-        return get_crash_scenario_mappings()
-    except Exception:
-        # Ultimate fallback - preserve original hardcoded mapping
-        return {
-            "equity": "single_stock_crash",      # Individual equity positions (80%)
-            "etf": "etf_crash",                  # Diversified ETFs (35%) - 56% risk reduction
-            "fund": "fund_crash",                # Funds (40%) - 50% risk reduction ← DSU FIX!
-            "mutual_fund": "mutual_fund_crash",  # Mutual funds (40%) - backward compatibility ← DSU FIX!
-            "cash": "cash_crash"                 # Cash equivalents (5%) - 94% risk reduction
-        }
+    from utils.security_type_mappings import get_crash_scenario_mappings
+
+    return get_crash_scenario_mappings()
 
 # Load crash scenario mappings using centralized system
 SECURITY_TYPE_CRASH_MAPPING = _load_crash_scenario_mappings()

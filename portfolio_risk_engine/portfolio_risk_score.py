@@ -562,9 +562,8 @@ def get_crash_scenario_for_security_type(security_type: str) -> float:
     """
     Map security type to appropriate crash scenario percentage using centralized mapping system.
     
-    This function now uses the centralized security type mapping system with 3-tier fallback:
-    Database → YAML → Hardcoded defaults. This ensures consistency across the entire
-    risk module and allows for dynamic updates via the admin interface.
+    This function uses centralized security type crash-scenario mappings:
+    database when available, YAML only when running without a database.
     
     Parameters
     ----------
@@ -579,15 +578,14 @@ def get_crash_scenario_for_security_type(security_type: str) -> float:
     Notes
     -----
     CENTRALIZED CRASH SCENARIO MAPPINGS:
-    Uses the centralized security type mapping system with 3-tier fallback:
-    Database → YAML → Hardcoded defaults. Supported security types:
+    Uses centralized security type mappings. Supported security types:
     - equity: 0.80 (80%) - Individual stock failure risk (Enron, WorldCom)
     - etf: 0.35 (35%) - Diversified ETF crash (market correlation risk)
     - fund: 0.40 (40%) - Fund crash (moderate diversification)
     - cash: 0.05 (5%) - Money market/cash equivalent risk (very low)
     
     The centralized system supports both "fund" and "mutual_fund" for backward compatibility.
-    If an unsupported security type is passed, the centralized system will handle fallback logic.
+    Unsupported security types are treated as equity by this risk-scoring caller.
     
     Examples
     --------
@@ -600,8 +598,6 @@ def get_crash_scenario_for_security_type(security_type: str) -> float:
     """
     from portfolio_risk_engine.config import SECURITY_TYPE_CRASH_MAPPING, WORST_CASE_SCENARIOS
     
-    # Use centralized mapping system with built-in 3-tier fallback
-    # The centralized system already handles all fallback logic
     if security_type not in SECURITY_TYPE_CRASH_MAPPING:
         portfolio_logger.warning(f"Unmapped security type '{security_type}', defaulting to equity crash scenario")
         security_type = "equity"
