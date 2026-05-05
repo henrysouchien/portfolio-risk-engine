@@ -56,6 +56,9 @@ _SINGLE_CHAR_TOKENS = {'=': TokenType.OP_EQ, '(': TokenType.LPAREN, ')': TokenTy
 _SECTION_FORM_TYPES = ('10-K', '10-Q', '8-K')
 _WORD_COUNT_FUNCTION = 'corpus_section_word_count'
 _WORD_COUNT_RE = re.compile(r'^\*\*Word count:\*\*\s*([0-9][0-9,]*)\s*$', re.MULTILINE)
+_LIKE_LITERAL_SPLIT_RE = re.compile(r'[%_]+')
+_LIKE_WORD_PHRASE_RE = re.compile(r'[A-Za-z0-9]+(?:\s+[A-Za-z0-9]+)+')
+_LIKE_WORD_RE = re.compile(r'[A-Za-z0-9]+')
 
 
 @dataclass(frozen=True)
@@ -300,6 +303,9 @@ def _compile_like(node: Like) -> _Compiled:
     if node.column != 'text':
         raise PredicateError(f"operator LIKE is not allowed for column {node.column!r}")
     _require_str(node.value, node.column, 'LIKE')
+    match_query = _like_match_prefilter(node.value)
+    if match_query is not None:
+        return _Compiled('(s.content MATCH ? AND s.content LIKE ?)', [match_query, node.value], True)
     return _Compiled('s.content LIKE ?', [node.value], True)
 
 
@@ -383,6 +389,23 @@ def _section_headers_for_key(value: object) -> tuple[str, ...]:
     if not headers:
         raise PredicateError(f'unknown section_key {key!r}')
     return headers
+
+
+def _like_match_prefilter(pattern: object) -> str | None:
+    if not isinstance(pattern, str):
+        return None
+
+    phrases: list[str] = []
+    for fragment in _LIKE_LITERAL_SPLIT_RE.split(pattern):
+        for match in _LIKE_WORD_PHRASE_RE.finditer(fragment):
+            phrase = ' '.join(_LIKE_WORD_RE.findall(match.group(0)))
+            if phrase:
+                phrases.append(phrase)
+    if not phrases:
+        return None
+
+    phrase = max(phrases, key=lambda item: (len(_LIKE_WORD_RE.findall(item)), len(item)))
+    return f'"{phrase}"'
 
 
 def _require_int(value: object, column: str, operator: str) -> None:

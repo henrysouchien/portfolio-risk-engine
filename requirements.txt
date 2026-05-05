@@ -33,7 +33,7 @@ pyyaml>=6.0
 # Authentication & Security
 google-auth>=2.48.0  # google.oauth2.id_token + google.auth.transport in services/auth_service.py
 certifi>=2026.0.0  # SSL fix for IBKR Flex (ibkr/flex.py), also used by Plaid HTTPS calls
-cryptography==46.0.5
+cryptography==46.0.7
 
 # AI & Language Models
 anthropic>=0.84.0

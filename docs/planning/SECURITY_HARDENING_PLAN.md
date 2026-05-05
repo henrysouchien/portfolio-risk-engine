@@ -20,16 +20,16 @@ The remediation plan addressed critical/high findings (session secret enforcemen
 | CORS methods/headers | DONE (explicit whitelist, no wildcards) |
 | Auth/admin rate limiting | DONE (IP-based via `get_remote_address`) |
 | API key header preference | DONE (header-first, query-param fallback) |
-| CSRF protection | NOT DONE |
-| Security headers middleware | NOT DONE |
-| Production CORS origin lockdown | NOT DONE (reads `CORS_ALLOWED_ORIGINS` env, defaults to localhost) |
-| OpenAPI docs disabled in prod | NOT DONE (`FastAPI()` has no `docs_url` gating) |
-| Error message sanitization | PARTIALLY DONE (auth routes only, per remediation Step 6) |
+| CSRF protection | DONE (signed double-submit token middleware + frontend `X-CSRF-Token` support) |
+| Security headers middleware | DONE (`SecurityHeadersMiddleware` on backend + nginx static headers for Hank) |
+| Production CORS origin lockdown | DONE (production rejects empty, wildcard, localhost/loopback, non-HTTPS, and path-bearing origins) |
+| OpenAPI docs disabled in prod | DONE (`FastAPI()` docs/OpenAPI/Redoc routes disabled in production) |
+| Error message sanitization | DONE for production 5xx `HTTPException` responses (global handler preserves 4xx/user errors and dev diagnostics) |
 | Plaid webhook JWT verification | NOT DONE (uses forward-auth shared secret only) |
-| Pre-commit secrets scanning | NOT DONE (no `.pre-commit-config.yaml` exists) |
-| Dependency vulnerability scan | PARTIALLY DONE (audit identified 47 Python + 8 Node CVEs; some upgraded) |
-| PII audit of logs | NOT DONE |
-| MCP tool duplicate audit | NOT DONE |
+| Pre-commit secrets scanning | DONE (local pre-commit hook scans staged files for common credential formats) |
+| Dependency vulnerability scan | DONE (`pip-audit` and `pnpm audit` return 0 vulnerabilities after pin/lock refresh) |
+| PII audit of logs | DONE for production auth/Kartra email logs (`redact_email()` masks addresses before logging) |
+| MCP tool duplicate audit | DONE (AST test prevents duplicate tool names per MCP server) |
 
 ---
 
@@ -57,68 +57,48 @@ Items are sequenced by risk-to-effort ratio. Higher-risk items that block produc
 ## Item 1: CSRF Protection Middleware
 
 ### Current State
-No CSRF protection. Session cookies use `SameSite=lax` and `httponly=True`, which mitigates simple CSRF but does not prevent all vectors (e.g., top-level cross-site POST via form submission in older browsers).
+Completed. Session cookies use `SameSite=lax` and `httponly=True`; unsafe cookie-authenticated requests now also require a signed CSRF token echoed in `X-CSRF-Token`.
+
+Implementation details:
+- `GET /api/csrf-token` issues a JSON `csrf_token` and an HttpOnly signed `csrf_token` cookie.
+- The signed cookie is bound to the current `session_id` value and expires after 12 hours.
+- Unsafe methods (`POST`, `PUT`, `PATCH`, `DELETE`) are rejected with `403` and `error: csrf_failed` when a `session_id` cookie is present but the token is missing, expired, mismatched, or bound to a different session.
+- Requests without a `session_id` cookie are left alone so public/API-key flows are not broken.
+- OAuth/dev-login bootstrap, Plaid webhook, SnapTrade webhook, and frontend log ingestion are exempt.
 
 ### Files to Modify
-- `requirements.txt` — add `fastapi-csrf-protect>=0.3.0`
-- `app.py` — add CSRF middleware configuration in `create_app()` (~line 973)
-- `app.py` — add CSRF dependency to state-changing route handlers
-- `routes/auth.py` — exempt OAuth callback (cross-origin by design)
-- `routes/plaid.py` — exempt webhook endpoint (machine-to-machine)
-- `routes/snaptrade.py` — exempt webhook endpoint
-- `frontend/packages/chassis/src/services/HttpClient.ts` (or `app-platform` `HttpClient.ts`) — send `X-CSRF-Token` header on mutating requests
+- `app_platform/middleware/csrf.py` — signed token helpers and ASGI middleware
+- `app_platform/middleware/__init__.py` — middleware exports
+- `app.py` — `GET /api/csrf-token`, CORS `X-CSRF-Token`, and middleware wiring
+- `frontend/packages/app-platform/src/http/HttpClient.ts` — fetch/cache/send CSRF token for mutating requests, refresh once on `csrf_failed`
+- `tests/app_platform/test_csrf_middleware.py` — backend coverage
+- `frontend/packages/app-platform/src/http/HttpClient.test.ts` — frontend coverage
 
 ### Implementation
 
 ```python
 # app.py — inside create_app()
-from fastapi_csrf_protect import CsrfProtect
-from fastapi_csrf_protect.exceptions import CsrfProtectError
-
-@CsrfProtect.load_config
-def get_csrf_config():
-    return {
-        "secret_key": resolve_session_secret(
-            environment="production" if _is_production else "development"
-        ),
-        "cookie_samesite": "lax",
-        "cookie_secure": _is_production,
-        "token_location": "header",
-        "header_name": "X-CSRF-Token",
-    }
-
-# Add endpoint to serve CSRF token
 @app.get("/api/csrf-token")
-async def get_csrf_token(csrf_protect: CsrfProtect = Depends()):
-    token, signed = csrf_protect.generate_csrf_tokens()
-    response = JSONResponse({"csrf_token": token})
-    csrf_protect.set_csrf_cookie(signed, response)
-    return response
+async def get_csrf_token(request: Request):
+    return create_csrf_token_response(
+        request,
+        secret_key=session_secret,
+        secure_cookie=_is_production,
+    )
+
+app.add_middleware(CsrfProtectionMiddleware, secret_key=session_secret)
 ```
 
-State-changing endpoints that need CSRF validation (add `csrf_protect: CsrfProtect = Depends()` + `await csrf_protect.validate_csrf(request)`):
-- `POST /api/portfolios` (create)
-- `PUT /api/portfolios/{name}` (update)
-- `PATCH /api/portfolios/{name}` (partial update)
-- `DELETE /api/portfolios/{name}` (delete)
-- `POST /api/risk-settings` (update risk settings)
-- `POST /auth/logout` (logout)
-- `POST /api/expected-returns` (update expected returns)
-- All `/api/trading/*` endpoints (trade execution)
-
-Endpoints to EXEMPT from CSRF:
-- `POST /auth/google` — OAuth flow, no prior session
-- `POST /plaid/webhook` — machine-to-machine
-- `POST /snaptrade/webhook` — machine-to-machine
-- `POST /api/frontend/log` — fire-and-forget logging
+The frontend `HttpClient` now fetches `/api/csrf-token` before mutating requests, attaches `X-CSRF-Token`, and refreshes/retries once if the backend returns `error: csrf_failed`.
 
 ### Testing
-- Unit: Mock CSRF token flow — verify 403 when missing, 200 when valid
-- Manual: Use browser devtools to confirm `X-CSRF-Token` header sent on POST/PUT/DELETE
-- Negative: Submit POST from a different origin without token — expect 403
+- `pytest tests/app_platform/test_csrf_middleware.py tests/app_platform/test_middleware.py tests/routes/test_openapi_docs.py -q`
+- `cd frontend && pnpm vitest run packages/app-platform/src/http/HttpClient.test.ts`
+- `python3 -m py_compile app_platform/middleware/csrf.py app.py`
+- `python3 -m flake8 app_platform/middleware/csrf.py tests/app_platform/test_csrf_middleware.py --max-line-length=120 --ignore=E501,W503`
 
 ### Rollback
-Remove middleware addition from `create_app()`. No database changes. Fully reversible.
+Remove the `/api/csrf-token` route, `CsrfProtectionMiddleware` wiring, frontend token attach logic, and tests. No database changes. Fully reversible.
 
 ---
 
@@ -510,121 +490,109 @@ Feature-flagged via `PLAID_VERIFY_WEBHOOKS` env var. Set to `false` to disable. 
 ## Item 7: Pre-Commit Secrets Scanning Hook
 
 ### Current State
-No `.pre-commit-config.yaml` exists. `.env` is in `.gitignore` (confirmed), but there is no automated scanning for accidentally committed secrets in Python/config files.
+Implemented via a repo-local pre-commit hook. `.env` is in `.gitignore`, and staged Python/config/text files are now scanned before commit for common credential formats.
 
 ### Files to Create/Modify
 - `.pre-commit-config.yaml` — NEW file
-- `requirements.txt` — add `pre-commit>=3.7.0` to dev dependencies (or separate `requirements-dev.txt`)
-- `.secrets.baseline` — NEW file (detect-secrets baseline)
+- `scripts/check_secrets.py` — NEW local scanner used by the hook
+- `tests/scripts/test_check_secrets.py` — NEW unit tests for scanner detection, allowlisting, binary skips, and output redaction
+- `requirements-dev.txt` — add `pre-commit>=3.7.0`
 
 ### Implementation
 
 ```yaml
 # .pre-commit-config.yaml
 repos:
-  - repo: https://github.com/Yelp/detect-secrets
-    rev: v1.5.0
+  - repo: local
     hooks:
-      - id: detect-secrets
-        args: ['--baseline', '.secrets.baseline']
-        exclude: >
-          (?x)^(
-            .*\.lock|
-            .*-lock\.json|
-            frontend/openapi-schema\.json|
-            .*\.min\.js
-          )$
-
-  - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
-    hooks:
-      - id: check-added-large-files
-        args: ['--maxkb=500']
-      - id: check-merge-conflict
-      - id: detect-private-key
+      - id: risk-module-secret-scan
+        name: Risk module secret scan
+        entry: python3 scripts/check_secrets.py
+        language: system
+        stages: [pre-commit]
 ```
 
 Setup commands:
 ```bash
-pip install pre-commit detect-secrets
-detect-secrets scan --exclude-files '\.lock|lock\.json|openapi-schema\.json' > .secrets.baseline
-# Review baseline — verify no real secrets; only false positives
+pip install -r requirements-dev.txt
 pre-commit install
 ```
 
+Implementation note: the original detect-secrets baseline approach was avoided because full-tree baseline generation is slow/noisy in this repo and can make routine commits depend on a large allowlist. The local hook has no network install step, no baseline, redacts secret values in output, skips binary/generated artifacts, supports `pre-commit run --all-files`, and supports explicit `allowlist secret` markers for intentional fixtures.
+
 ### Testing
-- Manual: Stage a file containing `AKIA...` (fake AWS key) — `pre-commit` should block commit
-- Manual: Stage a normal Python file — should pass cleanly
-- CI: `pre-commit run --all-files` in CI pipeline
+- Unit: `pytest tests/scripts/test_check_secrets.py -q`
+- Manual: Stage a file containing a realistic fake AWS key — `pre-commit run risk-module-secret-scan` should block commit
+- Manual: Stage a normal Python file — `pre-commit run risk-module-secret-scan` should pass cleanly
+- CI: `pre-commit run --all-files` can run the local hook without external hook downloads
 
 ### Rollback
-Delete `.pre-commit-config.yaml` and `.secrets.baseline`. Run `pre-commit uninstall`. Fully reversible.
+Delete `.pre-commit-config.yaml`, `scripts/check_secrets.py`, and `tests/scripts/test_check_secrets.py`. Run `pre-commit uninstall`. Fully reversible.
 
 ---
 
 ## Item 8: Dependency Vulnerability Scan + Pin Secure Versions
 
 ### Current State
-Security audit (2026-03-12) identified 47 Python CVEs across 23 packages and 8 Node.js vulnerabilities. `requirements.txt` uses `>=` minimum version pins. Some packages may have been upgraded since the audit, but no systematic scan has been re-run.
+Completed. A fresh audit on 2026-05-05 found the current Python exposure was limited to `cryptography==46.0.5`:
+- CVE-2026-34073, fixed by `cryptography==46.0.6`
+- CVE-2026-39892, fixed by `cryptography==46.0.7`
 
-Key vulnerable packages from audit:
-- **Web stack**: werkzeug (3 CVEs), flask (2 CVEs), jinja2 (1 CVE)
-- **Auth/crypto**: cryptography (2 CVEs), authlib (1 CVE)
-- **HTTP**: aiohttp (9 CVEs), urllib3 (3 CVEs), h11 (1 CVE)
-- **FastAPI**: python-multipart (1 CVE)
+The frontend audit found vulnerable transitive/direct packages in the Vite test/build toolchain:
+- `happy-dom==20.8.3`
+- `vite==7.3.1`
+- `postcss==8.5.6`
+- `brace-expansion==5.0.3`
+- `picomatch==2.3.1` and `picomatch==4.0.3`
+- `lodash==4.17.23`
+
+After the pin and lock refresh, both audits return 0 known vulnerabilities.
 
 ### Files to Modify
-- `requirements.txt` — bump minimum version pins for vulnerable packages
-- `frontend/package.json` — bump `happy-dom` (critical RCE in <20.0.0)
+- `requirements.txt` — pin `cryptography==46.0.7`
+- `requirements.lock` — regenerate Python lock hashes for `cryptography==46.0.7`
+- `frontend/package.json` — bump direct vulnerable toolchain packages and add transitive overrides
+- `frontend/pnpm-lock.yaml` — refresh frontend lockfile
 
 ### Implementation
 
-**Step 1: Python audit + upgrade**
+**Python dependency fix**
 ```bash
-pip install pip-audit
-pip-audit --format=json > /tmp/pip-audit-results.json
-# Review results, then upgrade:
-pip install --upgrade werkzeug flask jinja2 cryptography authlib \
-    python-multipart aiohttp h11 urllib3 pypdf protobuf pyasn1
-pip-audit  # Verify reduction
-pytest     # Regression check
+pip-audit -r requirements.txt --format=json
+uv pip compile requirements.txt --generate-hashes \
+  --upgrade-package cryptography \
+  --output-file requirements.lock
 ```
 
-**Step 2: Update `requirements.txt` minimum pins** to at least the fixed versions:
-```
-# Bump these to fixed versions (exact values from pip-audit):
-# cryptography>=46.0.5 (was >=43.0.3)
-# Add: python-multipart>=0.0.22
-```
+`requirements.txt` now pins `cryptography==46.0.7`, the smallest available patch release that fixes both audit findings without a broader major-version jump.
 
-**Step 3: Node audit + upgrade**
+**Frontend dependency fix**
 ```bash
 cd frontend
-pnpm audit
-# Edit package.json: "happy-dom": "^20.0.0" (was 17.6.1)
-pnpm install
-pnpm test  # Regression check
+pnpm audit --json
+pnpm install --lockfile-only
 ```
 
-**Step 4: Add CI check** (recommended but out-of-scope for this plan)
+`frontend/package.json` now bumps `happy-dom`, `vite`, `postcss`, `tailwindcss`, and `@typescript-eslint/*`. It also adds `pnpm.overrides` for vulnerable transitive `brace-expansion`, `picomatch@2`, `picomatch@4`, and `lodash`.
 
 ### Testing
-- `pip-audit` — expect 0 critical/high vulnerabilities
-- `pnpm audit` — expect 0 critical vulnerabilities
-- `pytest` — full test suite passes
-- `cd frontend && pnpm test` — frontend tests pass
+- `pip-audit -r requirements.txt --format=json` — returns no known vulnerabilities
+- `cd frontend && pnpm audit --json` — returns 0 vulnerabilities
+- `python3 -m pip install --dry-run -r requirements.txt` — dependency set resolves
+- `cd frontend && pnpm test -- --run` — frontend tests pass
+- `pre-commit run risk-module-secret-scan --all-files` — no newly introduced secrets
 
 ### Rollback
-Pin back to previous versions in `requirements.txt`. `pip install -r requirements.txt` to downgrade.
+Pin `cryptography` back to the previous version in `requirements.txt`, regenerate `requirements.lock`, revert the frontend package pins/overrides, and run `pnpm install --lockfile-only`.
 
 ---
 
 ## Item 9: PII Audit of Log Statements + Redaction
 
 ### Current State
-Grep analysis reveals the following PII exposure patterns:
+Production auth/Kartra email log exposure is remediated. Grep analysis originally found the following PII exposure patterns:
 
-1. **`routes/auth.py`** (lines 522, 638, 831, 883): `log_auth_event()` receives `user_email` param and passes it to structured log output. Emails are logged in auth success events.
+1. **`routes/auth.py`** (lines 522, 638, 831, 883): `log_auth_event()` receives `user_email` param and passes it to structured log output. **Fixed at the wrapper:** `log_auth_event()` now redacts `user_email` centrally, so the auth routes can continue passing the original request context without emitting raw addresses.
 
 2. **`app.py`** (lines 874, 877): Kartra webhook push logs raw `email` in print statements:
    ```python
@@ -632,16 +600,16 @@ Grep analysis reveals the following PII exposure patterns:
    print(f"Error in Kartra push for {email}: {str(e)}")
    ```
 
-3. **`utils/logging.py`** (line 467): `log_auth_event()` accepts `user_email` parameter and includes it in log payload.
+3. **`utils/logging.py`** (line 467): `log_auth_event()` accepts `user_email` parameter and includes it in log payload. **Fixed:** `redact_email()` masks addresses before structured logging.
 
-4. **`routes/plaid.py`**: Logs `item_id` values (lines 369, 380, 384, etc.) which are opaque Plaid identifiers (not directly PII, but could be used for correlation).
+4. **`routes/plaid.py`**: Logs `item_id` values (lines 369, 380, 384, etc.) which are opaque Plaid identifiers (not directly PII, but could be used for correlation). Left unchanged in this slice because provider webhook files were under active concurrent edits; this is lower-risk than raw email logging.
 
 5. **`scripts/*.py`**: Various print statements with user emails (diagnostic scripts, not production code paths).
 
 ### Files to Modify
 - `utils/logging.py` — add email redaction helper, apply in `log_auth_event()`
-- `routes/auth.py` — redact email before passing to `log_auth_event()`
 - `app.py` — replace Kartra print statements with redacted logger calls
+- `tests/api/test_logging.py` — cover email redaction and auth-event payloads
 
 ### Implementation
 
@@ -692,7 +660,7 @@ api_logger.info("Delayed Kartra push for user_id=%s", user.get("user_id"))
 ### Testing
 - Unit: `redact_email("alice@example.com")` -> `"al***@e***.com"`
 - Unit: `redact_email(None)` -> `"***"`
-- Grep verification: After changes, `grep -rn 'email' routes/auth.py | grep log` shows only redacted emails
+- Unit: `log_auth_event(..., user_email="alice@example.com")` returns a payload with only the redacted address
 - Manual: Trigger login, inspect server logs — no raw emails visible
 
 ### Rollback
@@ -739,7 +707,7 @@ Current tool count by module:
 - **Total: 75 tools**
 
 ### Approach
-Write a script to verify no duplicate tool names exist, then codify as a test.
+Implemented an AST-based test that verifies each MCP server has unique tool names, including both decorator-style registrations in `mcp_server.py` and direct callable registrations in `mcp_server_research.py`.
 
 ### Files to Modify/Create
 - `tests/test_mcp_tool_registry.py` — NEW test file
@@ -747,53 +715,16 @@ Write a script to verify no duplicate tool names exist, then codify as a test.
 ### Implementation
 
 ```python
-# tests/test_mcp_tool_registry.py
-"""Verify MCP tool registration integrity."""
-
-import ast
-import re
-from pathlib import Path
+def test_mcp_tool_registrations_have_unique_names_per_server() -> None:
+    ...
 
 
-def test_no_duplicate_mcp_tool_names():
-    """Ensure no two @mcp.tool() functions share the same name."""
-    mcp_server_path = Path(__file__).resolve().parents[1] / "mcp_server.py"
-    source = mcp_server_path.read_text()
-    tree = ast.parse(source)
-
-    tool_names = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef):
-            # Check if decorated with @mcp.tool()
-            for decorator in node.decorator_list:
-                if (isinstance(decorator, ast.Call)
-                    and isinstance(decorator.func, ast.Attribute)
-                    and decorator.func.attr == "tool"):
-                    tool_names.append(node.name)
-
-    duplicates = [name for name in tool_names if tool_names.count(name) > 1]
-    assert not duplicates, f"Duplicate MCP tool names: {set(duplicates)}"
-    # Sanity check: we expect 75 tools
-    assert len(tool_names) >= 70, f"Expected ~75 tools, found {len(tool_names)}"
-
-
-def test_all_tool_functions_delegate():
-    """Verify each tool function delegates to an imported implementation."""
-    mcp_server_path = Path(__file__).resolve().parents[1] / "mcp_server.py"
-    source = mcp_server_path.read_text()
-
-    # Find all import aliases (pattern: from mcp_tools.X import Y as _Y)
-    import_pattern = re.compile(r"from mcp_tools\.\w+ import \w+ as (_\w+)")
-    imported_impls = set(import_pattern.findall(source))
-
-    # Each tool function body should reference one of these
-    assert len(imported_impls) > 60, (
-        f"Expected 60+ imported implementations, found {len(imported_impls)}"
-    )
+def test_mcp_tool_registration_counts_stay_in_expected_ranges() -> None:
+    ...
 ```
 
 ### Testing
-- `pytest tests/test_mcp_tool_registry.py -v` — both tests pass
+- `pytest tests/test_mcp_tool_registry.py -q` — both tests pass
 - If a duplicate is found, the test output names the offending function
 
 ### Rollback
@@ -850,13 +781,13 @@ Items within the same commit/priority tier touch different files and can be deve
 
 | # | Item | Verification Command / Check |
 |---|------|------------------------------|
-| 1 | CSRF protection | `curl -X POST /api/portfolios -H "Cookie: session=..." -d '{}' ` returns 403 (no CSRF token) |
+| 1 | CSRF protection | `pytest tests/app_platform/test_csrf_middleware.py` passes; `curl -X POST /api/portfolios -H "Cookie: session_id=..." -d '{}'` returns 403 without `X-CSRF-Token` |
 | 2 | Security headers | `curl -I /api/health` shows X-Content-Type-Options, X-Frame-Options, CSP, Referrer-Policy |
 | 3 | CORS lockdown | `ENVIRONMENT=production CORS_ALLOWED_ORIGINS=* python -c "import app"` crashes with RuntimeError |
 | 4 | OpenAPI disabled | `ENVIRONMENT=production`; `curl /docs` returns 404 |
 | 5 | Error sanitization | Trigger 500 in prod mode; response body has no traceback or exception class name |
 | 6 | Plaid webhook JWT | Send unsigned POST to `/plaid/webhook` with `PLAID_VERIFY_WEBHOOKS=true` — returns 401 |
-| 7 | Pre-commit secrets | `echo "AKIA1234567890" > test.txt && git add test.txt && git commit` — blocked by detect-secrets |
+| 7 | Pre-commit secrets | Stage a file with `AKIA` + 16 uppercase/digit characters; `pre-commit run risk-module-secret-scan` blocks it |
 | 8 | Dep scan clean | `pip-audit` returns 0 critical/high; `pnpm audit` returns 0 critical |
 | 9 | PII redacted | Login, check server logs — email appears as `al***@e***.com`, not `alice@example.com` |
 | 10 | No duplicate tools | `pytest tests/test_mcp_tool_registry.py` passes |

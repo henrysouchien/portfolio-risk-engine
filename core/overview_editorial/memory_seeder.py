@@ -24,22 +24,19 @@ _EPHEMERAL_CACHE_CONTROL = {"type": "ephemeral"}
 
 
 def _resolve_user_email_for_user_id(user_id: int) -> str | None:
-    try:
-        with get_db_session() as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT email FROM users WHERE id = %s", (user_id,))
-                row = cur.fetchone()
-        if row is None:
-            return None
-        if isinstance(row, dict):
-            return str(row.get("email") or "").strip() or None
-        try:
-            value = row["email"]
-        except Exception:
-            value = row[0]
-        return str(value or "").strip() or None
-    except Exception:
+    with get_db_session() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT email FROM users WHERE id = %s", (user_id,))
+            row = cur.fetchone()
+    if row is None:
         return None
+    if isinstance(row, dict):
+        return str(row.get("email") or "").strip() or None
+    try:
+        value = row["email"]
+    except (KeyError, TypeError):
+        value = row[0]
+    return str(value or "").strip() or None
 
 
 def _skip(user_id: int, trigger: str, reason: str) -> bool:

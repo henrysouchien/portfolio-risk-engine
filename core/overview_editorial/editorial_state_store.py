@@ -55,47 +55,40 @@ def load_editorial_state(user_id: int, portfolio_id: str | None) -> tuple[dict[s
     """Return editorial memory and prior brief anchor for a portfolio."""
 
     key = portfolio_id or "default"
-    try:
-        with get_db_session() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT editorial_memory, previous_briefs FROM user_editorial_state WHERE user_id = %s",
-                    (user_id,),
-                )
-                row = cur.fetchone()
-        if row is None:
-            return _load_seed_fallback(), None
-
-        editorial_memory = _row_value(row, key="editorial_memory", index=0) or {}
-        previous_briefs = _row_value(row, key="previous_briefs", index=1) or {}
-        if not isinstance(editorial_memory, dict):
-            editorial_memory = {}
-        if not isinstance(previous_briefs, dict):
-            previous_briefs = {}
-        editorial_memory = _normalize_editorial_memory(editorial_memory)
-
-        anchor = previous_briefs.get(key)
-        if anchor is not None and not isinstance(anchor, dict):
-            anchor = None
-        return editorial_memory, anchor
-    except Exception:
-        _logger.warning("editorial_state_db_miss for user %s", user_id, exc_info=True)
+    with get_db_session() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT editorial_memory, previous_briefs FROM user_editorial_state WHERE user_id = %s",
+                (user_id,),
+            )
+            row = cur.fetchone()
+    if row is None:
         return _load_seed_fallback(), None
+
+    editorial_memory = _row_value(row, key="editorial_memory", index=0) or {}
+    previous_briefs = _row_value(row, key="previous_briefs", index=1) or {}
+    if not isinstance(editorial_memory, dict):
+        editorial_memory = {}
+    if not isinstance(previous_briefs, dict):
+        previous_briefs = {}
+    editorial_memory = _normalize_editorial_memory(editorial_memory)
+
+    anchor = previous_briefs.get(key)
+    if anchor is not None and not isinstance(anchor, dict):
+        anchor = None
+    return editorial_memory, anchor
 
 
 def editorial_state_row_exists(user_id: int) -> bool:
     """Return True when the user has an editorial state row."""
 
-    try:
-        with get_db_session() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT 1 FROM user_editorial_state WHERE user_id = %s",
-                    (user_id,),
-                )
-                return cur.fetchone() is not None
-    except Exception:
-        return False
+    with get_db_session() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM user_editorial_state WHERE user_id = %s",
+                (user_id,),
+            )
+            return cur.fetchone() is not None
 
 
 def set_editorial_memory(
