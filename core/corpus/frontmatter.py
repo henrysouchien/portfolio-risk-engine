@@ -44,6 +44,15 @@ FIELD_ORDER = (
     'extraction_model',
     'extraction_at',
     'extraction_status',
+    'parser_version',
+    'parser_schema_version',
+    'parser_path',
+    'parser_state',
+    'parser_result_status',
+    'cross_reference_target',
+    'producer_deployment_id',
+    'producer_instance_id',
+    'producer_build_id',
     'content_hash',
     'sector',
     'industry',
@@ -68,6 +77,14 @@ NULLABLE_STRING_FIELDS = {
     'extraction_model',
     'extraction_at',
     'extraction_status',
+    'parser_version',
+    'parser_path',
+    'parser_state',
+    'parser_result_status',
+    'cross_reference_target',
+    'producer_deployment_id',
+    'producer_instance_id',
+    'producer_build_id',
     'sector',
     'industry',
     'sector_source',
@@ -76,6 +93,7 @@ NULLABLE_STRING_FIELDS = {
     'supersedes_source',
     'supersedes_confidence',
 }
+NULLABLE_INT_FIELDS = frozenset({'parser_schema_version'})
 FRONTMATTER_PATTERN = re.compile(r'\A---\n(?P<yaml>.*?)\n---(?:\n(?P<body>.*))?\Z', re.DOTALL)
 DOCUMENT_ID_PATTERN = re.compile(r'^(?P<source>[a-z][a-z0-9_]*):(?P<source_id>\S+)$')
 FISCAL_PERIOD_PATTERN = re.compile(r'^\d{4}-(?:FY|Q[1-4]|\d{2}-\d{2})$')
@@ -294,6 +312,14 @@ def _validated_metadata(
     for field in NULLABLE_STRING_FIELDS:
         if field in normalized and normalized[field] is not None and not isinstance(normalized[field], str):
             invalid_types.append((field, f'expected str or null, got {type(normalized[field]).__name__}'))
+
+    for field in NULLABLE_INT_FIELDS:
+        value = normalized.get(field)
+        if value is None:
+            continue
+        # bool is a subclass of int, so reject it explicitly.
+        if isinstance(value, bool) or not isinstance(value, int):
+            invalid_types.append((field, f'expected int or null, got {type(value).__name__}'))
 
     document_id = normalized.get('document_id')
     source = normalized.get('source')

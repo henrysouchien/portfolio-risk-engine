@@ -38,6 +38,15 @@ _DOCUMENT_COLUMNS = (
     'supersedes',
     'supersedes_source',
     'supersedes_confidence',
+    'parser_version',
+    'parser_schema_version',
+    'parser_path',
+    'parser_state',
+    'parser_result_status',
+    'cross_reference_target',
+    'producer_deployment_id',
+    'producer_instance_id',
+    'producer_build_id',
 )
 _UPSERT_COLUMNS = _DOCUMENT_COLUMNS + ('last_indexed',)
 _UPDATE_COLUMNS = tuple(column for column in _DOCUMENT_COLUMNS if column != 'document_id')

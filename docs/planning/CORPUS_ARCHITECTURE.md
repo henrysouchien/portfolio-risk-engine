@@ -18,6 +18,8 @@
 
 **Terminology note:** "The corpus" is the umbrella multi-source document store. Per-source tool families (`filings_*`, `transcripts_*`, future `decks_*`) are thin wrappers over a single unified FTS5 index (D3). Cross-source queries use parallel per-source calls with agent-side merge (§5.2). Internal SQLite table names are `documents` (document-grain metadata) and `sections_fts` (section-grain FTS5 virtual table) per D3/D12. The SQLite file itself retains the legacy filename `filings.db` and the filesystem root is `data/filings/` — renamed only if it becomes confusing, not as part of V2.P1.
 
+**V2.P10 server note:** The corpus MCP families now live on `research-mcp` (always-tier in the AI-excel-addin gateway), not on `portfolio-mcp`. `portfolio-mcp` keeps portfolio operations, mutating research/thesis/diligence workflows, and full handoff/model-building tools.
+
 **References:**
 - `docs/research/fintool/architecture-learnings.md` — Fintool's documented path from 500GB Elasticsearch to grep-over-filesystem
 - `docs/planning/BETA_RELEASE_GAP_AUDIT.md` — T2.2, T2.6
@@ -106,7 +108,7 @@ The differences: our universe is smaller (1,500 tickers vs 8,000), our ingestion
                               │ MCP tool calls
                               ▼
 ┌───────────────────────────────────────────────────────────────────┐
-│  Layer 4 — Query Surface (MCP)                                    │
+│  Layer 4 — Query Surface (MCP: research-mcp)                       │
 │  {family}_search → ranked section passages + file_path + doc_id  │
 │  {family}_read → markdown content (doc / section / byte range)   │
 │  {family}_source_excerpt → verbatim text from authoritative src  │
@@ -1184,7 +1186,7 @@ Decisions committed to in this document. Changing one requires a successor desig
 
 ### D9. Per-source tool families over a unified index; cross-source via parallel calls + merge
 
-**The change:** MCP surface is a per-source tool family for each source type — `filings_*` for SEC filings, `transcripts_*` for earnings calls, future `decks_*` for Quartr decks. Each family has four tools: `*_search` (retrieval), `*_read` (navigation of our summarized markdown), `*_source_excerpt` (verification against the authoritative original), `*_list` (metadata discovery). All families are thin wrappers over the single unified FTS5 index (D3). Cross-source queries use parallel per-source calls with client-side merge by BM25 rank — no unified `corpus_search` tool.
+**The change:** MCP surface is a per-source tool family for each source type, hosted on `research-mcp` as of V2.P10 — `filings_*` for SEC filings, `transcripts_*` for earnings calls, future `decks_*` for Quartr decks. Each family has four tools: `*_search` (retrieval), `*_read` (navigation of our summarized markdown), `*_source_excerpt` (verification against the authoritative original), `*_list` (metadata discovery). All families are thin wrappers over the single unified FTS5 index (D3). Cross-source queries use parallel per-source calls with client-side merge by BM25 rank — no unified `corpus_search` tool.
 
 **Why:** Two wins at once. Per-source families surface intent clearly ("filings live here, transcripts live here") and avoid overloaded `form_type=[...]` parameters. Four tools per family force the agent into explicit modes — retrieval / navigation / verification are cost-distinct operations with different semantics (our index vs. our summary vs. the original source); collapsing them breaks the trust boundary (see §7). Skipping a unified cross-source tool keeps the system-prompt footprint smaller (better cache hit rate, V2.P5) and makes cross-source intent explicit in agent behavior; the tax is one extra tool call on ~20-30% of queries, which is cheap because BM25 scores are comparable across parallel calls to the same FTS5 index.
 
@@ -1501,6 +1503,7 @@ For reference — current-state inventory so the implementation plan extends rat
 - **`langextract_mcp`** — `parse_filing_sections()` returns `SectionMap: dict[str, tuple[str, int, int]]` — section header → (text, start offset, end offset). Char offsets already supported.
 - **`fmp-mcp` `get_earnings_transcript`** — live-fetched per-speaker segments (no persistence).
 - **Fiscal calendar metadata** — per-filing via Edgar_updater. Not yet normalized cross-company (V2.P7).
+- **`research-mcp` corpus/query surface** — V2.P10 moved `filings_*` and `transcripts_*` search/list/read/source_excerpt plus read-only research workflow context to the always-tier `research-mcp` server.
 
 ### Verification path — already present infrastructure
 
@@ -1524,7 +1527,7 @@ So the entire verification subsystem is a thin wrapper over infrastructure alrea
 
 - SQLite `documents` metadata table (document-grain, D13 document_id PK + supersession pointers).
 - `sections_fts` FTS5 virtual table (section-grain per D12).
-- Per-source MCP tool families — `filings_*` (search / read / source_excerpt / list), `transcripts_*` (same four).
+- Future source MCP families beyond filings/transcripts, such as `decks_*` for Quartr.
 - Ingestion pipeline: file-first atomic rename + UPSERT + reconciler (D14, I12).
 - Ingestion scheduler / universe config / delta detection.
 - YAML frontmatter migration for existing files (D15 step 3).

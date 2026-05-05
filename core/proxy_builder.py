@@ -368,13 +368,19 @@ def load_exchange_proxy_map(path: str = "exchange_etf_proxies.yaml") -> dict:
         from database import get_db_session
         with get_db_session() as conn:
             db_client = DatabaseClient(conn)
-            return db_client.get_exchange_mappings()
+            mappings = db_client.get_exchange_mappings()
+            if mappings:
+                return mappings
     except Exception as e:
         # Fallback to YAML
         resolved = resolve_config_path(path)
         database_logger.warning(f"Database unavailable ({e}), using {resolved} fallback")
         with open(resolved, "r") as f:
             return yaml.safe_load(f)
+
+    resolved = resolve_config_path(path)
+    with open(resolved, "r") as f:
+        return yaml.safe_load(f)
 
 def map_exchange_proxies(exchange: str, proxy_map: dict) -> dict:
     """
@@ -409,13 +415,19 @@ def load_industry_etf_map(path: str = "industry_to_etf.yaml") -> dict:
         from database import get_db_session
         with get_db_session() as conn:
             db_client = DatabaseClient(conn)
-            return db_client.get_industry_mappings()
+            mappings = db_client.get_industry_mappings()
+            if mappings:
+                return mappings
     except Exception as e:
         # Fallback to YAML
         resolved = resolve_config_path(path)
         database_logger.warning(f"Database unavailable ({e}), using {resolved} fallback")
         with open(resolved, "r") as f:
             return yaml.safe_load(f)
+
+    resolved = resolve_config_path(path)
+    with open(resolved, "r") as f:
+        return yaml.safe_load(f)
 
 def map_industry_etf(industry: str, etf_map: dict) -> str:
     """

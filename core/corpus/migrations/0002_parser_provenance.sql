@@ -1,0 +1,9 @@
+ALTER TABLE documents ADD COLUMN parser_version TEXT;
+ALTER TABLE documents ADD COLUMN parser_schema_version INTEGER;
+ALTER TABLE documents ADD COLUMN parser_path TEXT;
+ALTER TABLE documents ADD COLUMN parser_state TEXT;
+ALTER TABLE documents ADD COLUMN parser_result_status TEXT;
+ALTER TABLE documents ADD COLUMN cross_reference_target TEXT;
+ALTER TABLE documents ADD COLUMN producer_deployment_id TEXT;
+ALTER TABLE documents ADD COLUMN producer_instance_id TEXT;
+ALTER TABLE documents ADD COLUMN producer_build_id TEXT;

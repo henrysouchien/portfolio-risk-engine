@@ -26,6 +26,15 @@ CREATE TABLE IF NOT EXISTS documents (
     supersedes_confidence TEXT,
     is_superseded_by TEXT REFERENCES documents(document_id),
     last_indexed TIMESTAMP,
+    parser_version TEXT,
+    parser_schema_version INTEGER,
+    parser_path TEXT,
+    parser_state TEXT,
+    parser_result_status TEXT,
+    cross_reference_target TEXT,
+    producer_deployment_id TEXT,
+    producer_instance_id TEXT,
+    producer_build_id TEXT,
     CHECK (supersedes_confidence IS NULL OR supersedes_confidence IN ('high', 'medium', 'low')),
     CHECK (
         fiscal_period IS NULL
@@ -33,6 +42,12 @@ CREATE TABLE IF NOT EXISTS documents (
         OR fiscal_period GLOB '[0-9][0-9][0-9][0-9]-Q[1-4]'
         OR fiscal_period GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
     )
+);
+
+CREATE TABLE IF NOT EXISTS corpus_schema_version (
+    version INTEGER PRIMARY KEY,
+    applied_at TIMESTAMP NOT NULL,
+    description TEXT NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_documents_ticker ON documents(ticker);

@@ -423,6 +423,20 @@ Phase 0b + 0c shipped (commits `fdb00f67` + `5f0c7329`). When investigating PR0 
 
 121. **Ready for Phase 1 cutover** — atomic PR moving the 4 corpus tools (`filings_search`, `transcripts_search`, `filings_list`, `transcripts_list`) from `mcp_server.py` (portfolio-mcp) registration to `mcp_server_research.py` (research-mcp) registration, plus consumer sweep + migration script run.
 
+**2026-05-04 (R21 — V2.P10 SHIPPED end-to-end):**
+
+122. **All phases shipped:** Phase 0b/0c/0e+0f+0g/0h, PR0a/b/c, Phase 1, Phase 2a/2b/2c-A/2c-B, Phase 4. Tool counts post-shipment: portfolio-mcp 111, research-mcp 21 (post-`get_mcp_context` collision fix). 18 commits across risk_module + AI-excel-addin + 3 manual `~/.claude.json` edits.
+123. **F56 retired:** Audit (a) passed because `AI-excel-addin/api/agent/shared/tool_catalog.py` includes `research-mcp` in the always tier for all four channel keys: Excel (`None`), web, telegram, and CLI. Audit (b) passed because `AI-excel-addin/api/agent/interactive/runtime.py` declares `_MCP_META_INJECT_SERVERS = frozenset({"portfolio-mcp", "research-mcp"})`. The Phase 4 add-in commit removed `_RESEARCH_AUTO_LOAD_SERVERS` and the research-mode `portfolio-mcp` auto-load branch.
+124. **`get_mcp_context` collision resolved:** dropped the duplicate diagnostic from `mcp_server_research.py`; `portfolio-mcp` keeps `get_mcp_context` as the canonical user-identity/process diagnostic. `research-mcp` tool count moved 22 → 21.
+125. **Living-docs swept:** risk_module `CLAUDE.md`, `README.md`, `docs/interfaces/mcp.md`, `docs/reference/MCP_SERVERS.md`, `docs/reference/ARCHITECTURE.md`, `mcp_tools/README.md`, `docs/planning/CORPUS_ARCHITECTURE.md`, `docs/planning/V2_P2_CITATION_FIRST_QA_PLAN.md`, `docs/TODO.md`; AI-excel-addin `docs/reference/AGENT_INFRASTRUCTURE.md`, `README.md`, `CLAUDE.md`, `AGENTS.md`.
+126. **Follow-ups closed:** F56, F62, C.4 — all moot post-V2.P10. Note: earlier drafts used F59 for the TUI mode flag issue, but Decision #4 corrected that tracker to F62; F59 is the unrelated GOOG delta-ingest item.
+127. **Plan status: SHIPPED.** Future research tools added to research-mcp inherit always-tier by default; citation discipline is the default not opt-in; categorization mistake fixed completely.
+
+**2026-05-04 (R22 — post-restart e2e verification):**
+
+128. **Live tool catalog confirmed:** post-Phase-4 restart surfaced research-mcp at 21 tools (no `get_mcp_context`), research-workbench-mcp at 21 tools (investment_tools server, naming preserved), portfolio-mcp full surface intact with `get_mcp_context` as canonical home.
+129. **e2e exercise: 23/23 PASS.** All 21 research-mcp tools + portfolio-mcp `get_mcp_context` and `get_handoff_full` invoked on a real session (user `hc@henrychien.com`, MSFT research_file_id 88, MSFT corpus). Citation primitives (`document_id`, `section`, `char_start`, `char_end`, `url`) confirmed in `filings_read`/`transcripts_read`/`*_source_excerpt` responses (Phase 2a enrichment live). Decision #71 whitelist projection confirmed on `get_handoff_summary` — surfaces only `{handoff_id, version, ticker, status, artifact_summary, research_file_id, created_at, finalized_at}`. `get_research_brief` returned proper error envelope with `brief_not_enabled` (feature-flag gated, expected). No collisions, no schema drift.
+
 ---
 
 ## Current Implementation Contract (R19 — authoritative quick reference, Codex R18 PASS + R19 naming correction)

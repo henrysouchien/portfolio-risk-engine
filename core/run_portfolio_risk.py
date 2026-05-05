@@ -160,34 +160,41 @@ def display_portfolio_config(cfg: Dict[str, Any]) -> None:
     print(f"{cfg['leverage']:.2f}x")
 
     print("\n=== EXPECTED RETURNS ===")
-    expected_returns = cfg["expected_returns"]
+    expected_returns = cfg.get("expected_returns") or {}
     # Sort by expected return (descending) for better readability
     sorted_returns = sorted(expected_returns.items(), key=lambda x: x[1], reverse=True)
-    
-    # Calculate adaptive column width for expected returns section
-    max_returns_width = 8  # minimum width
-    for ticker, return_val in sorted_returns:
-        labeled_ticker = format_ticker_with_label(ticker, cash_positions, industry_map)
-        max_returns_width = max(max_returns_width, len(labeled_ticker))
-    max_returns_width += 2  # padding
-    
-    for ticker, return_val in sorted_returns:
-        labeled_ticker = format_ticker_with_label(ticker, cash_positions, industry_map)
-        print(f"{labeled_ticker:<{max_returns_width}} {return_val:>7.2%}")
+
+    if sorted_returns:
+        # Calculate adaptive column width for expected returns section
+        max_returns_width = 8  # minimum width
+        for ticker, return_val in sorted_returns:
+            labeled_ticker = format_ticker_with_label(ticker, cash_positions, industry_map)
+            max_returns_width = max(max_returns_width, len(labeled_ticker))
+        max_returns_width += 2  # padding
+
+        for ticker, return_val in sorted_returns:
+            labeled_ticker = format_ticker_with_label(ticker, cash_positions, industry_map)
+            print(f"{labeled_ticker:<{max_returns_width}} {return_val:>7.2%}")
+    else:
+        print("(No expected returns configured)")
 
     print("\n=== Stock Factor Proxies ===")
-    for ticker, proxies in cfg["stock_factor_proxies"].items():
-        labeled_ticker = format_ticker_with_label(ticker, cash_positions, industry_map)
-        print(f"\n→ {labeled_ticker}")
-        # Create a copy to avoid modifying original
-        display_proxies = proxies.copy()
-        
-        # Apply industry label to industry proxy if available
-        if 'industry' in display_proxies and display_proxies['industry'] in industry_map:
-            industry_etf = display_proxies['industry']
-            display_proxies['industry'] = f"{industry_etf} ({industry_map[industry_etf]})"
-        
-        pprint(display_proxies)
+    stock_factor_proxies = cfg.get("stock_factor_proxies") or {}
+    if stock_factor_proxies:
+        for ticker, proxies in stock_factor_proxies.items():
+            labeled_ticker = format_ticker_with_label(ticker, cash_positions, industry_map)
+            print(f"\n→ {labeled_ticker}")
+            # Create a copy to avoid modifying original
+            display_proxies = proxies.copy()
+
+            # Apply industry label to industry proxy if available
+            if 'industry' in display_proxies and display_proxies['industry'] in industry_map:
+                industry_etf = display_proxies['industry']
+                display_proxies['industry'] = f"{industry_etf} ({industry_map[industry_etf]})"
+
+            pprint(display_proxies)
+    else:
+        print("(No stock factor proxies configured)")
 
 
 # --------------------------------------------------------------------

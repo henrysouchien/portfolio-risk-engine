@@ -12,6 +12,8 @@
 
 Phase 2 universe expansion **functionally complete**. Added 50 new S&P 500 tickers (ranked by 13F institutional ownership) on top of Phase 1's 50, bringing the corpus to a 100-ticker production universe. DB grew ~2× (820 → 1,665 docs / 5,617 → 11,439 FTS sections). Gate-coverage PASS on the merged universe. 98/100 tickers fully covered; 1 partial (BLK, upstream Edgar_updater bug filed as F53), 1 partial carryover from Phase 1 (CAT). Live-validated end-to-end through Hank — cross-phase semis capex query (NVDA Phase 1 + AMAT/LRCX/KLAC Phase 2) returned analyst-grade synthesis with table-anchored citations.
 
+**2026-05-05 update:** F53 is resolved. Live Edgar API recheck returned supported BLK filings for 2022 Q1 through 2025 Q4, and the promoted corpus now has full BLK gate coverage (4 10-K + 12 10-Q, no weak docs or ingest errors). The historical Phase 2 counts below are retained as the original 2026-05-01 ship snapshot.
+
 ---
 
 ## 1. What shipped
@@ -123,16 +125,18 @@ Wall clock 93.6s, $1.18.
 
 ---
 
-## 4. Open Phase 2 follow-ups
+## 4. Phase 2 follow-ups
 
-### F53 — BLK 2022-2024 upstream issue (filed 2026-04-30)
+### F53 — BLK 2022-2024 upstream issue (filed 2026-04-30; resolved 2026-05-05)
 
-BLK is the only Phase 2 ticker that doesn't reach the gate. Two distinct upstream failure modes:
+Original 2026-05-01 snapshot: BLK was the only Phase 2 ticker that didn't reach the gate. Two distinct upstream failure modes were present:
 - **2022 Q1-Q4**: edgar_api `/api/filings` returns HTTP 500 Internal Server Error for all four quarters, persistent across initial bulk + retry
 - **2023 Q1-Q4 + 2024 Q1-Q2**: edgar_api returns empty filings list (upstream data gap)
 - **2024 Q3-Q4 + 2025 Q1-Q4**: came through cleanly (6 docs total)
 
 Cross-repo home: Edgar_updater. Reproduction logs at `data/corpus/logs/phase2_bulk_2026-04-30-192004.jsonl` + `data/corpus/logs/phase2_retry_2026-04-30-220904.jsonl`. Severity: medium-low — 1 of 100 universe tickers, partial coverage rather than zero, doesn't block Phase 2 ship.
+
+Resolved 2026-05-05 after the upstream API began returning BLK filings for the missing historical periods and the corpus promote carried the refreshed local corpus to prod. Verification: live `/api/filings` succeeded for BLK 2022 Q1 through 2025 Q4; local and prod `documents` each contained 16 BLK EDGAR docs; `corpus_health_report --ticker BLK` showed full 10-K/10-Q coverage and no ingest errors.
 
 ### Carryover from Phase 1
 
@@ -197,7 +201,7 @@ Alternative ramp: **Phase 4 (full S&P 500 expansion)** — re-run `corpus_phase2
 
 - ✅ Phase 2 universe selected (data-driven 13F ranking, 4 Codex review rounds)
 - ✅ Phase 2 bulk ingest completed (756 OK + 133 expected + 111 transient errors)
-- ✅ 6/7 retry-ticker recoveries (only BLK persists, upstream issue filed F53)
+- ✅ 6/7 retry-ticker recoveries in the original Phase 2 run; BLK/F53 resolved on 2026-05-05 after upstream recovery and corpus promote
 - ✅ Universe merged (50 Phase 1 + 50 Phase 2 = 100 tickers, no overlap, no consumer code changes needed)
 - ✅ Gate-coverage PASS on merged 100-ticker universe (10-K 100%, 10-Q 88.8%)
 - ✅ Live-validated through Hank cross-phase semis test
