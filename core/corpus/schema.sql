@@ -50,11 +50,40 @@ CREATE TABLE IF NOT EXISTS corpus_schema_version (
     description TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS corpus_reingest_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    document_id TEXT NOT NULL,
+    accession TEXT NOT NULL,
+    ticker TEXT NOT NULL,
+    old_file_path TEXT,
+    new_file_path TEXT NOT NULL,
+    old_content_hash TEXT,
+    new_content_hash TEXT NOT NULL,
+    content_changed INTEGER NOT NULL DEFAULT 0,
+    parser_version_before TEXT,
+    parser_version_after TEXT,
+    reason TEXT NOT NULL,
+    invalidation_id TEXT,
+    status TEXT NOT NULL,
+    started_at TIMESTAMP NOT NULL,
+    completed_at TIMESTAMP,
+    error TEXT,
+    CHECK (status IN (
+        'planned', 'new_written', 'db_upserted', 'old_deleted',
+        'complete', 'no_change', 'abandoned',
+        'planned_failed', 'new_written_failed', 'db_upserted_failed', 'old_deleted_failed'
+    ))
+);
+
 CREATE INDEX IF NOT EXISTS idx_documents_ticker ON documents(ticker);
 CREATE INDEX IF NOT EXISTS idx_documents_form_type ON documents(form_type);
 CREATE INDEX IF NOT EXISTS idx_documents_is_superseded ON documents(is_superseded_by);
 CREATE INDEX IF NOT EXISTS idx_documents_supersedes ON documents(supersedes);
 CREATE INDEX IF NOT EXISTS idx_documents_sector ON documents(sector);
+CREATE INDEX IF NOT EXISTS idx_reingest_invalidation ON corpus_reingest_log(invalidation_id);
+CREATE INDEX IF NOT EXISTS idx_reingest_document ON corpus_reingest_log(document_id, started_at);
+CREATE INDEX IF NOT EXISTS idx_reingest_active ON corpus_reingest_log(status)
+    WHERE status NOT IN ('complete', 'no_change', 'abandoned');
 
 CREATE VIRTUAL TABLE IF NOT EXISTS sections_fts USING fts5(
     document_id UNINDEXED,

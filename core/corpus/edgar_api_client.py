@@ -116,4 +116,21 @@ def get_filings(
     )
 
 
-__all__ = ["EdgarAPIError", "get_filing_sections", "get_filings"]
+def get_invalidations(
+    *,
+    since: str | None = None,
+    timeout: float | None = None,
+) -> list[dict[str, Any]]:
+    params: dict[str, Any] = {}
+    if since:
+        params["since"] = since
+    body = _request_json("/api/invalidations", params, timeout=timeout)
+    if body.get("status") != "success":
+        raise EdgarAPIError(str(body.get("message", "get_invalidations failed without a message")))
+    entries = body.get("entries")
+    if not isinstance(entries, list):
+        raise EdgarAPIError("get_invalidations returned a non-list entries payload")
+    return [dict(entry) for entry in entries]
+
+
+__all__ = ["EdgarAPIError", "get_filing_sections", "get_filings", "get_invalidations"]
