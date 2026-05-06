@@ -129,6 +129,10 @@ _COMPANY_PROFILE_CACHE = LFUCache(maxsize=1000)  # Keep 1000 most popular compan
 _GPT_PEERS_CACHE = LFUCache(maxsize=500)         # Keep 500 most popular GPT peer lists
 
 
+class SubindustryPeerGenerationError(RuntimeError):
+    """Raised when peer generation fails before a reliable peer list exists."""
+
+
 def _resolve_instrument_type(
     ticker: str,
     instrument_types: dict[str, str] | None = None,
@@ -187,17 +191,18 @@ def cache_company_profile(func):
     - Memory bounded: Max 1000 profiles (~5MB)
     """
     @functools.wraps(func)
-    def wrapper(ticker):
+    def wrapper(ticker, *, force_refresh: bool = False):
         # Create cache key
         cache_key = f"profile_{ticker.upper()}"
-        
-        # Check LFU cache first
-        cached_result = _COMPANY_PROFILE_CACHE.get(cache_key)
-        if cached_result is not None:
-            return cached_result
+
+        if not force_refresh:
+            # Check LFU cache first
+            cached_result = _COMPANY_PROFILE_CACHE.get(cache_key)
+            if cached_result is not None:
+                return cached_result
         
         # Cache miss - call FMP API
-        result = func(ticker)
+        result = func(ticker, force_refresh=force_refresh)
         
         # Store result in LFU cache
         _COMPANY_PROFILE_CACHE.put(cache_key, result)
@@ -226,6 +231,8 @@ def cache_gpt_peers(func):
         ticker_alias_map=None,
         instrument_types=None,
         data_symbol=None,
+        *,
+        force_refresh: bool = False,
     ):
         if should_skip_profile_lookup(ticker, instrument_types=instrument_types):
             return []
@@ -241,10 +248,11 @@ def cache_gpt_peers(func):
         # Hash the cache data to create unique key
         cache_key = hashlib.md5(json.dumps(cache_data, sort_keys=True).encode()).hexdigest()
 
-        # Check LFU cache first
-        cached_result = _GPT_PEERS_CACHE.get(cache_key)
-        if cached_result is not None:
-            return cached_result
+        if not force_refresh:
+            # Check LFU cache first
+            cached_result = _GPT_PEERS_CACHE.get(cache_key)
+            if cached_result is not None:
+                return cached_result
 
         # Cache miss - call GPT API
         result = func(
@@ -254,6 +262,7 @@ def cache_gpt_peers(func):
             ticker_alias_map=ticker_alias_map,
             instrument_types=instrument_types,
             data_symbol=data_symbol,
+            force_refresh=force_refresh,
         )
 
         # Store result in LFU cache
@@ -303,7 +312,7 @@ def get_proxy_cache_stats():
 
 
 @cache_company_profile
-def fetch_profile(ticker: str) -> dict:
+def fetch_profile(ticker: str, *, force_refresh: bool = False) -> dict:
     """
     Fetch company profile metadata through the provider registry.
 
@@ -341,7 +350,7 @@ def fetch_profile(ticker: str) -> dict:
     if provider is None:
         raise ValueError("No profile metadata provider registered")
 
-    profile = provider.fetch_profile(ticker)
+    profile = provider.fetch_profile(ticker, use_cache=not force_refresh)
     if not profile:
         raise ValueError(f"No profile data for {ticker}")
 
@@ -787,13 +796,15 @@ def get_subindustry_peers_from_ticker(
     ticker_alias_map: dict[str, str] | None = None,
     instrument_types: dict[str, str] | None = None,
     data_symbol: str | None = None,
+    *,
+    force_refresh: bool = False,
 ) -> list[str]:
     """
     Gets subindustry peer tickers with database-first caching, following the same pattern
     as load_exchange_proxy_map() and load_industry_etf_map().
 
     This function:
-    • First checks the subindustry_peers database table for cached results
+    • First checks the subindustry_peers database table for cached results unless force_refresh=True
     • If found, returns the cached peer list immediately
     • If not found, fetches company metadata from FMP and checks if ticker is ETF/fund
     • For stocks, generates peers via GPT and caches the result in the database
@@ -807,12 +818,21 @@ def get_subindustry_peers_from_ticker(
     start: pd.Timestamp | None = None
     end:   pd.Timestamp | None = None
         Dates to validate peer tickers have sufficient observations.
+    force_refresh: bool = False
+        When true, bypass cached peer/profile reads and refresh provider metadata.
 
     Returns
     -------
     list[str]
-        Cleaned list of valid peer tickers (strings). Empty if parsing fails, the symbol is an ETF/fund,
-        or if no valid peers are returned.
+        Cleaned list of valid peer tickers (strings). Empty only when the symbol is
+        intentionally skipped (futures/ETF/fund) or generation succeeds but no valid
+        listed peers remain after filtering.
+
+    Raises
+    ------
+    SubindustryPeerGenerationError
+        If profile lookup, LLM generation, parsing, or ticker validation fails before
+        a reliable peer list is available.
 
     Notes
     -----
@@ -841,19 +861,20 @@ def get_subindustry_peers_from_ticker(
     try:
         from inputs.database_client import DatabaseClient
         from database import get_db_session
-        with get_db_session() as conn:
-            db_client = DatabaseClient(conn)
-            cached_peers = db_client.get_subindustry_peers(ticker)
-            if cached_peers is not None:
-                database_logger.debug(f"Using cached subindustry peers for {ticker} ({len(cached_peers)} peers)")
-                return cached_peers
+        if not force_refresh:
+            with get_db_session() as conn:
+                db_client = DatabaseClient(conn)
+                cached_peers = db_client.get_subindustry_peers(ticker)
+                if cached_peers is not None:
+                    database_logger.debug(f"Using cached subindustry peers for {ticker} ({len(cached_peers)} peers)")
+                    return cached_peers
     except Exception as e:
         database_logger.warning(f"Database unavailable for {ticker} ({e}), generating fresh peers")
 
     # ─── 2. Generate fresh peers via GPT (original logic) ────────────────
     try:
         data_symbol = data_symbol or resolve_ticker_alias(ticker, ticker_alias_map=ticker_alias_map)
-        profile = fetch_profile(data_symbol)
+        profile = fetch_profile(data_symbol, force_refresh=force_refresh)
 
         # Skip peer generation for ETFs and funds
         if profile.get("isEtf") or profile.get("isFund"):
@@ -863,8 +884,8 @@ def get_subindustry_peers_from_ticker(
                 with get_db_session() as conn:
                     db_client = DatabaseClient(conn)
                     db_client.save_subindustry_peers(ticker, [], source='etf_fund_skip')
-            except Exception:
-                pass  # Continue even if cache save fails
+            except Exception as e:
+                database_logger.warning(f"Failed to cache ETF/fund peer skip for {ticker}: {e}")
             return []
             
         name = profile.get("companyName") or profile.get("name") or ticker
@@ -901,9 +922,13 @@ def get_subindustry_peers_from_ticker(
 
         return filtered_peers
 
+    except SubindustryPeerGenerationError:
+        raise
     except Exception as e:
         gpt_logger.error(f"{ticker}: failed to generate peers — {e}")
-        return []
+        raise SubindustryPeerGenerationError(
+            f"Failed to generate subindustry peers for {ticker}"
+        ) from e
 
 
 # In[ ]:

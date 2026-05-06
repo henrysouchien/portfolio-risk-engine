@@ -18,7 +18,7 @@
 
 **Terminology note:** "The corpus" is the umbrella multi-source document store. Per-source tool families (`filings_*`, `transcripts_*`, future `decks_*`) are thin wrappers over a single unified FTS5 index (D3). Cross-source queries use parallel per-source calls with agent-side merge (§5.2). Internal SQLite table names are `documents` (document-grain metadata) and `sections_fts` (section-grain FTS5 virtual table) per D3/D12. The SQLite file itself retains the legacy filename `filings.db` and the filesystem root is `data/filings/` — renamed only if it becomes confusing, not as part of V2.P1.
 
-**V2.P10 server note:** The corpus MCP families now live on `research-mcp` (always-tier in the AI-excel-addin gateway), not on `portfolio-mcp`. `portfolio-mcp` keeps portfolio operations, mutating research/thesis/diligence workflows, and full handoff/model-building tools.
+**V2.P10 server note:** The corpus MCP families now live on `research-corpus-mcp` (always-tier in the AI-excel-addin gateway), not on `portfolio-mcp`. `portfolio-mcp` keeps portfolio operations, mutating research/thesis/diligence workflows, and full handoff/model-building tools.
 
 **References:**
 - `docs/research/fintool/architecture-learnings.md` — Fintool's documented path from 500GB Elasticsearch to grep-over-filesystem
@@ -108,7 +108,7 @@ The differences: our universe is smaller (1,500 tickers vs 8,000), our ingestion
                               │ MCP tool calls
                               ▼
 ┌───────────────────────────────────────────────────────────────────┐
-│  Layer 4 — Query Surface (MCP: research-mcp)                       │
+│  Layer 4 — Query Surface (MCP: research-corpus-mcp)                       │
 │  {family}_search → ranked section passages + file_path + doc_id  │
 │  {family}_read → markdown content (doc / section / byte range)   │
 │  {family}_source_excerpt → verbatim text from authoritative src  │
@@ -345,7 +345,7 @@ The corpus inherits `SymbolResolver`; it does not reinvent ticker canonicalizati
 
 **Document identifiers.** Aligned by construction: `source_accession` matches SEC's canonical filing ID, `content_hash` is our own, Quartr deck IDs pass through untouched. Filings round-trip between corpus metadata and external sources via accession number.
 
-**Invariant (implicit — made explicit as I11 in §10):** any tool that returns tickers or accepts tickers uses canonical form. Tools that need alternative forms internally (e.g., `edgar-financials` wants CIK for some endpoints) convert at their own boundary, never exposing the non-canonical form to the agent or to code execution. This is how composition stays clean.
+**Invariant (implicit — made explicit as I11 in §10):** any tool that returns tickers or accepts tickers uses canonical form. Tools that need alternative forms internally (e.g., `edgar-parser-mcp` wants CIK for some endpoints) convert at their own boundary, never exposing the non-canonical form to the agent or to code execution. This is how composition stays clean.
 
 ---
 
@@ -391,7 +391,7 @@ def filings_source_excerpt(
     fiscal_period: str | None = None,
 ) -> str:
     """Verbatim text from the original EDGAR filing — not our summary.
-    Backed by edgar-financials.get_filing_sections().
+    Backed by edgar-parser-mcp.get_filing_sections().
 
     Primary signature takes document_id (immutable). The (ticker, form_type,
     fiscal_period) convenience signature resolves to the latest non-superseded
@@ -552,7 +552,7 @@ A single combined tool per family would push mode decisions onto the caller. Kee
 - **No matches** → return an empty `SearchResponse` with `hits=[]`; `applied_filters` and `has_superseded_matches` remain populated so the agent can decide whether to relax filters or retry with `include_superseded=True`.
 - **File not on disk** → return metadata-table-says-it-exists error (index/filesystem drift; reconciler will heal on next pass).
 - **Extraction incomplete** → if metadata flags `extraction_status: partial`, include a warning in the result.
-- **Source not yet ingested** → `*_search` returns empty; agent can fall back to live-fetch via underlying MCP (`edgar-financials`, `fmp-mcp`) and note the corpus gap.
+- **Source not yet ingested** → `*_search` returns empty; agent can fall back to live-fetch via underlying MCP (`edgar-parser-mcp`, `fmp-mcp`) and note the corpus gap.
 - **Ambiguous document key** (`*_source_excerpt` convenience overload) → `AmbiguousDocumentError` with list of matching `document_id`s. Happens when `(ticker, form_type, fiscal_period)` matches multiple non-superseded documents (e.g., same-day 8-Ks, concurrent amendments). Agent re-calls with explicit `document_id`.
 - **Superseded document** → by default `*_search` filters out superseded documents (`is_superseded_by IS NULL`). Agent can opt into historical results via `include_superseded=True` for amendment-diff queries.
 - **Superseded-only false negative** → when the query would match only superseded documents, the default-filtered response returns an empty result set with a structured `has_superseded_matches` hint in the response metadata indicating that retrying with `include_superseded=True` would produce hits. This prevents the agent from reporting "no matches found" when the information exists but is in amended / re-filed documents. Agent behavior (§6.2) should retry with the flag when the hint is set and the query is historically-significant (e.g., pre-amendment language evolution).
@@ -720,7 +720,7 @@ Pre-caching verbatim source text is unnecessary and expensive (would roughly 10�
 ```python
 # Filings — primary path: document_id (from SearchHit.document_id)
 filings_source_excerpt(document_id='edgar:0000789019-24-000073', section='Item 7')
-# → edgar-financials.get_filing_sections(accession=..., section='Item 7')
+# → edgar-parser-mcp.get_filing_sections(accession=..., section='Item 7')
 
 # Filings — convenience overload (per §5.1 — errors if amendments/re-filings make
 # (ticker, form_type, fiscal_period) non-unique):
@@ -771,7 +771,7 @@ Encoded in system-prompt guidance and enforced by output validation:
 - **`source_url_deep` goes 404.** Document re-organizations happen (SEC restructures the filing-archive path, FMP moves transcript URLs). Fall back to `source_url` (the stable landing page) — user can navigate to the document from there.
 - **`source_url` goes 404.** Rare for SEC (company CIK pages are extremely stable). If it happens, `*_source_excerpt` errors with a verification-failure flag and the agent surfaces the gap to the user rather than silently asserting.
 - **Char offsets drift.** Mitigated by content-addressable filenames (D6) — re-extraction with a new extraction pipeline produces a new file (new `content_hash`) but preserves `document_id` if content is logically the same. Old offsets stay valid against the old file until garbage collection. Citations made against the old content_hash keep working.
-- **Source hasn't been ingested yet.** FTS5 returns nothing. Agent falls back to live-fetch via edgar-financials / fmp-mcp and notes the gap.
+- **Source hasn't been ingested yet.** FTS5 returns nothing. Agent falls back to live-fetch via edgar-parser-mcp / fmp-mcp and notes the gap.
 
 ### 7.7 Why this matters architecturally
 
@@ -1081,7 +1081,7 @@ Every passage returned from `filings_search` includes `file_path`. Feeding that 
 Every `SearchHit` includes a populated `source_url` pointing at the authoritative original (EDGAR filing page, FMP transcript, Quartr deck, etc.). No hits with empty or placeholder source URLs leave the query surface. The citation chain (agent claim → reading passage → document metadata → authoritative source) is never broken.
 
 **I11. Every ticker on a tool boundary is canonical.**
-Any tool that returns or accepts a ticker uses the canonical form from `SymbolResolver.resolve_identity()`. Tools that internally need alternative forms (e.g., `edgar-financials` wants CIK for some endpoints) convert at their own boundary — non-canonical forms never appear in agent-facing or code-execution-facing outputs. This invariant is what makes cross-surface composition (§6.5) work.
+Any tool that returns or accepts a ticker uses the canonical form from `SymbolResolver.resolve_identity()`. Tools that internally need alternative forms (e.g., `edgar-parser-mcp` wants CIK for some endpoints) convert at their own boundary — non-canonical forms never appear in agent-facing or code-execution-facing outputs. This invariant is what makes cross-surface composition (§6.5) work.
 
 **I12. Reconciler heals filesystem/index drift.**
 A periodic reconciler walks `data/filings/` and ensures that for each `document_id` present on disk, exactly one `documents` row exists with `content_hash` + `file_path` pointing at the authoritative file for that `document_id`. Authoritative file selection rule (applied in order, deterministic): (1) prefer the file whose frontmatter `extraction_at` is greatest; (2) if `extraction_at` is tied, missing, or malformed (not parseable as ISO-8601), prefer the largest `extraction_pipeline` semver; (3) if `extraction_pipeline` is tied, missing, or malformed (not parseable as semver), prefer lexicographically greater `content_hash` (arbitrary but deterministic). Malformed values at any level fall through to the next tiebreaker rather than failing; the worst case is that two files with no valid metadata are disambiguated purely by content_hash lexicographic order — deterministic, safe, logged as a data-quality issue. This rule is stable — repeated reconciler runs converge on the same choice; no oscillation is possible because none of the tiebreakers depend on reconciler-state.
@@ -1186,7 +1186,7 @@ Decisions committed to in this document. Changing one requires a successor desig
 
 ### D9. Per-source tool families over a unified index; cross-source via parallel calls + merge
 
-**The change:** MCP surface is a per-source tool family for each source type, hosted on `research-mcp` as of V2.P10 — `filings_*` for SEC filings, `transcripts_*` for earnings calls, future `decks_*` for Quartr decks. Each family has four tools: `*_search` (retrieval), `*_read` (navigation of our summarized markdown), `*_source_excerpt` (verification against the authoritative original), `*_list` (metadata discovery). All families are thin wrappers over the single unified FTS5 index (D3). Cross-source queries use parallel per-source calls with client-side merge by BM25 rank — no unified `corpus_search` tool.
+**The change:** MCP surface is a per-source tool family for each source type, hosted on `research-corpus-mcp` as of V2.P10 — `filings_*` for SEC filings, `transcripts_*` for earnings calls, future `decks_*` for Quartr decks. Each family has four tools: `*_search` (retrieval), `*_read` (navigation of our summarized markdown), `*_source_excerpt` (verification against the authoritative original), `*_list` (metadata discovery). All families are thin wrappers over the single unified FTS5 index (D3). Cross-source queries use parallel per-source calls with client-side merge by BM25 rank — no unified `corpus_search` tool.
 
 **Why:** Two wins at once. Per-source families surface intent clearly ("filings live here, transcripts live here") and avoid overloaded `form_type=[...]` parameters. Four tools per family force the agent into explicit modes — retrieval / navigation / verification are cost-distinct operations with different semantics (our index vs. our summary vs. the original source); collapsing them breaks the trust boundary (see §7). Skipping a unified cross-source tool keeps the system-prompt footprint smaller (better cache hit rate, V2.P5) and makes cross-source intent explicit in agent behavior; the tax is one extra tool call on ~20-30% of queries, which is cheap because BM25 scores are comparable across parallel calls to the same FTS5 index.
 
@@ -1337,7 +1337,7 @@ What happens if Gemini returns malformed output for a specific filing? Retry, fl
 The agent-behavior section (§6) specifies the right pattern; the actual prompt wording is an implementation concern but needs to be written carefully because it's what makes the tool surface work. *Defer to implementation plan.*
 
 **Q13. LRU cache in front of `*_source_excerpt`?**
-On-demand verification fetches hit external APIs (edgar-financials, FMP) — ~100-500ms latency per call, per-call cost. If repeated verification against the same sections becomes common (UI showing verbatim side-by-side, adversarial eval runs, agent verifying the same claim across a multi-turn conversation), an in-process LRU cache keyed on `(document_id, section, speaker)` with a short TTL (hours) avoids redundant fetches. Cache key uses `document_id` (per D13) rather than ambiguous tuples. *Lean: add only if measured repeat rate >20%, not speculatively.*
+On-demand verification fetches hit external APIs (edgar-parser-mcp, FMP) — ~100-500ms latency per call, per-call cost. If repeated verification against the same sections becomes common (UI showing verbatim side-by-side, adversarial eval runs, agent verifying the same claim across a multi-turn conversation), an in-process LRU cache keyed on `(document_id, section, speaker)` with a short TTL (hours) avoids redundant fetches. Cache key uses `document_id` (per D13) rather than ambiguous tuples. *Lean: add only if measured repeat rate >20%, not speculatively.*
 
 **Q14. ~~Sector / industry taxonomy — GICS or source-native?~~** *RESOLVED → §4.6.* Frontmatter commits to GICS with `sector`/`industry` fields; source-native classification retained in a secondary field (`sector_source`) for traceability.
 
@@ -1503,13 +1503,13 @@ For reference — current-state inventory so the implementation plan extends rat
 - **`langextract_mcp`** — `parse_filing_sections()` returns `SectionMap: dict[str, tuple[str, int, int]]` — section header → (text, start offset, end offset). Char offsets already supported.
 - **`fmp-mcp` `get_earnings_transcript`** — live-fetched per-speaker segments (no persistence).
 - **Fiscal calendar metadata** — per-filing via Edgar_updater. Not yet normalized cross-company (V2.P7).
-- **`research-mcp` corpus/query surface** — V2.P10 moved `filings_*` and `transcripts_*` search/list/read/source_excerpt plus read-only research workflow context to the always-tier `research-mcp` server.
+- **`research-corpus-mcp` corpus/query surface** — V2.P10 moved `filings_*` and `transcripts_*` search/list/read/source_excerpt plus read-only research workflow context to the always-tier `research-corpus-mcp` server.
 
 ### Verification path — already present infrastructure
 
 The source-link + on-demand-verbatim pattern in §7 leverages tools that already exist. Each per-family `*_source_excerpt` is a thin wrapper over its source's existing fetcher — no new ingestion or API integration required:
 
-- `filings_source_excerpt` → `edgar-financials.get_filing_sections()` — verbatim EDGAR section text.
+- `filings_source_excerpt` → `edgar-parser-mcp.get_filing_sections()` — verbatim EDGAR section text.
 - `transcripts_source_excerpt` → `fmp-mcp.get_earnings_transcript()` — verbatim transcript text per speaker segment.
 - Future `decks_source_excerpt` → Quartr fetcher when V2.P8 integration lands.
 

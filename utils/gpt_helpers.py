@@ -31,6 +31,11 @@ Expected Output:
 
 ["AMD", "INTC", "AVGO", "QCOM", "TSM", "MRVL", "TXN"]
 """.strip()
+
+
+class PeerGenerationLLMError(RuntimeError):
+    """Raised when the LLM peer-generation backend cannot produce a response."""
+
 _ASSET_CLASSIFICATION_SYSTEM_PROMPT = """
 You are a financial asset classification expert.
 Classify securities into exactly one of these asset classes: equity, bond,
@@ -141,13 +146,12 @@ def generate_subindustry_peers(
     -------
     str
         The raw GPT response content as a string (still needs `ast.literal_eval()` parsing).
-        Returns an empty string on error or if the model response is malformed.
 
     Notes
     -----
     • This function does **not** parse the GPT output into a Python list. That is handled downstream.
     • The model is instructed to return only a Python list of valid, public tickers from the U.S., U.K., or Canada.
-    • Failures (API issues, unexpected formats) return an empty string and print full stack trace.
+    • Provider and API failures raise PeerGenerationLLMError; callers should not treat them as empty peers.
 
     Example Output
     --------------
@@ -161,7 +165,7 @@ Industry: {industry}
 
     provider = get_completion_provider()
     if provider is None:
-        return ""
+        raise PeerGenerationLLMError("No completion provider configured for subindustry peer generation")
 
     try:
         content = provider.complete(
@@ -174,13 +178,16 @@ Industry: {industry}
         )
 
         # Expect something like ["AMD", "INTC", "QCOM", ...]
+        if not isinstance(content, str) or not content.strip():
+            raise PeerGenerationLLMError(f"Empty subindustry peer LLM response for {ticker}")
+
         return content
 
     except Exception as e:
         # Log full traceback so the root cause is visible
         portfolio_logger.error(f"⚠️ generate_subindustry_peers failed for {ticker}: {e}")
         portfolio_logger.debug(f"generate_subindustry_peers traceback for {ticker}", exc_info=True)
-        return ""
+        raise PeerGenerationLLMError(f"Subindustry peer LLM call failed for {ticker}") from e
 
 
 @log_errors("high")
