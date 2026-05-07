@@ -77,6 +77,23 @@ from . import _helpers, backfill, fx, holdings, mwr as _mwr, nav, pricing, provi
 _REALIZED_PRICE_FETCH_WORKERS = max(1, int(os.getenv("REALIZED_PRICE_FETCH_WORKERS", "8")))
 
 
+class RealizedPerformancePricingError(RuntimeError):
+    """Raised when realized NAV would require zero-valuing unpriced symbols."""
+
+    def __init__(self, unpriceable_reasons: Dict[str, str]):
+        self.unpriceable_reasons = dict(unpriceable_reasons)
+        preview = ", ".join(
+            f"{ticker} ({reason})"
+            for ticker, reason in sorted(self.unpriceable_reasons.items())[:10]
+        )
+        if len(self.unpriceable_reasons) > 10:
+            preview = f"{preview}, ..."
+        super().__init__(
+            "Realized performance pricing unavailable for symbol(s): "
+            f"{preview}. Refusing to value missing prices as zero."
+        )
+
+
 def _serialize_audit_trail(
     synthetic_entries: Optional[List[Dict[str, Any]]],
     position_timeline: Optional[Dict[Tuple[str, str, str], List[Tuple[Any, Any]]]],
@@ -1426,6 +1443,7 @@ def _analyze_realized_performance_single_scope(
                     "symbols": unpriceable_symbols_sorted,
                 }
             )
+            raise RealizedPerformancePricingError(unpriceable_reasons)
 
         if first_exit_without_opening:
             data_quality_flags.append(
@@ -3264,5 +3282,6 @@ def _analyze_realized_performance_single_scope(
         }
 
 __all__ = [
+    'RealizedPerformancePricingError',
     '_analyze_realized_performance_single_scope',
 ]
