@@ -56,6 +56,11 @@ from portfolio_risk_engine._ticker import resolve_ticker_alias
 from portfolio_risk_engine.config import DIVIDEND_DEFAULTS
 from portfolio_risk_engine.providers import get_price_provider
 
+
+class DividendYieldUnavailable(RuntimeError):
+    """Raised when current dividend yield cannot be calculated reliably."""
+
+
 # ── internals ──────────────────────────────────────────────────────────
 def _hash(parts: Iterable[str | int | float]) -> str:
     key = "_".join(str(p) for p in parts if p is not None)
@@ -366,8 +371,9 @@ def _fetch_current_dividend_yield_lru(data_symbol: str) -> float:
         data_symbol (str): FMP-compatible ticker symbol (e.g., "STWD", "DSU", "BXMT")
 
     Returns:
-        float: Current dividend yield as percentage (e.g., 9.47 for 9.47%)
-               Returns 0.0 for non-dividend paying stocks or on API errors
+        float: Current dividend yield as percentage (e.g., 9.47 for 9.47%).
+               Returns 0.0 only for securities with no dividend history.
+               Raises when provider data needed for the calculation is unavailable.
 
     Example:
         >>> yield_pct = fetch_current_dividend_yield("STWD")
@@ -397,6 +403,9 @@ def _fetch_current_dividend_yield_lru(data_symbol: str) -> float:
 
         annual_dividends = pd.to_numeric(div_df.get("adjDividend", pd.Series(dtype=float)), errors="coerce").fillna(0).sum()
 
+        if annual_dividends <= 0:
+            return 0.0
+
         # Use month-end close aligned to end_month
         prices = fetch_monthly_close(
             data_symbol,
@@ -405,13 +414,12 @@ def _fetch_current_dividend_yield_lru(data_symbol: str) -> float:
             ticker_alias=data_symbol,
         )
         if prices is None or prices.dropna().empty:
-            return 0.0
+            raise DividendYieldUnavailable(f"No month-end price data available for {data_symbol}")
         current_price = float(prices.dropna().iloc[-1])
         if current_price <= 0:
-            return 0.0
-
-        if annual_dividends <= 0:
-            return 0.0
+            raise DividendYieldUnavailable(
+                f"Invalid month-end price for dividend yield calculation: {data_symbol}"
+            )
 
         dividend_yield = (annual_dividends / current_price) * 100.0
         if dividend_yield > DIVIDEND_DATA_QUALITY_THRESHOLD * 100.0:
@@ -426,9 +434,13 @@ def _fetch_current_dividend_yield_lru(data_symbol: str) -> float:
                 },
                 execution_time=0,
             )
-            return 0.0
+            raise DividendYieldUnavailable(
+                f"Calculated dividend yield for {data_symbol} is above data quality threshold"
+            )
 
         return round(float(dividend_yield), 4)
+    except DividendYieldUnavailable:
+        raise
     except Exception as e:
         from portfolio_risk_engine._logging import log_portfolio_operation
         log_portfolio_operation(
@@ -440,7 +452,9 @@ def _fetch_current_dividend_yield_lru(data_symbol: str) -> float:
             },
             execution_time=0,
         )
-        return 0.0
+        raise DividendYieldUnavailable(
+            f"Unable to calculate current dividend yield for {data_symbol}"
+        ) from e
 
 
 def fetch_current_dividend_yield(
@@ -457,12 +471,9 @@ def fetch_current_dividend_yield(
         ticker_alias=ticker_alias,
         ticker_alias_map=ticker_alias_map,
     )
-    try:
-        return float(
-            get_price_provider().fetch_current_dividend_yield(
-                data_symbol,
-                ticker_alias=data_symbol,
-            )
+    return float(
+        get_price_provider().fetch_current_dividend_yield(
+            data_symbol,
+            ticker_alias=data_symbol,
         )
-    except Exception:
-        return _fetch_current_dividend_yield_lru(data_symbol)
+    )

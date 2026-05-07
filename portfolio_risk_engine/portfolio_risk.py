@@ -69,7 +69,11 @@ from fmp.compat import (
     fetch_monthly_close as _compat_fetch_monthly_close,
     fetch_monthly_total_return_price as _compat_fetch_monthly_total_return_price,
 )
-from portfolio_risk_engine.data_loader import fetch_current_dividend_yield
+from fmp.exceptions import FMPEmptyResponseError
+from portfolio_risk_engine.data_loader import (
+    DividendYieldUnavailable,
+    fetch_current_dividend_yield,
+)
 from portfolio_risk_engine.factor_utils import (
     calc_monthly_returns,
     fetch_excess_return,
@@ -103,6 +107,15 @@ _RATE_MATURITY_COL_MAP = {
 }
 _RATE_MATURITY_COLS = set(_RATE_MATURITY_COL_MAP.values())
 _VARIANCE_EXCLUDED_COLS = {"industry", "subindustry"} | _RATE_MATURITY_COLS
+
+
+class ReturnSeriesUnavailable(RuntimeError):
+    """Raised when a ticker return series cannot be computed reliably."""
+
+    def __init__(self, message: str, *, ticker: str | None = None, missing_data: bool = False) -> None:
+        super().__init__(message)
+        self.ticker = ticker
+        self.missing_data = missing_data
 
 
 def _identity_value(identity: Any, field: str, default: Any = None) -> Any:
@@ -662,6 +675,27 @@ def _resolve_instrument_type(
     return str(raw or "").strip().lower()
 
 
+def _is_missing_price_data_error(exc: BaseException) -> bool:
+    """Return True for known empty-history responses, not provider outages."""
+    if isinstance(exc, FMPEmptyResponseError):
+        return True
+    message = str(exc).lower()
+    return any(
+        marker in message
+        for marker in (
+            "no data found",
+            "no historical data",
+        )
+    )
+
+
+def _should_infer_currency_from_alias(ticker: str, data_symbol: object) -> bool:
+    symbol = str(data_symbol or "").strip().upper()
+    if not symbol or symbol == str(ticker or "").strip().upper():
+        return False
+    return "." in symbol
+
+
 def _fetch_futures_prices(
     ticker: str,
     start_date: str,
@@ -879,10 +913,11 @@ def _fetch_ticker_returns(
                         start_date=start_date,
                         end_date=end_date,
                     )
-            except Exception:
-                stable_seed = int(hashlib.md5(ticker.encode()).hexdigest()[:8], 16)
-                rng = np.random.default_rng(seed=stable_seed)
-                local_returns = pd.Series(rng.normal(0, 1e-6, len(idx)), index=idx, name=ticker)
+            except Exception as exc:
+                raise ReturnSeriesUnavailable(
+                    f"Unable to FX-adjust cash returns for {ticker} ({currency})",
+                    ticker=ticker,
+                ) from exc
 
         return {"ticker": ticker, "returns": local_returns, "fx_attribution": fx_attribution}
 
@@ -893,44 +928,74 @@ def _fetch_ticker_returns(
         str(ticker or "").strip().upper()
     )
 
-    if instrument_type == "futures":
-        prices = _fetch_futures_prices(
-            ticker,
-            start_date,
-            end_date,
-            ticker_alias_map=ticker_alias_map,
-        )
-    elif instrument_type == "option" and OPTION_PRICING_PORTFOLIO_ENABLED:
-        prices = _fetch_option_prices(
-            ticker,
-            start_date,
-            end_date,
-            contract_identity=contract_identity,
-        )
-    else:
-        # Try total return prices first (includes dividends)
-        try:
-            prices = fetch_monthly_total_return_price(
+    try:
+        if instrument_type == "futures":
+            prices = _fetch_futures_prices(
                 ticker,
-                start_date=start_date,
-                end_date=end_date,
+                start_date,
+                end_date,
                 ticker_alias_map=ticker_alias_map,
-                instrument_type=instrument_type or "equity",
+            )
+        elif instrument_type == "option" and OPTION_PRICING_PORTFOLIO_ENABLED:
+            prices = _fetch_option_prices(
+                ticker,
+                start_date,
+                end_date,
                 contract_identity=contract_identity,
             )
-        except Exception:
-            # Fall back to close prices (price-only, no dividend adjustment)
-            prices = fetch_monthly_close(
-                ticker,
-                start_date=start_date,
-                end_date=end_date,
-                ticker_alias_map=ticker_alias_map,
-                instrument_type=instrument_type or "equity",
-                contract_identity=contract_identity,
-            )
+        else:
+            # Try total return prices first (includes dividends)
+            try:
+                prices = fetch_monthly_total_return_price(
+                    ticker,
+                    start_date=start_date,
+                    end_date=end_date,
+                    ticker_alias_map=ticker_alias_map,
+                    instrument_type=instrument_type or "equity",
+                    contract_identity=contract_identity,
+                )
+            except Exception as total_return_exc:
+                try:
+                    # Fall back to close prices (price-only, no dividend adjustment)
+                    prices = fetch_monthly_close(
+                        ticker,
+                        start_date=start_date,
+                        end_date=end_date,
+                        ticker_alias_map=ticker_alias_map,
+                        instrument_type=instrument_type or "equity",
+                        contract_identity=contract_identity,
+                    )
+                except Exception as close_exc:
+                    missing_data = _is_missing_price_data_error(close_exc)
+                    raise ReturnSeriesUnavailable(
+                        f"Unable to fetch price history for {ticker}: "
+                        f"total-return failed ({total_return_exc}); close failed ({close_exc})",
+                        ticker=ticker,
+                        missing_data=missing_data,
+                    ) from close_exc
+    except ReturnSeriesUnavailable:
+        raise
+    except Exception as exc:
+        raise ReturnSeriesUnavailable(
+            f"Unable to fetch price history for {ticker}: {exc}",
+            ticker=ticker,
+            missing_data=_is_missing_price_data_error(exc),
+        ) from exc
 
     # Calculate returns from prices
-    ticker_returns = calc_monthly_returns(prices)
+    try:
+        ticker_returns = calc_monthly_returns(prices)
+    except Exception as exc:
+        raise ReturnSeriesUnavailable(
+            f"Unable to calculate monthly returns for {ticker}: {exc}",
+            ticker=ticker,
+        ) from exc
+    if ticker_returns is None or ticker_returns.empty:
+        raise ReturnSeriesUnavailable(
+            f"No monthly returns available for {ticker}",
+            ticker=ticker,
+            missing_data=True,
+        )
 
     fx_attribution: Optional[Dict[str, Any]] = None
 
@@ -944,9 +1009,17 @@ def _fetch_ticker_returns(
             inferred = str(get_futures_currency(ticker) or "").strip().upper()
             if inferred and inferred != "USD":
                 currency = inferred
-        except Exception:
-            pass
-    if not currency and ticker_alias_map and ticker in ticker_alias_map:
+        except Exception as exc:
+            raise ReturnSeriesUnavailable(
+                f"Unable to infer futures currency for {ticker}: {exc}",
+                ticker=ticker,
+            ) from exc
+    if (
+        not currency
+        and ticker_alias_map
+        and ticker in ticker_alias_map
+        and _should_infer_currency_from_alias(ticker, ticker_alias_map[ticker])
+    ):
         # Infer currency from FMP profile (same fallback as latest_price())
         try:
             from portfolio_risk_engine._ticker import infer_currency, normalize_minor_currency_price
@@ -955,9 +1028,13 @@ def _fetch_ticker_returns(
                 instrument_type=instrument_type,
             )
             _, currency = normalize_minor_currency_price(0, fmp_currency)
-        except Exception:
-            pass
-    if currency and currency.upper() != "USD":
+        except Exception as exc:
+            raise ReturnSeriesUnavailable(
+                f"Unable to infer return-series currency for {ticker}: {exc}",
+                ticker=ticker,
+            ) from exc
+    currency_code = str(currency or "").strip().upper()
+    if currency_code and currency_code != "USD":
         try:
             from portfolio_risk_engine.providers import get_fx_provider
 
@@ -965,26 +1042,29 @@ def _fetch_ticker_returns(
             if include_fx_attribution:
                 fx_result = fx_provider.adjust_returns_for_fx(
                     ticker_returns,
-                    currency,
+                    currency_code,
                     start_date=start_date,
                     end_date=end_date,
                     decompose=True,
                 )
                 ticker_returns = fx_result["usd_returns"]
                 fx_attribution = {
-                    "currency": str(currency).strip().upper(),
+                    "currency": currency_code,
                     "local_returns": fx_result["local_returns"],
                     "fx_returns": fx_result["fx_returns"],
                 }
             else:
                 ticker_returns = fx_provider.adjust_returns_for_fx(
                     ticker_returns,
-                    currency,
+                    currency_code,
                     start_date=start_date,
                     end_date=end_date,
                 )
-        except Exception:
-            pass
+        except Exception as exc:
+            raise ReturnSeriesUnavailable(
+                f"Unable to FX-adjust returns for {ticker} ({currency_code}): {exc}",
+                ticker=ticker,
+            ) from exc
 
     return {
         "ticker": ticker,
@@ -1096,6 +1176,9 @@ def get_returns_dataframe(
             try:
                 ticker_result = futures_by_ticker[t].result()
                 ticker_returns = ticker_result["returns"]
+                if ticker_returns is None:
+                    excluded_no_data.append((t, "unsupported instrument type"))
+                    continue
                 if fx_attribution_out is not None and ticker_result["fx_attribution"] is not None:
                     fx_attribution_out[t] = ticker_result["fx_attribution"]
 
@@ -1106,10 +1189,13 @@ def get_returns_dataframe(
                     rets[t] = ticker_returns
                     if raw_returns_out is not None:
                         raw_returns_out[t] = ticker_returns
-            except Exception as e:
-                # Ticker has no data available for the requested date range
-                # This commonly happens with newly IPO'd stocks
-                excluded_no_data.append((t, str(e)[:50]))
+            except ReturnSeriesUnavailable as exc:
+                if exc.missing_data:
+                    # Ticker has no data available for the requested date range.
+                    # This commonly happens with newly IPO'd stocks.
+                    excluded_no_data.append((t, str(exc)[:50]))
+                    continue
+                raise
 
     # ─── Log excluded tickers so users are aware of what's missing ───────────────
     if excluded_no_data:
@@ -2350,6 +2436,23 @@ def _build_portfolio_view_computation(
 
 # ── core/run_portfolio_risk.py ───────────────────────────────────────
 
+
+class RiskFreeRateUnavailable(RuntimeError):
+    """Raised when no explicit or provider-backed risk-free rate is available."""
+
+
+class PerformanceAttributionUnavailable(RuntimeError):
+    """Raised when requested performance attribution cannot be computed."""
+
+
+class PerformanceOptionalMetricUnavailable(RuntimeError):
+    """Raised when requested optional performance metrics cannot be computed."""
+
+
+class BenchmarkDataUnavailable(RuntimeError):
+    """Raised when benchmark returns cannot be loaded or aligned."""
+
+
 def _get_risk_free_rate(
     risk_free_rate: Optional[float],
     start_date: str,
@@ -2363,11 +2466,18 @@ def _get_risk_free_rate(
         from portfolio_risk_engine.data_loader import fetch_monthly_treasury_rates
 
         treasury_rates = fetch_monthly_treasury_rates("month3", start_date, end_date)
-        return float(treasury_rates.mean() / 100.0)
-    except Exception as e:
-        print(f"⚠️  Treasury rate fetch failed: {type(e).__name__}: {e}")
-        print("   Using 4% default risk-free rate")
-        return 0.04
+        resolved_rate = float(treasury_rates.mean() / 100.0)
+    except Exception as exc:
+        raise RiskFreeRateUnavailable(
+            "Unable to fetch 3-month Treasury rate for performance metrics"
+        ) from exc
+
+    if not np.isfinite(resolved_rate):
+        raise RiskFreeRateUnavailable(
+            "3-month Treasury rate series did not produce a finite risk-free rate"
+        )
+
+    return resolved_rate
 
 def calculate_portfolio_performance_metrics(
     weights: Dict[str, float],
@@ -2491,13 +2601,19 @@ def calculate_portfolio_performance_metrics(
         }).dropna()
         
         if aligned_data.empty:
-            return {"error": f"No overlapping data between portfolio and {benchmark_ticker}"}
+            raise BenchmarkDataUnavailable(
+                f"No overlapping data between portfolio and {benchmark_ticker}"
+            )
             
         port_ret = aligned_data['portfolio']
         bench_ret = aligned_data['benchmark']
         
-    except Exception as e:
-        return {"error": f"Could not fetch benchmark data for {benchmark_ticker}: {str(e)}"}
+    except BenchmarkDataUnavailable:
+        raise
+    except Exception as exc:
+        raise BenchmarkDataUnavailable(
+            f"Could not fetch benchmark data for {benchmark_ticker}"
+        ) from exc
     
     risk_free_rate = _get_risk_free_rate(risk_free_rate, start_date, end_date)
     
@@ -2517,8 +2633,10 @@ def calculate_portfolio_performance_metrics(
 
             recent = compute_recent_returns(filtered_weights, benchmark_ticker, ticker_alias_map)
             performance_metrics.setdefault("returns", {}).update(recent)
-        except Exception:
-            pass
+        except Exception as exc:
+            raise PerformanceOptionalMetricUnavailable(
+                "Unable to compute recent return metrics"
+            ) from exc
 
     combined_warnings = list(performance_metrics.get("warnings", []))
 
@@ -2549,18 +2667,10 @@ def calculate_portfolio_performance_metrics(
                 ticker_alias_map=ticker_alias_map,
             )
             performance_metrics["dividend_metrics"] = dividend_metrics
-        except Exception as e:
-            performance_metrics["dividend_metrics"] = {
-                "error": f"Dividend calculation failed: {str(e)}",
-                "portfolio_dividend_yield": 0.0,
-                "data_quality": {
-                    "coverage_by_weight": 0.0,
-                    "coverage_by_count": 0.0,
-                    "positions_with_dividends": 0,
-                    "total_positions": len(filtered_weights),
-                    "failed_tickers": list(filtered_weights.keys()),
-                },
-            }
+        except Exception as exc:
+            raise PerformanceOptionalMetricUnavailable(
+                "Unable to compute dividend metrics"
+            ) from exc
     else:
         performance_metrics["dividend_metrics"] = {}
 
@@ -2572,16 +2682,20 @@ def calculate_portfolio_performance_metrics(
                 ticker_alias_map=ticker_alias_map,
                 instrument_types=instrument_types,
             )
-        except Exception:
-            performance_metrics["sector_attribution"] = []
+        except Exception as exc:
+            raise PerformanceAttributionUnavailable(
+                "Unable to compute sector attribution"
+            ) from exc
 
         try:
             performance_metrics["security_attribution"] = _compute_security_attribution(
                 df_ret=df_ret,
                 weights=filtered_weights,
             )
-        except Exception:
-            performance_metrics["security_attribution"] = []
+        except Exception as exc:
+            raise PerformanceAttributionUnavailable(
+                "Unable to compute security attribution"
+            ) from exc
 
         try:
             performance_metrics["factor_attribution"] = _compute_factor_attribution(
@@ -2590,8 +2704,10 @@ def calculate_portfolio_performance_metrics(
                 end_date=end_date,
                 ticker_alias_map=ticker_alias_map,
             )
-        except Exception:
-            performance_metrics["factor_attribution"] = []
+        except Exception as exc:
+            raise PerformanceAttributionUnavailable(
+                "Unable to compute factor attribution"
+            ) from exc
     else:
         performance_metrics["sector_attribution"] = []
         performance_metrics["security_attribution"] = []
@@ -2866,8 +2982,6 @@ def _compute_factor_attribution(
             }
         )
 
-    alpha_monthly = float(regression.get("alpha", 0.0) or 0.0)
-    intercept_pct = alpha_monthly * float(len(aligned_port)) * 100.0
     total_return_pct = float(((1.0 + aligned_port).prod() - 1.0) * 100.0)
     # Intercept (alpha) folded into Selection & Other so contributions sum
     # to total portfolio return.
@@ -2962,25 +3076,26 @@ def calculate_portfolio_dividend_yield(
     failed_ticker_set: set[str] = set()
 
     def _load_dividend_yield(ticker: str) -> tuple[str, float]:
-        return (
-            ticker,
-            float(
-                fetch_current_dividend_yield(
-                    ticker,
-                    ticker_alias_map=ticker_alias_map,
-                )
-            ),
-        )
+        try:
+            return (
+                ticker,
+                float(
+                    fetch_current_dividend_yield(
+                        ticker,
+                        ticker_alias_map=ticker_alias_map,
+                    )
+                ),
+            )
+        except Exception as exc:
+            raise DividendYieldUnavailable(
+                f"Unable to fetch dividend yield for {ticker}"
+            ) from exc
 
     max_workers = max(1, min(len(ordered_tickers), 8))
     if max_workers == 1:
         for ticker in ordered_tickers:
-            try:
-                _, dividend_yield = _load_dividend_yield(ticker)
-                individual_yield_map[ticker] = dividend_yield
-            except Exception:
-                individual_yield_map[ticker] = 0.0
-                failed_ticker_set.add(ticker)
+            _, dividend_yield = _load_dividend_yield(ticker)
+            individual_yield_map[ticker] = dividend_yield
     else:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {
@@ -2989,12 +3104,8 @@ def calculate_portfolio_dividend_yield(
             }
             for future in as_completed(futures):
                 ticker = futures[future]
-                try:
-                    _, dividend_yield = future.result()
-                    individual_yield_map[ticker] = dividend_yield
-                except Exception:
-                    individual_yield_map[ticker] = 0.0
-                    failed_ticker_set.add(ticker)
+                _, dividend_yield = future.result()
+                individual_yield_map[ticker] = dividend_yield
 
     individual_yields: Dict[str, float] = {
         ticker: individual_yield_map.get(ticker, 0.0)

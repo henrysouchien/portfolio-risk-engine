@@ -133,6 +133,10 @@ class SubindustryPeerGenerationError(RuntimeError):
     """Raised when peer generation fails before a reliable peer list exists."""
 
 
+class FactorProxyBuildError(RuntimeError):
+    """Raised when profile-backed factor proxy construction cannot complete."""
+
+
 def _resolve_instrument_type(
     ticker: str,
     instrument_types: dict[str, str] | None = None,
@@ -364,32 +368,37 @@ def fetch_profile(ticker: str, *, force_refresh: bool = False) -> dict:
 
 import yaml
 
+from utils.reference_data import (
+    is_reference_database_available,
+    raise_reference_data_unavailable,
+    require_seeded_reference_data,
+)
+
 
 def load_exchange_proxy_map(path: str = "exchange_etf_proxies.yaml") -> dict:
     """
-    Load exchange-level ETF proxy mappings from database (with YAML fallback).
+    Load exchange-level ETF proxy mappings from database, or YAML when DB is unavailable.
     Each exchange maps to:
       { market: ETF, momentum: ETF, value: ETF }
     """
-    try:
-        # Try database first
+    if is_reference_database_available():
         from inputs.database_client import DatabaseClient
         from database import get_db_session
-        with get_db_session() as conn:
-            db_client = DatabaseClient(conn)
-            mappings = db_client.get_exchange_mappings()
+
+        try:
+            with get_db_session() as conn:
+                db_client = DatabaseClient(conn)
+                mappings = db_client.get_exchange_mappings()
             if mappings:
                 return mappings
-    except Exception as e:
-        # Fallback to YAML
-        resolved = resolve_config_path(path)
-        database_logger.warning(f"Database unavailable ({e}), using {resolved} fallback")
-        with open(resolved, "r") as f:
-            return yaml.safe_load(f)
+            raise RuntimeError("exchange_proxies returned no rows")
+        except Exception as e:
+            raise_reference_data_unavailable("exchange proxy mappings", e)
 
     resolved = resolve_config_path(path)
     with open(resolved, "r") as f:
-        return yaml.safe_load(f)
+        mappings = yaml.safe_load(f)
+    return require_seeded_reference_data("exchange proxy mappings", mappings, str(resolved))
 
 def map_exchange_proxies(exchange: str, proxy_map: dict) -> dict:
     """
@@ -416,27 +425,26 @@ import yaml
 
 def load_industry_etf_map(path: str = "industry_to_etf.yaml") -> dict:
     """
-    Load industry → ETF mappings from database (with YAML fallback).
+    Load industry → ETF mappings from database, or YAML when DB is unavailable.
     """
-    try:
-        # Try database first
+    if is_reference_database_available():
         from inputs.database_client import DatabaseClient
         from database import get_db_session
-        with get_db_session() as conn:
-            db_client = DatabaseClient(conn)
-            mappings = db_client.get_industry_mappings()
+
+        try:
+            with get_db_session() as conn:
+                db_client = DatabaseClient(conn)
+                mappings = db_client.get_industry_mappings()
             if mappings:
                 return mappings
-    except Exception as e:
-        # Fallback to YAML
-        resolved = resolve_config_path(path)
-        database_logger.warning(f"Database unavailable ({e}), using {resolved} fallback")
-        with open(resolved, "r") as f:
-            return yaml.safe_load(f)
+            raise RuntimeError("industry_proxies returned no rows")
+        except Exception as e:
+            raise_reference_data_unavailable("industry proxy mappings", e)
 
     resolved = resolve_config_path(path)
     with open(resolved, "r") as f:
-        return yaml.safe_load(f)
+        mappings = yaml.safe_load(f)
+    return require_seeded_reference_data("industry proxy mappings", mappings, str(resolved))
 
 def map_industry_etf(industry: str, etf_map: dict) -> str:
     """
@@ -561,7 +569,7 @@ def build_proxy_for_ticker(
     -----
     • ETFs or funds are assigned themselves as their industry proxy 
       only if they are not already serving as the market proxy.
-    • If the FMP profile fetch fails, the function returns None.
+    • If the profile fetch fails, the function raises FactorProxyBuildError.
     • Unrecognized industries default to industry_map['DEFAULT'], if defined.
     """
     if should_skip_profile_lookup(ticker, instrument_types=instrument_types):
@@ -581,8 +589,9 @@ def build_proxy_for_ticker(
             "Check ticker validity and API connectivity",
             details={"ticker": ticker, "ticker_alias": data_symbol, "error": str(e)},
         )
-        gpt_logger.warning(f"⚠️ {ticker}: profile fetch failed — {e}")
-        return None
+        raise FactorProxyBuildError(
+            f"Profile fetch failed for {ticker} using data symbol {data_symbol}"
+        ) from e
 
     proxies = {}
 
@@ -645,7 +654,7 @@ def inject_proxies_into_portfolio_yaml(path: str = "portfolio.yaml") -> None:
     ------------
     • Overwrites the YAML file in-place with updated `stock_factor_proxies`.
     • Prints the number of tickers updated.
-    • Logs warnings for tickers that fail profile retrieval.
+    • Raises if any ticker fails profile retrieval.
 
     Example
     -------
@@ -684,10 +693,7 @@ def inject_proxies_into_portfolio_yaml(path: str = "portfolio.yaml") -> None:
             ticker_alias_map=ticker_alias_map,
             instrument_types=instrument_types,
         )
-        if proxy:
-            stock_proxies[t] = proxy
-        else:
-            portfolio_logger.warning(f"⚠️ Skipping {t} due to missing profile")
+        stock_proxies[t] = proxy
 
     # Update and write back
     cfg["stock_factor_proxies"] = stock_proxies
@@ -1089,10 +1095,7 @@ def inject_all_proxies(
             ticker_alias_map=ticker_alias_map,
             instrument_types=instrument_types,
         )
-        if proxy:
-            stock_proxies[tkr] = proxy
-        else:
-            portfolio_logger.warning(f"⚠️ Skipping {tkr} due to profile error.")
+        stock_proxies[tkr] = proxy
 
     config["stock_factor_proxies"] = stock_proxies
 

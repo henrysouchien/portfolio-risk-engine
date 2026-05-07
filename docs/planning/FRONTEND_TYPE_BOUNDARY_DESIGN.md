@@ -1,13 +1,27 @@
 # Frontend Type Boundary Design
 
-> Status: active design, resolver, registry, chat/research payload, UI block registry, and shared-state/tool-cache slices implemented 2026-05-06.
-> Scope: residual frontend type debt that cannot be safely removed by mechanical `any` to `unknown` edits.
+> Status: complete as of 2026-05-06; accepted dynamic boundaries documented below.
+> Scope: frontend type debt that required design-level boundary contracts instead of mechanical `any` to `unknown` edits.
 
 ## Goal
 
 Move remaining frontend type debt out of feature callsites and into explicit boundary contracts. The frontend already passes `pnpm typecheck`; the remaining debt is mostly broad assertions at dynamic boundaries: resolver outputs, generic registries, streamed chat payloads, UI block sanitizers, and shared-state primitives.
 
 The design target is not "zero casts everywhere." The target is one audited boundary per dynamic system, with typed callers on both sides.
+
+## Closure Snapshot
+
+As of 2026-05-06, all active frontend type-debt workstreams in this plan are complete. The latest production scans found no executable `any`, no `@ts-ignore` or `@ts-expect-error`, no `as unknown as`, and no `as never` in `frontend/packages/connectors/src`, `frontend/packages/chassis/src`, or `frontend/packages/ui/src` outside tests. `pnpm typecheck` and `pnpm lint` passed after the final cleanup.
+
+Accepted assertions remain only at runtime dynamic boundaries:
+
+- runtime-key in-flight and cache registry reads;
+- EventBus payload normalization where legacy and canonical event fields are merged;
+- DataCatalog dynamic descriptor lookup;
+- UI block registry and sanitizer dispatch across heterogeneous block prop maps;
+- dynamic shared-state primitive reads for arbitrary string keys.
+
+These are architectural boundaries, not open caller debt. Future changes should keep assertions inside these boundary modules, add typed key maps or runtime parsers before feature callsites consume new data, and preserve the named dynamic fallback APIs for ad hoc/plugin-like cases.
 
 ## Non-Goals
 
@@ -185,19 +199,20 @@ Acceptance:
 - Known shared flows use key-scoped typed stores.
 - Generic primitives retain explicit `unknown` or dynamic naming so consumers opt into flexibility.
 
-## Sequence
+## Completed Sequence
 
-1. Finish resolver/catalog boundary.
-2. Apply the same typed-key pattern to service, adapter, event, and cache registries.
-3. Add runtime schemas for chat and research streams plus markdown renderable payloads.
-4. Type UI block registry and sanitizers. Registry map shipped; sanitizer fixture expansion remains.
-5. Split shared-state primitives and scenario tool caches into known typed stores plus explicit dynamic fallbacks.
+1. Resolver/catalog boundary.
+2. Service, adapter, event, and cache registries with typed-key maps and named dynamic fallbacks.
+3. Runtime schemas for chat and research streams plus markdown renderable payloads.
+4. UI block registry and sanitizer contracts with direct fixture coverage.
+5. Shared-state primitives and scenario tool caches split into known typed stores plus explicit dynamic fallbacks.
 
 ## Verification
 
 Run from `frontend/` after each slice:
 
 ```bash
+pnpm type-debt:check
 pnpm typecheck
 pnpm lint
 ```

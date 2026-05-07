@@ -18,12 +18,16 @@ from typing import Dict, Union, List, Optional, Any, Tuple, Set
 import pandas as pd
 
 
+class WorstCaseDataUnavailable(RuntimeError):
+    """Raised when worst-case factor loss inputs cannot be fetched reliably."""
+
+
 def _fetch_single_proxy_worst(
     proxy: str,
     start_date: str,
     end_date: str,
     ticker_alias_map: Dict[str, str] | None = None,
-) -> Tuple[str, float | None]:
+) -> Tuple[str, float]:
     """Fetch the worst monthly return for a single factor proxy."""
     try:
         try:
@@ -34,20 +38,28 @@ def _fetch_single_proxy_worst(
                 ticker_alias_map=ticker_alias_map,
             )
         except Exception:
-            prices = fetch_monthly_close(
-                proxy,
-                start_date,
-                end_date,
-                ticker_alias_map=ticker_alias_map,
-            )
+            try:
+                prices = fetch_monthly_close(
+                    proxy,
+                    start_date,
+                    end_date,
+                    ticker_alias_map=ticker_alias_map,
+                )
+            except Exception as close_exc:
+                raise WorstCaseDataUnavailable(
+                    f"Unable to fetch price history for factor proxy {proxy}"
+                ) from close_exc
 
         returns = calc_monthly_returns(prices)
-        if not returns.empty:
-            return proxy, float(returns.min())
+        if returns.empty:
+            raise WorstCaseDataUnavailable(f"No monthly returns available for factor proxy {proxy}")
+        return proxy, float(returns.min())
+    except WorstCaseDataUnavailable:
+        raise
     except Exception as exc:
-        print(f"⚠️ Failed for proxy {proxy}: {exc}")
-
-    return proxy, None
+        raise WorstCaseDataUnavailable(
+            f"Unable to compute worst monthly return for factor proxy {proxy}"
+        ) from exc
 
 
 def _fetch_excess_worst(
@@ -56,7 +68,7 @@ def _fetch_excess_worst(
     start_date: str,
     end_date: str,
     ticker_alias_map: Dict[str, str] | None = None,
-) -> Tuple[float, str] | None:
+) -> Tuple[float, str]:
     """Fetch the worst monthly excess return for a factor proxy versus its market proxy."""
     try:
         returns = fetch_excess_return(
@@ -67,16 +79,23 @@ def _fetch_excess_worst(
             ticker_alias_map=ticker_alias_map,
         )
         if returns.empty:
-            return None
+            raise WorstCaseDataUnavailable(
+                f"No excess returns available for {factor_proxy} vs {market_proxy}"
+            )
 
         worst_idx = returns.idxmin()
         if not hasattr(worst_idx, "strftime"):
-            return None
+            raise WorstCaseDataUnavailable(
+                f"Worst excess return date is invalid for {factor_proxy} vs {market_proxy}"
+            )
 
         return float(returns.min()), worst_idx.strftime("%Y-%m")
+    except WorstCaseDataUnavailable:
+        raise
     except Exception as exc:
-        print(f"⚠️ Failed excess worst fetch for {factor_proxy} vs {market_proxy}: {exc}")
-        return None
+        raise WorstCaseDataUnavailable(
+            f"Unable to compute worst excess return for {factor_proxy} vs {market_proxy}"
+        ) from exc
 
 
 def get_worst_monthly_factor_losses(
@@ -135,8 +154,7 @@ def get_worst_monthly_factor_losses(
         }
         for future in as_completed(futures):
             proxy, worst = future.result()
-            if worst is not None:
-                worst_losses[proxy] = worst
+            worst_losses[proxy] = worst
 
     return worst_losses
 
@@ -164,30 +182,34 @@ def _get_worst_dates_for_proxies(
 
     for proxy in sorted(unique_proxies):
         try:
+            prices = fetch_monthly_total_return_price(
+                proxy,
+                start_date,
+                end_date,
+                ticker_alias_map=ticker_alias_map,
+            )
+        except Exception:
             try:
-                prices = fetch_monthly_total_return_price(
-                    proxy,
-                    start_date,
-                    end_date,
-                    ticker_alias_map=ticker_alias_map,
-                )
-            except Exception:
                 prices = fetch_monthly_close(
                     proxy,
                     start_date,
                     end_date,
                     ticker_alias_map=ticker_alias_map,
                 )
+            except Exception as close_exc:
+                raise WorstCaseDataUnavailable(
+                    f"Unable to fetch price history for factor proxy {proxy}"
+                ) from close_exc
 
-            returns = calc_monthly_returns(prices)
-            if returns.empty:
-                continue
+        returns = calc_monthly_returns(prices)
+        if returns.empty:
+            raise WorstCaseDataUnavailable(f"No monthly returns available for factor proxy {proxy}")
 
-            worst_idx = returns.idxmin()
-            if hasattr(worst_idx, "strftime"):
-                worst_dates[proxy] = worst_idx.strftime("%Y-%m")
-        except Exception as exc:
-            print(f"⚠️ Failed for proxy {proxy}: {exc}")
+        worst_idx = returns.idxmin()
+        if hasattr(worst_idx, "strftime"):
+            worst_dates[proxy] = worst_idx.strftime("%Y-%m")
+        else:
+            raise WorstCaseDataUnavailable(f"Worst return date is invalid for factor proxy {proxy}")
 
     return worst_dates
 

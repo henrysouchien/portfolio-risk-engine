@@ -58,6 +58,11 @@ from fmp.compat import (
 )
 from portfolio_risk_engine.factor_utils import calc_monthly_returns
 from settings import RATE_FACTOR_CONFIG, FACTOR_INTELLIGENCE_DEFAULTS
+from core.cash_helpers import get_proxy_by_currency
+from utils.reference_data import (
+    is_reference_database_available,
+    raise_reference_data_unavailable,
+)
 
 # Reuse existing DB‑first YAML loaders for exchange/industry maps
 from core.proxy_builder import load_exchange_proxy_map, load_industry_etf_map
@@ -65,28 +70,28 @@ from core.proxy_builder import load_exchange_proxy_map, load_industry_etf_map
 @lru_cache(maxsize=DATA_LOADER_LRU_SIZE)
 def load_asset_class_proxies() -> Tuple[Dict[str, Dict[str, str]], str]:
     """
-    Load asset class → ETF proxies using DB‑first approach, with YAML and
-    hardcoded fallbacks.
+    Load asset class → ETF proxies from database, or YAML when DB is unavailable.
 
     Returns
     -------
     (proxies, source):
         proxies: {asset_class: {proxy_key: etf_ticker}}
-        source:  'database' | 'yaml' | 'hardcoded'
+        source:  'database' | 'yaml'
     """
-    # DB‑first
-    try:
+    if is_reference_database_available():
         from inputs.database_client import DatabaseClient
         from database import get_db_session
-        with get_db_session() as conn:
-            db_client = DatabaseClient(conn)
-            proxies = db_client.get_asset_etf_proxies()
-        if proxies:
-            return proxies, 'database'
-    except Exception as e:
-        log_portfolio_operation("asset_proxy_loader_db_failed", {"error": str(e)}, execution_time=0)
 
-    # YAML fallback
+        try:
+            with get_db_session() as conn:
+                db_client = DatabaseClient(conn)
+                proxies = db_client.get_asset_etf_proxies()
+            if proxies:
+                return proxies, 'database'
+            raise RuntimeError("asset_etf_proxies returned no rows")
+        except Exception as e:
+            raise_reference_data_unavailable("asset ETF proxies", e)
+
     try:
         import yaml
         yaml_path = resolve_config_path("asset_etf_proxies.yaml")
@@ -102,15 +107,11 @@ def load_asset_class_proxies() -> Tuple[Dict[str, Dict[str, str]], str]:
                     out[aclass] = {k: str(v) for k, v in canon.items()}
             if out:
                 return out, 'yaml'
+            raise RuntimeError(f"asset_etf_proxies.yaml has no canonical proxies: {yaml_path}")
+        raise FileNotFoundError(yaml_path)
     except Exception as e:
         log_portfolio_operation("asset_proxy_loader_yaml_failed", {"error": str(e)}, execution_time=0)
-
-    # Minimal hardcoded fallback
-    return {
-        'bond':      {'UST2Y': 'SHY', 'UST10Y': 'IEF', 'UST30Y': 'TLT'},
-        'commodity': {'broad': 'DBC', 'gold': 'GLD'},
-        'crypto':    {'BTC': 'IBIT'}
-    }, 'hardcoded'
+        raise
 
 
 @lru_cache(maxsize=DATA_LOADER_LRU_SIZE)
@@ -137,19 +138,7 @@ def load_cash_proxies() -> Tuple[Dict[str, str], str]:
 
     Returns (mapping, source) where mapping is {currency: proxy_etf}.
     """
-    try:
-        import yaml
-        yaml_path = resolve_config_path("cash_map.yaml")
-        if yaml_path.exists():
-            with open(yaml_path, 'r') as f:
-                data = yaml.safe_load(f) or {}
-            proxy = data.get("proxy_by_currency", {})
-            if proxy:
-                return {k: str(v) for k, v in proxy.items()}, 'yaml'
-    except Exception as e:
-        log_portfolio_operation("cash_proxy_loader_yaml_failed", {"error": str(e)}, execution_time=0)
-
-    return {"USD": "SGOV"}, 'hardcoded'
+    return get_proxy_by_currency(), 'yaml'
 
 
 def _deterministic_universe_hash(universe: Dict[str, List[str]]) -> str:
@@ -556,7 +545,7 @@ def fetch_factor_universe(use_database: bool = True) -> Dict[str, List[str]]:
 
     Calls into:
     - DB-backed proxy loaders for industry/exchange/asset mappings, plus the
-      YAML-backed cash proxy loader, with hardcoded fallbacks where applicable.
+      canonical YAML-backed cash proxy loader.
 
     Returns
     -------

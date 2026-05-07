@@ -39,6 +39,14 @@ except ImportError:
     SecurityTypeService = None
 
 
+class RiskScoreDependencyUnavailable(RuntimeError):
+    """Raised when required risk-score dependencies are unavailable."""
+
+
+class SecurityTypeLookupUnavailable(RuntimeError):
+    """Raised when required security-type classification cannot complete."""
+
+
 def _safe_finite(value: Any, fallback: float = 0.0) -> float:
     """Return value if finite non-negative number, else fallback."""
     if value is None:
@@ -314,16 +322,24 @@ def _resolve_crash_scenario(
     security_type = "equity"
     ticker_key = str(ticker) if ticker is not None else ""
 
-    if security_types and ticker in security_types:
-        security_type = security_types[ticker]
+    if security_types is not None:
+        security_type = security_types.get(ticker) or security_types.get(ticker_key)
+        if not security_type:
+            raise SecurityTypeLookupUnavailable(f"Missing security type for {ticker_key}")
     elif SecurityTypeService and ticker_key and portfolio_data is not None:
         try:
             type_lookup = SecurityTypeService.get_security_types([ticker_key], portfolio_data)
-            security_type = type_lookup.get(ticker_key, "equity")
+            security_type = type_lookup.get(ticker_key)
         except Exception as exc:
-            portfolio_logger.warning(
-                f"Security type lookup failed for {ticker_key}, defaulting to equity: {exc}"
-            )
+            raise SecurityTypeLookupUnavailable(
+                f"Unable to resolve security type for {ticker_key}"
+            ) from exc
+        if not security_type:
+            raise SecurityTypeLookupUnavailable(f"Missing security type for {ticker_key}")
+    elif ticker_key and portfolio_data is not None:
+        raise SecurityTypeLookupUnavailable(
+            f"SecurityTypeService unavailable for {ticker_key}"
+        )
 
     if security_type not in SECURITY_TYPE_CRASH_MAPPING:
         portfolio_logger.warning(f"Unmapped security type '{security_type}' for {ticker}, defaulting to equity crash scenario")
@@ -532,7 +548,8 @@ def calculate_concentration_risk_loss(
     - Securities: Use FMP via SecurityTypeService for authoritative classification
     
     FALLBACK BEHAVIOR:
-    - If SecurityTypeService unavailable: Falls back to generic 80% (equity) scenario
+    - If no security types are supplied to this low-level helper: uses the
+      generic 80% (equity) scenario
     - If security type unknown: Defaults to equity classification (conservative)
     
     PERFORMANCE:
@@ -2124,8 +2141,9 @@ def run_risk_score_analysis(
     # LOGGING: Add recommendation generation logging
     # LOGGING: Add score validation logging
     if build_portfolio_view is None or calc_max_factor_betas is None or standardize_portfolio_input is None:
-        print("Error: Required modules not available. Make sure portfolio-risk-engine is installed.")
-        return
+        raise RiskScoreDependencyUnavailable(
+            "Required risk-score modules are not available"
+        )
     
     try:
         # Load configuration
@@ -2164,14 +2182,27 @@ def run_risk_score_analysis(
         portfolio_data = portfolio if isinstance(portfolio, PortfolioData) else None
 
         # Resolve security types once and thread through downstream concentration checks.
-        security_types = None
-        if SecurityTypeService:
-            try:
-                tickers = list(weights.keys())
-                security_types = SecurityTypeService.get_security_types(tickers, portfolio_data)
-            except Exception as e:
-                portfolio_logger.warning(f"Security type lookup failed in risk score path, falling back: {e}")
-                security_types = None
+        if SecurityTypeService is None:
+            raise SecurityTypeLookupUnavailable(
+                "SecurityTypeService is required for risk score analysis"
+            )
+        tickers = list(weights.keys())
+        try:
+            security_types = SecurityTypeService.get_security_types(tickers, portfolio_data)
+        except Exception as exc:
+            raise SecurityTypeLookupUnavailable(
+                "Unable to resolve security types for risk score analysis"
+            ) from exc
+        if not isinstance(security_types, dict):
+            raise SecurityTypeLookupUnavailable(
+                "Security type lookup did not return a mapping"
+            )
+        missing_security_types = [ticker for ticker in tickers if not security_types.get(ticker)]
+        if missing_security_types:
+            raise SecurityTypeLookupUnavailable(
+                "Missing security types for risk score analysis: "
+                f"{missing_security_types[:5]}"
+            )
         
         # Build portfolio view with standardized weights
         summary = build_portfolio_view(
@@ -2340,11 +2371,9 @@ def run_risk_score_analysis(
             print(result.to_cli_report())
             return result  # For programmatic access
         
-    except Exception as e:
-        print(f"Error running risk score analysis: {e}")
-        import traceback
-        traceback.print_exc()
-        return None
+    except Exception:
+        portfolio_logger.exception("Risk score analysis failed")
+        raise
 
 
 def calculate_risk_score(*args, **kwargs):
