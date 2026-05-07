@@ -160,3 +160,26 @@ No architectural blockers identified. Plan-first workflow continues to apply.
 - ✅ Codex R4 PASS plan + R1 PASS source-excerpt fix
 
 Phase 1 is ready to be marked SHIPPED in `docs/TODO.md` once the 14-day soak completes.
+
+---
+
+## 8. Soak gate closure — F51 superseded by freshness machinery (2026-05-07)
+
+The original 3 in-flight time-window gates (delta 14-day, reconciler 14-day, dashboard 7-day) were specced when the cron pipeline was new and untrusted. Closing them required 14 consecutive clean days of cron continuity as a precaution against silent ingest drift.
+
+**Pre-launch reality check.** Hank is pre-launch. No external traffic is hitting the corpus. The "14 clean days" gate was implicitly waiting for usage pressure to validate the cron — that signal will not arrive before launch. Solo dogfooding cannot substitute. Per `CLAUDE.md` ("Don't defer to dodge friction"): *pre-launch deferral hides a decision behind a signal that will never arrive.*
+
+**The protective concerns are now structurally addressed**, not by passage of time but by shipped infrastructure that did not exist when this report was written:
+
+| Original soak-gate concern | Now structurally addressed by |
+|---|---|
+| "Is the daily delta cron continuously running?" | F54 timer running daily, autonomous since 2026-05-06; F60 cron continuity monitor shipped |
+| "Does the reconciler catch drift between disk and DB?" | F66 6-state recovery state machine + sweeper; F65 cache versioning + parser provenance on `documents` |
+| "Will silent freshness drift accumulate?" | F52 invalidation contract live + autonomous from 2026-05-06 10:00 UTC; F68 prod deploy 2026-05-05; F70 deploy.sh health-check polling; F71 predicate-parser FTS prefilter |
+| "Will I notice if the cron stops?" | `corpus_health_report` runs daily and writes `data/corpus/health/<date>.json`; cron-failure alerts wired in `corpus_delta_ingest_alert.service` |
+
+**The corpus health monitor is continuous, not gated.** `scripts/corpus_health_report.py` runs daily and produces a JSON dashboard regardless of whether F51 is "closed." Treating F51 as a one-time closure event was an artifact of the original spec; in the shipped architecture, health-monitoring is permanent infrastructure with no closure event.
+
+**Closure rationale**: F51 closes as **superseded**. The protections it was guarding against are now implemented at the architecture level (F52, F60, F65, F66, F68, F70, F71), not gated on a calendar window. Phase 2-real (full S&P 500 expansion) and any future ingest scaling proceed against the same continuous-monitor infrastructure with no parallel "soak gate" requirement.
+
+If the cron later degrades, the response is to fix it, not to re-introduce a window-based gate.
