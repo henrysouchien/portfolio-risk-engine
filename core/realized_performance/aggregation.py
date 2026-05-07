@@ -55,6 +55,20 @@ from trading_analysis.symbol_utils import parse_option_contract_identity_from_sy
 
 from . import _helpers, engine, holdings, mwr as _mwr, nav
 
+
+class RealizedPerformanceAccountAggregationError(RuntimeError):
+    """Raised when account-level realized performance cannot be fully aggregated."""
+
+    def __init__(self, institution: str | None, account_errors: Dict[str, str]):
+        self.institution = institution
+        self.account_errors = dict(account_errors)
+        detail = ", ".join(
+            f"{account}: {error}" for account, error in sorted(self.account_errors.items())
+        )
+        institution_label = str(institution or "requested institution")
+        super().__init__(f"Account aggregation failed for {institution_label}: {detail}")
+
+
 def _prefetch_fifo_transactions(
     *,
     positions,
@@ -1306,24 +1320,14 @@ def _analyze_realized_performance_account_aggregated(
             institution,
         )
     except Exception as exc:
-        perf_logger.warning(
-            "Account aggregation prefetch failed; falling back to single-scope path: %s",
+        perf_logger.error(
+            "Account aggregation prefetch failed: %s",
             exc,
         )
-        return engine._analyze_realized_performance_single_scope(
-            positions=positions,
-            user_email=user_email,
-            benchmark_ticker=benchmark_ticker,
-            source=source,
-            institution=institution,
-            account=None,
-            segment=segment,
-            include_series=include_series,
-            backfill_path=backfill_path,
-            price_registry=price_registry,
-            inception_override=inception_override,
-            account_filters=account_filters,
-        )
+        raise RealizedPerformanceAccountAggregationError(
+            institution,
+            {"prefetch": str(exc)},
+        ) from exc
 
     if len(account_ids) <= 1:
         single_account = account_ids[0] if account_ids else None
@@ -1382,32 +1386,8 @@ def _analyze_realized_performance_account_aggregated(
         except Exception as exc:
             per_account_errors[account_id] = str(exc)
 
-    if not per_account:
-        perf_logger.warning(
-            "Account aggregation: all %d accounts failed, falling back to single-scope",
-            len(account_ids),
-        )
-        fallback = engine._analyze_realized_performance_single_scope(
-            positions=positions,
-            user_email=user_email,
-            benchmark_ticker=benchmark_ticker,
-            source=source,
-            institution=institution,
-            account=None,
-            segment=segment,
-            include_series=include_series,
-            backfill_path=backfill_path,
-            price_registry=price_registry,
-            inception_override=inception_override,
-            account_filters=account_filters,
-        )
-        if isinstance(fallback, RealizedPerformanceResult):
-            fallback_warnings = list(fallback.realized_metadata.data_warnings or [])
-            fallback_warnings.append(
-                f"Account aggregation fallback: all discovered {institution} accounts failed account-scoped analysis."
-            )
-            fallback.realized_metadata.data_warnings = sorted(set(fallback_warnings))
-        return fallback
+    if per_account_errors:
+        raise RealizedPerformanceAccountAggregationError(institution, per_account_errors)
 
     return _build_aggregated_result(
         per_account=per_account,
