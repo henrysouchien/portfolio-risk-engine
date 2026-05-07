@@ -25,8 +25,8 @@ from core.corpus.validation import (
 )
 
 
-FILINGS_FAMILY_FORM_TYPES = frozenset({'10-K', '10-Q', '8-K'})
-_FILINGS_FAMILY_DEFAULT_FORM_TYPES = ['10-K', '10-Q', '8-K']
+FILINGS_FAMILY_FORM_TYPES = frozenset({'10-K', '10-Q', '8-K', '20-F', '6-K'})
+_FILINGS_FAMILY_DEFAULT_FORM_TYPES = ['10-K', '10-Q', '8-K', '20-F', '6-K']
 _EXCERPT_FORM_TYPES = {
     '10-K': '10-K',
     '10-K/A': '10-K',
@@ -34,6 +34,15 @@ _EXCERPT_FORM_TYPES = {
     '10-Q/A': '10-Q',
     '8-K': '8-K',
     '8-K/A': '8-K',
+    '20-F': '20-F',
+    '20-F/A': '20-F',
+    '6-K': '6-K',
+    '6-K/A': '6-K',
+}
+_API_SOURCE_BY_BASE_FORM = {
+    '8-K': '8k',
+    '20-F': '20f',
+    '6-K': '6k',
 }
 _FILING_SOURCE_LOOKUP_COLUMNS = (
     'document_id',
@@ -187,62 +196,14 @@ def filings_source_excerpt(
             reason='row missing source_accession; cannot verify API alignment',
         )
 
-    try:
-        filings_payload = edgar_api_client.get_filings(ticker_value, year, quarter)
-    except edgar_api_client.EdgarAPIError as exc:
-        raise ExcerptUnavailableError(
-            resolved_document_id,
-            reason=f'edgar_api /api/filings failed: {exc}',
-        ) from exc
-
-    base_form = normalized_form_type
-    matching = [
-        filing for filing in (filings_payload.get('filings') or [])
-        if str(filing.get('form', '')) == base_form
-    ]
-    if not matching:
-        raise ExcerptUnavailableError(
-            resolved_document_id,
-            reason=f'no {base_form} filings in API response for {ticker_value} {year}Q{quarter}',
-        )
-
-    matching.sort(
-        key=lambda filing: (str(filing.get('filing_date', '')), str(filing.get('accession', ''))),
-        reverse=True,
-    )
-    latest_filing_date = str(matching[0].get('filing_date', '')).strip()
-    if not latest_filing_date:
-        raise ExcerptUnavailableError(
-            resolved_document_id,
-            reason=(
-                f'/api/filings returned {len(matching)} {base_form} filing(s) for '
-                f'{ticker_value} {year}Q{quarter} with no filing_date - cannot verify '
-                'accession alignment'
-            ),
-        )
-
-    same_date_matches = [
-        filing for filing in matching
-        if str(filing.get('filing_date', '')) == latest_filing_date
-    ]
-    if len(same_date_matches) > 1:
-        raise ExcerptUnavailableError(
-            resolved_document_id,
-            reason=(
-                f'{len(same_date_matches)} {base_form} filings on {latest_filing_date} for '
-                f'{ticker_value} {year}Q{quarter}; API cannot disambiguate (F43 territory)'
-            ),
-        )
-
-    latest_accession = str(matching[0].get('accession', ''))
-    if latest_accession != expected_accession:
-        raise ExcerptUnavailableError(
-            resolved_document_id,
-            reason=(
-                f'corpus row accession {expected_accession} is not the latest for '
-                f'{ticker_value} {year}Q{quarter} {base_form} (API has {latest_accession}); '
-                'API cannot target older/amended/superseded filings'
-            ),
+    if source_param not in {'20f', '6k'}:
+        _verify_latest_filing_alignment(
+            document_id=resolved_document_id,
+            ticker=ticker_value,
+            year=year,
+            quarter=quarter,
+            base_form=normalized_form_type,
+            expected_accession=expected_accession,
         )
 
     try:
@@ -260,6 +221,17 @@ def filings_source_excerpt(
             resolved_document_id,
             reason=f'edgar_api /api/sections failed: {exc}',
         ) from exc
+
+    if source_param in {'20f', '6k'}:
+        api_accession = _section_response_accession(api_payload)
+        if api_accession != expected_accession:
+            raise ExcerptUnavailableError(
+                resolved_document_id,
+                reason=(
+                    f'corpus row accession {expected_accession} does not match '
+                    f'/api/sections {normalized_form_type} response accession {api_accession or "<missing>"}'
+                ),
+            )
 
     section_payload = (api_payload.get('sections') or {}).get(canonical_section_id) or {}
     state = str(section_payload.get('state', ''))
@@ -362,12 +334,87 @@ def _resolve_filings_form_types(form_type: list[str] | None) -> list[str]:
     return list(form_type)
 
 
+def _verify_latest_filing_alignment(
+    *,
+    document_id: str,
+    ticker: str,
+    year: int,
+    quarter: int,
+    base_form: str,
+    expected_accession: str,
+) -> None:
+    try:
+        filings_payload = edgar_api_client.get_filings(ticker, year, quarter)
+    except edgar_api_client.EdgarAPIError as exc:
+        raise ExcerptUnavailableError(
+            document_id,
+            reason=f'edgar_api /api/filings failed: {exc}',
+        ) from exc
+
+    matching = [
+        filing for filing in (filings_payload.get('filings') or [])
+        if str(filing.get('form', '')) == base_form
+    ]
+    if not matching:
+        raise ExcerptUnavailableError(
+            document_id,
+            reason=f'no {base_form} filings in API response for {ticker} {year}Q{quarter}',
+        )
+
+    matching.sort(
+        key=lambda filing: (str(filing.get('filing_date', '')), str(filing.get('accession', ''))),
+        reverse=True,
+    )
+    latest_filing_date = str(matching[0].get('filing_date', '')).strip()
+    if not latest_filing_date:
+        raise ExcerptUnavailableError(
+            document_id,
+            reason=(
+                f'/api/filings returned {len(matching)} {base_form} filing(s) for '
+                f'{ticker} {year}Q{quarter} with no filing_date - cannot verify '
+                'accession alignment'
+            ),
+        )
+
+    same_date_matches = [
+        filing for filing in matching
+        if str(filing.get('filing_date', '')) == latest_filing_date
+    ]
+    if len(same_date_matches) > 1:
+        raise ExcerptUnavailableError(
+            document_id,
+            reason=(
+                f'{len(same_date_matches)} {base_form} filings on {latest_filing_date} for '
+                f'{ticker} {year}Q{quarter}; API cannot disambiguate (F43 territory)'
+            ),
+        )
+
+    latest_accession = str(matching[0].get('accession', ''))
+    if latest_accession != expected_accession:
+        raise ExcerptUnavailableError(
+            document_id,
+            reason=(
+                f'corpus row accession {expected_accession} is not the latest for '
+                f'{ticker} {year}Q{quarter} {base_form} (API has {latest_accession}); '
+                'API cannot target older/amended/superseded filings'
+            ),
+        )
+
+
+def _section_response_accession(api_payload: dict) -> str | None:
+    filing = api_payload.get('filing')
+    if not isinstance(filing, dict):
+        return None
+    accession = str(filing.get('accession') or '').strip()
+    return accession or None
+
+
 def _resolve_api_params_from_row(row: sqlite3.Row) -> tuple[int, int, str | None]:
     """Map a documents row to (year, quarter, source) for edgar_api."""
     form_type = str(row['form_type'])
     fiscal_period = str(row['fiscal_period'] or '').strip()
     base_form = form_type[:-2] if form_type.endswith('/A') else form_type
-    source: str | None = '8k' if base_form == '8-K' else None
+    source: str | None = _API_SOURCE_BY_BASE_FORM.get(base_form)
 
     if not fiscal_period:
         raise InvalidInputError(f"row missing fiscal_period for form_type {form_type}")

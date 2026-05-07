@@ -37,6 +37,12 @@ _EDGAR_CORPUS_HEADER_TO_ID = {
     '8-K': {
         'Earnings Press Release': 'earnings_release',
     },
+    '20-F': {
+        'Annual Report': 'annual_report',
+    },
+    '6-K': {
+        'Foreign Issuer Report': 'foreign_report',
+    },
 }
 
 

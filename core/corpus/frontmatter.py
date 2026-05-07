@@ -17,9 +17,13 @@ ALLOWED_FORM_TYPES = {
     '10-K',
     '10-Q',
     '8-K',
+    '20-F',
+    '6-K',
     '10-K/A',
     '10-Q/A',
     '8-K/A',
+    '20-F/A',
+    '6-K/A',
     'TRANSCRIPT',
     'DECK',
 }

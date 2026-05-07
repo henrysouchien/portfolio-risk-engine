@@ -17,6 +17,7 @@ _CIK_CACHE_DIR = _CORPUS_DATA_DIR / 'cache' / 'phase2_ciks'
 _UNIVERSE_FILES = (
     _CORPUS_DATA_DIR / 'universe.json',
     _CORPUS_DATA_DIR / 'universe_phase2.json',
+    _CORPUS_DATA_DIR / 'universe_operational.json',
 )
 
 
