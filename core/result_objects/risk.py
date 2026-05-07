@@ -348,8 +348,12 @@ class RiskAnalysisResult:
     ) -> List[Dict[str, Any]]:
         """Aggregate position-level Euler variance into asset-class risk buckets."""
         asset_classes = (self.analysis_metadata or {}).get("asset_classes", {}) or {}
-        if not asset_classes or self.euler_variance_pct is None or len(self.euler_variance_pct) == 0:
+        if self.euler_variance_pct is None or len(self.euler_variance_pct) == 0:
             return []
+        if not asset_classes:
+            raise ValueError(
+                "Asset-class risk contributions require analysis_metadata.asset_classes."
+            )
 
         weights = self._get_analysis_weights()
         grouped: Dict[str, Dict[str, Any]] = {}
@@ -1202,8 +1206,9 @@ class RiskAnalysisResult:
         # Require pre-calculated asset classes - fail fast if missing
         asset_classes = getattr(self, 'analysis_metadata', {}).get('asset_classes', {})
         if not asset_classes:
-            # Fail fast - don't hide missing data with fallback business logic
-            return []  # Return empty, this is a real error that should be fixed in core analysis
+            raise ValueError(
+                "Asset allocation breakdown requires analysis_metadata.asset_classes."
+            )
         
         # Optional performance data for change/changeType
         perf_meta = (self.analysis_metadata or {}).get('asset_class_performance', {})
