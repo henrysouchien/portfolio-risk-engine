@@ -1185,6 +1185,16 @@ def _analyze_realized_performance_single_scope(
         ibkr_priced_symbols: Dict[str, set[str]] = defaultdict(set)
         unpriceable_reason_counts: Counter[str] = Counter()
         unpriceable_reasons: Dict[str, str] = {}
+
+        def _timeline_position_still_open(ticker: str) -> bool:
+            for tl_key, tl_events in position_timeline.items():
+                if tl_key[0] != ticker or not tl_events:
+                    continue
+                cumulative_qty = sum(float(event[1]) for event in tl_events)
+                if abs(cumulative_qty) > 1e-9:
+                    return True
+            return False
+
         def _resolve_price_for_ticker(ticker: str) -> Dict[str, Any]:
             raw_types = ticker_instrument_types.get(ticker, {"equity"})
             instrument_type = min(raw_types, key=lambda t: routing_priority.get(t, 99))
@@ -1215,13 +1225,7 @@ def _analyze_realized_performance_single_scope(
                     # Check if option still has open lots — if so, prefer IBKR fallback
                     # over stale FIFO terminal price. Timeline events are deltas
                     # (BUY=+qty, SELL=-qty), so we must sum to get cumulative position.
-                    option_still_open = False
-                    for tl_key, tl_events in position_timeline.items():
-                        if tl_key[0] == ticker and tl_events:
-                            cumulative_qty = sum(float(ev[1]) for ev in tl_events)
-                            if abs(cumulative_qty) > 1e-9:
-                                option_still_open = True
-                                break
+                    option_still_open = _timeline_position_still_open(ticker)
 
                     fifo_terminal = _helpers._option_fifo_terminal_series(ticker, fifo_transactions, end_date)
                     has_fifo_terminal = not fifo_terminal.empty and not fifo_terminal.dropna().empty
@@ -1316,10 +1320,24 @@ def _analyze_realized_performance_single_scope(
                     has_cusip = isinstance(contract_identity, dict) and contract_identity.get("cusip")
                     has_isin = isinstance(contract_identity, dict) and contract_identity.get("isin")
                     if has_ibkr and con_id in (None, "") and not (has_cusip or has_isin):
-                        ticker_warnings.append(
-                            f"No con_id, CUSIP, or ISIN for bond {ticker}; skipping IBKR bond pricing."
+                        fifo_terminal = _helpers._fifo_terminal_series(
+                            ticker,
+                            fifo_transactions,
+                            end_date,
+                            close_types=("SELL", "COVER"),
                         )
-                        unpriceable_reason = "bond_missing_identifiers"
+                        has_fifo_terminal = not fifo_terminal.empty and not fifo_terminal.dropna().empty
+                        if has_fifo_terminal and not _timeline_position_still_open(ticker):
+                            norm = _helpers._series_from_cache(fifo_terminal)
+                            ticker_warnings.append(
+                                f"Priced closed bond {ticker} using FIFO close-price terminal heuristic "
+                                "(missing con_id, CUSIP, and ISIN)."
+                            )
+                        else:
+                            ticker_warnings.append(
+                                f"No con_id, CUSIP, or ISIN for bond {ticker}; skipping IBKR bond pricing."
+                            )
+                            unpriceable_reason = "bond_missing_identifiers"
                     else:
                         price_result = pricing._fetch_price_from_chain(
                             chain,
@@ -1412,7 +1430,7 @@ def _analyze_realized_performance_single_scope(
 
             norm = ticker_result["series"]
             if norm.empty or norm.dropna().empty:
-                warnings.append(f"No monthly prices found for {ticker}; valuing as 0 when unavailable.")
+                warnings.append(f"No monthly prices found for {ticker}; refusing to value as 0.")
                 unpriceable_symbols.add(ticker)
                 unpriceable_reason = ticker_result["unpriceable_reason"]
                 unpriceable_reasons[ticker] = unpriceable_reason
@@ -1427,7 +1445,7 @@ def _analyze_realized_performance_single_scope(
                 preview = f"{preview}, ..."
             warnings.append(
                 f"HIGH DATA QUALITY FLAG: {len(unpriceable_symbols_sorted)} symbol(s) could not be priced "
-                f"({preview}). These symbols are valued at 0 in NAV and unrealized P&L."
+                f"({preview}). Realized performance analysis aborted rather than valuing missing prices at 0."
             )
             data_quality_flags.append(
                 {

@@ -43,6 +43,8 @@ import hashlib
 import pandas as pd
 from pandas.errors import EmptyDataError, ParserError
 
+from fmp.exceptions import FMPEmptyResponseError
+
 # Add logging decorator imports
 from portfolio_risk_engine._logging import (
     log_portfolio_operation,
@@ -389,12 +391,17 @@ def _fetch_current_dividend_yield_lru(data_symbol: str) -> float:
         lookback_months = int(DIVIDEND_DEFAULTS.get("lookback_months", 12))
         start_month = end_month - pd.DateOffset(months=lookback_months - 1)
 
-        div_df = fetch_dividend_history(
-            data_symbol,
-            start_month,
-            end_month,
-            ticker_alias=data_symbol,
-        )
+        try:
+            div_df = fetch_dividend_history(
+                data_symbol,
+                start_month,
+                end_month,
+                ticker_alias=data_symbol,
+            )
+        except FMPEmptyResponseError as exc:
+            if exc.endpoint == "dividends":
+                return 0.0
+            raise
         if isinstance(div_df, pd.Series):
             # Ensure DataFrame form if cache returns a Series unexpectedly
             div_df = div_df.to_frame(name="adjDividend")

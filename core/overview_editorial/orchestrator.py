@@ -683,69 +683,60 @@ class DataGatheringOrchestrator:
     ) -> dict[str, Any] | None:
         ytd_start, _, today = self._current_overview_dates()
 
-        try:
-            _, _, portfolio_data, position_result = self._load_portfolio_for_performance(
+        _, _, portfolio_data, position_result = self._load_portfolio_for_performance(
+            user_email=user_email,
+            portfolio_name=portfolio_name,
+            use_cache=use_cache,
+            mode="realized",
+        )
+        portfolio_service = self._portfolio_service_cls(cache_results=use_cache)
+        realized_result = self._get_realized_performance_result_snapshot(
+            user_id=user_id,
+            portfolio_name=portfolio_name,
+            portfolio_data=portfolio_data,
+            benchmark_ticker=benchmark_ticker,
+            source="all",
+            institution=None,
+            account=None,
+            segment="all",
+            include_series=False,
+            start_date=None,
+            builder=lambda: portfolio_service.analyze_realized_performance(
+                position_result=position_result,
                 user_email=user_email,
-                portfolio_name=portfolio_name,
-                use_cache=use_cache,
-                mode="realized",
-            )
-            portfolio_service = self._portfolio_service_cls(cache_results=use_cache)
-            realized_result = self._get_realized_performance_result_snapshot(
-                user_id=user_id,
-                portfolio_name=portfolio_name,
-                portfolio_data=portfolio_data,
                 benchmark_ticker=benchmark_ticker,
                 source="all",
-                institution=None,
-                account=None,
                 segment="all",
                 include_series=False,
-                start_date=None,
-                builder=lambda: portfolio_service.analyze_realized_performance(
-                    position_result=position_result,
-                    user_email=user_email,
-                    benchmark_ticker=benchmark_ticker,
-                    source="all",
-                    segment="all",
-                    include_series=False,
-                ),
-                use_cache=use_cache,
-            )
-            realized_result = _coerce_realized_result(realized_result)
-            ytd_result = self._apply_date_window(realized_result, ytd_start, today)
-            ytd_result = None if isinstance(ytd_result, dict) else ytd_result
-            ytd_return_pct = (
-                _extract_total_return_pct(ytd_result, benchmark_ticker=benchmark_ticker)
-                if ytd_result is not None
-                else None
-            )
-            ytd_benchmark_return_pct = (
-                _extract_benchmark_return_pct(ytd_result, benchmark_ticker=benchmark_ticker)
-                if ytd_result is not None
-                else None
-            )
+            ),
+            use_cache=use_cache,
+        )
+        realized_result = _coerce_realized_result(realized_result)
+        ytd_result = self._apply_date_window(realized_result, ytd_start, today)
+        ytd_result = None if isinstance(ytd_result, dict) else ytd_result
+        ytd_return_pct = (
+            _extract_total_return_pct(ytd_result, benchmark_ticker=benchmark_ticker)
+            if ytd_result is not None
+            else None
+        )
+        ytd_benchmark_return_pct = (
+            _extract_benchmark_return_pct(ytd_result, benchmark_ticker=benchmark_ticker)
+            if ytd_result is not None
+            else None
+        )
 
-            resolved_benchmark_ticker = _resolve_benchmark_ticker(
-                _get_agent_snapshot(realized_result, benchmark_ticker=benchmark_ticker),
-                benchmark_ticker=benchmark_ticker,
-            )
-            label = f"YTD vs {resolved_benchmark_ticker}" if ytd_return_pct is not None else f"vs {resolved_benchmark_ticker}"
-            return _normalize_performance(
-                realized_result,
-                benchmark_ticker=benchmark_ticker,
-                display_return_pct=ytd_return_pct,
-                display_return_label=label,
-                display_benchmark_return_pct=ytd_benchmark_return_pct,
-            )
-        except Exception:
-            _logger.info(
-                "overview realized performance unavailable for user %s portfolio %s",
-                user_id,
-                portfolio_name,
-                exc_info=True,
-            )
-            return None
+        resolved_benchmark_ticker = _resolve_benchmark_ticker(
+            _get_agent_snapshot(realized_result, benchmark_ticker=benchmark_ticker),
+            benchmark_ticker=benchmark_ticker,
+        )
+        label = f"YTD vs {resolved_benchmark_ticker}" if ytd_return_pct is not None else f"vs {resolved_benchmark_ticker}"
+        return _normalize_performance(
+            realized_result,
+            benchmark_ticker=benchmark_ticker,
+            display_return_pct=ytd_return_pct,
+            display_return_label=label,
+            display_benchmark_return_pct=ytd_benchmark_return_pct,
+        )
 
     def gather(
         self,
@@ -764,15 +755,12 @@ class DataGatheringOrchestrator:
         )
         effective_user_id = user_id or resolved_user_id
 
-        try:
-            factor_proxies = self._get_factor_proxies_snapshot(
-                effective_user_id,
-                normalized_portfolio_name,
-                portfolio_data,
-                allow_gpt=True,
-            )
-        except Exception:
-            factor_proxies = {}
+        factor_proxies = self._get_factor_proxies_snapshot(
+            effective_user_id,
+            normalized_portfolio_name,
+            portfolio_data,
+            allow_gpt=True,
+        )
         if factor_proxies:
             portfolio_data.stock_factor_proxies = factor_proxies
             refresh_cache_key = getattr(portfolio_data, "refresh_cache_key", None)

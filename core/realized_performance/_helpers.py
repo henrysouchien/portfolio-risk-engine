@@ -219,19 +219,22 @@ def _series_from_cache(series: Optional[pd.Series]) -> pd.Series:
         series.index = pd.to_datetime(series.index)
     return series.sort_index().astype(float)
 
-def _option_fifo_terminal_series(
+def _fifo_terminal_series(
     symbol: str,
     fifo_transactions: List[Dict[str, Any]],
     end_date: Any,
+    *,
+    close_types: Iterable[str] = ("SELL", "COVER"),
 ) -> pd.Series:
-    """Build a 1-point option terminal price series from FIFO close transactions."""
+    """Build a 1-point terminal price series from FIFO close transactions."""
     sym = str(symbol or "").strip().upper()
     end_ts = pd.Timestamp(end_date)
+    allowed_close_types = {str(value or "").upper() for value in close_types}
     terminal_event: tuple[datetime, float] | None = None
     for txn in fifo_transactions:
         txn_symbol = str(txn.get("symbol") or "").strip().upper()
         txn_type = str(txn.get("type") or "").upper()
-        if txn_symbol != sym or txn_type not in {"SELL", "COVER"}:
+        if txn_symbol != sym or txn_type not in allowed_close_types:
             continue
         close_date = _to_datetime(txn.get("date"))
         close_price = _as_float(txn.get("price"), default=np.nan)
@@ -249,24 +252,33 @@ def _option_fifo_terminal_series(
     series = pd.Series([float(price)], index=pd.DatetimeIndex([pd.Timestamp(ts)]), name=sym)
     return series.sort_index()
 
-def _option_fifo_terminal_source(
+
+def _option_fifo_terminal_series(
+    symbol: str,
+    fifo_transactions: List[Dict[str, Any]],
+    end_date: Any,
+) -> pd.Series:
+    """Build a 1-point option terminal price series from FIFO close transactions."""
+    return _fifo_terminal_series(symbol, fifo_transactions, end_date, close_types=("SELL", "COVER"))
+
+
+def _fifo_terminal_source(
     symbol: str,
     fifo_transactions: list,
     end_date: str | datetime,
+    *,
+    close_types: Iterable[str] = ("SELL", "COVER"),
 ) -> str | None:
-    """Return the source of the terminal SELL/COVER event for this option.
-
-    Mirrors _option_fifo_terminal_series() selection logic: same symbol,
-    SELL/COVER type, valid price, date <= end_date, latest date wins.
-    """
+    """Return the source of the selected terminal close event."""
     sym = str(symbol or "").strip().upper()
     end_ts = pd.Timestamp(end_date).to_pydatetime().replace(tzinfo=None)
+    allowed_close_types = {str(value or "").upper() for value in close_types}
     best_date: datetime | None = None
     best_source: str | None = None
     for txn in fifo_transactions:
         txn_symbol = str(txn.get("symbol") or "").strip().upper()
         txn_type = str(txn.get("type") or "").upper()
-        if txn_symbol != sym or txn_type not in {"SELL", "COVER"}:
+        if txn_symbol != sym or txn_type not in allowed_close_types:
             continue
         close_date = _to_datetime(txn.get("date"))
         close_price = _as_float(txn.get("price"), default=np.nan)
@@ -278,6 +290,15 @@ def _option_fifo_terminal_source(
             best_date = close_date
             best_source = str(txn.get("source") or "").strip().lower()
     return best_source
+
+
+def _option_fifo_terminal_source(
+    symbol: str,
+    fifo_transactions: list,
+    end_date: str | datetime,
+) -> str | None:
+    """Return the source of the terminal SELL/COVER event for this option."""
+    return _fifo_terminal_source(symbol, fifo_transactions, end_date, close_types=("SELL", "COVER"))
 
 def _option_expiry_datetime(
     symbol: str,
@@ -500,7 +521,10 @@ __all__ = [
     '_as_float',
     '_value_at_or_before',
     '_series_from_cache',
+    '_fifo_terminal_series',
+    '_fifo_terminal_source',
     '_option_fifo_terminal_series',
+    '_option_fifo_terminal_source',
     '_option_expiry_datetime',
     '_build_option_price_cache',
     '_month_end_range',

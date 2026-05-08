@@ -15,6 +15,10 @@ _logger = logging.getLogger(__name__)
 _SEED_PATH = Path(__file__).resolve().parents[2] / "config" / "editorial_memory_seed.json"
 
 
+class EditorialMemorySeedError(RuntimeError):
+    """Raised when the configured editorial memory seed cannot be loaded."""
+
+
 def _row_value(row: Any, *, key: str, index: int) -> Any:
     if row is None:
         return None
@@ -30,12 +34,29 @@ def _row_value(row: Any, *, key: str, index: int) -> Any:
 
 
 def _load_seed_fallback() -> dict[str, Any]:
+    if not _SEED_PATH.exists():
+        return {}
+
     try:
-        if _SEED_PATH.exists():
-            return _normalize_editorial_memory(json.loads(_SEED_PATH.read_text()))
-    except Exception:
-        _logger.warning("editorial_memory_seed_missing", exc_info=True)
-    return {}
+        raw_seed = _SEED_PATH.read_text()
+    except OSError as exc:
+        raise EditorialMemorySeedError(
+            f"Unable to read editorial memory seed: {_SEED_PATH}"
+        ) from exc
+
+    try:
+        parsed_seed = json.loads(raw_seed)
+    except json.JSONDecodeError as exc:
+        raise EditorialMemorySeedError(
+            f"Editorial memory seed contains invalid JSON: {_SEED_PATH}"
+        ) from exc
+
+    if not isinstance(parsed_seed, dict):
+        raise EditorialMemorySeedError(
+            f"Editorial memory seed must contain a JSON object: {_SEED_PATH}"
+        )
+
+    return _normalize_editorial_memory(parsed_seed)
 
 
 def _normalize_editorial_memory(memory: dict[str, Any]) -> dict[str, Any]:
@@ -223,6 +244,7 @@ def _fire_invalidation_callbacks(user_id: int) -> None:
 
 
 __all__ = [
+    "EditorialMemorySeedError",
     "editorial_state_row_exists",
     "load_editorial_state",
     "seed_editorial_memory_if_missing",

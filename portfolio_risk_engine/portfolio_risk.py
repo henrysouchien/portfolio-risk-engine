@@ -58,7 +58,7 @@ from portfolio_math.correlation import (
     compute_portfolio_volatility as _pm_compute_portfolio_volatility,
     compute_risk_contributions as _pm_compute_risk_contributions,
 )
-from core.cash_helpers import is_cur_ticker
+from core.cash_helpers import is_cash_ticker, is_cur_ticker
 from core.coverage_tracking import (
     FactorCoverage,
     ModelingStatus,
@@ -765,6 +765,7 @@ def _filter_tickers_by_data_availability(
     end_date: str,
     min_months: int = 12,
     ticker_alias_map: Optional[Dict[str, str]] = None,
+    currency_map: Optional[Dict[str, str]] = None,
     instrument_types: Optional[Dict[str, str]] = None,
     contract_identities: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> Tuple[Dict[str, float], List[str], List[str]]:
@@ -790,34 +791,16 @@ def _filter_tickers_by_data_availability(
 
     def _check_one(ticker: str, weight: float) -> tuple[str, float, int | None, str | None]:
         try:
-            instrument_type = _resolve_instrument_type(ticker, instrument_types)
-            contract_identity = (contract_identities or {}).get(
-                str(ticker or "").strip().upper()
+            ticker_result = _fetch_ticker_returns(
+                ticker,
+                start_date,
+                end_date,
+                ticker_alias_map=ticker_alias_map,
+                currency_map=currency_map,
+                instrument_types=instrument_types,
+                contract_identities=contract_identities,
             )
-            if instrument_type == "futures":
-                prices = _fetch_futures_prices(
-                    ticker,
-                    start_date,
-                    end_date,
-                    ticker_alias_map=ticker_alias_map,
-                )
-            elif instrument_type == "option" and OPTION_PRICING_PORTFOLIO_ENABLED:
-                prices = _fetch_option_prices(
-                    ticker,
-                    start_date,
-                    end_date,
-                    contract_identity=contract_identity,
-                )
-            else:
-                prices = fetch_monthly_close(
-                    ticker,
-                    start_date=start_date,
-                    end_date=end_date,
-                    ticker_alias_map=ticker_alias_map,
-                    instrument_type=instrument_type or "equity",
-                    contract_identity=contract_identity,
-                )
-            returns = calc_monthly_returns(prices)
+            returns = ticker_result["returns"]
             months_available = len(returns) if returns is not None else 0
             if returns is not None and months_available >= min_months:
                 return ticker, weight, months_available, None
@@ -827,7 +810,9 @@ def _filter_tickers_by_data_availability(
                 months_available,
                 f"Excluded {ticker}: only {months_available} months of data (need {min_months})",
             )
-        except Exception as exc:
+        except ReturnSeriesUnavailable as exc:
+            if not exc.missing_data:
+                raise
             return (
                 ticker,
                 0.0,
@@ -2552,6 +2537,7 @@ def calculate_portfolio_performance_metrics(
         end_date,
         min_months=min_obs,
         ticker_alias_map=ticker_alias_map,
+        currency_map=currency_map,
         instrument_types=instrument_types,
     )
     
@@ -3071,7 +3057,36 @@ def calculate_portfolio_dividend_yield(
             },
         }
 
-    ordered_tickers = list(weights.keys())
+    excluded_cash_tickers = [
+        ticker for ticker in weights.keys()
+        if is_cash_ticker(ticker)
+    ]
+    dividend_weights = {
+        ticker: weight
+        for ticker, weight in weights.items()
+        if ticker not in excluded_cash_tickers
+    }
+    if not dividend_weights:
+        result = {
+            "portfolio_dividend_yield": 0.0,
+            "individual_yields": {},
+            "dividend_contributions": {},
+            "data_quality": {
+                "coverage_by_count": 0.0,
+                "coverage_by_weight": 0.0,
+                "positions_with_dividends": 0,
+                "total_positions": 0,
+                "failed_tickers": [],
+                "cash_positions_excluded": len(excluded_cash_tickers),
+                "excluded_cash_tickers": excluded_cash_tickers,
+            },
+        }
+        if portfolio_value and portfolio_value > 0:
+            result["estimated_annual_dividends"] = 0.0
+            result["top_dividend_contributors"] = []
+        return result
+
+    ordered_tickers = list(dividend_weights.keys())
     individual_yield_map: Dict[str, float] = {}
     failed_ticker_set: set[str] = set()
 
@@ -3117,18 +3132,21 @@ def calculate_portfolio_dividend_yield(
 
     # Weighted portfolio yield (weights as fractions)
     portfolio_yield = 0.0
-    total_weight_sum = sum(weights.values()) if weights else 0.0
-    for t, w in weights.items():
+    total_weight_sum = sum(dividend_weights.values()) if dividend_weights else 0.0
+    for t, w in dividend_weights.items():
         y = individual_yields.get(t, 0.0)
         portfolio_yield += (y * w)
 
     positions_with_div = sum(1 for y in individual_yields.values() if y > 0)
-    coverage_by_count = (positions_with_div / len(weights)) if weights else 0.0
-    weight_with_div = sum(w for t, w in weights.items() if individual_yields.get(t, 0.0) > 0)
+    coverage_by_count = (positions_with_div / len(dividend_weights)) if dividend_weights else 0.0
+    weight_with_div = sum(
+        w for t, w in dividend_weights.items()
+        if individual_yields.get(t, 0.0) > 0
+    )
     coverage_by_weight = (weight_with_div / total_weight_sum) if total_weight_sum else 0.0
 
     dividend_contributions: Dict[str, Dict[str, float]] = {}
-    for t, w in weights.items():
+    for t, w in dividend_weights.items():
         y = individual_yields.get(t, 0.0)
         contrib_pct = (y * w / portfolio_yield * 100.0) if portfolio_yield > 0 else 0.0
         dividend_contributions[t] = {
@@ -3145,8 +3163,10 @@ def calculate_portfolio_dividend_yield(
             "coverage_by_count": round(coverage_by_count, 3),
             "coverage_by_weight": round(coverage_by_weight, 3),
             "positions_with_dividends": positions_with_div,
-            "total_positions": len(weights),
+            "total_positions": len(dividend_weights),
             "failed_tickers": failed_tickers,
+            "cash_positions_excluded": len(excluded_cash_tickers),
+            "excluded_cash_tickers": excluded_cash_tickers,
         },
     }
 

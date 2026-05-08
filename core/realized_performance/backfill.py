@@ -53,6 +53,11 @@ from trading_analysis.symbol_utils import parse_option_contract_identity_from_sy
 
 from . import _helpers, fx as fx_module, provider_flows
 
+
+class BackfillFileError(RuntimeError):
+    """Raised when a configured manual backfill file is present but invalid."""
+
+
 def _sanitize_backfill_id_component(value: Any) -> str:
     raw = str(value or "").strip().lower()
     if not raw:
@@ -100,12 +105,10 @@ def _build_backfill_entry_transactions(
         with open(path, "r", encoding="utf-8") as handle:
             raw = json.load(handle)
     except Exception as exc:
-        warnings.append(f"Failed to load backfill file {path}: {exc}; skipping backfill injection.")
-        return [], {}, warnings
+        raise BackfillFileError(f"Failed to load backfill file {path}: {exc}") from exc
 
     if not isinstance(raw, list):
-        warnings.append(f"Backfill file {path} is not a JSON array; skipping backfill injection.")
-        return [], {}, warnings
+        raise BackfillFileError(f"Backfill file {path} is not a JSON array")
 
     seq_by_fallback_key: Dict[Tuple[str, str, str, str, str, str], int] = defaultdict(int)
     injected_transactions: List[Dict[str, Any]] = []
@@ -404,6 +407,7 @@ def _summarize_income_usd(
     }
 
 __all__ = [
+    'BackfillFileError',
     '_sanitize_backfill_id_component',
     '_build_backfill_transaction_id',
     '_build_backfill_entry_transactions',

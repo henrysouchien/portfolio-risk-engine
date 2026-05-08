@@ -15,6 +15,7 @@ Key functions
 Notes
 -----
 - Prefers dividend‑adjusted total‑return series; falls back to close.
+- Routes synthetic ``CUR:*`` cash factors through FX series, never equity pricing.
 - Deterministic universe hashing aids cache keys and debugging.
 - Uses global LRU cache sizes from utils.config.
 """
@@ -60,9 +61,10 @@ from fmp.compat import (
     fetch_monthly_total_return_price,
     fetch_monthly_close,
 )
+from fmp.fx import get_monthly_fx_series
 from portfolio_risk_engine.factor_utils import calc_monthly_returns
 from settings import RATE_FACTOR_CONFIG, FACTOR_INTELLIGENCE_DEFAULTS
-from core.cash_helpers import get_proxy_by_currency
+from core.cash_helpers import currency_for_ticker, get_proxy_by_currency, is_cur_ticker
 from utils.reference_data import (
     is_reference_database_available,
     raise_reference_data_unavailable,
@@ -231,40 +233,58 @@ def _build_factor_returns_panel_cached(
                 tickers.append(tu)
 
     def _load_returns(ticker: str) -> tuple[str, Optional[pd.Series], str | None, str | None]:
-        try:
-            prices = (
-                fetch_monthly_total_return_price(
-                    ticker,
-                    start_date,
-                    end_date,
-                    ticker_alias_map=ticker_alias_map,
+        ticker_category = ticker_to_category.get(ticker, "unknown")
+
+        if is_cur_ticker(ticker):
+            if ticker_category != "cash":
+                raise RuntimeError(
+                    f"Synthetic cash ticker {ticker} is only valid in the cash factor category; "
+                    f"found category={ticker_category!r}"
                 )
-                if total_return else
-                fetch_monthly_close(
-                    ticker,
-                    start_date,
-                    end_date,
-                    ticker_alias_map=ticker_alias_map,
-                )
-            )
-        except Exception as primary_exc:
+            currency = currency_for_ticker(ticker)
+            if not currency:
+                raise RuntimeError(f"Synthetic cash ticker {ticker} has no currency mapping")
             try:
-                prices = fetch_monthly_close(
-                    ticker,
-                    start_date,
-                    end_date,
-                    ticker_alias_map=ticker_alias_map,
+                prices = get_monthly_fx_series(currency, start_date=start_date, end_date=end_date)
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Unable to fetch FX history for cash factor proxy {ticker} ({currency})"
+                ) from exc
+        else:
+            try:
+                prices = (
+                    fetch_monthly_total_return_price(
+                        ticker,
+                        start_date,
+                        end_date,
+                        ticker_alias_map=ticker_alias_map,
+                    )
+                    if total_return else
+                    fetch_monthly_close(
+                        ticker,
+                        start_date,
+                        end_date,
+                        ticker_alias_map=ticker_alias_map,
+                    )
                 )
-            except Exception as fallback_exc:
-                return (
-                    ticker,
-                    None,
-                    "fetch_failed",
-                    "total_return="
-                    f"{type(primary_exc).__name__}: {primary_exc}; "
-                    "close="
-                    f"{type(fallback_exc).__name__}: {fallback_exc}",
-                )
+            except Exception as primary_exc:
+                try:
+                    prices = fetch_monthly_close(
+                        ticker,
+                        start_date,
+                        end_date,
+                        ticker_alias_map=ticker_alias_map,
+                    )
+                except Exception as fallback_exc:
+                    return (
+                        ticker,
+                        None,
+                        "fetch_failed",
+                        "total_return="
+                        f"{type(primary_exc).__name__}: {primary_exc}; "
+                        "close="
+                        f"{type(fallback_exc).__name__}: {fallback_exc}",
+                    )
 
         if prices.empty:
             return ticker, None, "empty_prices", None
