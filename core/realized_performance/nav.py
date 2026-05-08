@@ -60,6 +60,11 @@ from trading_analysis.symbol_utils import parse_option_contract_identity_from_sy
 
 from . import _helpers, fx as fx_module, provider_flows
 
+
+class RiskFreeRateUnavailable(RuntimeError):
+    """Raised when realized performance cannot load a provider-backed risk-free rate."""
+
+
 def derive_cash_and_external_flows(
     fifo_transactions: List[Dict[str, Any]],
     income_with_currency: List[Dict[str, Any]],
@@ -967,11 +972,23 @@ def _safe_treasury_rate(start_date: datetime, end_date: datetime) -> float:
     try:
         rates = treasury_fetcher("month3", start_date, end_date)
         rates = _helpers._series_from_cache(rates)
-        if rates.empty:
-            return 0.04
-        return _helpers._as_float(rates.mean(), 4.0) / 100.0
-    except Exception:
-        return 0.04
+    except Exception as exc:
+        raise RiskFreeRateUnavailable(
+            "Unable to fetch 3-month Treasury rate for realized performance metrics"
+        ) from exc
+
+    if rates.empty:
+        raise RiskFreeRateUnavailable(
+            "No 3-month Treasury rate data available for realized performance metrics"
+        )
+
+    resolved_rate = float(rates.mean() / 100.0)
+    if not np.isfinite(resolved_rate):
+        raise RiskFreeRateUnavailable(
+            "3-month Treasury rate series did not produce a finite risk-free rate"
+        )
+
+    return resolved_rate
 
 def _compute_unrealized_pnl_usd(
     fifo_result,
@@ -1058,6 +1075,7 @@ __all__ = [
     'compute_monthly_returns',
     'compute_twr_monthly_returns',
     'compute_twr_daily_returns',
+    'RiskFreeRateUnavailable',
     '_safe_treasury_rate',
     '_compute_unrealized_pnl_usd',
     '_compute_net_contributions_usd',

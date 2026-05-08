@@ -50,7 +50,11 @@ def _get_ticker_source_file(ticker: str, category: str) -> str:
         return "unknown_source"
 
 
-from portfolio_risk_engine.portfolio_risk import calculate_portfolio_performance_metrics
+from portfolio_risk_engine.portfolio_risk import (
+    RiskFreeRateUnavailable,
+    calculate_portfolio_performance_metrics,
+)
+from portfolio_risk_engine.data_loader import fetch_monthly_treasury_rates
 
 from fmp.compat import (
     fetch_monthly_total_return_price,
@@ -120,15 +124,22 @@ def load_industry_buckets() -> Dict[str, str]:
     Load industry → sector_group buckets (DB‑first). Industries with NULL bucket
     are omitted; callers can fall back to per‑industry granularity.
     """
+    from utils.reference_data import (
+        is_reference_database_available,
+        raise_reference_data_unavailable,
+    )
+
+    if not is_reference_database_available():
+        return {}
+
     try:
         from inputs.database_client import DatabaseClient
         from database import get_db_session
         with get_db_session() as conn:
             db_client = DatabaseClient(conn)
             return db_client.get_industry_sector_groups()
-    except Exception:
-        # No YAML for buckets by design; return empty mapping
-        return {}
+    except Exception as e:
+        raise_reference_data_unavailable("industry sector groups", e)
 
 
 @lru_cache(maxsize=DATA_LOADER_LRU_SIZE)
@@ -219,7 +230,7 @@ def _build_factor_returns_panel_cached(
                 ticker_to_category[tu] = cat
                 tickers.append(tu)
 
-    def _load_returns(ticker: str) -> tuple[str, Optional[pd.Series], str | None]:
+    def _load_returns(ticker: str) -> tuple[str, Optional[pd.Series], str | None, str | None]:
         try:
             prices = (
                 fetch_monthly_total_return_price(
@@ -236,7 +247,7 @@ def _build_factor_returns_panel_cached(
                     ticker_alias_map=ticker_alias_map,
                 )
             )
-        except Exception:
+        except Exception as primary_exc:
             try:
                 prices = fetch_monthly_close(
                     ticker,
@@ -244,19 +255,27 @@ def _build_factor_returns_panel_cached(
                     end_date,
                     ticker_alias_map=ticker_alias_map,
                 )
-            except Exception:
-                return ticker, None, "fetch_failed"
+            except Exception as fallback_exc:
+                return (
+                    ticker,
+                    None,
+                    "fetch_failed",
+                    "total_return="
+                    f"{type(primary_exc).__name__}: {primary_exc}; "
+                    "close="
+                    f"{type(fallback_exc).__name__}: {fallback_exc}",
+                )
 
         if prices.empty:
-            return ticker, None, "empty_prices"
+            return ticker, None, "empty_prices", None
 
         try:
             rets = calc_monthly_returns(prices)
             if not isinstance(rets, pd.Series) or rets.empty:
-                return ticker, None, "empty_returns"
-            return ticker, rets, None
-        except Exception:
-            return ticker, None, "returns_failed"
+                return ticker, None, "empty_returns", None
+            return ticker, rets, None, None
+        except Exception as exc:
+            return ticker, None, "returns_failed", f"{type(exc).__name__}: {exc}"
 
     series_map: Dict[str, pd.Series] = {}
     failed_tickers: list[dict[str, str]] = []
@@ -265,21 +284,22 @@ def _build_factor_returns_panel_cached(
         with ThreadPoolExecutor(max_workers=max_workers) as ex:
             futures = {ex.submit(_load_returns, t): t for t in tickers}
             for fut in as_completed(futures):
-                tkr, ser, failure_reason = fut.result()
+                tkr, ser, failure_reason, failure_error = fut.result()
                 if ser is not None and len(ser) >= 2:
                     series_map[tkr] = ser.rename(tkr)
                 else:
                     ticker_category = ticker_to_category.get(tkr, "unknown")
                     source_file = _get_ticker_source_file(tkr, ticker_category)
-                    failed_tickers.append(
-                        {
-                            "ticker": tkr,
-                            "category": ticker_category,
-                            "source": source_file,
-                            "reason": failure_reason or "unknown",
-                            "data_length": str(len(ser) if ser is not None else 0),
-                        }
-                    )
+                    failure_record = {
+                        "ticker": tkr,
+                        "category": ticker_category,
+                        "source": source_file,
+                        "reason": failure_reason or "unknown",
+                        "data_length": str(len(ser) if ser is not None else 0),
+                    }
+                    if failure_error:
+                        failure_record["error"] = failure_error
+                    failed_tickers.append(failure_record)
 
     if failed_tickers:
         reason_counts: Dict[str, int] = {}
@@ -306,6 +326,17 @@ def _build_factor_returns_panel_cached(
             f"between {start_date} and {end_date}.",
             "Check factor universe coverage and upstream market data availability",
         )
+        if tickers:
+            sample = "; ".join(
+                f"{item['ticker']}={item['reason']}"
+                + (f" ({item['error']})" if item.get("error") else "")
+                for item in failed_tickers[:5]
+            )
+            raise RuntimeError(
+                "Factor returns panel build returned no usable series for "
+                f"{len(tickers)} tickers between {start_date} and {end_date}. "
+                f"Sample failures: {sample or 'none recorded'}"
+            )
         return pd.DataFrame()
 
     # LOG: Analyze individual ticker date ranges for the analysis period
@@ -1007,38 +1038,51 @@ def _calculate_group_rate_betas(
     Dict[str, Dict[str, float]]
         Group betas: {group_name: {rate_key: beta_value}}
     """
-    try:
-        # Build group composites using same logic as correlation calculation
-        label_series, _ = _build_industry_series_by_granularity(returns_panel, granularity='group')
+    # Build group composites using same logic as correlation calculation.
+    label_series, _ = _build_industry_series_by_granularity(returns_panel, granularity='group')
 
-        if not label_series:
-            return {}
-
-        group_betas = {}
-        from portfolio_risk_engine.factor_utils import compute_multifactor_betas
-
-        for group_name, group_series in label_series.items():
-            aligned = pd.concat([group_series, dy[used_maturities]], axis=1).dropna()
-            if aligned.shape[0] < 2:
-                continue
-
-            group_betas[group_name] = {}
-            for rate_key in used_maturities:
-                try:
-                    result = compute_multifactor_betas(
-                        aligned.iloc[:, 0],  # group composite returns
-                        aligned[[rate_key]]  # single rate factor
-                    )
-                    coefficient = result.get('betas', {}).get(rate_key, 0.0)
-                    group_betas[group_name][rate_key] = float(coefficient)
-                except Exception:
-                    group_betas[group_name][rate_key] = 0.0
-
-        return group_betas
-
-    except Exception:
-        # Graceful fallback if group calculation fails
+    if not label_series:
         return {}
+
+    group_betas = {}
+    from portfolio_risk_engine.factor_utils import compute_multifactor_betas
+
+    for group_name, group_series in label_series.items():
+        aligned = pd.concat([group_series, dy[used_maturities]], axis=1).dropna()
+        if aligned.shape[0] < 2:
+            continue
+
+        group_betas[group_name] = {}
+        for rate_key in used_maturities:
+            try:
+                result = compute_multifactor_betas(
+                    aligned.iloc[:, 0],  # group composite returns
+                    aligned[[rate_key]]  # single rate factor
+                )
+                group_betas[group_name][rate_key] = _required_finite_beta(
+                    result,
+                    rate_key,
+                    context=f"industry group {group_name!r} rate beta",
+                )
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Failed to calculate rate beta for industry group {group_name!r} and factor {rate_key!r}"
+                ) from exc
+
+    return group_betas
+
+
+def _required_finite_beta(result: Dict[str, Any], factor_key: str, *, context: str) -> float:
+    betas = result.get('betas') if isinstance(result, dict) else None
+    if not isinstance(betas, dict) or factor_key not in betas:
+        raise RuntimeError(f"{context} did not return beta for {factor_key!r}")
+    try:
+        coefficient = float(betas[factor_key])
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(f"{context} returned non-numeric beta for {factor_key!r}") from exc
+    if not np.isfinite(coefficient):
+        raise RuntimeError(f"{context} returned non-finite beta for {factor_key!r}")
+    return coefficient
 
 
 def compute_rate_sensitivity(
@@ -1165,38 +1209,38 @@ def _calculate_group_market_betas(
     Dict[str, Dict[str, float]]
         Group betas: {group_name: {benchmark_key: beta_value}}
     """
-    try:
-        # Build group composites using same logic as correlation calculation
-        label_series, _ = _build_industry_series_by_granularity(returns_panel, granularity='group')
+    # Build group composites using same logic as correlation calculation.
+    label_series, _ = _build_industry_series_by_granularity(returns_panel, granularity='group')
 
-        if not label_series:
-            return {}
-
-        group_betas = {}
-        from portfolio_risk_engine.factor_utils import compute_multifactor_betas
-
-        for group_name, group_series in label_series.items():
-            aligned = pd.concat([group_series, bench_df], axis=1).dropna()
-            if aligned.shape[0] < 2:
-                continue
-
-            group_betas[group_name] = {}
-            for benchmark in benchmarks_used:
-                try:
-                    result = compute_multifactor_betas(
-                        aligned.iloc[:, 0],  # group composite returns
-                        aligned[[benchmark]]  # single benchmark
-                    )
-                    coefficient = result.get('betas', {}).get(benchmark, 0.0)
-                    group_betas[group_name][benchmark] = float(coefficient)
-                except Exception:
-                    group_betas[group_name][benchmark] = 0.0
-
-        return group_betas
-
-    except Exception:
-        # Graceful fallback if group calculation fails
+    if not label_series:
         return {}
+
+    group_betas = {}
+    from portfolio_risk_engine.factor_utils import compute_multifactor_betas
+
+    for group_name, group_series in label_series.items():
+        aligned = pd.concat([group_series, bench_df], axis=1).dropna()
+        if aligned.shape[0] < 2:
+            continue
+
+        group_betas[group_name] = {}
+        for benchmark in benchmarks_used:
+            try:
+                result = compute_multifactor_betas(
+                    aligned.iloc[:, 0],  # group composite returns
+                    aligned[[benchmark]]  # single benchmark
+                )
+                group_betas[group_name][benchmark] = _required_finite_beta(
+                    result,
+                    benchmark,
+                    context=f"industry group {group_name!r} market beta",
+                )
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Failed to calculate market beta for industry group {group_name!r} and benchmark {benchmark!r}"
+                ) from exc
+
+    return group_betas
 
 
 def compute_market_sensitivity(
@@ -1356,6 +1400,28 @@ def _perf_pick_fields(perf: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+def _fetch_factor_performance_risk_free_rate(start: Any, end: Any) -> float:
+    """Fetch mean 3M treasury yield for factor Sharpe calculations."""
+    try:
+        rates = fetch_monthly_treasury_rates("month3", start, end)
+    except Exception as exc:
+        raise RiskFreeRateUnavailable(
+            "Unable to fetch 3-month Treasury rate for factor performance profiles"
+        ) from exc
+
+    if rates is None or getattr(rates, "empty", False):
+        raise RiskFreeRateUnavailable(
+            "No 3-month Treasury rates available for factor performance profiles"
+        )
+
+    resolved_rate = float(rates.mean() / 100.0)
+    if not np.isfinite(resolved_rate):
+        raise RiskFreeRateUnavailable(
+            "3-month Treasury rate series did not produce a finite factor performance risk-free rate"
+        )
+    return resolved_rate
+
+
 def compute_factor_performance_profiles(
     returns_panel: pd.DataFrame,
     benchmark_ticker: str = "SPY",
@@ -1378,16 +1444,7 @@ def compute_factor_performance_profiles(
     categories = returns_panel.attrs.get("categories", {})
 
     # Risk-free rate for basket Sharpe computation (annual decimal)
-    risk_free_rate = 0.04
-    try:
-        from portfolio_risk_engine.data_loader import fetch_monthly_treasury_rates
-        rates = fetch_monthly_treasury_rates("month3", start, end)
-        if rates is not None and not rates.empty:
-            mean_rate = float(rates.mean())
-            if np.isfinite(mean_rate):
-                risk_free_rate = mean_rate / 100.0
-    except Exception:
-        pass  # fall back to 4%
+    risk_free_rate = _fetch_factor_performance_risk_free_rate(start, end)
 
     # Pre-extract benchmark series for beta computation
     bench_series = None
@@ -1504,8 +1561,10 @@ def compute_composite_performance(
                     instrument_types=instrument_types,
                 )
                 macro_perf[name] = _perf_pick_fields(perf)
-            except Exception:
-                continue
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Unable to compute macro composite performance for {name}"
+                ) from exc
 
     # Factor category composites
     category_perf: Dict[str, Dict[str, Any]] = {}
@@ -1522,8 +1581,10 @@ def compute_composite_performance(
                     instrument_types=instrument_types,
                 )
                 category_perf[cat_name] = _perf_pick_fields(perf)
-            except Exception:
-                continue
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Unable to compute factor category composite performance for {cat_name}"
+                ) from exc
 
     result = {
         "macro_composites": macro_perf,

@@ -57,7 +57,16 @@ def _event_fx_rate(currency: str, when: datetime, fx_cache: Dict[str, pd.Series]
     ccy = (currency or "USD").upper()
     if ccy == "USD":
         return 1.0
-    return _helpers._value_at_or_before(fx_cache.get(ccy), when, default=1.0)
+
+    fx_series = fx_cache.get(ccy)
+    if fx_series is None or len(fx_series) == 0:
+        raise RuntimeError(f"FX series unavailable for {ccy}")
+
+    fx_rate = _helpers._value_at_or_before(fx_series, when, default=np.nan)
+    fx_value = _helpers._as_float(fx_rate, default=np.nan)
+    if not np.isfinite(fx_value) or fx_value <= 0:
+        raise RuntimeError(f"FX rate unavailable for {ccy} at {when}")
+    return fx_value
 
 def get_monthly_fx_series(currency: str, start_date=None, end_date=None) -> pd.Series:
     """Compatibility wrapper routed through the configured FX provider."""
@@ -85,13 +94,23 @@ def _build_fx_cache(
     """Fetch and normalize daily FX series for requested currencies."""
     fx_cache: Dict[str, pd.Series] = {}
     for ccy in sorted({str(c or "USD").upper() for c in currencies}):
+        if ccy == "USD":
+            fx_cache[ccy] = pd.Series([1.0], index=pd.DatetimeIndex([pd.Timestamp(inception_date)]))
+            continue
+
         try:
-            fx_cache[ccy] = _helpers._series_from_cache(
+            series = _helpers._series_from_cache(
                 get_daily_fx_series(ccy, inception_date, end_date)
             )
         except Exception as exc:
-            warnings.append(f"FX series fetch failed for {ccy}: {exc}; using 1.0 fallback.")
-            fx_cache[ccy] = pd.Series([1.0], index=pd.DatetimeIndex([pd.Timestamp(inception_date)]))
+            raise RuntimeError(f"FX series fetch failed for {ccy}") from exc
+
+        if series.empty:
+            raise RuntimeError(f"FX series unavailable for {ccy}")
+        finite_positive = pd.to_numeric(series, errors="coerce")
+        if not bool(((finite_positive > 0) & finite_positive.notna()).any()):
+            raise RuntimeError(f"FX series for {ccy} has no positive rates")
+        fx_cache[ccy] = series
     return fx_cache
 
 __all__ = [

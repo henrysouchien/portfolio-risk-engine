@@ -53,6 +53,7 @@ from utils.gpt_helpers import (
 from utils.helpers_display import display_enhanced_stock_analysis
 from utils.serialization import make_json_safe
 from portfolio_risk_engine.data_objects import PortfolioData, RiskLimitsData
+from portfolio_risk_engine.constants import VALID_SECURITY_TYPES
 from portfolio_risk_engine.config_adapters import config_from_portfolio_data
 from core.portfolio_analysis import analyze_portfolio
 
@@ -133,6 +134,65 @@ Claude AI:          Service Layer → human-readable formatted reports
 
 For detailed architecture documentation, see: docs/architecture.md
 """
+
+
+def _require_classification_map(
+    value: Any,
+    tickers: List[str],
+    label: str,
+    *,
+    valid_values: Optional[set[str]] = None,
+) -> Dict[str, str]:
+    if not isinstance(value, dict):
+        raise RuntimeError(f"{label} classification mapping is required")
+
+    missing = [ticker for ticker in tickers if not value.get(ticker)]
+    if missing:
+        raise RuntimeError(f"Missing {label} classifications for: {missing[:5]}")
+
+    if valid_values is not None:
+        invalid = {
+            ticker: value.get(ticker)
+            for ticker in tickers
+            if str(value.get(ticker)) not in valid_values
+        }
+        if invalid:
+            raise RuntimeError(f"Invalid {label} classifications: {invalid}")
+
+    return {ticker: str(value[ticker]) for ticker in tickers}
+
+
+def _require_full_classification(tickers: List[str], full_classification: Any) -> None:
+    if not isinstance(full_classification, dict):
+        raise RuntimeError("Security classification did not return a mapping")
+
+    missing_rows: List[str] = []
+    missing_asset_classes: List[str] = []
+    missing_security_types: List[str] = []
+    invalid_security_types: Dict[str, Any] = {}
+
+    for ticker in tickers:
+        labels = full_classification.get(ticker)
+        if not isinstance(labels, dict):
+            missing_rows.append(ticker)
+            continue
+        if not labels.get("asset_class"):
+            missing_asset_classes.append(ticker)
+        security_type = labels.get("security_type")
+        if not security_type:
+            missing_security_types.append(ticker)
+        elif str(security_type) not in VALID_SECURITY_TYPES:
+            invalid_security_types[ticker] = security_type
+
+    if missing_rows:
+        raise RuntimeError(f"Missing classification rows for: {missing_rows[:5]}")
+    if missing_asset_classes:
+        raise RuntimeError(f"Missing asset-class classifications for: {missing_asset_classes[:5]}")
+    if missing_security_types:
+        raise RuntimeError(f"Missing security-type classifications for: {missing_security_types[:5]}")
+    if invalid_security_types:
+        raise RuntimeError(f"Invalid security-type classifications: {invalid_security_types}")
+
 
 # ============================================================================
 # This handles AI interpretation of portfolio analysis
@@ -340,7 +400,7 @@ def run_portfolio(
                 from portfolio_risk_engine.portfolio_config import load_portfolio_config, standardize_portfolio_input, latest_price
                 config = load_portfolio_config(filepath)
                 weights = config.get("weights") or standardize_portfolio_input(config["portfolio_input"], latest_price)["weights"]
-                tickers = list(weights.keys())
+                tickers = [str(ticker) for ticker in weights.keys()]
                 instrument_types = config.get("instrument_types") or {}
                 ticker_alias_map = config.get("ticker_alias_map") or {}
                 if instrument_types or ticker_alias_map:
@@ -351,7 +411,7 @@ def run_portfolio(
                 else:
                     portfolio_data_stub = None
             else:
-                tickers = filepath.get_tickers()
+                tickers = [str(ticker) for ticker in filepath.get_tickers()]
                 portfolio_data_stub = filepath if (
                     hasattr(filepath, "instrument_types") or hasattr(filepath, "ticker_alias_map")
                 ) else None
@@ -360,21 +420,32 @@ def run_portfolio(
                 tickers,
                 portfolio_data=portfolio_data_stub,
             )
+            _require_full_classification(tickers, full_classification)
             if asset_classes is None:
                 asset_classes = {
                     ticker: labels.get("asset_class")
                     for ticker, labels in full_classification.items()
                 }
+                asset_classes = _require_classification_map(
+                    asset_classes,
+                    tickers,
+                    "asset-class",
+                )
             if security_types is None:
                 security_types = {
                     ticker: labels.get("security_type")
                     for ticker, labels in full_classification.items()
                 }
-        except Exception:
-            if asset_classes is None:
-                asset_classes = None
-            if security_types is None:
-                security_types = None
+                security_types = _require_classification_map(
+                    security_types,
+                    tickers,
+                    "security-type",
+                    valid_values=VALID_SECURITY_TYPES,
+                )
+        except Exception as exc:
+            raise RuntimeError(
+                "Unable to resolve required security classifications for portfolio analysis"
+            ) from exc
 
     result = analyze_portfolio(
         filepath,

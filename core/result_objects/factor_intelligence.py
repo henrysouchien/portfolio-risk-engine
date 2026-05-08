@@ -11,6 +11,21 @@ from dataclasses import dataclass, field
 from utils.serialization import make_json_safe
 from ._helpers import (_convert_to_json_serializable, _clean_nan_values, _format_df_as_text, _abbreviate_labels, _DEFAULT_INDUSTRY_ABBR_MAP)
 
+
+def _require_returns_total_return(entry: Any, *, context: str) -> float:
+    if not isinstance(entry, dict):
+        raise ValueError(f"{context} ranking entry must be a dict")
+
+    value = entry.get("total_return")
+    if isinstance(value, bool) or not isinstance(value, numbers.Real):
+        raise ValueError(f"{context}.total_return must be a finite number")
+
+    out = float(value)
+    if not math.isfinite(out):
+        raise ValueError(f"{context}.total_return must be a finite number")
+    return out
+
+
 class FactorCorrelationResult:
     """
     Structured result for factor correlation analysis.
@@ -85,16 +100,24 @@ class FactorCorrelationResult:
         )
 
     @staticmethod
-    def _df_to_nested(df) -> Dict[str, Dict[str, float]]:
+    def _df_to_nested(df, *, matrix_name: str = "matrix") -> Dict[str, Dict[str, float]]:
         try:
             return {r: {c: float(v) for c, v in row.items()} for r, row in df.round(4).to_dict(orient='index').items()}
-        except Exception:
-            return {}
+        except Exception as exc:
+            raise RuntimeError(f"Failed to serialize factor correlation matrix {matrix_name!r}") from exc
+
+    @staticmethod
+    def _serialize_matrix(name: str, matrix: Any) -> Dict[str, Any]:
+        if isinstance(matrix, dict):
+            return _convert_to_json_serializable(matrix)
+        if not hasattr(matrix, 'to_dict'):
+            raise RuntimeError(f"Factor correlation matrix {name!r} is not dataframe-like")
+        return FactorCorrelationResult._df_to_nested(matrix, matrix_name=name)
 
     def to_dict(self) -> Dict[str, Any]:
         mats = {}
         for name, df in self.matrices.items():
-            mats[name] = self._df_to_nested(df) if hasattr(df, 'to_dict') else {}
+            mats[name] = self._serialize_matrix(name, df)
         return {
             'matrices': mats,
             'overlays': self.overlays,
@@ -147,7 +170,7 @@ class FactorCorrelationResult:
         # Convert matrices to nested format for JSON serialization
         matrices_serialized = {}
         for name, df in self.matrices.items():
-            matrices_serialized[name] = self._df_to_nested(df) if hasattr(df, 'to_dict') else {}
+            matrices_serialized[name] = self._serialize_matrix(name, df)
 
         # Build resolved labels: apply market exchange prettifying for market tickers
         resolved_labels = dict(self.labels or {})
@@ -826,8 +849,12 @@ class FactorReturnsResult:
         bottom_per_window: Dict[str, List[Any]] = {}
         for window, ranked_list in rankings.items():
             if isinstance(ranked_list, list) and ranked_list:
-                top_per_window[window] = ranked_list[:3]
-                bottom_per_window[window] = ranked_list[-3:]
+                validated_ranked_list = []
+                for idx, entry in enumerate(ranked_list):
+                    _require_returns_total_return(entry, context=f"rankings[{window}][{idx}]")
+                    validated_ranked_list.append(entry)
+                top_per_window[window] = validated_ranked_list[:3]
+                bottom_per_window[window] = validated_ranked_list[-3:]
 
         by_category = self.by_category or {}
         category_summary: Dict[str, Dict[str, Any]] = {}
@@ -875,16 +902,15 @@ class FactorReturnsResult:
         if isinstance(shortest_ranked, list) and shortest_ranked:
             top = shortest_ranked[0]
             if isinstance(top, dict):
-                top_return = top.get("total_return", 0)
-                if isinstance(top_return, (int, float)):
-                    if top_return > 0.1:
-                        verdict = "strong recent factor returns"
-                    elif top_return > 0.03:
-                        verdict = "moderate recent factor returns"
-                    elif top_return > 0:
-                        verdict = "weak recent factor returns"
-                    else:
-                        verdict = "negative recent factor returns"
+                top_return = _require_returns_total_return(top, context=f"rankings[{shortest_window}][0]")
+                if top_return > 0.1:
+                    verdict = "strong recent factor returns"
+                elif top_return > 0.03:
+                    verdict = "moderate recent factor returns"
+                elif top_return > 0:
+                    verdict = "weak recent factor returns"
+                else:
+                    verdict = "negative recent factor returns"
 
         return {
             "verdict": verdict,
@@ -905,16 +931,13 @@ class FactorReturnsResult:
             lines.append(f"Windows: {', '.join(self.windows)}")
 
         rankings = self.rankings or {}
-        def _safe_total_return(entry: Dict[str, Any]) -> float:
-            try:
-                return float(entry.get("total_return"))
-            except Exception:
-                return 0.0
 
         for window in self.windows:
             ranked = rankings.get(window) or []
             if not ranked:
                 continue
+            for idx, entry in enumerate(ranked):
+                _require_returns_total_return(entry, context=f"rankings[{window}][{idx}]")
 
             lines.append(f"\n{window.upper()} Top {min(top_n, len(ranked))}:")
             for entry in ranked[:top_n]:
@@ -926,7 +949,10 @@ class FactorReturnsResult:
 
             bottom = sorted(
                 ranked,
-                key=_safe_total_return
+                key=lambda entry: _require_returns_total_return(
+                    entry,
+                    context=f"rankings[{window}]",
+                )
             )[:top_n]
             if bottom:
                 lines.append(f"\n{window.upper()} Bottom {len(bottom)}:")

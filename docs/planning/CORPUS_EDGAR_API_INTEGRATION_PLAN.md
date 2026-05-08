@@ -1,6 +1,6 @@
 # Corpus → Edgar API Integration
 
-## Status: v8 — addresses Codex R7 FAIL (1 P1 + 1 P2) on 2026-04-28
+## Status: v9 — stale `/api/filing/document` rejection rationale corrected on 2026-05-08
 
 Replaces `completed/CORPUS_LAYERED_PARSER_PLUMBING_PLAN.md` (abandoned). Switches corpus's edgar integration from direct Python imports of `edgar_parser` to HTTP calls against `/api/sections` and `/api/filings` at edgarparser.com.
 
@@ -16,7 +16,7 @@ Verified live against `https://www.financialmodelupdater.com` with paid-tier key
 
 - **`/api/sections`** is the working endpoint for parsed sections. Takes `(ticker, year, quarter, sections, format, source, max_words)`. **Top-level response shape includes `status: "success"` (or `"error"` with `message`)** plus `filing_type`, `sections_found/absent/missing/unavailable`, `declared_sections`, `parser_path`, `sections: {<id>: {header, state, text, tables, word_count, source, confidence}}`, `metadata`, `cache_version`. `tables` is a list of pre-formatted markdown-table strings. State `missing` means parser couldn't find it (still HTTP 200 with `status: success` at top level — bridge needs the in-body status check separately from the HTTP-status check).
 - **`/api/filings`** returns filing list with `accession`, `filing_date`, `url`, `form` per entry — exact match for old `edgar_parser.tools.get_filings()` shape.
-- **`/api/filing/document`** works with paid key BUT has a known cache-poisoning bug (filed in `Edgar_updater/docs/TODO.md`): returns `filing.accession=null` when `_markdown.json` cache built before `_filings.json`. **Don't use it.**
+- **`/api/filing/document`** works with paid key. It was originally rejected here because of a cached citation-envelope ordering bug that could return `filing.accession=null` when `_markdown.json` was built before `_filings.json`. That rationale is now stale: Edgar_updater commit `5339ae8` (`Fix cached citation metadata late binding`) fixed the cache-hit late-binding path, and `Edgar_updater/docs/CHANGES.md` records the TODO as verified resolved on 2026-05-05.
 - **No accession-keyed endpoint exists** anywhere. All routes take `(ticker, year, quarter)`. API caches/returns "latest matching filing in quarter."
 - **API `header` field exactly matches `_EDGAR_CORPUS_HEADER_TO_ID` keys** (e.g., `"Part I, Item 1. Financial Statements"` for canonical id `part1_item1`). So body assembly uses API's `header` directly — no inverse-mapping table needed.
 - **Today's bridge body format** (from `Edgar_updater/edgar-parser/edgar_parser/section_parser.py::_write_sections_markdown`): `## SECTION: <header>\n**Word count:** N\n<text>\n### TABLES\n<table>\n---\n` repeated per section. New body assembly must match for round-trip parity with the markdown convention `core/corpus/section_map.py::_parse_filing_sections_raw` consumes.
@@ -51,7 +51,7 @@ Corpus retrieves filing section text via HTTP `/api/sections` (with `/api/filing
 
 ### Deliberately rejected
 
-- `/api/filing/document` for source-excerpt accession alignment — rejected because of the known cache-poisoning bug (returns `accession=null` in the documented failure mode). Pre-flight via `/api/filings` is more robust.
+- `/api/filing/document` for this plan's source-excerpt accession alignment - no longer rejected because of the old cache metadata bug. That bug was fixed upstream in Edgar_updater commit `5339ae8`. The current reason to keep the shipped design is narrower: `/api/filing/document` is still not accession-keyed, while `/api/sections` plus `/api/filings` pre-flight already verifies that the quarter-resolved filing matches the corpus row's accession. Revisit direct document usage only for a use case that benefits from whole-document markdown or when upstream exposes an accession-keyed document route.
 - Caching at corpus layer — API has its own cache.
 - Retry/backoff in client — fail-fast; revisit if rate limits become operational pain.
 
@@ -643,7 +643,7 @@ Add `test_assemble_body_all_missing` — only `state='missing'` entries → rais
 | Body assembly format diverges from canonical convention | med | Round-trip test through `parse_sections('edgar')` is the gate. Mirrors today's `_write_sections_markdown` format from edgar-parser. |
 | Direct python import of edgar_parser sneaks back in | med | Add a CI lint that fails if `import edgar_parser` appears anywhere in `core/corpus/` or `scripts/corpus_*` — file as F-followup if not done in this plan. |
 | 8-K fiscal_period format drift | low | `_resolve_api_params_from_row` handles all 3 schema-allowed formats defensively. Unit test per format. |
-| Phase 4 cache-poisoning bug for `/api/filing/document` bites us if we ever switch to it | low | Plan explicitly REJECTS `/api/filing/document` for accession-aligned use. Stick with `/api/sections` + `/api/filings`. |
+| Stale `/api/filing/document` bug rationale blocks a useful future document-read path | low | Cache metadata late binding was fixed upstream in Edgar_updater `5339ae8`. This plan still keeps `/api/sections` + `/api/filings` for accession-aligned excerpts, but future whole-document use can evaluate `/api/filing/document` on its current merits. |
 | `EdgarAPIError` standalone (not subclass of `ExcerptUnavailableError`) breaks existing catch sites | low | Existing catch sites in `mcp_tools/corpus/filings.py` catch `ExcerptUnavailableError`. Source-excerpt callsite explicitly catches `EdgarAPIError` and rewraps — boundary pattern. |
 
 ## Open questions for Codex
@@ -666,7 +666,7 @@ Add `test_assemble_body_all_missing` — only `state='missing'` entries → rais
 - `Edgar_updater/edgar_api/routes/sections.py:32-111` — `/api/sections` endpoint contract
 - `Edgar_updater/edgar_api/routes/filings.py` — `/api/filings` endpoint
 - `Edgar_updater/edgar_api/auth.py` — Bearer auth
-- `Edgar_updater/docs/TODO.md` — public-package-freeze decision; Phase 3+4 ship; `/api/filing/document` cache-poisoning bug
+- `Edgar_updater/docs/CHANGES.md` — 2026-05-05 note verifying `/api/filing/document` citation-envelope late-binding resolved by commit `5339ae8`
 - `Edgar_updater/edgar-parser/edgar_parser/section_parser.py:584-634` — today's `_write_sections_markdown` format (target for body-assembly parity)
 - `core/corpus/section_map.py:53-68` — `_parse_filing_sections_raw` body shape consumer
 - `core/corpus/section_map.py:16-40` — `_EDGAR_CORPUS_HEADER_TO_ID` mapping table
@@ -762,4 +762,4 @@ Add `test_assemble_body_all_missing` — only `state='missing'` entries → rais
 - **[P2] Missing env raises wrong type** — now raises `EdgarAPIError`, consistent.
 - **[P2] Test mock target inconsistent** — explicit: tests mock `core.corpus.edgar_api_client.get_*`, NOT `httpx.get`.
 - **[P2] `edgar_urls.py` orphaning** — confirmed safe; keep as-is.
-- **Investigation additions:** rejected `/api/filing/document` (cache bug), confirmed `state=missing` semantics for absent sections, verified API `header` matches corpus headers.
+- **Investigation additions:** originally rejected `/api/filing/document` based on the then-open cache metadata bug (later fixed upstream in `5339ae8`), confirmed `state=missing` semantics for absent sections, verified API `header` matches corpus headers.

@@ -166,9 +166,11 @@ def _prefetch_fifo_transactions(
                 account=account,
             )
 
-        payload = getattr(fetch_result, "payload", fetch_result) or {}
+        payload = getattr(fetch_result, "payload", fetch_result)
         if not isinstance(payload, dict):
-            payload = {}
+            raise ValueError(
+                f"Transaction fetch result payload must be a dict; got {type(payload).__name__}"
+            )
 
         schwab_security_lookup = get_schwab_security_lookup_fn(
             user_email=user_email,

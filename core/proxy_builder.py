@@ -757,6 +757,7 @@ def filter_valid_tickers(
     target_obs  = len(target_prices)
 
     good: List[str] = []
+    validation_errors: List[str] = []
     
     for sym in cands:
         try:
@@ -779,10 +780,15 @@ def filter_valid_tickers(
                 good.append(sym.upper())
                 
         except Exception as e:
-            # Any fetch failure (network, malformed payload, etc.) → skip
+            validation_errors.append(f"{sym}: {type(e).__name__}: {e}")
             gpt_logger.warning(f"⚠️  Failed to validate ticker {sym}: {type(e).__name__}: {e}")
             continue
 
+    if not good and validation_errors:
+        raise RuntimeError(
+            "Failed to validate generated peer tickers for "
+            f"{target_ticker}: {'; '.join(validation_errors[:3])}"
+        )
     return good
 
 

@@ -536,14 +536,8 @@ def _analyze_realized_performance_single_scope(
             provider_first_mode = realized_use_provider_flows
 
             if provider_first_mode:
-                try:
-                    with timing.step("extract_provider_flow_events"):
-                        provider_flow_events_raw, provider_fetch_metadata = extract_provider_flow_events_fn(fetch_result)
-                except Exception as exc:
-                    warnings.append(
-                        f"Provider-flow extraction unavailable; using inference-only cash flow reconstruction: {exc}"
-                    )
-                    provider_first_mode = False
+                with timing.step("extract_provider_flow_events"):
+                    provider_flow_events_raw, provider_fetch_metadata = extract_provider_flow_events_fn(fetch_result)
 
             with timing.step("build_trading_analyzer"):
                 analyzer = trading_analyzer_cls(

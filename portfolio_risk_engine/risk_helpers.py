@@ -8,18 +8,91 @@
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from core.cash_helpers import is_cur_ticker
 from portfolio_risk_engine.data_loader import fetch_monthly_close, fetch_monthly_total_return_price
 from portfolio_risk_engine.factor_utils import calc_monthly_returns, fetch_excess_return
 
 # In[ ]:
 
 
-from typing import Dict, Union, List, Optional, Any, Tuple, Set
+from typing import Dict, Union, List, Optional, Any, Tuple, Set, Iterable
 import pandas as pd
 
 
 class WorstCaseDataUnavailable(RuntimeError):
     """Raised when worst-case factor loss inputs cannot be fetched reliably."""
+
+
+_PRICEABLE_FACTOR_TYPES = ("market", "momentum", "value", "industry")
+
+
+def _normalize_factor_proxy_value(owner_ticker: str, factor_type: str, value: Any) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise WorstCaseDataUnavailable(
+            f"Invalid factor proxy value for {owner_ticker}.{factor_type}: "
+            f"expected ticker string, got {type(value).__name__}"
+        )
+
+    proxy = value.strip()
+    if not proxy:
+        return None
+    if is_cur_ticker(proxy):
+        raise WorstCaseDataUnavailable(
+            f"Invalid cash factor proxy {proxy} for {owner_ticker}.{factor_type}; "
+            "cash tickers cannot be priced as factor proxies"
+        )
+    return proxy
+
+
+def _normalize_factor_proxy_entry(owner_ticker: str, factor_type: str, value: Any) -> str | list[str] | None:
+    if isinstance(value, list):
+        normalized = [
+            proxy
+            for proxy in (
+                _normalize_factor_proxy_value(owner_ticker, factor_type, item)
+                for item in value
+            )
+            if proxy
+        ]
+        return normalized or None
+    return _normalize_factor_proxy_value(owner_ticker, factor_type, value)
+
+
+def _iter_priceable_factor_proxy_maps(
+    stock_factor_proxies: Dict[str, Dict[str, Union[str, List[str]]]],
+) -> Iterable[Tuple[str, Dict[str, Union[str, List[str]]]]]:
+    for raw_ticker, proxy_map in (stock_factor_proxies or {}).items():
+        ticker = str(raw_ticker or "").strip()
+        if not ticker:
+            raise WorstCaseDataUnavailable("Invalid factor proxy row with empty ticker key")
+        if is_cur_ticker(ticker):
+            continue
+        if not isinstance(proxy_map, dict):
+            raise WorstCaseDataUnavailable(
+                f"Invalid factor proxy row for {ticker}: expected mapping, got {type(proxy_map).__name__}"
+            )
+
+        cleaned: Dict[str, Union[str, List[str]]] = {}
+        for factor_type in _PRICEABLE_FACTOR_TYPES:
+            normalized = _normalize_factor_proxy_entry(ticker, factor_type, proxy_map.get(factor_type))
+            if normalized:
+                cleaned[factor_type] = normalized
+        yield ticker, cleaned
+
+
+def _collect_unique_priceable_proxies(
+    stock_factor_proxies: Dict[str, Dict[str, Union[str, List[str]]]],
+) -> set[str]:
+    unique_proxies: set[str] = set()
+    for _, proxy_map in _iter_priceable_factor_proxy_maps(stock_factor_proxies):
+        for value in proxy_map.values():
+            if isinstance(value, list):
+                unique_proxies.update(value)
+            else:
+                unique_proxies.add(value)
+    return unique_proxies
 
 
 def _fetch_single_proxy_worst(
@@ -126,17 +199,7 @@ def get_worst_monthly_factor_losses(
     # LOGGING: Add mathematical operation logging
     # LOGGING: Add validation step logging
     # LOGGING: Add error context logging
-    allowed_factors = {"market", "momentum", "value", "industry"}
-    unique_proxies = set()
-
-    for proxy_map in stock_factor_proxies.values():
-        for k, v in proxy_map.items():
-            if k not in allowed_factors:
-                continue  # skip subindustry and others
-            if isinstance(v, list):
-                unique_proxies.update(v)
-            else:
-                unique_proxies.add(v)
+    unique_proxies = _collect_unique_priceable_proxies(stock_factor_proxies)
 
     worst_losses: Dict[str, float] = {}
     max_workers = min(8, len(unique_proxies)) or 1
@@ -166,17 +229,7 @@ def _get_worst_dates_for_proxies(
     ticker_alias_map: Dict[str, str] | None = None,
 ) -> Dict[str, str]:
     """Return {proxy: "YYYY-MM"} for the month of worst return per proxy."""
-    allowed_factors = {"market", "momentum", "value", "industry"}
-    unique_proxies = set()
-
-    for proxy_map in stock_factor_proxies.values():
-        for k, v in proxy_map.items():
-            if k not in allowed_factors:
-                continue
-            if isinstance(v, list):
-                unique_proxies.update(v)
-            else:
-                unique_proxies.add(v)
+    unique_proxies = _collect_unique_priceable_proxies(stock_factor_proxies)
 
     worst_dates: Dict[str, str] = {}
 
@@ -234,10 +287,10 @@ def aggregate_worst_losses_by_factor_type(
     Returns:
         Dict[str, Tuple[str, float]]: {factor_type: (proxy, worst_return)}
     """
-    factor_types = ["market", "momentum", "value", "industry"]
+    factor_types = list(_PRICEABLE_FACTOR_TYPES)
     factor_to_proxies: Dict[str, set] = {ftype: set() for ftype in factor_types}
 
-    for proxy_map in stock_factor_proxies.values():
+    for _, proxy_map in _iter_priceable_factor_proxy_maps(stock_factor_proxies):
         for ftype in factor_types:
             proxy = proxy_map.get(ftype)
             if isinstance(proxy, list):
@@ -497,8 +550,13 @@ def calc_max_factor_betas(
 
     excess_factors = {"momentum", "value"}
     worst_excess_per_proxy: Dict[Tuple[str, str], Dict[str, Any]] = {}
+    priceable_proxy_maps = [
+        proxy_map
+        for _, proxy_map in _iter_priceable_factor_proxy_maps(proxies)
+    ]
+
     excess_pairs: Set[Tuple[str, str]] = set()
-    for proxy_map in proxies.values():
+    for proxy_map in priceable_proxy_maps:
         market_proxy = proxy_map.get("market")
         if not market_proxy or isinstance(market_proxy, list):
             continue
@@ -550,7 +608,7 @@ def calc_max_factor_betas(
 
     # 6. Compute per-industry-proxy max betas
     industry_proxies = set()
-    for proxy_map in proxies.values():
+    for proxy_map in priceable_proxy_maps:
         proxy = proxy_map.get("industry")
         if isinstance(proxy, list):
             industry_proxies.update(proxy)

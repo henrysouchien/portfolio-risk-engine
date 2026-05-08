@@ -6,18 +6,20 @@
 # - Factor intelligence cash proxy loading
 #
 # The YAML schema is:
-# - proxy_by_currency: ISO currency -> ETF proxy ticker
+# - proxy_by_currency: ISO currency -> cash proxy ticker
 # - alias_to_currency: broker cash alias -> ISO currency
 #
 # Current canonical examples:
 # - USD -> SGOV
 # - EUR -> IBGE.L
 # - GBP -> ERNS.L
+# - HKD -> CUR:HKD (synthetic currency ticker; FX-adjusted by risk engine)
 
 proxy_by_currency:        # ① Which ETF to use for each ISO currency
   USD: SGOV               #iShares 0-3 Month Treasury Bond ETF
   EUR: IBGE.L             #iShares € Govt Bond 0-1yr UCITS ETF
   GBP: ERNS.L             #iShares £ Ultrashort Bond UCITS ETFF  
+  HKD: CUR:HKD            #Synthetic HKD cash ticker; avoids unmapped live IBKR cash
 
 cash_equivalent_tickers:
   - SGOV
@@ -35,9 +37,11 @@ cash_equivalent_tickers:
   - USFR
   - IBGE.L
   - ERNS.L
+  - CUR:HKD
 
 alias_to_currency:        # ② Any broker cash tickers → currency code
   CUR:USD: USD            # Interactive Brokers
+  CUR:HKD: HKD            # Interactive Brokers
   USD CASH: USD
   USD:CASH: USD           # Schwab direct provider format
   CASH: USD               # generic fallback
