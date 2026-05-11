@@ -84,7 +84,11 @@ sqlite3 data/filings.db ".backup data/filings.db.pre_f80_<date>"
 # tracks plan IDs + reconciliation state.
 EDGAR_API_TIMEOUT=120 python3 scripts/corpus_bulk_reingest.py \
   --universe data/corpus/universe.json \
-  --log logs/corpus/f80_reingest_<date>.jsonl
+  --log logs/corpus/f80_reingest_<date>.jsonl \
+  --requests-per-second 2 \
+  --retry-attempts 3 \
+  --retry-base-delay 1 \
+  --retry-max-delay 30
 ```
 
 **Wrapper selection criteria — EDGAR filings only** (Codex R4 finding 1, BLOCKING). `reingest_one` is Edgarparser `/api/sections`-shaped via `_prepare_from_response` → `_assemble_body_from_api_response` (`scripts/corpus_ingest_accession.py:350`). If a `source='fmp_transcripts'` row passes through, the wrapper would fetch a filing response, parse it with transcript parsing, and corrupt or delete the transcript file. **Required SQL filter**:
@@ -148,8 +152,8 @@ After re-ingest, verify:
 3. **Codex implementation R1** — three deliverables:
    - Extend `_EDGAR_CORPUS_HEADER_TO_ID` per §2.1(a) using upstream's actual section keys (read live from `/api/sections` after F79 ships).
    - Add `20-F` to `_SECTION_FORM_TYPES` at `core/corpus/predicate.py:56` if F79 emits 20-F per-Item keys.
-   - **NEW** `scripts/corpus_bulk_reingest.py` wrapper. SELECT filter: `WHERE source = 'edgar' AND form_type IN ('10-K', '10-Q', '20-F', '6-K')` (REQUIRED to avoid transcript corruption — Codex R4 BLOCKING finding 1). Per-row accession round-trip validation before `reingest_one` (Codex R4 finding 2 — guards 20-F/6-K period-collision case). Calls `core.corpus.reingest.reingest_one`, writes JSONL log of per-doc outcome, exit code reflects pass/fail. Distinct from `corpus_phase1_bulk_ingest.py` because that one creates orphan files on content-hash change (Codex R3 finding 1).
-   - Tests: extend `tests/test_section_map.py:202` round-trip scaffold. New `tests/scripts/test_corpus_bulk_reingest.py` per Codex R4: real tiny temp corpus DB (seed one 10-K, one 20-F or 6-K, one `fmp_transcripts`, one off-universe EDGAR row) + mocked `reingest_one`; assert (a) only in-universe EDGAR rows are selected and called, (b) transcript row excluded, (c) JSONL records written, (d) failed mock result drives nonzero exit. The actual file deletion path is already covered by `tests/test_corpus_reingest.py` — full E2E here is redundant. Stale-row replacement coverage exists at `tests/test_reconciler_sections_fts.py:31` (Codex R2).
+   - **NEW** `scripts/corpus_bulk_reingest.py` wrapper. SELECT filter: `WHERE source = 'edgar' AND form_type IN ('10-K', '10-Q', '20-F', '6-K')` (REQUIRED to avoid transcript corruption — Codex R4 BLOCKING finding 1). Per-row accession round-trip validation before `reingest_one` (Codex R4 finding 2 — guards 20-F/6-K period-collision case). Calls `core.corpus.reingest.reingest_one`, writes JSONL log of per-doc outcome, exit code reflects pass/fail. Distinct from `corpus_phase1_bulk_ingest.py` because that one creates orphan files on content-hash change (Codex R3 finding 1). F88 hardening adds `--requests-per-second`, retry/backoff for 429/502/503/504, transient-failure log metadata, and dry-run wall-clock estimates.
+   - Tests: extend `tests/test_section_map.py:202` round-trip scaffold. New `tests/scripts/test_corpus_bulk_reingest.py` per Codex R4/F88: real tiny temp corpus DB (seed one 10-K, one 20-F or 6-K, one `fmp_transcripts`, one off-universe EDGAR row) + mocked `reingest_one`; assert (a) only in-universe EDGAR rows are selected and called, (b) transcript row excluded, (c) JSONL records written, (d) failed mock result drives nonzero exit, (e) transient 502 retries can recover, (f) exhausted 429 is logged with explicit HTTP metadata, and (g) dry-run reports minimum wall-clock at the configured request rate. The actual file deletion path is already covered by `tests/test_corpus_reingest.py` — full E2E here is redundant. Stale-row replacement coverage exists at `tests/test_reconciler_sections_fts.py:31` (Codex R2).
 4. **WAL-safe DB snapshot** before re-ingest (`sqlite3 data/filings.db ".backup …"`).
 5. **Re-ingest** the merged universe via the new `scripts/corpus_bulk_reingest.py` wrapper (NOT `corpus_phase1_bulk_ingest.py` — see §2.1(c) Codex R3 finding 1). Wrapper iterates every document by `(document_id, source)` and calls `core.corpus.reingest.reingest_one` per row, which handles old-file cleanup + FTS row replacement.
 6. **Verification smokes** per §3.3.

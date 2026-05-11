@@ -357,6 +357,7 @@ def _build_flags(snapshot: dict[str, Any]) -> list[dict[str, str]]:
 
     build_status = str(snapshot.get("build_status") or "")
     annotation_status = str(snapshot.get("annotation_status") or "")
+    workbook_flags = _workbook_flags(snapshot)
 
     if build_status == "success" and annotation_status == "success":
         flags.append({
@@ -364,6 +365,7 @@ def _build_flags(snapshot: dict[str, Any]) -> list[dict[str, str]]:
             "severity": "success",
             "message": "Model build and annotation both succeeded",
         })
+        flags.extend(workbook_flags)
         return flags
 
     if build_status == "success" and annotation_status == "error":
@@ -372,6 +374,7 @@ def _build_flags(snapshot: dict[str, Any]) -> list[dict[str, str]]:
             "severity": "warning",
             "message": "Model build succeeded but research annotation failed",
         })
+        flags.extend(workbook_flags)
         return flags
 
     if build_status == "error":
@@ -380,7 +383,38 @@ def _build_flags(snapshot: dict[str, Any]) -> list[dict[str, str]]:
             "severity": "error",
             "message": "Model build failed",
         })
+    flags.extend(workbook_flags)
     return flags
+
+
+def _workbook_flags(snapshot: dict[str, Any]) -> list[dict[str, str]]:
+    if str(snapshot.get("target") or "") != "workbook" and "workbook_status" not in snapshot:
+        return []
+    workbook_status = snapshot.get("workbook_status")
+    if not isinstance(workbook_status, dict):
+        return [{
+            "flag": "workbook_dispatch_failed",
+            "severity": "error",
+            "message": "Workbook dispatch did not return a structured status",
+        }]
+    status = str(workbook_status.get("status") or "").strip().lower()
+    if workbook_status.get("success") is True or status in {"success", "ok"}:
+        return [{
+            "flag": "workbook_populated",
+            "severity": "success",
+            "message": "Model was dispatched to the live workbook",
+        }]
+    if status == "skipped":
+        return [{
+            "flag": "workbook_dispatch_skipped",
+            "severity": "warning",
+            "message": "Workbook dispatch was skipped",
+        }]
+    return [{
+        "flag": "workbook_dispatch_failed",
+        "severity": "error",
+        "message": "Workbook dispatch failed",
+    }]
 
 
 def _sort_flags(flags: list[dict[str, str]]) -> list[dict[str, str]]:

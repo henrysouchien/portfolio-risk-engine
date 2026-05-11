@@ -120,27 +120,37 @@ def _prefetch_fifo_transactions(
     elif transaction_store_read:
         from inputs.transaction_store import (
             ensure_store_fresh,
+            ensure_store_fresh_for_portfolio,
             load_from_store,
             load_from_store_for_portfolio,
         )
         from utils.user_resolution import resolve_user_id
 
         user_id = resolve_user_id(user_email)
-        ensure_store_fresh(
-            user_id=user_id,
-            user_email=user_email,
-            provider=source,
-            max_age_hours=transaction_store_max_age_hours,
-            retry_cooldown_minutes=transaction_store_retry_cooldown_minutes,
-            allow_stale_existing=allow_stale_existing_transaction_store,
-        )
         if account_filters:
+            ensure_store_fresh_for_portfolio(
+                user_id=user_id,
+                user_email=user_email,
+                account_filters=account_filters,
+                provider=source,
+                max_age_hours=transaction_store_max_age_hours,
+                retry_cooldown_minutes=transaction_store_retry_cooldown_minutes,
+                allow_stale_existing=allow_stale_existing_transaction_store,
+            )
             store_data = load_from_store_for_portfolio(
                 user_id=user_id,
                 account_filters=account_filters,
                 source=source,
             )
         else:
+            ensure_store_fresh(
+                user_id=user_id,
+                user_email=user_email,
+                provider=source,
+                max_age_hours=transaction_store_max_age_hours,
+                retry_cooldown_minutes=transaction_store_retry_cooldown_minutes,
+                allow_stale_existing=allow_stale_existing_transaction_store,
+            )
             store_data = load_from_store(
                 user_id=user_id,
                 source=source,

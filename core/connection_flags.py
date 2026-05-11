@@ -123,6 +123,31 @@ def generate_connection_flags(snapshot: dict) -> list[dict]:
                 }
             )
 
+    snaptrade = providers.get("snaptrade", {})
+    if isinstance(snaptrade, dict):
+        for connection in (
+            snaptrade.get("connections", [])
+            if isinstance(snaptrade.get("connections"), list)
+            else []
+        ):
+            if not isinstance(connection, dict):
+                continue
+            if not bool(connection.get("needs_reauth")) and connection.get("status") != "needs_reauth":
+                continue
+            institution = str(
+                connection.get("institution")
+                or connection.get("authorization_id")
+                or "unknown"
+            )
+            flags.append(
+                {
+                    "flag": "snaptrade_needs_reauth",
+                    "severity": "error",
+                    "message": f"SnapTrade connection requires re-linking: {institution}.",
+                    "authorization_id": connection.get("authorization_id"),
+                }
+            )
+
     if health_probed:
         snaptrade = providers.get("snaptrade", {})
         if isinstance(snaptrade, dict):
@@ -138,6 +163,8 @@ def generate_connection_flags(snapshot: dict) -> list[dict]:
                     or connection.get("authorization_id")
                     or "unknown"
                 )
+                if bool(connection.get("needs_reauth")) or connection.get("status") == "needs_reauth":
+                    continue
                 if bool(connection.get("disabled")):
                     flags.append(
                         {
