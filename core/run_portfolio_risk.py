@@ -3,13 +3,17 @@
 
 # In[ ]:
 
-import pandas as pd
 import math
 from pprint import pprint
+from typing import Dict, Callable, Optional, Any, List
+
+import bootstrap_env
+
+bootstrap_env.bootstrap(required=[])
+
+import pandas as pd
 import statsmodels.api as sm
 from dotenv import load_dotenv
-
-from typing import Dict, Callable, Optional, Any, List
 
 load_dotenv()
 

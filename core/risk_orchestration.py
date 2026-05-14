@@ -6,14 +6,19 @@
 # File: core/risk_orchestration.py
 
 import argparse
-import yaml
-from contextlib import redirect_stdout 
+from contextlib import redirect_stdout
+from datetime import datetime
+from io import StringIO
 from types import SimpleNamespace
 from typing import Optional, Dict, Union, List, Any, overload
-import pandas as pd
-from io import StringIO
+
+import bootstrap_env
+
+bootstrap_env.bootstrap(required=[])
+
 import numpy as np
-from datetime import datetime
+import pandas as pd
+import yaml
 from dotenv import load_dotenv
 
 load_dotenv()
