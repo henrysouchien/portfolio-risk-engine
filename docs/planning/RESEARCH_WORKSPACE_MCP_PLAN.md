@@ -76,7 +76,7 @@ Upstream errors map to `ActionError` hierarchy with full coverage:
 | Upstream 422 | `ActionValidationError(upstream_detail)` |
 | Upstream 5xx | `ActionInfrastructureError` |
 | `httpx.HTTPError` | `ActionInfrastructureError` |
-| Missing `GATEWAY_URL`/`GATEWAY_API_KEY` | `ActionInfrastructureError` |
+| Missing `GATEWAY_URL`/`GATEWAY_API_KEY` | `ActionInfrastructureError`; `GATEWAY_API_KEY` is the gateway's web-operator key for risk_module (Model B/BYOK), not a per-user key; end-user identity is carried per request in the `/chat/init` payload (`user_id`, `user_email`), not in this key. |
 
 MCP layer catches `ActionError` subclasses explicitly before `handle_mcp_errors` fallback, preserving diagnostic specificity:
 ```python

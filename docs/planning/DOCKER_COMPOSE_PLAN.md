@@ -366,6 +366,7 @@ services:
 
       # Gateway proxy (AI chat)
       GATEWAY_URL: ${GATEWAY_URL:-}
+      # Web-operator key for risk_module (Model B/BYOK), not a per-user key; /chat/init carries end-user user_id/user_email.
       GATEWAY_API_KEY: ${GATEWAY_API_KEY:-}
       GATEWAY_SSL_VERIFY: ${GATEWAY_SSL_VERIFY:-true}
 
@@ -480,6 +481,7 @@ OPENAI_API_KEY=
 
 # Gateway proxy (required for AI chat in the web app)
 GATEWAY_URL=
+# Web-operator key for risk_module (Model B/BYOK), not a per-user key; /chat/init carries end-user user_id/user_email.
 GATEWAY_API_KEY=
 GATEWAY_SSL_VERIFY=true
 

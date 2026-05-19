@@ -28,6 +28,33 @@ _FTS5_ERROR_MARKERS = (
     'unterminated string',
 )
 _FTS5_EXPLICIT_OPERATOR_RE = re.compile(r'\b(AND|OR|NOT)\b')
+
+_SCALE_HINT_RE = re.compile(r'\(in\s+(thousands|millions|billions)\)', re.IGNORECASE)
+_TABLE_SEPARATOR_RE = re.compile(r'\|\s*-{2,}\s*\|')
+
+
+def _classify_snippet(snippet: str) -> tuple[str, str | None]:
+    """Classify a corpus search snippet as prose / table / mixed and extract scale hint.
+
+    Returns (content_type, scale_hint). content_type is 'prose' | 'table' | 'mixed'.
+    scale_hint is 'thousands' | 'millions' | 'billions' if a `(in ...)` marker is present,
+    else None. Detection is heuristic on the snippet text (markdown pipes + scale markers);
+    callers should treat these as ranking hints, not strict guarantees.
+    """
+    if not snippet:
+        return "prose", None
+    # FTS5 wraps matched terms in <b>...</b>; strip before pattern matching so
+    # scale-hint regex doesn't break on `(in <b>thousands</b>)`.
+    cleaned = re.sub(r'</?b>', '', snippet)
+    pipe_count = cleaned.count('|')
+    scale_match = _SCALE_HINT_RE.search(cleaned)
+    scale_hint = scale_match.group(1).lower() if scale_match else None
+    has_separator = bool(_TABLE_SEPARATOR_RE.search(cleaned))
+    if has_separator or pipe_count >= 6:
+        return "table", scale_hint
+    if pipe_count >= 3 or scale_hint is not None:
+        return "mixed", scale_hint
+    return "prose", scale_hint
 _TOKEN_RE = re.compile(r'"[^"]*"|\S+')
 
 
@@ -277,8 +304,11 @@ def _search(
     if not include_superseded:
         has_superseded_matches = superseded_count > total_matches
 
-    hits = [
-        SearchHit(
+    hits = []
+    for row in rows:
+        snippet_text = str(row['snippet'] or '')
+        content_type, scale_hint = _classify_snippet(snippet_text)
+        hits.append(SearchHit(
             document_id=str(row['document_id']),
             ticker=str(row['ticker']),
             company_name=str(row['company_name'] or ''),
@@ -289,7 +319,7 @@ def _search(
             is_superseded=bool(row['is_superseded']),
             has_low_confidence_supersession=bool(row['has_low_confidence_supersession']),
             section=str(row['section']),
-            snippet=str(row['snippet'] or ''),
+            snippet=snippet_text,
             file_path=str(row['file_path']),
             char_start=int(row['char_start']),
             char_end=int(row['char_end']),
@@ -297,9 +327,9 @@ def _search(
             source_url_deep=str(row['source_url_deep']) if row['source_url_deep'] is not None else None,
             source_accession=str(row['source_accession']) if row['source_accession'] is not None else None,
             rank=float(row['rank']),
-        )
-        for row in rows
-    ]
+            content_type=content_type,
+            scale_hint=scale_hint,
+        ))
 
     return SearchResponse(
         hits=hits,

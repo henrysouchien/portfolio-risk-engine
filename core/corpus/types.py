@@ -24,6 +24,8 @@ class SearchHit:
     source_url_deep: str | None
     source_accession: str | None
     rank: float
+    content_type: str = "prose"
+    scale_hint: str | None = None
 
 
 @dataclass(frozen=True)
