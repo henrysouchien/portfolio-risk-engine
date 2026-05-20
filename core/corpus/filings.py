@@ -7,7 +7,7 @@ import sqlite3
 from core.corpus import edgar_api_client
 from core.corpus.db import open_corpus_db
 from core.corpus.frontmatter import parse_frontmatter
-from core.corpus.search import _resolved_source_url_sql, _search
+from core.corpus.search import _quality_filter_sql, _resolved_source_url_sql, _search
 from core.corpus.section_map import corpus_header_to_edgar_id, parse_sections
 from core.corpus.types import (
     AmbiguousDocumentError,
@@ -67,6 +67,7 @@ def filings_search(
     date_from: str | None = None,
     date_to: str | None = None,
     include_superseded: bool = False,
+    include_low_quality: bool = False,
     include_low_confidence_supersession: bool = False,
     limit: int = 20,
 ) -> SearchResponse:
@@ -85,6 +86,7 @@ def filings_search(
             date_from=date_from,
             date_to=date_to,
             include_superseded=include_superseded,
+            include_low_quality=include_low_quality,
             include_low_confidence_supersession=include_low_confidence_supersession,
             limit=limit,
         )
@@ -266,6 +268,7 @@ def filings_list(
     form_type: list[str] | None = None,
     fiscal_period: str | None = None,
     *,
+    include_low_quality: bool = False,
     db: sqlite3.Connection,
 ) -> list[DocumentMetadata]:
     resolved_form_types = _resolve_filings_form_types(form_type)
@@ -280,6 +283,8 @@ def filings_list(
     if fiscal_period is not None:
         clauses.append('d.fiscal_period = ?')
         params.append(fiscal_period)
+    if not include_low_quality:
+        clauses.append(_quality_filter_sql('d'))
 
     rows = db.execute(
         f"""
@@ -289,6 +294,7 @@ def filings_list(
             d.form_type,
             COALESCE(d.fiscal_period, '') AS fiscal_period,
             COALESCE(CAST(d.filing_date AS TEXT), '') AS filing_date,
+            COALESCE(d.extraction_status, 'complete') AS extraction_status,
             d.is_superseded_by IS NOT NULL AS is_superseded,
             d.file_path,
             {_resolved_source_url_sql('d')} AS source_url
@@ -306,6 +312,7 @@ def filings_list(
             form_type=str(row['form_type']),
             fiscal_period=str(row['fiscal_period'] or ''),
             filing_date=str(row['filing_date'] or ''),
+            extraction_status=str(row['extraction_status'] or 'complete'),
             is_superseded=bool(row['is_superseded']),
             file_path=str(row['file_path']),
             source_url=str(row['source_url'] or ''),
@@ -470,7 +477,7 @@ def _resolve_filing_document_row(
     ticker = resolve_corpus_ticker_alias(db, ticker)
 
     rows = db.execute(
-        """
+        f"""
         SELECT document_id, ticker, cik, form_type, fiscal_period, source_url, source_url_deep, source_accession
         FROM documents
         WHERE ticker = ?
@@ -478,6 +485,7 @@ def _resolve_filing_document_row(
           AND fiscal_period = ?
           AND source = 'edgar'
           AND is_superseded_by IS NULL
+          AND {_quality_filter_sql('')}
         ORDER BY document_id ASC
         """,
         (ticker, form_type, fiscal_period),

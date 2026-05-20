@@ -26,6 +26,7 @@ class SearchHit:
     rank: float
     content_type: str = "prose"
     scale_hint: str | None = None
+    extraction_status: str = 'complete'
 
 
 @dataclass(frozen=True)
@@ -36,6 +37,7 @@ class SearchResponse:
     has_superseded_matches: bool
     has_low_confidence_supersession: bool
     query_warnings: list[str]
+    has_low_quality_matches: bool = False
 
 
 @dataclass(frozen=True)
@@ -50,6 +52,7 @@ class DocumentMetadata:
     is_superseded: bool
     file_path: str
     source_url: str
+    extraction_status: str = 'complete'
 
 
 @dataclass(frozen=True)

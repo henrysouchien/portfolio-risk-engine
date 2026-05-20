@@ -1,17 +1,19 @@
 # Corpus Freshness Restoration Plan — 2026-05-18
 
-## Status as of 2026-05-18 end-of-session
+## Status as of 2026-05-19 end-of-session
 
 | Step | Code | Prod deploy | Notes |
 |---|---|---|---|
 | A — venv ExecStart + SuccessExitStatus=75 + hardened ExecStopPost | ✅ `c29973aa` | ✅ live | First clean ingest in 13 days completed 19:52 UTC, 26min run, exit 0 |
-| B — SSM-backed Telegram wrapper | ✅ `162a4bc7` | ⏸ blocked on F93 | Code ready; admin alert channel decision pending |
+| B — SSM-backed Telegram wrapper | ✅ `162a4bc7` | ✅ live 2026-05-19 | F93 resolved option (a): `hank_alert_bot` created; SSM params provisioned (us-east-1, `risk-module-credentials-prod` KMS); alert.service + wrapper deployed; transient drop-in test triggered Telegram receipt end-to-end |
 | C1 — natural catch-up | n/a | ✅ in progress | Today's run drained 100 version_floor docs |
-| D — transcripts systemd unit + lock parity | ✅ `b1570b2c` | ⏳ F94 | Files in repo; need scp + sudo cp + daemon-reload + enable |
+| D — transcripts systemd unit + lock parity | ✅ `b1570b2c` | ✅ live 2026-05-19 | Script refreshed (May-1 stale → b1570b2c), 3 units installed, timer enabled (next Wed 11:00 UTC), manual run: 58s, exit 0, `transcripts_delta_2026-05-19.jsonl` (30KB) clean |
 | E — post-deploy import smoke | ✅ `d44a3b27` | ⏳ next deploy | Runs automatically on next `scripts/deploy.sh` invocation |
 | Bonus — EDGAR_API_URL prod `.env` domain fix | n/a | ✅ live | financialmodelupdater.com → edgarparser.com |
 
-**Open follow-ups filed in `docs/TODO.md`:** F93 (admin alert channel), F94 (deploy D to EC2), F95 (Celery beat consolidation), F96 (lock helper extract), F97 (transcripts digest), F98 (templated alert unit), F99 (BACKEND_BASE_URL/ESTIMATE_API_URL domain drift).
+**Open follow-ups filed in `docs/TODO.md`:** ~~F93 (admin alert channel) — SHIPPED 2026-05-19~~, ~~F94 (deploy D to EC2) — SHIPPED 2026-05-19~~, F95 (Celery beat consolidation), F96 (lock helper extract), F97 (transcripts digest), F98 (templated alert unit), F99 (BACKEND_BASE_URL/ESTIMATE_API_URL domain drift). **All four plan steps (A/B/D/E) now structurally complete; E auto-fires on next `deploy.sh`.**
+
+**Provisioning footgun discovered 2026-05-19 (saved to memory):** `scripts/provision_ssm_params.py` imports `bootstrap_env`, which loads `.env` AWS creds (runtime read-only `plaid-access-token-service`) into `os.environ`. These env vars shadow any provisioning identity in `~/.aws/credentials` (`finance-web-deploy` admin) — PutParameter then fails as `AccessDeniedException` against the runtime user. Workaround: export `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_DEFAULT_REGION=us-east-1` from your shell profile before running the script. Also: `/risk-module/*` params live in us-east-1, not the shell-default us-east-2.
 
 ---
 

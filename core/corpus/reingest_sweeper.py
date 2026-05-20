@@ -1,14 +1,22 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import argparse
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+import json
 import logging
 from pathlib import Path
 import sqlite3
+from typing import Sequence
 
+from core.corpus.db import open_corpus_db
 from core.corpus.frontmatter import parse_frontmatter
 
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_DB = REPO_ROOT / 'data' / 'filings.db'
+DEFAULT_CORPUS_ROOT = REPO_ROOT / 'data' / 'filings'
+DEFAULT_LOG_DIR = REPO_ROOT / 'logs' / 'corpus'
 _LOG = logging.getLogger(__name__)
 
 
@@ -112,6 +120,33 @@ def sweep(db: sqlite3.Connection, corpus_root: Path) -> SweeperReport:
     )
 
 
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description='Sweep old corpus re-ingest markdown files.')
+    parser.add_argument('--db', type=Path, default=DEFAULT_DB)
+    parser.add_argument('--corpus-root', type=Path, default=DEFAULT_CORPUS_ROOT)
+    parser.add_argument('--log', type=Path)
+    return parser.parse_args(argv)
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = parse_args(argv)
+    with open_corpus_db(args.db) as db:
+        report = sweep(db, args.corpus_root)
+
+    payload = {'ts': _now(), **asdict(report)}
+    print(json.dumps(payload, sort_keys=True))
+
+    log_path = args.log or (
+        DEFAULT_LOG_DIR
+        / f'reingest_sweeper_{datetime.now(timezone.utc).date().isoformat()}.jsonl'
+    )
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with log_path.open('a', encoding='utf-8') as handle:
+        handle.write(json.dumps(payload, sort_keys=True) + '\n')
+
+    return 1 if report.errors else 0
+
+
 def _content_hash(path: Path) -> str:
     metadata, _body = parse_frontmatter(path.read_text(encoding='utf-8'))
     return str(metadata['content_hash'])
@@ -153,4 +188,8 @@ def _now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z')
 
 
-__all__ = ['SweeperReport', 'sweep']
+__all__ = ['SweeperReport', 'main', 'parse_args', 'sweep']
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

@@ -14,6 +14,7 @@ _LOW_CONFIDENCE_SUPERSEDER_EXISTS_SQL = (
     "AND d3.supersedes_confidence IN ('low', 'medium')"
     ")"
 )
+_VISIBLE_EXTRACTION_STATUSES = ('complete', 'partial')
 
 _TRANSCRIPT_SECTION_FILTERS = {
     'prepared_remarks': 'Prepared Remarks',
@@ -77,6 +78,12 @@ def _resolved_source_url_sql(document_alias: str = 'd') -> str:
     )
 
 
+def _quality_filter_sql(alias: str = 'd') -> str:
+    column = f'{alias}.extraction_status' if alias else 'extraction_status'
+    visible_values = ', '.join(f"'{status}'" for status in _VISIBLE_EXTRACTION_STATUSES)
+    return f"COALESCE({column}, 'complete') IN ({visible_values})"
+
+
 def _execute_match(
     db: sqlite3.Connection,
     sql: str,
@@ -107,11 +114,13 @@ def _run_match_queries(
     include_superseded: bool,
     superseded_variant_clauses: list[str] | None,
     superseded_variant_params: list[object] | None,
-) -> tuple[list[sqlite3.Row], int, int]:
-    """Run rows + total count + (optional) superseded-variant count with one MATCH expr.
+    include_low_quality: bool,
+    low_quality_variant_clauses: list[str] | None,
+    low_quality_variant_params: list[object] | None,
+) -> tuple[list[sqlite3.Row], int, int, int]:
+    """Run rows + total count + optional variant counts with one MATCH expr.
 
-    Returns (rows, total_matches, superseded_count). superseded_count is 0
-    when include_superseded=True (no variant query needed).
+    Variant counts are 0 when their corresponding include flag is already true.
     """
     where_sql = ' AND '.join(where_clauses + ['s.content MATCH ?'])
     base_params = [*where_params, match_expr]
@@ -127,6 +136,7 @@ def _run_match_queries(
             d.form_type,
             COALESCE(d.fiscal_period, '') AS fiscal_period,
             COALESCE(CAST(d.filing_date AS TEXT), '') AS filing_date,
+            COALESCE(d.extraction_status, 'complete') AS extraction_status,
             d.is_superseded_by IS NOT NULL AS is_superseded,
             {_LOW_CONFIDENCE_SUPERSEDER_EXISTS_SQL} AS has_low_confidence_supersession,
             s.section,
@@ -160,24 +170,39 @@ def _run_match_queries(
         ).fetchone()['count']
     )
 
-    if include_superseded:
-        return rows, total_matches, 0
+    superseded_count = 0
+    if not include_superseded:
+        assert superseded_variant_clauses is not None
+        assert superseded_variant_params is not None
+        superseded_count = int(
+            db.execute(
+                f"""
+                SELECT COUNT(*) AS count
+                FROM documents d
+                JOIN sections_fts s USING (document_id)
+                WHERE {' AND '.join(superseded_variant_clauses + ['s.content MATCH ?'])}
+                """,
+                [*superseded_variant_params, match_expr],
+            ).fetchone()['count']
+        )
 
-    assert superseded_variant_clauses is not None
-    assert superseded_variant_params is not None
-    superseded_count = int(
-        db.execute(
-            f"""
-            SELECT COUNT(*) AS count
-            FROM documents d
-            JOIN sections_fts s USING (document_id)
-            WHERE {' AND '.join(superseded_variant_clauses + ['s.content MATCH ?'])}
-            """,
-            [*superseded_variant_params, match_expr],
-        ).fetchone()['count']
-    )
+    low_quality_count = 0
+    if not include_low_quality:
+        assert low_quality_variant_clauses is not None
+        assert low_quality_variant_params is not None
+        low_quality_count = int(
+            db.execute(
+                f"""
+                SELECT COUNT(*) AS count
+                FROM documents d
+                JOIN sections_fts s USING (document_id)
+                WHERE {' AND '.join(low_quality_variant_clauses + ['s.content MATCH ?'])}
+                """,
+                [*low_quality_variant_params, match_expr],
+            ).fetchone()['count']
+        )
 
-    return rows, total_matches, superseded_count
+    return rows, total_matches, superseded_count, low_quality_count
 
 
 def _search(
@@ -192,6 +217,7 @@ def _search(
     date_from: str | None = None,
     date_to: str | None = None,
     include_superseded: bool = False,
+    include_low_quality: bool = False,
     include_low_confidence_supersession: bool = False,
     limit: int = 20,
 ) -> SearchResponse:
@@ -208,6 +234,7 @@ def _search(
         'date_from': date_from,
         'date_to': date_to,
         'include_superseded': include_superseded,
+        'include_low_quality': include_low_quality,
         'include_low_confidence_supersession': include_low_confidence_supersession,
         'limit': limit,
     }
@@ -250,6 +277,7 @@ def _search(
         date_from=date_from,
         date_to=date_to,
         include_superseded=include_superseded,
+        include_low_quality=include_low_quality,
         include_low_confidence_supersession=include_low_confidence_supersession,
     )
 
@@ -266,11 +294,30 @@ def _search(
             date_from=date_from,
             date_to=date_to,
             include_superseded=True,
+            include_low_quality=include_low_quality,
             include_low_confidence_supersession=include_low_confidence_supersession,
         )
         superseded_variant_clauses = superseded_variant_where
 
-    rows, total_matches, superseded_count = _run_match_queries(
+    low_quality_variant_clauses = None
+    low_quality_variant_params = None
+    if not include_low_quality:
+        low_quality_variant_where, low_quality_variant_params = _build_where_clause(
+            form_types=form_types,
+            sources=sources,
+            universe=universe,
+            sector=sector,
+            section=section,
+            speaker_role=speaker_role,
+            date_from=date_from,
+            date_to=date_to,
+            include_superseded=include_superseded,
+            include_low_quality=True,
+            include_low_confidence_supersession=include_low_confidence_supersession,
+        )
+        low_quality_variant_clauses = low_quality_variant_where
+
+    rows, total_matches, superseded_count, low_quality_count = _run_match_queries(
         db,
         where_clauses,
         where_params,
@@ -279,6 +326,9 @@ def _search(
         include_superseded=include_superseded,
         superseded_variant_clauses=superseded_variant_clauses,
         superseded_variant_params=superseded_variant_params,
+        include_low_quality=include_low_quality,
+        low_quality_variant_clauses=low_quality_variant_clauses,
+        low_quality_variant_params=low_quality_variant_params,
     )
 
     if (
@@ -288,7 +338,7 @@ def _search(
     ):
         tokens = _TOKEN_RE.findall(normalized_query)
         or_expr = ' OR '.join(tokens)
-        rows, total_matches, superseded_count = _run_match_queries(
+        rows, total_matches, superseded_count, low_quality_count = _run_match_queries(
             db,
             where_clauses=where_clauses,
             where_params=where_params,
@@ -297,12 +347,18 @@ def _search(
             include_superseded=include_superseded,
             superseded_variant_clauses=superseded_variant_clauses,
             superseded_variant_params=superseded_variant_params,
+            include_low_quality=include_low_quality,
+            low_quality_variant_clauses=low_quality_variant_clauses,
+            low_quality_variant_params=low_quality_variant_params,
         )
         query_warnings = list(query_warnings) + ['fallback_or_search_used']
 
     has_superseded_matches = False
     if not include_superseded:
         has_superseded_matches = superseded_count > total_matches
+    has_low_quality_matches = False
+    if not include_low_quality:
+        has_low_quality_matches = low_quality_count > total_matches
 
     hits = []
     for row in rows:
@@ -316,6 +372,7 @@ def _search(
             form_type=str(row['form_type']),
             fiscal_period=str(row['fiscal_period'] or ''),
             filing_date=str(row['filing_date'] or ''),
+            extraction_status=str(row['extraction_status'] or 'complete'),
             is_superseded=bool(row['is_superseded']),
             has_low_confidence_supersession=bool(row['has_low_confidence_supersession']),
             section=str(row['section']),
@@ -338,6 +395,7 @@ def _search(
         has_superseded_matches=has_superseded_matches,
         has_low_confidence_supersession=any(hit.has_low_confidence_supersession for hit in hits),
         query_warnings=query_warnings,
+        has_low_quality_matches=has_low_quality_matches,
     )
 
 
@@ -352,6 +410,7 @@ def _build_where_clause(
     date_from: str | None,
     date_to: str | None,
     include_superseded: bool,
+    include_low_quality: bool,
     include_low_confidence_supersession: bool,
 ) -> tuple[list[str], list[object]]:
     clauses: list[str] = []
@@ -391,6 +450,9 @@ def _build_where_clause(
     if not include_superseded:
         clauses.append('d.is_superseded_by IS NULL')
 
+    if not include_low_quality:
+        clauses.append(_quality_filter_sql('d'))
+
     if include_low_confidence_supersession:
         clauses.append(f'NOT {_LOW_CONFIDENCE_SUPERSEDER_EXISTS_SQL}')
 
@@ -401,4 +463,4 @@ def _placeholders(values: list[object]) -> str:
     return ', '.join('?' for _ in values)
 
 
-__all__ = ['_search']
+__all__ = ['_quality_filter_sql', '_search']
