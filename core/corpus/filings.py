@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import sqlite3
 
+from core.corpus._paths import normalize_corpus_path
 from core.corpus import edgar_api_client
 from core.corpus.db import open_corpus_db
 from core.corpus.frontmatter import parse_frontmatter
@@ -533,12 +534,12 @@ def _source_url_from_row(row: sqlite3.Row) -> str:
 
 def _corpus_root() -> Path:
     raw = os.getenv('CORPUS_ROOT')
-    return Path(raw).expanduser().resolve() if raw else _DEFAULT_CORPUS_ROOT.resolve()
+    return normalize_corpus_path(raw) if raw else _DEFAULT_CORPUS_ROOT
 
 
 def _corpus_db_path() -> Path:
     raw = os.getenv('CORPUS_DB_PATH')
-    return Path(raw).expanduser().resolve() if raw else _DEFAULT_CORPUS_DB_PATH.resolve()
+    return normalize_corpus_path(raw) if raw else _DEFAULT_CORPUS_DB_PATH
 
 
 def _open_runtime_db() -> sqlite3.Connection:

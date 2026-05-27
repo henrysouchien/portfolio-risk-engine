@@ -6,6 +6,7 @@ from pathlib import Path
 import sqlite3
 import uuid
 
+from core.corpus._paths import normalize_corpus_path
 from core.corpus.frontmatter import (
     FrontmatterValidationError,
     assemble_canonical_text,
@@ -99,7 +100,7 @@ def ingest_raw(
     build_frontmatter(metadata, with_placeholder_hash=True)
     assembled_text = assemble_canonical_text(metadata, body)
 
-    corpus_root = Path(corpus_root).resolve()
+    corpus_root = normalize_corpus_path(corpus_root)
     staging_dir = corpus_root / '.staging'
     staging_dir.mkdir(parents=True, exist_ok=True)
     staging_path = staging_dir / f'{uuid.uuid4()}.md'
@@ -108,7 +109,7 @@ def ingest_raw(
     finalized_text, content_hash = finalize_with_hash(assembled_text)
     finalized_metadata = dict(metadata)
     finalized_metadata['content_hash'] = content_hash
-    finalized_path = canonical_path(finalized_metadata, corpus_root).resolve()
+    finalized_path = canonical_path(finalized_metadata, corpus_root)
     finalized_path.parent.mkdir(parents=True, exist_ok=True)
     staging_path.write_text(finalized_text, encoding='utf-8')
     os.rename(staging_path, finalized_path)

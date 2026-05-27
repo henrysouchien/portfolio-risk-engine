@@ -9,6 +9,7 @@ from typing import Any
 
 import yaml
 
+from core.corpus._paths import normalize_corpus_path
 from core.corpus.frontmatter import (
     FRONTMATTER_PATTERN,
     FrontmatterValidationError,
@@ -60,7 +61,7 @@ def scan_corpus(corpus_root: Path) -> dict[str, AuthoritativeFile]:
         document_id = frontmatter['document_id']
         scanned = _ScannedFile(
             document_id=document_id,
-            file_path=path.resolve(),
+            file_path=normalize_corpus_path(path),
             content_hash=frontmatter['content_hash'],
             frontmatter=frontmatter,
             sort_key=_authoritative_sort_key(frontmatter),

@@ -10,6 +10,7 @@ from typing import Any, Callable, Mapping
 import uuid
 
 from core.corpus import edgar_api_client
+from core.corpus._paths import normalize_corpus_path
 from core.corpus.filings import _resolve_api_params_from_row
 from core.corpus.frontmatter import (
     assemble_canonical_text,
@@ -103,12 +104,12 @@ def reingest_one(
     corpus_root: Path,
 ) -> ReingestResult:
     """Run one re-ingest through the state machine. Returns terminal state."""
-    corpus_root = Path(corpus_root).resolve()
+    corpus_root = normalize_corpus_path(corpus_root)
     old_row = _fetch_document_row(db, document_id)
     response_body = fetch_response()
     prepared = _prepare_from_response(old_row, response_body, corpus_root)
 
-    old_file_path = Path(str(old_row['file_path'])).resolve() if old_row['file_path'] else None
+    old_file_path = normalize_corpus_path(old_row['file_path']) if old_row['file_path'] else None
     old_content_hash = _nullable_str(old_row['content_hash'])
     old_parser_version = _nullable_str(old_row['parser_version'])
 
@@ -185,7 +186,7 @@ def recover_pending(db: sqlite3.Connection, corpus_root: Path) -> RecoveryReport
             results.append(_result_from_log(db, int(row['id'])))
             continue
         try:
-            result = _recover_row(db, row, Path(corpus_root).resolve())
+            result = _recover_row(db, row, normalize_corpus_path(corpus_root))
         except Exception as exc:  # noqa: BLE001
             failed_status = _failed_status_for(status)
             _LOG.warning(
@@ -223,7 +224,7 @@ def _recover_row(
     status = str(row['status'])
     log_id = int(row['id'])
     old_file_path = _optional_path(row['old_file_path'])
-    new_file_path = Path(str(row['new_file_path'])).resolve()
+    new_file_path = normalize_corpus_path(row['new_file_path'])
 
     if status == 'planned':
         if new_file_path.exists():
@@ -337,7 +338,7 @@ def _prepare_from_response(
     finalized_text, content_hash = finalize_with_hash(assembled_text)
     finalized_metadata = dict(metadata)
     finalized_metadata['content_hash'] = content_hash
-    finalized_path = canonical_path(finalized_metadata, corpus_root).resolve()
+    finalized_path = canonical_path(finalized_metadata, corpus_root)
     return _PreparedDocument(
         metadata=finalized_metadata,
         finalized_text=finalized_text,
@@ -354,7 +355,7 @@ def _prepare_from_file(path: Path) -> _PreparedDocument:
         metadata=metadata,
         finalized_text=text,
         new_content_hash=str(metadata['content_hash']),
-        new_file_path=path.resolve(),
+        new_file_path=normalize_corpus_path(path),
         parser_version_after=_nullable_str(metadata.get('parser_version')),
     )
 

@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 import sqlite3
 
+from core.corpus._paths import normalize_corpus_path
 from core.corpus.db import open_corpus_db
 from core.corpus.frontmatter import parse_frontmatter
 from core.corpus.search import _quality_filter_sql, _resolved_source_url_sql, _search
@@ -395,12 +396,12 @@ def _transcript_source_url(symbol: str, fiscal_period: str) -> str:
 
 def _corpus_root() -> Path:
     raw = os.getenv('CORPUS_ROOT')
-    return Path(raw).expanduser().resolve() if raw else _DEFAULT_CORPUS_ROOT.resolve()
+    return normalize_corpus_path(raw) if raw else _DEFAULT_CORPUS_ROOT
 
 
 def _corpus_db_path() -> Path:
     raw = os.getenv('CORPUS_DB_PATH')
-    return Path(raw).expanduser().resolve() if raw else _DEFAULT_CORPUS_DB_PATH.resolve()
+    return normalize_corpus_path(raw) if raw else _DEFAULT_CORPUS_DB_PATH
 
 
 def _open_runtime_db() -> sqlite3.Connection:
