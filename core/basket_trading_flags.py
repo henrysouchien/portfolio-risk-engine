@@ -36,9 +36,18 @@ def generate_basket_trade_preview_flags(snapshot: dict) -> list[dict]:
     total_legs = _to_int(snapshot.get("total_legs")) or 0
     failed_legs = _to_int(snapshot.get("failed_legs")) or 0
     skipped_legs = _to_int(snapshot.get("skipped_legs")) or 0
+    skipped_tickers = [
+        str(ticker)
+        for ticker in (snapshot.get("skipped_tickers") or [])
+        if str(ticker).strip()
+    ] if isinstance(snapshot.get("skipped_tickers"), list) else []
     buy_legs = _to_int(snapshot.get("buy_legs")) or 0
     sell_legs = _to_int(snapshot.get("sell_legs")) or 0
     total_cost = _to_float(snapshot.get("total_estimated_cost")) or 0.0
+    total_proceeds = _to_float(snapshot.get("total_estimated_proceeds")) or 0.0
+    gross_notional = _to_float(snapshot.get("gross_estimated_notional"))
+    if gross_notional is None:
+        gross_notional = total_cost + total_proceeds
     action = str(snapshot.get("action") or "").lower()
 
     if failed_legs > 0 and total_legs > 0:
@@ -53,22 +62,24 @@ def generate_basket_trade_preview_flags(snapshot: dict) -> list[dict]:
         )
 
     if skipped_legs > 0:
+        skipped_suffix = f": {', '.join(skipped_tickers)}" if skipped_tickers else ""
         flags.append(
             {
                 "type": "legs_skipped",
                 "severity": "warning",
-                "message": f"{skipped_legs} legs skipped (quantity rounded to 0)",
+                "message": f"{skipped_legs} legs skipped (quantity rounded to 0){skipped_suffix}",
                 "skipped_legs": skipped_legs,
+                "skipped_tickers": skipped_tickers,
             }
         )
 
-    if total_cost > 50_000:
+    if gross_notional > 50_000:
         flags.append(
             {
                 "type": "large_basket_order",
                 "severity": "warning",
-                "message": f"Basket order notional is ${total_cost:,.2f} (> $50,000)",
-                "total_estimated_cost": round(total_cost, 2),
+                "message": f"Basket order gross notional is ${gross_notional:,.2f} (> $50,000)",
+                "gross_estimated_notional": round(gross_notional, 2),
             }
         )
 
@@ -148,4 +159,3 @@ def generate_basket_trade_execution_flags(snapshot: dict) -> list[dict]:
     severity_order = {"error": 0, "warning": 1, "info": 2, "success": 3}
     flags.sort(key=lambda flag: severity_order.get(flag.get("severity"), 9))
     return flags
-

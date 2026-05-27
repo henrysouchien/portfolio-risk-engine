@@ -51,10 +51,14 @@ class BasketTradePreviewResult:
     action: str
     preview_legs: List[BasketTradeLeg] = field(default_factory=list)
     total_estimated_cost: float = 0.0
+    total_estimated_proceeds: float = 0.0
+    net_estimated_cash: float = 0.0
+    gross_estimated_notional: float = 0.0
     total_legs: int = 0
     buy_legs: int = 0
     sell_legs: int = 0
     skipped_legs: int = 0
+    skipped_tickers: List[str] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
     error: Optional[str] = None
 
@@ -70,10 +74,14 @@ class BasketTradePreviewResult:
             "basket_name": self.basket_name,
             "action": self.action,
             "total_estimated_cost": float(self.total_estimated_cost or 0.0),
+            "total_estimated_proceeds": float(self.total_estimated_proceeds or 0.0),
+            "net_estimated_cash": float(self.net_estimated_cash or 0.0),
+            "gross_estimated_notional": float(self.gross_estimated_notional or 0.0),
             "total_legs": self.total_legs,
             "buy_legs": self.buy_legs,
             "sell_legs": self.sell_legs,
             "skipped_legs": self.skipped_legs,
+            "skipped_tickers": list(self.skipped_tickers or []),
             "successful_legs": len(preview_ids),
             "failed_legs": failed_legs,
             "preview_ids": preview_ids,
@@ -100,10 +108,14 @@ class BasketTradePreviewResult:
             "action": self.action,
             "preview_legs": [leg.to_dict() for leg in self.preview_legs],
             "total_estimated_cost": float(self.total_estimated_cost or 0.0),
+            "total_estimated_proceeds": float(self.total_estimated_proceeds or 0.0),
+            "net_estimated_cash": float(self.net_estimated_cash or 0.0),
+            "gross_estimated_notional": float(self.gross_estimated_notional or 0.0),
             "total_legs": self.total_legs,
             "buy_legs": self.buy_legs,
             "sell_legs": self.sell_legs,
             "skipped_legs": self.skipped_legs,
+            "skipped_tickers": list(self.skipped_tickers or []),
             "warnings": list(self.warnings or []),
             "error": self.error,
             "agent_snapshot": self.get_agent_snapshot(),
@@ -197,4 +209,3 @@ class BasketTradeExecutionResult:
             "agent_snapshot": self.get_agent_snapshot(),
         }
         return make_json_safe(payload)
-

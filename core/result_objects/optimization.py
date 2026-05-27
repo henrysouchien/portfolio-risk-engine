@@ -11,6 +11,70 @@ from dataclasses import dataclass, field
 from utils.serialization import make_json_safe
 from ._helpers import _convert_to_json_serializable, _clean_nan_values
 
+
+_RISK_CHECK_ENFORCEMENT: Dict[str, Dict[str, Any]] = {
+    "Volatility": {
+        "check_type": "hard_constraint",
+        "enforced_by_optimizer": True,
+        "enforcement_label": "Solver-enforced constraint",
+    },
+    "Max Weight": {
+        "check_type": "hard_constraint",
+        "enforced_by_optimizer": True,
+        "enforcement_label": "Solver-enforced constraint",
+    },
+    "Factor Var %": {
+        "check_type": "post_solve_guardrail",
+        "enforced_by_optimizer": False,
+        "enforcement_label": "Post-solve guardrail",
+    },
+    "Market Var %": {
+        "check_type": "post_solve_guardrail",
+        "enforced_by_optimizer": False,
+        "enforcement_label": "Post-solve guardrail",
+    },
+    "Max Industry Var %": {
+        "check_type": "post_solve_guardrail",
+        "enforced_by_optimizer": False,
+        "enforcement_label": "Post-solve guardrail",
+    },
+}
+
+
+def _annotate_risk_check_enforcement(record: Dict[str, Any]) -> Dict[str, Any]:
+    """Label whether an optimization risk check was enforced inside the solver."""
+    metric = str(record.get("Metric") or record.get("metric") or "")
+    metadata = _RISK_CHECK_ENFORCEMENT.get(
+        metric,
+        {
+            "check_type": "unknown",
+            "enforced_by_optimizer": None,
+            "enforcement_label": "Compliance check",
+        },
+    )
+    return {**record, **metadata}
+
+
+def _risk_enforcement_summary(risk_checks: List[Dict[str, Any]]) -> Dict[str, int]:
+    failed_checks = [row for row in risk_checks if row.get("Pass") is False]
+    hard_violations = [
+        row for row in failed_checks if row.get("enforced_by_optimizer") is True
+    ]
+    guardrail_violations = [
+        row for row in failed_checks if row.get("enforced_by_optimizer") is False
+    ]
+    unknown_violations = [
+        row for row in failed_checks if row.get("enforced_by_optimizer") is None
+    ]
+
+    return {
+        "total_checks": len(risk_checks),
+        "total_violations": len(failed_checks),
+        "hard_constraint_violations": len(hard_violations),
+        "post_solve_guardrail_violations": len(guardrail_violations),
+        "unknown_enforcement_violations": len(unknown_violations),
+    }
+
 class OptimizationResult:
     """
     Mathematical portfolio optimization results with QP solvers and risk compliance analysis.
@@ -440,7 +504,10 @@ class OptimizationResult:
             Dict[str, Any]: Complete optimization results with compliance validation and performance metrics
         """
         # Use standard serialization (consistent with rest of codebase)
-        risk_checks = _convert_to_json_serializable(self.risk_table, orient='records') # Risk limit validation results from optimization
+        risk_checks = [
+            _annotate_risk_check_enforcement(row)
+            for row in _convert_to_json_serializable(self.risk_table, orient='records')
+        ] # Risk limit validation results from optimization
         factor_checks = _convert_to_json_serializable(self.beta_table, orient='records') # Factor beta validation results from optimization
         proxy_checks = _convert_to_json_serializable(self.proxy_table, orient='records') # Industry proxy validation results from optimization
         
@@ -450,7 +517,13 @@ class OptimizationResult:
         proxy_passes = bool(self.proxy_table['pass'].all()) if not self.proxy_table.empty else True # True if all proxy checks pass
         
         # Extract violations only (failed checks for error handling)
-        risk_violations = _convert_to_json_serializable(self.risk_table[~self.risk_table['Pass']], orient='records') # Only failed risk checks
+        risk_violations = [row for row in risk_checks if row.get('Pass') is False] # Only failed risk checks
+        risk_hard_constraint_violations = [
+            row for row in risk_violations if row.get("enforced_by_optimizer") is True
+        ]
+        risk_guardrail_violations = [
+            row for row in risk_violations if row.get("enforced_by_optimizer") is False
+        ]
         factor_violations = _convert_to_json_serializable(self.beta_table[~self.beta_table['pass']], orient='records') # Only failed factor checks
         proxy_violations = _convert_to_json_serializable(self.proxy_table[~self.proxy_table['pass']], orient='records') if not self.proxy_table.empty else [] # Only failed proxy checks
         
@@ -467,6 +540,9 @@ class OptimizationResult:
                 "risk_checks": risk_checks,              # List[Dict]: All risk checks in row format
                 "risk_passes": risk_passes,              # bool: True if all risk checks pass
                 "risk_violations": risk_violations,      # List[Dict]: Only failed risk checks
+                "risk_hard_constraint_violations": risk_hard_constraint_violations,
+                "risk_guardrail_violations": risk_guardrail_violations,
+                "risk_enforcement_summary": _risk_enforcement_summary(risk_checks),
                 "risk_limits": self._get_risk_limits_config()  # Dict: Risk limits configuration applied
             },
             

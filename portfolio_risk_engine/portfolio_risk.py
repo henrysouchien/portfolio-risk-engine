@@ -2398,6 +2398,7 @@ def _build_portfolio_view_computation(
         "allocations": df_alloc,
         "covariance_matrix": cov_mat,
         "correlation_matrix": corr_mat,
+        "return_observation_count": len(df_ret),
         "volatility_monthly": vol_m,
         "volatility_annual": vol_a,
         "risk_contributions": rc,

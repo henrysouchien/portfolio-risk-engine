@@ -74,23 +74,39 @@ def _request_json(path: str, params: dict[str, Any], *, timeout: float | None) -
 
 
 def get_filing_sections(
-    ticker: str,
-    year: int,
-    quarter: int,
+    ticker: str | None = None,
+    year: int | None = None,
+    quarter: int | None = None,
     *,
     sections: list[str] | None = None,
     format: str = "full",
     source: str | None = None,
+    accession: str | None = None,
+    cik: str | None = None,
+    form_type: str | None = None,
     max_words: int | str | None = None,
     include_tables: bool = False,
     timeout: float | None = None,
 ) -> dict[str, Any]:
-    params: dict[str, Any] = {
-        "ticker": ticker,
-        "year": year,
-        "quarter": quarter,
-        "format": format,
-    }
+    params: dict[str, Any] = {"format": format}
+    if accession:
+        params["accession"] = accession
+        if ticker:
+            params["ticker"] = ticker
+        if cik:
+            params["cik"] = cik
+        if form_type:
+            params["form_type"] = form_type
+    else:
+        if ticker is None or year is None or quarter is None:
+            raise EdgarAPIError("ticker, year, and quarter are required unless accession is provided")
+        params.update(
+            {
+                "ticker": ticker,
+                "year": year,
+                "quarter": quarter,
+            }
+        )
     if sections:
         params["sections"] = ",".join(sections)
     if source:

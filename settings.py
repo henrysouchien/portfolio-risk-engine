@@ -1,4 +1,21 @@
-#Date settings for portfolio analysis are in settings.py
+"""Root application settings and legacy compatibility facade.
+
+This module still owns shared app-level configuration that is consumed across
+multiple domains: URL defaults, Agent API flags, portfolio/risk defaults,
+trading flags, transaction-store flags, and other environment-derived constants.
+
+New domain-specific config should live near the owning package when practical
+and be imported directly there. A few migrated domains are intentionally
+re-exported here for older callers:
+
+- ``utils.user_context`` for user identity helpers.
+- ``providers.routing_config`` for provider routing tables.
+- ``ibkr.config`` for IBKR connection settings.
+
+Keep this file import-safe for scripts and MCP entry points: it may be imported
+before the full FastAPI app is initialized.
+"""
+
 import os
 from datetime import date
 from pathlib import Path
@@ -29,21 +46,47 @@ AGENT_API_LEGACY_BEARER_ENABLED = os.environ.get(
     "AGENT_API_LEGACY_BEARER_ENABLED",
     "true",
 ).lower() == "true"
-AGENT_API_CLAIM_MAX_TTL_SECONDS = int(os.environ.get("AGENT_API_CLAIM_MAX_TTL_SECONDS", "600"))
+AGENT_API_MIN_CLAIM_MAX_TTL_SECONDS = 600
 
 
-from utils.user_context import (
-    RISK_MODULE_USER_EMAIL_ENV,
-    _default_dotenv_path,
-    _normalize_email_value,
-    _read_env_or_dotenv,
-    _read_key_from_env_file,
-    UserContextError,
-    format_missing_user_error,
-    get_default_user,
-    get_default_user_context,
-    resolve_default_user,
-    resolve_user_email,
+def _read_agent_api_claim_max_ttl_seconds() -> int:
+    raw_value = os.environ.get(
+        "AGENT_API_CLAIM_MAX_TTL_SECONDS",
+        str(AGENT_API_MIN_CLAIM_MAX_TTL_SECONDS),
+    )
+    try:
+        ttl_seconds = int(raw_value)
+    except ValueError as exc:
+        raise ValueError(
+            "AGENT_API_CLAIM_MAX_TTL_SECONDS must be an integer "
+            f">= {AGENT_API_MIN_CLAIM_MAX_TTL_SECONDS}"
+        ) from exc
+
+    if ttl_seconds < AGENT_API_MIN_CLAIM_MAX_TTL_SECONDS:
+        raise ValueError(
+            "AGENT_API_CLAIM_MAX_TTL_SECONDS must be "
+            f">= {AGENT_API_MIN_CLAIM_MAX_TTL_SECONDS}; "
+            "AI-excel-addin run_bash signed claims use a 600-second TTL."
+        )
+    return ttl_seconds
+
+
+AGENT_API_CLAIM_MAX_TTL_SECONDS = _read_agent_api_claim_max_ttl_seconds()
+
+
+# Re-export user-context helpers from settings for legacy callers.
+from utils.user_context import (  # noqa: E402
+    RISK_MODULE_USER_EMAIL_ENV as RISK_MODULE_USER_EMAIL_ENV,
+    _default_dotenv_path as _default_dotenv_path,
+    _normalize_email_value as _normalize_email_value,
+    _read_env_or_dotenv as _read_env_or_dotenv,
+    _read_key_from_env_file as _read_key_from_env_file,
+    UserContextError as UserContextError,
+    format_missing_user_error as format_missing_user_error,
+    get_default_user as get_default_user,
+    get_default_user_context as get_default_user_context,
+    resolve_default_user as resolve_default_user,
+    resolve_user_email as resolve_user_email,
 )
 
 # settings.py
@@ -389,20 +432,21 @@ SECURITY_TYPE_CRASH_MAPPING = _load_crash_scenario_mappings()
 # SnapTrade Configuration
 ENABLE_SNAPTRADE = True  # Always enabled
 
-from providers.routing_config import (
-    DEFAULT_POSITION_PROVIDERS,
-    DEFAULT_TRANSACTION_PROVIDERS,
-    INSTITUTION_PROVIDER_MAPPING,
-    INSTITUTION_SLUG_ALIASES,
-    POSITION_ROUTING,
-    PROVIDER_CAPABILITIES,
-    PROVIDER_PRIORITY_CONFIG,
-    PROVIDER_ROUTING_CONFIG,
-    get_position_routing,
-    get_trade_routing,
-    get_transaction_routing,
-    TRANSACTION_FETCH_POLICY,
-    TRANSACTION_ROUTING,
+# Re-export provider routing config from settings for legacy callers.
+from providers.routing_config import (  # noqa: E402
+    DEFAULT_POSITION_PROVIDERS as DEFAULT_POSITION_PROVIDERS,
+    DEFAULT_TRANSACTION_PROVIDERS as DEFAULT_TRANSACTION_PROVIDERS,
+    INSTITUTION_PROVIDER_MAPPING as INSTITUTION_PROVIDER_MAPPING,
+    INSTITUTION_SLUG_ALIASES as INSTITUTION_SLUG_ALIASES,
+    POSITION_ROUTING as POSITION_ROUTING,
+    PROVIDER_CAPABILITIES as PROVIDER_CAPABILITIES,
+    PROVIDER_PRIORITY_CONFIG as PROVIDER_PRIORITY_CONFIG,
+    PROVIDER_ROUTING_CONFIG as PROVIDER_ROUTING_CONFIG,
+    TRANSACTION_FETCH_POLICY as TRANSACTION_FETCH_POLICY,
+    TRANSACTION_ROUTING as TRANSACTION_ROUTING,
+    get_position_routing as get_position_routing,
+    get_trade_routing as get_trade_routing,
+    get_transaction_routing as get_transaction_routing,
 )
 
 # Trading Execution Configuration
@@ -421,13 +465,14 @@ TRADING_DEFAULTS = {
 
 # IBKR (Interactive Brokers) Configuration
 IBKR_ENABLED = os.getenv("IBKR_ENABLED", "false").lower() == "true"
-from ibkr.config import (
-    IBKR_AUTHORIZED_ACCOUNTS,
-    IBKR_CLIENT_ID,
-    IBKR_GATEWAY_HOST,
-    IBKR_GATEWAY_PORT,
-    IBKR_READONLY,
-    IBKR_TIMEOUT,
+# Re-export package-local IBKR config from settings for legacy callers.
+from ibkr.config import (  # noqa: E402
+    IBKR_AUTHORIZED_ACCOUNTS as IBKR_AUTHORIZED_ACCOUNTS,
+    IBKR_CLIENT_ID as IBKR_CLIENT_ID,
+    IBKR_GATEWAY_HOST as IBKR_GATEWAY_HOST,
+    IBKR_GATEWAY_PORT as IBKR_GATEWAY_PORT,
+    IBKR_READONLY as IBKR_READONLY,
+    IBKR_TIMEOUT as IBKR_TIMEOUT,
 )
 
 IBKR_FLEX_TOKEN = os.getenv("IBKR_FLEX_TOKEN", "")

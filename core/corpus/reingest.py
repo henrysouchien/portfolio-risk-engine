@@ -365,6 +365,18 @@ def _prepare_recovery_fetch(
     corpus_root: Path,
 ) -> _PreparedDocument:
     document_row = _fetch_document_row(db, str(row['document_id']))
+    source_accession = _nullable_str(document_row['source_accession'])
+    if source_accession:
+        response_body = edgar_api_client.get_filing_sections(
+            ticker=str(document_row['ticker']),
+            accession=source_accession,
+            cik=_nullable_str(document_row['cik']),
+            form_type=_nullable_str(document_row['form_type']),
+            format='full',
+            max_words='none',
+            include_tables=False,
+        )
+        return _prepare_from_response(document_row, response_body, corpus_root)
     year, quarter, source = _resolve_api_params_from_row(document_row)
     response_body = edgar_api_client.get_filing_sections(
         ticker=str(row['ticker']),

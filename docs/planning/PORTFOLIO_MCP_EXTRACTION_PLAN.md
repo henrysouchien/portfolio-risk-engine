@@ -1,9 +1,10 @@
 # Portfolio-MCP Extraction Plan
 
-> **Status**: PLANNED
+> **Status**: SUPERSEDED 2026-05-21 — see `docs/planning/HANK_PLATFORM_MVP_PLAN.md`
+> **Supersession scope**: this OSS pip-install direction is superseded for the independent-investor audience (hosted MCP bundle is a better fit). Plan remains valid framing for a self-host audience (devs, sovereignty-minded users) if/when that audience is prioritized.
 > **Created**: 2026-03-19
 > **Parent docs**: `docs/planning/launch/OPEN_SOURCE_LAUNCH_GAPS.md` (B4), `docs/planning/launch/OPEN_SOURCE_LAUNCH_STRATEGY.md`
-> **Tracking ID**: B4
+> **Tracking ID**: B4 (now `Launch-B4`, superseded by `Launch-HP1`)
 > **Predecessor extractions**: `fmp-mcp` (PyPI v0.3.1), `app-platform` (PyPI v0.2.1), `web-app-platform` (npm v0.1.0)
 
 ---

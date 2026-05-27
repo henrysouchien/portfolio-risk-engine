@@ -40,11 +40,12 @@
   Generator lives naturally in the editorial pipeline; the briefing already has the signal via `EditorialState` + diligence section counts.
 - **Severity**: medium — it's the one view that breaks the voice contract.
 
-### R2. "Research Files" header not uppercase
+### R2. "Research Files" header not uppercase — FIXED 2026-05-26
 - **Where**: List view main heading.
 - **Why it hurts**: Sidebar rail labels (`PORTFOLIO`, `ANALYSIS`, `SCENARIOS`, `EDITORIAL NOTES`, `ANALYST NOTE`) and section anchors (`CONCENTRATION`, `PERFORMANCE`, `MARKET CONTEXT`) are all uppercase. Mixed-case "Research Files" is the only top-of-page label that breaks the pattern.
 - **Suggested fix**: Either uppercase to `RESEARCH FILES` or swap to the narrative-hero treatment from R1 (hero + no generic heading).
 - **Severity**: low — visual.
+- **Fix shipped 2026-05-26**: research list and compare-list section labels now render as `RESEARCH FILES` / `COMPARE RESEARCH FILES`, with focused list tests and live verification on `#research`.
 
 ### R3. `TEST` file leftover in list
 - **Where**: Bottom row of research list — stage `EXPLORING`, 0 threads, Apr 13.
@@ -77,11 +78,12 @@
 - **Suggested fix**: (a) auto-name threads by first user message topic (LLM summarize → 3-4 words), (b) compact unused numeric IDs on delete so the sequence stays 1/2/3, (c) clean up `DELETE-TEST` now.
 - **Severity**: medium — everyday cognitive load in the core workflow.
 
-### W3. "DILIGENCE 0/9" when stage = DILIGENCE reads contradictory
+### W3. "DILIGENCE 0/9" when stage = DILIGENCE reads contradictory — PARTIAL FIX 2026-05-26
 - **Where**: Thread tab bar + breadcrumb header ("... DILIGENCE").
 - **Why it hurts**: A file marked stage=Diligence with 0/9 sections drafted suggests either (a) stage auto-promoted before work started, or (b) pre-population didn't write sections. Either way the copy fights itself.
 - **Suggested fix**: Either (a) don't auto-promote to DILIGENCE until ≥1 section is DRAFT/CONFIRMED, or (b) show "DILIGENCE (pre-population pending)" copy until fills arrive. Related to F24 (pre-pop not filling FMP fields) — fixing F24 may naturally resolve this.
 - **Severity**: medium — trust-impacting.
+- **Partial fix shipped 2026-05-26**: finalized/locked diligence handoffs no longer show editable checklist progress (`Diligence 0/10`); the reserved tab now shows `Diligence locked`. Remaining unlocked-draft `0/n` semantics are still a pre-population/stage-policy question.
 
 ### W4. Conviction dots have no label or tooltip
 - **Where**: Under the direction/strategy row — `CONVICTION ○ ● ● ● ○`.

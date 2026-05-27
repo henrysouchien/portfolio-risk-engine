@@ -214,6 +214,19 @@ class InvalidSectionError(ActionValidationError):
 class DecisionsLogLockTimeoutError(ActionInfrastructureError):
     """Raised when the thesis decisions-log lock cannot be acquired."""
 
+    error_type = "decisions_log_lock_timeout"
+
+    def __init__(self, message: str, detail: dict[str, Any] | None = None) -> None:
+        payload = dict(detail or {})
+        self.detail = payload
+        self.retryable = bool(payload.get("retryable", True))
+        retry_after_seconds = payload.get("retry_after_seconds")
+        try:
+            self.retry_after_seconds = int(retry_after_seconds) if retry_after_seconds is not None else None
+        except (TypeError, ValueError):
+            self.retry_after_seconds = None
+        super().__init__(message)
+
 
 class LinkResolutionFailedError(ActionValidationError):
     """Raised when thesis scorecard execution cannot resolve model inputs."""

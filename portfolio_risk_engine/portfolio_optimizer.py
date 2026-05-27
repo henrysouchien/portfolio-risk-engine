@@ -26,6 +26,10 @@ from portfolio_risk_engine.risk_helpers import (
     get_worst_monthly_factor_losses,
     aggregate_worst_losses_by_factor_type,
 )
+from portfolio_risk_engine.covariance_conditioning import (
+    apply_conditioned_covariance_metrics,
+    condition_covariance_for_optimization,
+)
 
 try:
     from utils.helpers_display import _drop_factors  # type: ignore
@@ -170,7 +174,7 @@ def solve_min_variance_with_risk_limits(
     allow_short: bool = False,
 ):
     """
-    Solves minimum variance portfolio optimization subject to comprehensive risk constraints.
+    Solves minimum variance portfolio optimization subject to convex optimizer constraints.
     
     Finds the portfolio allocation that minimizes variance (w^T Σ w) while satisfying:
     • Concentration limits (max single position size)
@@ -179,7 +183,10 @@ def solve_min_variance_with_risk_limits(
     • Portfolio volatility limits (annualized)
     • Optional long-only constraint
     
-    The optimizer correctly prioritizes lowest-risk assets (e.g., SGOV government bonds)
+    Variance contribution limits such as Factor Var %, Market Var %, and Max Industry
+    Var % are evaluated after the solve as compliance guardrails; they are not part of
+    this CVXPY problem. The optimizer correctly prioritizes lowest-risk assets (e.g.,
+    SGOV government bonds)
     and will allocate maximum allowable amounts to assets with minimal volatility 
     and factor exposures, subject to concentration limits.
 
@@ -262,7 +269,16 @@ def solve_min_variance_with_risk_limits(
         raise ValueError(f"No valid tickers with data found. All tickers failed: {original_tickers}")
 
     n = len(tickers)
-    Σ = base_summary["covariance_matrix"].loc[tickers, tickers].values
+    covariance_result = condition_covariance_for_optimization(
+        base_summary["covariance_matrix"].loc[tickers, tickers],
+        observation_count=base_summary.get("return_observation_count"),
+    )
+    if covariance_result.applied:
+        portfolio_logger.warning(
+            "Min-variance covariance conditioned for optimization: %s",
+            covariance_result.metadata,
+        )
+    Σ = covariance_result.covariance.values
 
     # Limits for betas
     max_betas = compute_max_betas(
@@ -541,6 +557,7 @@ def evaluate_weights(
         ticker_alias_map=ticker_alias_map,
         instrument_types=instrument_types,
     )
+    summary = apply_conditioned_covariance_metrics(summary, weights)
 
     df_risk = _safe_eval_risk_limits(summary, risk_cfg)
 
@@ -589,6 +606,7 @@ def evaluate_optimized_weights(
         instrument_types=instrument_types,
         contract_identities=contract_identities,
     )
+    summary = apply_conditioned_covariance_metrics(summary, weights)
 
     if expected_returns:
         expected_return = sum(
@@ -1192,7 +1210,7 @@ def solve_max_return_with_risk_limits(
     allow_short: bool = False,
 ) -> Dict[str, float]:
     r"""Return the weight vector *w* that maximises expected portfolio return
-    subject to **all** firm-wide risk limits.
+    subject to solver-enforced convex risk limits.
 
     The problem is formulated as a convex quadratic programme (QP)::
 
@@ -1203,6 +1221,10 @@ def solve_max_return_with_risk_limits(
                     σ_p(w)                    ≤ σ_cap             (annual vol cap)
                     |β_port,f(w)|             ≤ β_cap,f           f ∈ {market,momentum,value}
                     |β_port,proxy(w)|         ≤ β_cap,proxy       ∀ industry proxies
+
+    Variance contribution limits from ``variance_limits`` are evaluated after the
+    solve as compliance guardrails. They are not modeled as hard constraints in
+    this convex programme.
 
     where ::
 
@@ -1284,7 +1306,16 @@ def solve_max_return_with_risk_limits(
     if not tickers:
         raise ValueError(f"No valid tickers with data found. All tickers failed: {original_tickers}")
 
-    Σ_m = view["covariance_matrix"].loc[tickers, tickers].values          # Σ (monthly)
+    covariance_result = condition_covariance_for_optimization(
+        view["covariance_matrix"].loc[tickers, tickers],
+        observation_count=view.get("return_observation_count"),
+    )
+    if covariance_result.applied:
+        portfolio_logger.warning(
+            "Max-return covariance conditioned for optimization: %s",
+            covariance_result.metadata,
+        )
+    Σ_m = covariance_result.covariance.values          # Σ (monthly)
     β_tbl = view["df_stock_betas"].fillna(0.0).loc[tickers]               # n × factors
 
     μ = np.array([expected_returns.get(t, 0.0) for t in tickers])
