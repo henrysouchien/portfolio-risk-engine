@@ -1,6 +1,11 @@
 # F131 Agent-Driven Narrow E2E Plan
 
-**Status:** APPROVED - Codex R3 PASS (2026-05-26); ready to implement PR-0 + PR-1
+**Status:** PARTIALLY IMPLEMENTED 2026-05-27 — enablement + harness shipped in `AI-excel-addin`; a GREEN live run is blocked on the autonomous-approval pass-through fix.
+  - **Enablement** (the permission infra F131 needed): `portfolio_config` class split `cfd8ef4e`; unified `research_producer` profile + skill-server denylist `c4d268dc`.
+  - **Harness:** PR-0 auditor `31d13601`, PR-1 live runner `fd95a8ec`, PR-2 live-gated pytest `8b2233d8`, preflight fix `9b61d560`.
+  - **First live PCTY run executed** — validated the harness end-to-end and caught the real blocker: the autonomous approval gate auto-denies `state_write` in headless mode (tools granted/visible but `headless_auto_deny`). Fix spec: `AI-excel-addin/docs/design/tool-policy-autonomous-approval-passthrough-task.md` (DRAFT, needs Codex review → implement). Bug + repro: `AI-excel-addin/docs/TODO.md`.
+  - **Remaining:** the approval-passthrough fix (blocker) → PR-3 (green live run + replay fixtures) → PR-4 (this closeout). Strict-audit half `blocked_on_F125`. Runbook: `AI-excel-addin/docs/F131_E2E_TEST_RUNBOOK.md`.
+  - Codex review history (R1 BLOCK → R2 BLOCK → R3 PASS) preserved below.
 **Date:** 2026-05-26
 **Owner:** Thesis & Research Artifact autonomous-loop workstream
 **Primary implementation repo:** `/Users/henrychien/Documents/Jupyter/AI-excel-addin`

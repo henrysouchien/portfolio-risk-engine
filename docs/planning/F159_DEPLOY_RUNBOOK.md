@@ -179,43 +179,73 @@ for r in rows: print(r)
 
 ---
 
-## Step 5 — Deploy code to prod ⚠️ [CONFIRM]
+## Step 5 — Deploy code to prod via `scripts/deploy.sh` ⚠️ [CONFIRM]
 
-R2: capture pre-deploy SHA for reliable rollback.
+R7 correction: prod's `/var/www/risk_module` is NOT a git repo. Deploy mechanism is `scripts/deploy.sh` which rsyncs the working tree (excluding `.git`, `data/`, `logs/`, `.env`, `frontend/`, caches) then handles dependency install + import smoke + migrations + restart + health poll all in one.
+
+**Pre-flight check** (deploy.sh enforces these; verify locally first):
 
 ```bash
-# Capture pre-deploy state for clean rollback
-prod "cd $REMOTE_DIR && git rev-parse HEAD" | tee /tmp/f159_pre_deploy_head.txt
-# Inspect what's about to land
-prod "cd $REMOTE_DIR && git fetch origin && git log --oneline HEAD..origin/main | head -5"
-prod "cd $REMOTE_DIR && git status --short"
-# Pull
-prod "cd $REMOTE_DIR && git pull origin main"
-prod "cd $REMOTE_DIR && git log --oneline -1"
-# Should show 457e8ac3 or descendant
+git status --short                          # Inspect uncommitted state
+git rev-parse --abbrev-ref HEAD             # Must be 'main'
+git rev-parse HEAD                          # Local SHA
+git rev-parse origin/main                   # Should match LOCAL (push first if not)
 ```
 
-**Verify**: prod HEAD includes `457e8ac3`. No conflicts. `git status` clean.
+**Working-tree dirty handling**: deploy.sh's pre-flight refuses if `git diff --quiet` finds modifications. If parallel-session work has modified docs/e2e files, two options:
+- **Preferred:** wait for parallel session to commit + push, then deploy from a clean working tree
+- **`--skip-checks` override**: acceptable when dirty files are in non-runtime paths (`docs/`, `e2e/`) AND don't represent unintentional changes. Rsync includes them — operator accepts parallel-session docs/e2e ship with this deploy. `frontend/` is auto-excluded.
+
+Capture pre-deploy state for verification:
 
 ```bash
-prod "sudo systemctl restart risk_module"
-prod "sudo systemctl status risk_module --no-pager | head -10"
-prod "curl -sf http://localhost:5001/api/health | head -5 || echo 'health check failed'"
+prod "head -20 /var/www/risk_module/core/corpus/ingest.py | grep -E 'corpus_root = '"
+# Expected pre-deploy: 'corpus_root = Path(corpus_root).resolve()' (OLD form)
+prod "ls /var/www/risk_module/core/corpus/_paths.py 2>&1"
+# Expected pre-deploy: 'No such file or directory'
 ```
 
-**Verify**: `risk_module` service `Active: active (running)`, health endpoint returns 200.
-
-**Other readers** (per plan §9 Q2): R2 expanded `lsof` check covers symlink + target + WAL/SHM sidecars.
+**Run deploy from local:**
 
 ```bash
-# Check both symlink and version-target paths, plus WAL/SHM sidecars
+cd /Users/henrychien/Documents/Jupyter/risk_module
+bash scripts/deploy.sh
+# If working tree is dirty from parallel session and we've decided to accept docs/e2e leak:
+# bash scripts/deploy.sh --skip-checks
+```
+
+deploy.sh does ALL of:
+1. Rsync working tree to `/var/www/risk_module/`
+2. `pip install -q -r requirements.txt`
+3. `pip install -e brokerage-connect/`
+4. Post-deploy import smoke (F54 Step E — proves corpus entry points import cleanly)
+5. `python3 scripts/validate_ibkr_relay_env.py`
+6. `python3 scripts/run_migrations.py`
+7. `sudo systemctl restart risk_module`
+8. Health poll: `curl -sf http://localhost:5001/api/health` for up to 30s
+
+**Verify**: deploy.sh prints `=== Deploy complete ===` with healthy JSON. Non-zero exit if any step fails.
+
+**Confirm new code landed**:
+
+```bash
+prod "grep 'normalize_corpus_path' /var/www/risk_module/core/corpus/ingest.py /var/www/risk_module/core/corpus/reingest.py /var/www/risk_module/core/corpus/_paths.py | head -10"
+# Expected: multiple matches including the helper definition + uses
+prod "head -20 /var/www/risk_module/core/corpus/ingest.py | grep 'corpus_root = '"
+# Expected: 'corpus_root = normalize_corpus_path(corpus_root)' (NEW form)
+```
+
+**Other readers** (per plan §9 Q2): check unexpected DB handles via lsof.
+
+```bash
 prod "sudo lsof $REMOTE_DATA/filings.db $REMOTE_DATA/filings_v1.db $REMOTE_DATA/filings.db-wal $REMOTE_DATA/filings_v1.db-wal $REMOTE_DATA/filings.db-shm $REMOTE_DATA/filings_v1.db-shm 2>&1 | head -20"
 ```
 
 **Verify**:
-- `risk_module` read handles → acceptable (post-restart, will be on new code)
-- `edgar_api` handles → if `edgar_api` doesn't import `core.corpus` write paths it's read-only and OK; if uncertain, restart it (`sudo systemctl restart edgar_api`)
-- Anything else (workers, scripts) → investigate before proceeding
+- `risk_module` Python read handles → acceptable (post-restart, on new code)
+- Anything unexpected → investigate before proceeding to Step 6
+
+**Rollback**: if deploy.sh fails mid-flight, prod state is whatever rsync managed to write before the error. Most safety is in deploy.sh's pre-flight + health-poll exit gate. For full rollback to pre-deploy code, redeploy from a git checkout at the pre-deploy `origin/main` SHA (capture before deploy).
 
 ---
 

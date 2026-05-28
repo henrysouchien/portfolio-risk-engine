@@ -25,6 +25,15 @@ def _sort_flags(flags: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(flags, key=lambda flag: order.get(flag.get("severity", "info"), 2))
 
 
+def _direct_ibkr_unreachable_message() -> str:
+    try:
+        from ibkr.config import IBKR_GATEWAY_HOST, IBKR_GATEWAY_PORT
+
+        return f"IBKR Gateway unreachable on {IBKR_GATEWAY_HOST}:{IBKR_GATEWAY_PORT}."
+    except Exception:
+        return "IBKR Gateway is unreachable."
+
+
 def generate_connection_flags(snapshot: dict) -> list[dict]:
     """Generate severity-tagged connection flags from a provider snapshot."""
     if not isinstance(snapshot, dict):
@@ -189,11 +198,19 @@ def generate_connection_flags(snapshot: dict) -> list[dict]:
             ibkr_connection = ibkr.get("connection", {})
             ibkr_connection = ibkr_connection if isinstance(ibkr_connection, dict) else {}
             if ibkr_connection.get("gateway_reachable") is False:
+                route = str(ibkr_connection.get("route") or "direct")
+                error = str(ibkr_connection.get("probe_error") or "")
+                if route == "relay" and error == "relay_disconnected":
+                    message = "Your local IBKR relay daemon is not connected. Run `relay` to start it."
+                elif route == "direct":
+                    message = _direct_ibkr_unreachable_message()
+                else:
+                    message = "IBKR Gateway is unreachable."
                 flags.append(
                     {
                         "flag": "ibkr_gateway_unreachable",
                         "severity": "error",
-                        "message": "IBKR Gateway is unreachable.",
+                        "message": message,
                     }
                 )
 
