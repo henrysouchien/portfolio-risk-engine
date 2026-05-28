@@ -16,7 +16,7 @@ from app_platform.logging.workflow_timing import WorkflowTimer
 from portfolio_risk_engine.performance_metrics_engine import compute_performance_metrics
 from portfolio_risk_engine.data_loader import fetch_monthly_close, fetch_monthly_treasury_rates
 from portfolio_risk_engine.factor_utils import calc_monthly_returns
-from ibkr.compat import (
+from brokerage.ibkr.compat import (
     fetch_ibkr_bond_monthly_close,
     fetch_ibkr_fx_monthly_close,
     fetch_ibkr_monthly_close,

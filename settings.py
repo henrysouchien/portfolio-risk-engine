@@ -466,7 +466,7 @@ TRADING_DEFAULTS = {
 # IBKR (Interactive Brokers) Configuration
 IBKR_ENABLED = os.getenv("IBKR_ENABLED", "false").lower() == "true"
 # Re-export package-local IBKR config from settings for legacy callers.
-from ibkr.config import (  # noqa: E402
+from brokerage.ibkr.config import (  # noqa: E402
     IBKR_AUTHORIZED_ACCOUNTS as IBKR_AUTHORIZED_ACCOUNTS,
     IBKR_CLIENT_ID as IBKR_CLIENT_ID,
     IBKR_GATEWAY_HOST as IBKR_GATEWAY_HOST,

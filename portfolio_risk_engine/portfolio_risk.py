@@ -989,7 +989,7 @@ def _fetch_ticker_returns(
     currency = currency_map.get(ticker) if currency_map else None
     if not currency and instrument_type == "futures":
         try:
-            from ibkr.compat import get_futures_currency
+            from brokerage.ibkr.compat import get_futures_currency
 
             inferred = str(get_futures_currency(ticker) or "").strip().upper()
             if inferred and inferred != "USD":

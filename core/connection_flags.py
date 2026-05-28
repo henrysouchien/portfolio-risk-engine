@@ -27,7 +27,7 @@ def _sort_flags(flags: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _direct_ibkr_unreachable_message() -> str:
     try:
-        from ibkr.config import IBKR_GATEWAY_HOST, IBKR_GATEWAY_PORT
+        from brokerage.ibkr.config import IBKR_GATEWAY_HOST, IBKR_GATEWAY_PORT
 
         return f"IBKR Gateway unreachable on {IBKR_GATEWAY_HOST}:{IBKR_GATEWAY_PORT}."
     except Exception:
