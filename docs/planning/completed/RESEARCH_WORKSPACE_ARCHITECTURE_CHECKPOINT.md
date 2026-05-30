@@ -73,7 +73,7 @@ Designed the Equity Research Workspace from scratch: product spec, design consul
 - "Session notes" are agent-written daily .md files, not automated code
 - No individual message persistence exists yet in either repo — this is the primary gap
 - The existing ChatProvider/usePortfolioChat is one app-wide in-memory conversation — extending to multi-thread is a new chat architecture, not a small adaptation
-- Design preview HTML at: `~/.gstack/projects/henrysouchien-risk_module/designs/research-workspace-20260403/research-workspace-preview.html`
+- Design preview HTML at: `docs/design/research-workspace-preview.html`
 - Spec file: `docs/planning/EQUITY_RESEARCH_WORKSPACE_SPEC.md`
 - DESIGN.md updated with Research Workspace section + 5 decision log entries
 - TODO.md updated with Group 5 status

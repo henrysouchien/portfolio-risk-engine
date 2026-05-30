@@ -1,7 +1,8 @@
 # Publish Plan — Path to Production
 
 > **Created**: 2026-03-12
-> **Goal**: Ship risk_module as a multi-user production app.
+> **Status (2026-05-29)**: PARTIALLY SUPERSEDED. The "multi-user production app" goal was achieved 2026-05-04 (Hank live at `https://hank.investments`). Current platform/product plan is **HP1 + HP2** (`docs/planning/HANK_PLATFORM_MVP_PLAN.md` + `docs/planning/HANK_AGENT_OSS_BRIEF.md`) — HP1 is the primary paid product (hosted MCP bundle) and HP2 is the OSS agent distribution funnel into it. This doc remains useful as the production-deployment execution-history reference; for current "what we're shipping next" see HP1 pickup punch list in TODO `Launch-HP1` row.
+> **Goal (original)**: Ship risk_module as a multi-user production app.
 > **Canonical TODO**: `docs/TODO.md` — this doc is the execution plan + task tracker.
 
 ---

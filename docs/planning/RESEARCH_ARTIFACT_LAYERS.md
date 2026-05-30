@@ -172,8 +172,8 @@ Closes by F125 (W2). *Formerly Q1.*
 **D5 — Three-layer model is the right factoring. No Layer 2.5.**
 The "computed vs argued" distinction (`quantitative_framing.scenarios` is model-computed; `risks[]` is filings-argued) is real but encoded in `source_refs` + `confidence` + `derived` flag on `CompMetricCell`. Adding a tier increases cognitive load without giving consumers a new affordance. **Decision:** discipline goes in `source_refs` hygiene (D1), not in a new tier. *Formerly Q5.*
 
-**D6 — Introduce `PositionSnapshot` to compose HandoffArtifact + runtime state for monitoring/exit consumers. Minimal contract is part of F129; richer schema is F132.**
-HandoffArtifact is correct for the **build** consumer (decision context as of finalize time) and must stay immutable. Monitoring/exit need decision context **plus** live runtime state (current price, holding period, position size, recent invalidation breaches). **Decision:** introduce `PositionSnapshot` as a composition: `{handoff_artifact: HandoffArtifact, runtime: PositionRuntimeState}`. Do not bloat HandoffArtifact with mutable runtime fields. **Minimal contract** (`{current_price, position_size, holding_period_days, recent_invalidation_breaches[]}`) is part of F129 — monitoring agent cannot function without it. **Richer schema expansion** (additional runtime fields as use cases emerge) is F132, sequenced after F129 ships against the minimal contract. *Formerly Q6.*
+**D6 — Introduce `PositionSnapshot` to compose HandoffArtifact + runtime state for monitoring/exit consumers. Minimal contract shipped by F129 2026-05-29; richer schema is F132.**
+HandoffArtifact is correct for the **build** consumer (decision context as of finalize time) and must stay immutable. Monitoring/exit need decision context **plus** live runtime state (current price, holding period, position size, recent invalidation breaches). **Decision:** introduce `PositionSnapshot` as a composition: `{handoff_artifact: HandoffArtifact, runtime: PositionRuntimeState}`. Do not bloat HandoffArtifact with mutable runtime fields. **Minimal contract shipped by F129 2026-05-29** (`AI-excel-addin/schema/position_snapshot.py` commit `8bf9bedb` — `PositionSnapshot` / `PositionRuntimeState` / `InvalidationBreach`; `runtime` field = `{current_price, position_size, holding_period_days, recent_invalidation_breaches[]}`); ephemeral by design (D-D in F129 plan — never persisted). **Richer schema expansion** (additional runtime fields as use cases emerge — e.g., cost basis, realized PnL, sector exposure, hedge linkage) is F132, parked until real-use signal surfaces what's actually needed. *Formerly Q6.*
 
 **D7 — Layer 1 writes follow the same lock/dedup discipline as `register_sources`.**
 Today Layer 2 has OCC under the patch engine, Layer 3 has versioned-immutable. Layer 1 (annotations) has write-once-no-validation — weak link for autonomous concurrent writes. **Decision:** before more agents write Layer 1, formalize the Layer 1 write contract with the same single-register-per-batch lock + identity-hash dedup story `register_sources` already has. Closes by F125 (W2) item (c). *Formerly Q7.*
@@ -192,7 +192,7 @@ Today's discipline is ad-hoc (only `peer-curation` has an explicit gate). Implic
 - **Low-confidence writes** (no `source_refs` or no resolved evidence): blocked at the patch engine. `add_differentiated_view_claim` is one instance of the evidence-required pattern; R1 generalizes it to **all Thesis mutation paths** (add ops, update ops, section writes, qualitative_factor writes, direct repository writes).
 
 **Two-part delivery** — policy doc alone is insufficient because R7 + Success Criterion 4 require actual enforcement:
-- **F126** shipped the policy document (decision-only) in [`F126_AUTONOMOUS_WRITE_GATING_POLICY.md`](F126_AUTONOMOUS_WRITE_GATING_POLICY.md).
+- **F126** shipped the policy document (decision-only) in [`F126_AUTONOMOUS_WRITE_GATING_POLICY.md`](completed/F126_AUTONOMOUS_WRITE_GATING_POLICY.md).
 - **F134** ships the enforcement — orchestrator dispatch gate keyed on op classification, skill-level boundary checks, tests for "no execute_trade without human gate" and "build-affecting writes emit decisions_log entry." D10 is not closed until both ship.
 
 *Formerly Q10.*
@@ -229,7 +229,7 @@ How we know the design works end-to-end. Each criterion is a check that should p
 3. **Coverage.** Every shipped skill is classified per R12 (`producer` / `advisor-with-decision-log` / `advisor-no-state`). Autonomous-scheduled skills emit patch ops or explicit zero-patch `decisions_log` entries — never `advisor-no-state`. No autonomous skill run goes invisible. (R5, R12)
 4. **Boundary — enforced.** No autonomous skill chains to `execute_trade` without an explicit human gate. No build-affecting Thesis write fires without an accompanying build attempt. **Enforced by orchestrator gate + tests, not policy alone** (F134, R7).
 5. **Schema completeness.** Every Thesis field either has a documented producer (per matrix doc) or is explicitly documented as compatibility-only / parallel-artifact / future-work. The matrix doc has zero ambiguous "Unwired" rows.
-6. **Cross-stage read.** A monitoring/exit/reassessment agent answers its questions reading only `Thesis` + `PositionSnapshot` — no detour to `model_insights`, `price_targets`, or other side tables. F133 closed the ModelInsights/PriceTarget Thesis read path; F129 still adds the PositionSnapshot runtime half. (D8 + D6)
+6. **Cross-stage read.** A monitoring/exit/reassessment agent answers its questions reading only `Thesis` + `PositionSnapshot` — no detour to `model_insights`, `price_targets`, or other side tables. F133 closed the ModelInsights/PriceTarget Thesis read path; F129 (shipped 2026-05-29) closes the PositionSnapshot runtime half. (D8 + D6)
 7. **Narrow e2e.** F131 LLM-in-the-loop e2e passes: agent does research, Thesis populated correctly, every claim traces to a `SourceRecord` with at least one `Excerpt` atom whose `claim_ids` references it, `finalize_handoff` succeeds, `build_model` produces `.xlsx`. (R1, R6)
 8. **Audit invariant.** No production Thesis contains a same-target claim + `data_gap` pair (R6). Audit chain replay over the full production set returns zero violations.
 9. **Update invariant.** All `update_*` ops in `decisions_log` history have either fresh `source_refs` or an explicit carry-forward rationale. Zero updates silently cleared evidence. (R9)
@@ -247,7 +247,7 @@ When all 9 hold, the autonomous-loop foundation is shippable. Monitoring/exit/re
 | D3 (type `watch_list` + ownership patch ops) | F124 (W1) | Completed 2026-05-23 |
 | D4 (`research_messages` not audit material; rationale discipline) | F125 (W2) item (b) | NEEDS PLAN |
 | D5 (three layers, no 2.5) | — | Decided; no action |
-| D6 (PositionSnapshot composition — minimal in F129, rich in F132) | F129 (minimal) + F132 (rich) | NEEDS PLAN (F129) / PARKED (F132) |
+| D6 (PositionSnapshot composition — minimal in F129, rich in F132) | F129 (minimal) + F132 (rich) | **F129 minimal: Shipped 2026-05-29** (canonical doc: [`../architecture/AUTONOMOUS_MONITORING_LOOP.md`](../architecture/AUTONOMOUS_MONITORING_LOOP.md)) / F132: PARKED |
 | D7 (Layer 1 write contract) | F125 (W2) item (c) | NEEDS PLAN |
 | D8 (ModelInsights/PriceTarget → Thesis — prereq for F129) | F133 | Completed 2026-05-23 |
 | D9 (`decisions_log` zero-patch entries) | F125 (W2) item (b) | NEEDS PLAN |

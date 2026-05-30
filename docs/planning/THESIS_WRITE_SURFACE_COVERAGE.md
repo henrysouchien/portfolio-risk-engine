@@ -3,7 +3,7 @@
 **Status:** Living inventory — snapshot 2026-05-20. Companion to the design doc.
 **Purpose:** Map every Thesis schema field to the skill(s) that write to it. Inventory of producers, gaps, and skill boundaries.
 **Pairs with:** [`RESEARCH_ARTIFACT_LAYERS.md`](RESEARCH_ARTIFACT_LAYERS.md) — the **unified design** (three-layer model, locked decisions D1-D10, design rules R1-R12, success criteria 1-9, verification V1-V12). This doc is inventory; the layers doc is the design authority.
-**Active workstreams (close the gaps below):** F125 (W2), F128, F129, F131, F132, F134 (W3 enforcement) — see [`../TODO.md`](../TODO.md) "Thesis & Research Artifact" section. F124/F126/F127/F130/F133/F135 completed work is archived in [`../TODO_COMPLETED.md`](../TODO_COMPLETED.md).
+**Active workstreams (close the gaps below):** F131 (strict-audit live green run), F132 (parked — post F129) — see [`../TODO.md`](../TODO.md) "Thesis & Research Artifact" section. F124/F125/F126/F127/F128/F129/F130/F133/F134/F135 completed work is archived in [`../TODO_COMPLETED.md`](../TODO_COMPLETED.md). The autonomous monitoring/exit loop (F129) is canonical-doc'd at [`../architecture/AUTONOMOUS_MONITORING_LOOP.md`](../architecture/AUTONOMOUS_MONITORING_LOOP.md).
 **Scope:** Read-only audit. Source: `AI-excel-addin/schema/thesis.py`, `thesis_shared_slice.py`, `handoff.py`, `handoff_patch.py`; skill prose under `AI-excel-addin/api/memory/workspace/notes/skills/`.
 
 ## Context
@@ -127,7 +127,7 @@ Column legend: writer skill • patch op type / write mechanism.
 | ~~G3~~ | ~~`position_metadata.date_initiated`~~ | **Resolved 2026-05-22:** `position-initiation` applies `set_date_initiated` for new initiations and preserves the original date on add/reduce activity. |
 | ~~G4~~ | ~~`historical_coincidences[]`~~ | **Resolved 2026-05-20:** `critical-factors` Step 9 emits `add_historical_coincidence` per coincidence. Not a gap. |
 | ~~G5~~ | ~~`ownership`~~ | **Resolved 2026-05-23:** `ownership-refresh` writes sourced ownership through `update_ownership`. |
-| ~~G6~~ | ~~`monitoring.watch_list`~~ | **Resolved 2026-05-23:** `monitoring-init` writes typed watch items through `update_monitoring`. F129 still owns the cadence loop that rechecks those thresholds. |
+| ~~G6~~ | ~~`monitoring.watch_list`~~ | **Resolved 2026-05-23:** `monitoring-init` writes typed watch items through `update_monitoring`. Cadence loop closed 2026-05-29 by F129 (`position-reassess` skill + `evaluate_thesis_monitoring` MCP tool + `update_watch_item` patch op). |
 | ~~G7~~ | ~~`model_links`~~ | **Resolved 2026-05-22:** `decision-log` is the producer and uses `thesis_upsert_link` / `thesis_remove_link` for durable model/claim links. |
 | **G8-DOC** | `business_model_ref` | Documented as no current Thesis producer. `business-model-construction` writes a standalone BusinessModel artifact; a future explicit linkage workflow can promote this into an active Thesis field. |
 
@@ -135,10 +135,10 @@ Column legend: writer skill • patch op type / write mechanism.
 
 | Gap | Description |
 |---|---|
-| **L1 — Monitoring/exit driving skill** | `invalidation_triggers[]` are populated by 7 skills. No skill reads them on cadence and acts. `check_exit_signals` MCP tool exists but no autonomous skill drives the loop. |
-| **L2 — Idea→thesis bridge** | `from_idea` exists, `start_research` ingests, but no autonomous skill threads idea ingest → research → thesis-creation end-to-end without a human at each gate. |
+| ~~L1 — Monitoring/exit driving skill~~ | **Resolved 2026-05-29:** F129 ships `position-reassess` skill driving the loop autonomously under `research_producer` profile. `evaluate_thesis_monitoring` MCP tool runs deterministic Tier-1 breach evaluation; Tier-2/3 route to manual-review with linked catalyst `expected_date`. See [`../architecture/AUTONOMOUS_MONITORING_LOOP.md`](../architecture/AUTONOMOUS_MONITORING_LOOP.md). |
+| ~~L2 — Idea→thesis bridge~~ | **Resolved 2026-05-29:** F128 idea→thesis bridge shipped (`495c4a47`) + live-verified end-to-end on 2026-05-29 re-run (under `research_producer`, 23 turns, verdict THESIS_WRITTEN). `idea-to-thesis` skill drives `thesis-consultation MODE=autonomous` via `invoke_skill` text-injection. |
 | ~~L3 — Position-sizing→Thesis writeback~~ | **Resolved 2026-05-22:** `position-initiation` closes sizing → execution/manual confirmation → `Thesis.position_metadata` via `update_position_size` and `set_date_initiated`. |
-| **L4 — Reassessment cadence** | No skill currently loops over the watch list to recheck thresholds. `morning-briefing` is a candidate but isn't wired this way. |
+| ~~L4 — Reassessment cadence~~ | **Resolved 2026-05-29:** F129 cadence wrapper (`run_position_reassess_cadence.py` + systemd timer daily 18:00 ET) fans out one autonomous run per `research_file_id` over the `thesis_list ∩ get_positions` universe. See [`../architecture/AUTONOMOUS_MONITORING_LOOP.md`](../architecture/AUTONOMOUS_MONITORING_LOOP.md). |
 
 ### Skill state classification
 
@@ -157,7 +157,7 @@ Candidates that may need promotion to `producer` in later work:
 
 1. **For the design** — see [`RESEARCH_ARTIFACT_LAYERS.md`](RESEARCH_ARTIFACT_LAYERS.md). That doc has the locked decisions (D1-D10), design rules (R1-R12), success criteria (1-9), and verification table (V1-V12). This matrix is the inventory the design references.
 2. **For the narrow e2e (F131)** — pick a vertical slice that exercises the wired write surface (e.g., `fundamental-research` → `critical-factors` → `identifying-risk` → `earnings-scenarios` → `dcf-relative-valuation` → `thesis-consultation` → `build-model`) and assert (a) the final Thesis shape, (b) every claim's `source_refs` resolves to a `SourceRecord` with at least one `Excerpt` atom (D1), (c) `build_model` produces the expected `.xlsx`, (d) zero same-target claim + data_gap pairs (R6), (e) all `update_*` ops in decisions_log have fresh evidence or carry-forward rationale (R9). See layers doc Success Criteria 1, 7, 8, 9.
-3. **For active workstreams** — gaps map to TODO entries: G5/G6 were closed by F124; audit-chain hygiene → F125 (W2); gating policy closed by F126 (W3 policy); enforcement → F134 (W3 enforcement); L2 → F128; L1/L4 → F129 (depends on F125+F134); e2e → F131; rich PositionSnapshot → F132. F124, F126, F127, F130, F133, and F135 are completed verification/wiring passes. See [`../TODO.md`](../TODO.md) "Thesis & Research Artifact" section.
+3. **For active workstreams** — gaps map to TODO entries. **Shipped (2026-05-29 snapshot):** G5/G6 (F124), audit-chain hygiene (F125, shipped 2026-05-28), gating policy (F126), enforcement-via-F2j (F134, absorbed and closed 2026-05-27), L2 idea→thesis (F128, shipped + live-verified 2026-05-29), L1/L4 monitoring/exit (F129, shipped + live-verified 2026-05-29 — canonical doc at [`../architecture/AUTONOMOUS_MONITORING_LOOP.md`](../architecture/AUTONOMOUS_MONITORING_LOOP.md)). **Still open:** strict-audit live green run (F131), rich PositionSnapshot (F132, parked until real-use signal). F124, F126, F127, F130, F133, F135 are completed verification/wiring passes. See [`../TODO.md`](../TODO.md) and [`../TODO_COMPLETED.md`](../TODO_COMPLETED.md).
 
 ---
 

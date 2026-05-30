@@ -132,6 +132,33 @@ def get_filings(
     )
 
 
+def get_filing_tables(
+    ticker: str,
+    year: int,
+    quarter: int,
+    *,
+    section: str | None = None,
+    table_id: str | None = None,
+    source: str | None = None,
+    accession: str | None = None,
+    timeout: float | None = None,
+) -> dict[str, Any]:
+    params: dict[str, Any] = {
+        "ticker": ticker,
+        "year": year,
+        "quarter": quarter,
+    }
+    if section:
+        params["section"] = section
+    if table_id:
+        params["table_id"] = table_id
+    if source:
+        params["source"] = source
+    if accession:
+        params["accession"] = accession
+    return _request_json("/api/tables", params, timeout=timeout)
+
+
 def get_invalidations(
     *,
     since: str | None = None,
@@ -149,4 +176,4 @@ def get_invalidations(
     return [dict(entry) for entry in entries]
 
 
-__all__ = ["EdgarAPIError", "get_filing_sections", "get_filings", "get_invalidations"]
+__all__ = ["EdgarAPIError", "get_filing_sections", "get_filing_tables", "get_filings", "get_invalidations"]

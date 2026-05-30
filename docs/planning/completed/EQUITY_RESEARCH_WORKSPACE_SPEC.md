@@ -5,7 +5,7 @@
 **Eng review:** 2026-04-03. Codex outside voice ran.
 **Date:** 2026-04-03
 **TODO ref:** Group 5
-**Design preview:** `~/.gstack/projects/henrysouchien-risk_module/designs/research-workspace-20260403/research-workspace-preview.html`
+**Design preview:** `docs/design/research-workspace-preview.html`
 
 > **⚠ ARCHITECTURE SUPERSEDED:** Several sections below reflect the 2026-04-03 eng review draft and were superseded by the locked architecture (2026-04-10+) after 4 Codex consult rounds and 3 storage pivots. **Superseded sections:**
 >
@@ -508,5 +508,5 @@ Final architecture:
 - **Investment Planning System**: docs/planning/INVESTMENT_PLANNING_SYSTEM_ARCHITECTURE.md
 - **Portfolio Strategy Workflow**: docs/planning/strategy/PORTFOLIO_STRATEGY_WORKFLOW.md
 - **DESIGN.md**: Product identity, design principles, scenario tool patterns
-- **Design preview**: `~/.gstack/projects/henrysouchien-risk_module/designs/research-workspace-20260403/research-workspace-preview.html`
+- **Design preview**: `docs/design/research-workspace-preview.html`
 - **Design consultation**: 2026-04-03, converged on "IDE for equity research" model through iterative discussion

@@ -7,6 +7,7 @@
 **Revised:** 2026-04-20 (r5) — cleanup passes addressing Codex residual findings. `hank_compare_peers` `peers` typed correctly (`string`, comma-separated, not array). Duplicate model-adapter construction block deleted. Q3/Q8 resolutions updated. Stale "22-25 tools", "~30 tools", "one-week sprint" framing scrubbed. Week-1 day-by-day checklist aligned with r4 v1 scope (20 Hank + 5 native = 25 tool classes, modeling deferred). Tool-name drift fixed (`get_quote` real registry name, not `get_quotes`). Attribution text no longer claims modeling studio in v1.
 **Status:** ✅ **CODEX PASS (r5, 2026-04-20)** — ready for implementation per CLAUDE.md plan-first workflow
 **Supersedes / implements:** `docs/planning/VALS_FINANCE_AGENT_RUN_PLAN.md` (sprint envelope)
+**Successor (v2 re-baseline):** This plan implements the v1.1 sprint. The v2 re-baseline + cross-model lift run is tracked at TODO **B1.v2** (strategic framing in `docs/strategy/HANK_PRODUCT_POSITIONING.md`, V1.7); GPT-5.5 mirror already implemented per `docs/planning/VALS_GPT55_PARITY_IMPL_PLAN.md` (2026-05-28).
 **Owner:** Benchmarks sprint (1-2 engineers, 8-week arc per §7 — Week 1 sprint + Weeks 2-8 architectural iteration + Week 8 decision gate)
 **Upstream:**
 - Sprint shape: `docs/planning/VALS_FINANCE_AGENT_RUN_PLAN.md`

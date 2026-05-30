@@ -1,9 +1,24 @@
 # F156 Human Filing Reader Architecture Spec
 
-**Status:** REVIEWED R5 - visual/product PASS, architecture PASS
+**Status:** REVIEWED R6 - visual/product PASS, architecture PASS
 **Date:** 2026-05-27
 **Owner:** Research Workspace / Filing Reader / Corpus UX
 **Primary repos:** `risk_module` frontend, AI-excel-addin research API/document service, corpus/Edgar ingestion pipeline
+**Companion specs:** `F156_READER_ANALYST_NOTE_LAYER_SPEC.md`
+
+## 2026-05-29 Reconciliation Note
+
+This document remains the L1 spine/security/detail spec for the human filing reader, but the authoritative umbrella is now `F156_READER_SYSTEM_ARCHITECTURE.md` and active sequencing is in `F156_READER_IMPLEMENTATION_PLAN.md`.
+
+The product direction has also narrowed:
+
+- There is still one human reader: faithful sanitized SEC HTML.
+- Corpus/extracted text remains diagnostic/substrate only.
+- The live source route includes the `risk_module` same-origin proxy/materialization path as well as the upstream AI-excel-addin sanitizer/source service. Browser-followed redirects to SEC are not an acceptable reader path.
+- The reader sidecar is not the direct note-action interface. Direct passage actions collapse to the on-document `Ask / Save / Flag` chip; rich actions are agent-mediated and still gated by the durable artifact/evidence/promotion rules.
+- Exact/high HTML↔corpus mapping is now producer-first: because corpus markdown is derived from SEC/Edgarparser HTML, the corpus producer should emit an HTML↔corpus mapping sidecar during corpus generation. The mapping registry stores/validates that sidecar and issues `mapping_record_id`; post-hoc text matching is legacy/backfill only.
+- The adversarial blocker review found two L1 implementation hazards that this spec now treats as fail gates: redirect materialization must not return raw SEC HTML from the app origin, and parent-side DOM instrumentation must wait for materialized identity with `source_html_hash`.
+- The phase list later in this file is historical architecture scaffolding. Use the wave order in `F156_READER_IMPLEMENTATION_PLAN.md` for implementation.
 
 ## Executive Summary
 
@@ -141,7 +156,7 @@ R2 explicitly resolves the first review round:
 | --- | --- |
 | Lazy available descriptors can violate identity. | Available descriptors now require document id, accession, primary document URL, corpus hash, and sanitizer version. Only source HTML hash/anchors can be lazy. |
 | Source HTML endpoint stale/mismatch protection was underspecified. | Endpoint contract now requires authoritative identity resolution and hard rejection of mismatches before serving HTML. |
-| Phase 2 iframe bridge security was too vague. | Bridge design now uses an app-owned wrapper with a passive no-script filing frame; scripts never run in the same document as SEC markup. |
+| Phase 2 iframe bridge security was too vague. | The live model is now explicit: a same-origin source HTML iframe without `sandbox`, guarded by sanitizer, route-scoped CSP, identity verification, safe SEC Archives redirect materialization, and parent-only inert DOM instrumentation. A two-frame bridge is a future option, not the current implementation. |
 | SEC parity was subjective. | Visual gates now include concrete viewport, width, screenshot, table, and artifact requirements. |
 | Layout architecture was vague. | Phase 1 now chooses a first-class filing reader shell/route, not another dashboard panel. |
 | Selection/citation migration was underplanned. | Added schema version, anchor union, adapters, type guards, storage/API migration, and compatibility sequencing. |
@@ -152,6 +167,26 @@ R2 explicitly resolves the first review round:
 | Future document types risk SEC-specific modeling. | Public contract uses generic `primary_reader.kind`; SEC HTML is one reader kind. |
 | Visual review artifacts were not required. | Visual QA now requires screenshots, metrics, viewport sizes, and pass/fail notes per target section. |
 
+R3 explicitly resolves the 2026-05-29 adversarial blocker review:
+
+| Finding | Resolution in R3 |
+| --- | --- |
+| Redirect materialization may bypass sanitizer. | The app proxy may server-fetch SEC Archives redirects, but the fetched body must run through the same sanitizer, CSP/header, identity, and source-html-hash materialization path as non-redirect source HTML. Returning raw SEC bytes from the app route is a fail gate. |
+| Iframe instrumentation can run before materialized identity. | Route-bound descriptor verification and hash-backed materialized identity are separate states. Selection capture, inert projection, restored marks, scroll-spy, visual snapshots, and durable anchors require materialized identity including `source_html_hash`. |
+| Anchor and offset-frame contract drift. | Offset-bearing anchors now declare `offset_frame`; visible quote anchors declare `visible_text_offset_frame`; render/evidence adapters are locked under S1 before `ReaderBridge`. |
+| C0/C mapping not implementation-ready. | `F156_READER_IMPLEMENTATION_PLAN.md` now inserts a C-contract gate that locks sidecar path/schema, DB tables, record-id minting, invalidation, table policy, and backfill before C0/C implementation. |
+
+R4 explicitly resolves the follow-up adversarial review:
+
+| Finding | Resolution in R4 |
+| --- | --- |
+| S0 named safety but code/tests still asserted raw redirect passthrough. | S0 now explicitly replaces the existing redirect tests and requires app-owned headers, stripped upstream cookies/CSP, source HTML hash, route CSP, and sanitized/materialized redirect bodies. |
+| First-class reader shell scope was contradictory. | Active sequencing now includes a Reader shell/layout wave; Phase 1 states the shell is active F156 scope and A1 framing alone is insufficient. |
+| ReaderBridge was too abstract. | The implementation plan now locks module path, public inputs, projection result schema, diagnostics, table degradation, DOM ownership, and lint-boundary acceptance. |
+| Pre-C projection lacked confidence/frame schema. | S1/ReaderBridge now own `ReaderProjectionInput` / `ReaderProjectionResult`; badges render resolved projection confidence and downgrade diagnostics. |
+| C0 producer API remained underspecified. | C-contract now includes upstream artifact-bundle requirements, source identity/hash provenance, visible-text algorithm version, stable section ids, deterministic producer ids, atomicity, and DB migrations. |
+| Remote SEC images conflicted with no-cookie privacy. | Default CSP blocks direct remote resources; SEC resources require an app proxy or an explicit tested privacy exception. |
+
 ## Current State Snapshot
 
 ### What Now Works
@@ -159,6 +194,7 @@ R2 explicitly resolves the first review round:
 - Filing documents can advertise a source HTML render surface.
 - The frontend can default filings to the visual filing reader when source HTML is available.
 - The research API can lazily serve sanitized SEC HTML through a same-origin route.
+- If the upstream research API represents source HTML as an SEC Archives redirect, the app proxy may materialize that redirect server-side, but the final body must still pass through sanitizer/CSP/hash/materialized-identity handling before it is returned from the same-origin route. Browser-followed redirects to `sec.gov` are not acceptable for the reader iframe because they break same-origin selection capture.
 - The sanitizer strips hidden/non-visible iXBRL metadata that previously polluted the visible page.
 - Direct same-origin source HTML rendering preserves SEC-like default layout much better than corpus markdown.
 - A small `SEC` provenance link can point to the direct primary document.
@@ -351,7 +387,7 @@ AI-excel-addin / research document service owns:
 - Typed frontend consumption.
 - Reader shell layout and product experience.
 - UI state around document, agent sidecar, notes, and artifacts.
-- Optional same-origin proxy only if deployment routing requires it.
+- The current deployment's same-origin source-html proxy/materializer. It may only be removed if an equivalent same-origin route preserves safe SEC Archives redirect materialization through the sanitizer/hash pipeline, hard identity binding, CSP, and parent-side selection/projection access.
 
 The frontend must not fetch SEC directly for the embedded reader.
 
@@ -394,6 +430,7 @@ Response requirements:
   - `X-Corpus-Content-Hash`
   - `X-Source-Html-Hash` after materialization
   - `X-Sanitizer-Version`
+- Redirect-materialized responses have the same requirements as ordinary source HTML responses. The app proxy must not return the raw `sec.gov` response body, headers, or content type directly from the same-origin route. Existing route tests that assert raw passthrough must be replaced with sanitizer/hash/CSP/header-allowlist tests.
 
 Cache keys:
 
@@ -439,7 +476,7 @@ interface SourceHtmlMaterializedIdentityWire {
 
 - The metadata endpoint uses the same hard identity validation as the HTML route.
 - It may synchronously materialize sanitized HTML if needed, or return `202` with retry metadata if materialization is intentionally asynchronous.
-- Phase 2 bridge messages and persisted visible anchors are gated until the parent has fetched and verified this materialized identity.
+- Parent-side selection capture, inert projection, restored quote anchors, scroll-spy/perceptual capture, visual snapshots, and persisted visible anchors are gated until the parent has fetched and verified this materialized identity.
 - The sanitized HTML response may also include inert `<meta name="hank-source-html-hash" ...>` / JSON identity for diagnostics, but that is not the only contract.
 
 ### Sanitizer And CSP Contract
@@ -462,52 +499,54 @@ Source HTML response CSP should be equivalent to:
 
 ```text
 default-src 'none';
-base-uri 'none';
-form-action 'none';
-frame-ancestors 'self';
 script-src 'none';
 object-src 'none';
 connect-src 'none';
-style-src 'unsafe-inline';
-img-src 'self' data: https://www.sec.gov;
-font-src 'self' data:;
 frame-src 'none';
+style-src 'unsafe-inline';
+img-src 'self' data:;
+font-src 'self' data:;
+base-uri 'none';
+form-action 'none';
+frame-ancestors 'self';
 ```
 
-If remote images/fonts are not required for readability, prefer blocking or proxying them. Inline styles are allowed only because SEC filings commonly encode table presentation inline; script execution remains blocked.
+Remote images/fonts are blocked by default. If visual QA proves SEC-hosted resources are required for readability, add an app-controlled resource proxy that fetches allowlisted SEC resources server-side and serves them from `self` without forwarding cookies, referrers, or upstream active headers. Direct `img-src https://www.sec.gov` is a deliberate privacy exception and must not be enabled without documenting and testing the leakage boundary. Inline styles are allowed only because SEC filings commonly encode table presentation inline; script execution remains blocked.
 
 ### Reader Isolation And Bridge Security
 
-Phase 1 rendering:
+The live reader uses a CSP-constrained, same-origin filing iframe. This is an explicit product/security tradeoff: faithful browser rendering and direct selection/highlight projection require the parent reader to inspect and mutate the sanitized filing DOM. A sandboxed iframe made that bridge impossible without degrading the reader, so the security boundary is the source HTML route plus response policy, not the iframe `sandbox` attribute.
 
-- Render sanitized HTML in a sandboxed iframe.
-- Use `sandbox=""` by default: no scripts, no same-origin access, no forms, no popups, and no top navigation.
-- No source scripts.
-- No forms.
-- No top navigation from inside the frame.
-- Do not inject source HTML into the app DOM.
-- No selection bridge yet.
+Current rendering model:
 
-Phase 2 quote bridge uses a two-frame design:
+- Render sanitized source HTML at `/api/research/content/documents/source-html`.
+- The app proxy must not forward an upstream `Location` response directly to the browser for this route. If the upstream returns a redirect to an SEC Archives primary document, the proxy fetches that document server-side, verifies the final URL is an allowed `sec.gov` Archives URL, sanitizes/materializes it with the same source-html pipeline, computes `source_html_hash`, and returns only the sanitized HTML from the same-origin source route.
+- Redirect materialization uses app-owned response headers only: route CSP, route frame policy, sanitized content type, cache headers keyed to `source_html_hash`/sanitizer version, and identity headers. It must strip or ignore upstream `Set-Cookie`, CSP, `Location`, `Content-Encoding`, active content-type surprises, and other non-allowlisted headers.
+- Redirects to non-SEC hosts, non-HTTPS URLs, or paths outside `/Archives/edgar/` fail closed.
+- Embed that route in a same-origin iframe with no `sandbox` attribute.
+- Set `referrerPolicy="no-referrer"` on the iframe.
+- Parent code may read selection state and inject inert highlight marks into the iframe DOM.
+- No source scripts are preserved by the sanitizer.
+- The source HTML response sends `script-src 'none'`, `object-src 'none'`, `connect-src 'none'`, `frame-src 'none'`, and `form-action 'none'`.
+- The source HTML route uses `X-Frame-Options: SAMEORIGIN` and `frame-ancestors 'self'` so only the app can embed it.
+- The general app remains `X-Frame-Options: DENY`; this exception is route-scoped to source HTML.
+- Durable reader actions are gated on verified materialized identity, including source id, document id, accession, primary document URL, corpus hash, sanitizer version, and source HTML hash.
+- Parent-side DOM instrumentation is also gated on verified materialized identity. Route-bound URL verification alone is insufficient.
 
-```text
-Parent app
-  -> app-owned ReaderBridgeFrame (scripts allowed, nonce-bound, same-origin)
-       -> passive FilingFrame (sanitized SEC HTML, no scripts, no forms)
-```
+Threat-model requirements:
 
-Rules:
+- Sanitized SEC markup is untrusted content.
+- Sanitized source HTML must never be injected into the parent app DOM.
+- Source HTML must not execute scripts, submit forms, open nested frames, call network APIs, run object/embed content, or override base URLs.
+- Parent code must treat selected filing text as untrusted quoted data in prompt assembly.
+- Parent code may create inert marks for highlight projection/restored quote anchors, but it must not inject executable script or event handlers into the source frame.
+- Links inside source HTML must be neutralized or safe-opened according to the sanitizer rules.
+- Perceptual/read-trail capture uses the accepted F156 D posture: visible-section viewport context only, attached to the research turn for replay/audit, self-labeled by an audit manifest, with no dwell/read time, no per-section temporal trail, and no durable read-trail table. User-facing disclosure is required before any UI surfaces that trail in the multi-user product.
+- Tests must assert the route-scoped CSP includes the explicit no-script/no-connect/no-frame/no-object directives.
 
-- Scripts never run in the same document that contains SEC source markup.
-- `ReaderBridgeFrame` is generated by the app and contains only app-owned bridge code.
-- `FilingFrame` loads the sanitized source HTML endpoint with no source scripts and no forms.
-- `FilingFrame` may use `sandbox="allow-same-origin"` only if needed so the app-owned bridge can read selection state; it must not use `allow-scripts`.
-- The parent app accepts messages only from the `ReaderBridgeFrame` `WindowProxy`, not from the source filing frame.
-- Every bridge message includes opaque session id, source id, document id, accession, primary document URL, corpus hash, sanitizer version, and source HTML hash when materialized.
-- Parent validates message schema, session id, source window, and document identity before accepting a selection.
-- Tests must prove sanitized SEC content cannot emit trusted bridge events.
+Future option:
 
-Do not enable scripts in the filing iframe itself.
+If we later need a richer bridge that runs app-owned scripts outside the parent, use a two-frame app-owned bridge design. That design must still keep scripts out of the filing document itself, validate source identity on every message, and prove sanitized SEC content cannot emit trusted bridge events. It is not the current model.
 
 ## Selection, Notes, Citations, And Evidence
 
@@ -518,6 +557,7 @@ type DocumentAnchor =
   | CorpusSpanAnchor
   | FilingQuoteAnchor
   | FilingMappedAnchor
+  | FilingTableCellAnchor
   | SectionAnchor
   | DocumentLevelAnchor;
 
@@ -530,6 +570,9 @@ interface BaseAnchor {
   confidence: 'exact' | 'high' | 'quote' | 'section_only' | 'none';
 }
 
+type OffsetFrame = 'corpus_doc' | 'api_excerpt';
+type VisibleTextOffsetFrame = 'source_html_visible_text_v1';
+
 interface CorpusSpanAnchor extends BaseAnchor {
   anchor_kind: 'corpus_span';
   surface: 'corpus_text';
@@ -538,6 +581,7 @@ interface CorpusSpanAnchor extends BaseAnchor {
   selected_text: string;
   char_start: number;
   char_end: number;
+  offset_frame: OffsetFrame;
   confidence: 'exact';
 }
 
@@ -565,9 +609,26 @@ interface FilingMappedAnchor extends BaseAnchor {
   html_anchor: HtmlAnchor;
   char_start: number;
   char_end: number;
+  offset_frame: 'corpus_doc';
   source_html_hash: string;
   mapping_algorithm_version: string;
-  mapping_record_id?: string | null;
+  mapping_record_id: string;
+  confidence: 'exact' | 'high';
+}
+
+interface FilingTableCellAnchor extends BaseAnchor {
+  anchor_kind: 'filing_table_cell';
+  surface: 'filing_html';
+  source_type: 'filing';
+  accession: string;
+  primary_document_url: string;
+  corpus_content_hash: string;
+  source_html_hash: string;
+  sanitizer_version: string;
+  selected_text: string;
+  html_anchor: HtmlAnchor;
+  table_context: TableCellContext;
+  table_citation_record_id: string;
   confidence: 'exact' | 'high';
 }
 
@@ -634,20 +695,54 @@ interface HtmlAnchor {
   element_text_hash?: string | null;
 }
 
+type TableValueSource = 'edgar_financials_table' | 'edgar_statement' | 'xbrl_fact';
+
+interface TableFilingIdentity {
+  document_id?: string | null;
+  accession: string;
+  primary_document_url?: string | null;
+  cik?: string | null;
+  form_type?: string | null;
+  source?: string | null;
+  fiscal_year?: number | null;
+  fiscal_quarter?: number | null;
+}
+
+interface TableCellContext {
+  table_citation_record_id?: string | null;
+  table_index?: number | null;
+  row_index?: number | null;
+  column_index?: number | null;
+  row_header?: string | null;
+  column_header?: string | null;
+  table_value_source: TableValueSource;
+  value_filing_identity: TableFilingIdentity;
+  table_id?: string | null;
+  table_section_key?: string | null;
+  table_section_header?: string | null;
+  raw_cell_text?: string | null;
+  parsed_value_text?: string | null;
+  parsed_numeric_value?: string | null;
+  unit?: string | null;
+  scale?: string | null;
+  period?: string | null;
+  concept?: string | null;
+  fact_id?: string | null;
+  reader_source_html_hash: string;
+  resolver_version: string;
+  resolved_at: string;
+  mismatch_diagnostics?: string[] | null;
+}
+
 interface VisibleTextAnchor {
   quote: string;
   text_before?: string | null;
   text_after?: string | null;
   normalized_stream_start?: number | null;
   normalized_stream_end?: number | null;
+  visible_text_offset_frame: VisibleTextOffsetFrame;
   section_hint?: string | null;
-  table_context?: {
-    table_index?: number | null;
-    row_index?: number | null;
-    column_index?: number | null;
-    row_header?: string | null;
-    column_header?: string | null;
-  } | null;
+  table_context?: TableCellContext | null;
   anchor_algorithm_version: string;
 }
 ```
@@ -656,13 +751,16 @@ Rules:
 
 - Do not invent corpus `char_start` / `char_end` for visible HTML selections.
 - Quote-only selections may seed the agent and notes, but cannot become exact citations.
-- Exact/high mappings may persist corpus offsets and support citation/evidence atoms.
+- Exact/high mappings may persist corpus offsets and support citation/evidence atoms only when backed by a durable registry `mapping_record_id`.
+- Every offset-bearing anchor must include `offset_frame`; mapped visible filing anchors use `offset_frame: 'corpus_doc'`; visible quote anchors use `visible_text_anchor.visible_text_offset_frame = 'source_html_visible_text_v1'` for normalized visible-text offsets.
+- Citeable table selections require a server-issued `filing_table_cell` anchor (or explicitly equivalent registry-backed table authority) with `table_context` carrying same-filing table-value provenance. ReaderBridge may submit a table/cell localization candidate, but the table resolver must prove `value_filing_identity` matches the materialized reader filing identity before persisting parsed values or exact/high table-cell evidence.
+- `table_context` may persist table/cell identity, parsed value provenance, resolver version, and diagnostics. It must not persist viewport pixels, screenshots, or bounding rects as citation coordinates. Overlay links store a `DocumentAnchor` / artifact id and ask `ReaderBridge` to recompute current rects from the verified iframe.
 - Persisted anchors use `anchor_schema_version = 'v2'`.
 - Existing legacy corpus annotations that can resolve a corpus hash from the document descriptor are adapted at read time into valid `CorpusSpanAnchor` values with `anchor_schema_version = 'v2'` and optional `legacy_source` metadata outside the anchor object.
 - Existing legacy corpus annotations that cannot resolve `corpus_content_hash` are exposed as legacy/unversioned evidence and must not be treated as fully versioned exact citations until backfilled.
 - Visible filing anchors created from the reader must include materialized `document_id`, accession, primary URL, corpus hash, sanitizer version, and source HTML hash before they are persisted or sent as durable agent evidence.
 - Filing section/document fallback anchors created from the visible reader have the same materialized identity requirement as quote anchors.
-- Exact/high mapped filing anchors must include `mapping_algorithm_version` and should include `mapping_record_id` when the backend persists a mapping record.
+- Exact/high mapped filing anchors must include `mapping_algorithm_version` and `mapping_record_id`; exact/high table-cell anchors must include `table_citation_record_id` and server-authorized table provenance.
 - Lazy descriptors may omit `source_html_hash`; persisted visible anchors may not.
 - DOM path is an optimization only; durable visible anchors use quote, prefix/suffix, normalized visible-text stream offsets, section hints, table context, source HTML hash, sanitizer version, and anchor algorithm version.
 
@@ -701,6 +799,8 @@ Every agent response artifact, note, citation, or captured evidence item should 
 - source HTML hash when visible HTML was used and materialized
 - selected quote or section/document fallback
 - mapping algorithm version when applicable
+- offset frame when any offsets are present
+- `mapping_record_id` for exact/high mapped filing evidence
 
 User-facing UI should stay simple, but citation/evidence details must preserve whether the support came from:
 
@@ -710,6 +810,23 @@ User-facing UI should stay simple, but citation/evidence details must preserve w
 - section-only/document-level fallback
 
 ## Implementation Plan
+
+This section records the older architecture-phase decomposition. The active build order has been superseded by `F156_READER_IMPLEMENTATION_PLAN.md`:
+
+1. S0 source HTML safety gate: redirect sanitization and materialized-identity instrumentation gate.
+2. A1 framing/callout grammar.
+3. S1 contract lock: render-surface adapter, v2 anchors/offset frames, quote-level evidence locator.
+4. Perception chain via `context.document_context`.
+5. First-class reader shell/layout.
+6. `ReaderBridge` extraction.
+7. A2 action-surface rebind to the minimal overlay plus agent-mediated rich actions.
+8. `reader_action` transient stream channel.
+9. Findings projection plus alignment-boundary enforcement.
+10. C-contract sidecar/registry schema gate.
+11. Corpus producer mapping sidecar.
+12. Mapping registry, perceptual bridge, and visual bridge.
+
+The phase descriptions below remain useful for acceptance scope, but implementation agents should not treat them as the current sequencing contract.
 
 ### Phase 0 - Product And Architecture Reset
 
@@ -738,6 +855,7 @@ Frontend tasks:
 
 - Implement a first-class filing reader shell/route launched from Research Workspace document tabs.
 - Make the filing shell URL-addressable and preserve back navigation to the originating research workspace.
+- Treat the first-class shell as active F156 scope, not a later workspace-only task. A1 framing alone is insufficient for Phase 1.
 - Give the filing HTML a dominant canvas with substantially more horizontal width.
 - Default the agent sidecar collapsed on first filing reader entry.
 - Restore a previous sidecar state only if the filing-width gates still pass.
@@ -754,6 +872,8 @@ Backend tasks:
 - Preserve SEC inline styles and browser-default behavior unless a sanitizer rule requires removal.
 - Continue stripping hidden iXBRL metadata and active content.
 - Return lazy descriptor metadata with stable identity fields.
+- Ensure redirect-materialized SEC HTML is sanitized/hash-bound before the same-origin route returns it.
+- Split route-bound descriptor verification from materialized identity; parent-side DOM instrumentation requires the materialized identity state.
 
 Acceptance:
 
@@ -763,6 +883,8 @@ Acceptance:
 - Sidecar open view still satisfies minimum filing width gates.
 - No prominent corpus/debug product mode is shown in the primary reader.
 - Existing tests for document loading and corpus fallback continue to pass.
+- Security tests prove raw SEC bytes are never returned from the app origin on redirect materialization.
+- Tests that previously asserted raw SEC redirect passthrough are updated to assert sanitized/hash-bound redirect materialization and allowlisted response headers.
 
 ### Phase 2 - Quote-Based Visible Selection
 
@@ -771,18 +893,20 @@ Goal: let the analyst ask about or note visible filing text without pretending e
 Tasks:
 
 - Introduce the v2 anchor union across frontend context, chat seeding, and note creation.
-- Add the two-frame bridge for quote-only visible selections.
+- Lock offset-frame fields before extracting `ReaderBridge`: corpus/API offset-bearing anchors declare `offset_frame`; visible quote anchors declare `visible_text_offset_frame`.
+- Capture quote-only visible selections from the same-origin, CSP-constrained source HTML iframe.
 - Store visible quote anchors with document identity.
 - Allow "Ask about this" and note capture for quote anchors.
-- Do not enable exact citation creation unless mapping confidence is `exact` or `high`.
-- Add bridge security tests before enabling scripts in the app-owned wrapper.
+- Do not enable exact citation creation unless a backend mapping record proves `exact` or `high` confidence.
+- Add route-scoped CSP/security tests proving the source HTML frame cannot execute scripts, submit forms, create nested frames, connect out, or run object/embed content.
+- Add tests that projection/restored marks do not run before materialized identity includes `source_html_hash`.
 
 Acceptance:
 
 - User can select text in the filing reader and ask the agent about it.
 - The agent receives visible quote, filing identity, and current section/document context.
 - No quote-only path fabricates corpus offsets.
-- Sanitized SEC content cannot emit trusted bridge events.
+- Sanitized SEC content cannot execute active behavior, and parent-created quote anchors remain quote-level unless a real mapping record exists.
 
 ### Phase 3 - Research Artifacts And Notes
 
@@ -792,6 +916,8 @@ Tasks:
 
 - Add note/artifact capture UI tied to visible filing context.
 - Persist note anchors as quote/section/document anchors when exact mapping is unavailable.
+- Register quote-level evidence through the v2 `reader_anchor` `Excerpt.locator` shape; keep legacy `external_anchor` strings only as read adapters.
+- Replace new-write `_filing_anchor_locator` behavior so new evidence registration writes object-form `reader_anchor` locators; update canonical evidence tests that currently assert legacy strings.
 - Connect captured artifacts to thesis/report/model-building flows.
 - Display citation confidence and anchor type internally where useful, without burdening normal reading.
 
@@ -803,20 +929,26 @@ Acceptance:
 
 ### Phase 4 - HTML/Corpus Mapping
 
-Goal: project machine precision back onto the visible reader where safe.
+Goal: project machine precision back onto the visible reader where safe by preserving the conversion trace from SEC HTML to corpus markdown.
 
 Tasks:
 
-- Build section-scoped visible-text normalizer.
-- Align visible HTML text to corpus section text.
-- Add quote matcher with prefix/suffix disambiguation.
-- Emit mapping confidence.
-- Persist mapping records keyed by document id, accession, primary URL, source HTML hash, corpus content hash, sanitizer version, and mapping algorithm version.
+- Extend the Edgarparser/corpus producer contract so the same pipeline that creates corpus markdown emits an HTML↔corpus mapping sidecar.
+- Lock the C-contract first: sidecar path (`<canonical>.html_corpus_map.v1.json`), top-level schema, record schema, registry tables, deterministic `mapping_record_id`, invalidation rules, table policy, and legacy backfill policy.
+- Lock the upstream producer artifact contract before C0: source identity/hash provenance, visible-text stream algorithm/version, stable section ids, deterministic producer record ids, sidecar atomicity with canonical markdown, and corpus DB migrations.
+- Include section id/header, visible-text stream offsets, quote/prefix/suffix, corpus `char_start` / `char_end`, content type, table context where available, parser version, source HTML hash, corpus content hash, sanitizer version, mapping algorithm version, confidence, and diagnostics.
+- Persist or ingest mapping sidecars into an authoritative mapping registry keyed by document id, accession, primary URL, source HTML hash, corpus content hash, sanitizer version, parser version, and mapping algorithm version.
+- Use post-hoc section-scoped text normalization and quote matching only for legacy/backfill documents whose producer sidecar is missing.
+- Require a real `mapping_record_id` before any visible HTML selection stores corpus offsets.
+- Treat tables as a separate mapping class: do not infer precise prose offsets for table regions solely from hoisted markdown table text.
+- Because current ingestion calls Edgarparser with `include_tables=False`, initial exact/high mappings are prose-only until the producer returns stable table/cell metadata.
 
 Acceptance:
 
-- Narrative passages map to corpus char spans where exact/high confidence is proven.
+- Freshly ingested filings produce corpus markdown and a mapping sidecar from the same source parse.
+- Narrative passages map to corpus char spans where exact/high confidence is proven by the registry.
 - Financial table selections degrade to quote-only unless exact mapping is proven.
+- Old mapping records become invalid when source HTML hash, corpus hash, sanitizer version, parser version, or mapping algorithm version changes.
 - Existing citations remain trustworthy.
 
 ### Phase 5 - Highlight And Citation Projection
@@ -885,10 +1017,19 @@ An adversarial reviewer should fail the plan or implementation if:
 - `status: available` source HTML descriptors omit document id, accession, primary URL, corpus hash, or sanitizer version.
 - The source HTML endpoint serves without authoritative identity validation.
 - The route can bind a valid SEC HTML file to the wrong corpus hash/document id.
+- Redirect materialization returns raw SEC HTML from the app origin instead of sanitized/hash-bound source HTML.
+- Redirect materialization preserves upstream `Set-Cookie`, upstream CSP, or non-allowlisted response headers.
 - Scripts can run in the same document as SEC markup.
-- The bridge accepts messages from the source filing frame instead of only the app-owned bridge frame.
+- The parent trusts messages/events from source markup instead of reading verified same-origin selection state itself.
+- Parent-side selection capture, projection, restored marks, scroll-spy, or visual snapshots run before materialized identity includes `source_html_hash`.
 - Quote-only selections can enter corpus-offset persistence paths.
-- Exact/high mapping can be persisted without source HTML hash, corpus hash, sanitizer version, and mapping version.
+- Offset-bearing anchors omit `offset_frame`, or visible quote anchors omit their visible-text offset frame.
+- Exact/high mapping can be persisted before the authoritative mapping registry exists, or without source HTML hash, corpus hash, sanitizer version, parser version, mapping version, and a real mapping record id.
+- The implementation treats client-side text matching as the primary exact-mapping authority instead of producer-emitted sidecars plus registry validation.
+- New evidence registration code depends on legacy `external_anchor` string prefixes instead of the v2 `reader_anchor` locator contract.
+- Table-cell evidence can cite a parsed value from edgar-financials without proving the returned table payload matches the exact materialized reader filing.
+- A durable citation or artifact stores viewport pixels, screenshots, or bounding rects as its authoritative anchor instead of a `DocumentAnchor` plus table/prose provenance.
+- Direct SEC subresources are enabled without an explicit proxy/privacy exception and test coverage for the leakage boundary.
 - Existing corpus annotations/highlights become unreachable before replacement visible-reader workflows exist.
 
 ## Testing Strategy
@@ -900,9 +1041,14 @@ Unit tests:
 - Fallback extracted text remains available without being the primary reader mode.
 - Quote-only selections cannot call corpus-only annotation paths.
 - Exact/high mappings are required before corpus offsets are persisted from HTML selections.
+- `FilingMappedAnchor` requires a non-null `mapping_record_id`.
+- Offset-bearing anchor validators reject missing or invalid `offset_frame`.
+- Table-cell anchor validators reject missing `table_value_source`, value filing identity, resolver version, or `reader_source_html_hash`.
+- Producer-emitted mapping sidecars invalidate when source HTML hash, corpus content hash, sanitizer version, parser version, or mapping algorithm version changes.
 - Source HTML route rejects mismatched document id/corpus hash.
 - Source HTML metadata endpoint returns materialized identity and rejects the same mismatches as the HTML route.
 - CSP/sanitizer removes active content while preserving safe inline table styles.
+- Source HTML route CSP explicitly includes `script-src 'none'`, `object-src 'none'`, `connect-src 'none'`, and `frame-src 'none'`.
 
 Integration tests:
 
@@ -912,7 +1058,11 @@ Integration tests:
 - Open fallback extracted text and verify existing selection/highlight behavior.
 - Verify source identity fields round-trip through document response and source HTML route.
 - Verify the bridge/parent fetches materialized source HTML identity before creating durable visible-reader anchors.
-- Verify bridge messages are rejected if session id, source window, or document identity mismatches.
+- Verify parent-side projection/restoration/scroll-spy does not run when only route-bound identity exists.
+- Verify fresh corpus ingestion can produce canonical markdown plus a mapping sidecar from the same source parse.
+- Verify selected visible filing passages create quote-level anchors and the backend rejects `filing_mapped` artifacts until a mapping registry can validate exact/high producer-backed corpus mapping records.
+- Verify table-cell selection either resolves through server-authorized same-filing `get_filing_tables` provenance or rejects/degrades when edgar-financials returns missing/mismatched accession or primary-document identity.
+- Verify overlay go-to links recompute current rects through `ReaderBridge` after scroll/resize and never rely on persisted pixel coordinates.
 
 Visual tests:
 
@@ -923,12 +1073,16 @@ Visual tests:
 Security tests:
 
 - Source scripts do not execute.
+- Redirect-materialized source HTML is sanitized, hash-bound, and CSP-bound; raw SEC bodies are never served from the app origin.
+- Redirect-materialized responses strip upstream cookies/headers and use app-owned CSP/identity/cache headers.
 - Inline event handlers are stripped.
 - Forms are inert.
 - `javascript:` URLs, `<base>`, `meta refresh`, active embeds, and unsafe resource loads are stripped or neutralized.
-- Phase 1 iframe does not allow scripts, same-origin access, forms, popups, or top navigation.
-- Phase 2 bridge validates source/session/document identity before accepting messages.
-- SEC source content cannot post a trusted selection event.
+- The source HTML route CSP blocks scripts, forms, popups/top navigation, object/embed content, nested frames, and network connects from the filing document.
+- The iframe is intentionally same-origin and unsandboxed so the parent can read selection state and inject inert marks; tests should assert parent access works only for the verified same-origin source route.
+- Any future bridge validates source/session/document identity before accepting messages.
+- SEC source content cannot post or synthesize a trusted selection/reader-action event.
+- Remote SEC resources obey the chosen policy: blocked/proxied by default; any direct SEC-host exception requires explicit leakage-boundary tests.
 
 ## Acceptance Criteria
 

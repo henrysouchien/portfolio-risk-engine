@@ -48,6 +48,143 @@ _REINGEST_INDEX_SQL = (
         WHERE status NOT IN ('complete', 'no_change', 'abandoned')
     """,
 )
+_HTML_CORPUS_MAPPING_SET_COLUMNS = (
+    'mapping_set_id',
+    'document_id',
+    'accession',
+    'primary_document_url',
+    'source_html_hash',
+    'corpus_content_hash',
+    'sanitizer_version',
+    'parser_version',
+    'parser_schema_version',
+    'visible_text_algorithm_version',
+    'mapping_algorithm_version',
+    'sidecar_path',
+    'sidecar_hash',
+    'producer_json',
+    'provenance',
+    'active',
+    'created_at',
+)
+_HTML_CORPUS_MAPPING_RECORD_COLUMNS = (
+    'mapping_record_id',
+    'mapping_set_id',
+    'producer_record_id',
+    'section_id',
+    'section_header',
+    'content_type',
+    'corpus_char_start',
+    'corpus_char_end',
+    'offset_frame',
+    'visible_text_offset_frame',
+    'visible_text_char_start',
+    'visible_text_char_end',
+    'quote',
+    'text_before',
+    'text_after',
+    'confidence',
+    'producer_trace_json',
+    'diagnostics_json',
+    'active',
+    'created_at',
+)
+_HTML_CORPUS_MAPPING_SET_SIGNATURE = (
+    ('mapping_set_id', 'TEXT', 0, 1),
+    ('document_id', 'TEXT', 1, 0),
+    ('accession', 'TEXT', 1, 0),
+    ('primary_document_url', 'TEXT', 1, 0),
+    ('source_html_hash', 'TEXT', 1, 0),
+    ('corpus_content_hash', 'TEXT', 1, 0),
+    ('sanitizer_version', 'TEXT', 1, 0),
+    ('parser_version', 'TEXT', 1, 0),
+    ('parser_schema_version', 'INTEGER', 1, 0),
+    ('visible_text_algorithm_version', 'TEXT', 1, 0),
+    ('mapping_algorithm_version', 'TEXT', 1, 0),
+    ('sidecar_path', 'TEXT', 1, 0),
+    ('sidecar_hash', 'TEXT', 1, 0),
+    ('producer_json', 'TEXT', 0, 0),
+    ('provenance', 'TEXT', 1, 0),
+    ('active', 'INTEGER', 1, 0),
+    ('created_at', 'TIMESTAMP', 1, 0),
+)
+_HTML_CORPUS_MAPPING_RECORD_SIGNATURE = (
+    ('mapping_record_id', 'TEXT', 0, 1),
+    ('mapping_set_id', 'TEXT', 1, 0),
+    ('producer_record_id', 'TEXT', 1, 0),
+    ('section_id', 'TEXT', 1, 0),
+    ('section_header', 'TEXT', 1, 0),
+    ('content_type', 'TEXT', 1, 0),
+    ('corpus_char_start', 'INTEGER', 1, 0),
+    ('corpus_char_end', 'INTEGER', 1, 0),
+    ('offset_frame', 'TEXT', 1, 0),
+    ('visible_text_offset_frame', 'TEXT', 1, 0),
+    ('visible_text_char_start', 'INTEGER', 1, 0),
+    ('visible_text_char_end', 'INTEGER', 1, 0),
+    ('quote', 'TEXT', 1, 0),
+    ('text_before', 'TEXT', 0, 0),
+    ('text_after', 'TEXT', 0, 0),
+    ('confidence', 'TEXT', 1, 0),
+    ('producer_trace_json', 'TEXT', 1, 0),
+    ('diagnostics_json', 'TEXT', 0, 0),
+    ('active', 'INTEGER', 1, 0),
+    ('created_at', 'TIMESTAMP', 1, 0),
+)
+_HTML_CORPUS_MAPPING_INDEX_SQL = (
+    """
+    CREATE INDEX IF NOT EXISTS idx_html_corpus_mapping_sets_document
+        ON html_corpus_mapping_sets(document_id, active)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_html_corpus_mapping_sets_identity
+        ON html_corpus_mapping_sets(
+            document_id,
+            source_html_hash,
+            corpus_content_hash,
+            sanitizer_version,
+            visible_text_algorithm_version,
+            mapping_algorithm_version,
+            active
+        )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_html_corpus_mapping_records_set
+        ON html_corpus_mapping_records(mapping_set_id, active)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_html_corpus_mapping_records_span
+        ON html_corpus_mapping_records(mapping_set_id, corpus_char_start, corpus_char_end)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_html_corpus_mapping_records_visible_span
+        ON html_corpus_mapping_records(mapping_set_id, visible_text_char_start, visible_text_char_end)
+    """,
+)
+_HTML_CORPUS_MAPPING_REQUIRED_SQL = {
+    'html_corpus_mapping_sets': (
+        'references documents(document_id)',
+        'check (active in (0, 1))',
+        "check (provenance in ('producer', 'legacy_backfill'))",
+        (
+            'unique ( document_id, source_html_hash, corpus_content_hash, '
+            'sanitizer_version, parser_version, parser_schema_version, '
+            'visible_text_algorithm_version, mapping_algorithm_version )'
+        ),
+    ),
+    'html_corpus_mapping_records': (
+        'references html_corpus_mapping_sets(mapping_set_id) on delete cascade',
+        'check (corpus_char_start >= 0)',
+        'check (corpus_char_end > corpus_char_start)',
+        'check (visible_text_char_start >= 0)',
+        'check (visible_text_char_end > visible_text_char_start)',
+        "check (offset_frame = 'corpus_doc')",
+        "check (visible_text_offset_frame = 'source_html_visible_text_v1')",
+        "check (content_type in ('prose', 'table', 'heading', 'footnote', 'unknown'))",
+        "check (confidence in ('exact', 'high', 'quote', 'section_only', 'none'))",
+        'check (active in (0, 1))',
+        'unique (mapping_set_id, producer_record_id)',
+    ),
+}
 
 
 @dataclass(frozen=True)
@@ -91,6 +228,8 @@ def apply_migrations_to_connection(
             applied = _ensure_parser_provenance(db, migration)
         elif migration.path.name == '0003_corpus_reingest_log.sql':
             applied = _ensure_reingest_log(db, migration)
+        elif migration.path.name == '0004_html_corpus_mapping.sql':
+            applied = _ensure_html_corpus_mapping(db, migration)
         elif migration.version in applied_versions:
             continue
         else:
@@ -261,6 +400,78 @@ def _ensure_reingest_log(
     return False
 
 
+def _ensure_html_corpus_mapping(
+    db: sqlite3.Connection,
+    migration: _Migration,
+) -> bool:
+    set_exists = _table_exists(db, 'html_corpus_mapping_sets')
+    record_exists = _table_exists(db, 'html_corpus_mapping_records')
+    if not set_exists or not record_exists:
+        _validate_html_mapping_table_if_present(
+            db,
+            'html_corpus_mapping_sets',
+            _HTML_CORPUS_MAPPING_SET_COLUMNS,
+        )
+        _validate_html_mapping_table_if_present(
+            db,
+            'html_corpus_mapping_records',
+            _HTML_CORPUS_MAPPING_RECORD_COLUMNS,
+        )
+        _apply_migration(db, migration)
+        return True
+
+    _validate_html_mapping_table_if_present(
+        db,
+        'html_corpus_mapping_sets',
+        _HTML_CORPUS_MAPPING_SET_COLUMNS,
+    )
+    _validate_html_mapping_table_if_present(
+        db,
+        'html_corpus_mapping_records',
+        _HTML_CORPUS_MAPPING_RECORD_COLUMNS,
+    )
+
+    with db:
+        db.execute('BEGIN')
+        for statement in _HTML_CORPUS_MAPPING_INDEX_SQL:
+            db.execute(statement)
+        db.execute(
+            """
+            INSERT OR IGNORE INTO corpus_schema_version (version, applied_at, description)
+            VALUES (?, CURRENT_TIMESTAMP, ?)
+            """,
+            (migration.version, migration.description),
+        )
+    return False
+
+
+def _validate_html_mapping_table_if_present(
+    db: sqlite3.Connection,
+    table_name: str,
+    expected_columns: tuple[str, ...],
+) -> None:
+    if not _table_exists(db, table_name):
+        return
+
+    columns = tuple(_column_types(db, table_name))
+    if columns != expected_columns:
+        raise RuntimeError(
+            f'{table_name} schema is incompatible with migration 0004: '
+            f'got {columns!r}; expected {expected_columns!r}'
+        )
+    expected_signature = {
+        'html_corpus_mapping_sets': _HTML_CORPUS_MAPPING_SET_SIGNATURE,
+        'html_corpus_mapping_records': _HTML_CORPUS_MAPPING_RECORD_SIGNATURE,
+    }[table_name]
+    signature = _column_signature(db, table_name)
+    if signature != expected_signature:
+        raise RuntimeError(
+            f'{table_name} column signature is incompatible with migration 0004: '
+            f'got {signature!r}; expected {expected_signature!r}'
+        )
+    _validate_required_table_sql(db, table_name)
+
+
 def _record_migration(db: sqlite3.Connection, version: int, description: str) -> None:
     with db:
         db.execute(
@@ -290,6 +501,43 @@ def _column_types(db: sqlite3.Connection, table_name: str) -> dict[str, str]:
         str(row[1]): str(row[2])
         for row in db.execute(f'PRAGMA table_info({table_name})')
     }
+
+
+def _column_signature(
+    db: sqlite3.Connection,
+    table_name: str,
+) -> tuple[tuple[str, str, int, int], ...]:
+    return tuple(
+        (str(row[1]), str(row[2]).upper(), int(row[3]), int(row[5]))
+        for row in db.execute(f'PRAGMA table_info({table_name})')
+    )
+
+
+def _validate_required_table_sql(db: sqlite3.Connection, table_name: str) -> None:
+    row = db.execute(
+        """
+        SELECT sql
+        FROM sqlite_master
+        WHERE type = 'table'
+          AND name = ?
+        """,
+        (table_name,),
+    ).fetchone()
+    sql = _normalize_sql(str(row[0] if row else ''))
+    missing = [
+        snippet
+        for snippet in _HTML_CORPUS_MAPPING_REQUIRED_SQL[table_name]
+        if _normalize_sql(snippet) not in sql
+    ]
+    if missing:
+        raise RuntimeError(
+            f'{table_name} constraints are incompatible with migration 0004: '
+            f'missing {missing!r}'
+        )
+
+
+def _normalize_sql(value: str) -> str:
+    return re.sub(r'\s+', ' ', value).strip().lower()
 
 
 __all__ = ['apply_migrations', 'apply_migrations_to_connection']

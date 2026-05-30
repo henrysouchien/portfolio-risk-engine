@@ -3,6 +3,8 @@
 > **Created**: 2026-03-16
 > **Vision**: Ship an open-source investment platform — connect any brokerage, any data provider, bring your own model, get a customizable AI analyst out of the box.
 > **Tagline**: "Your infrastructure. Your data. Your model. Your analyst."
+>
+> **CURRENT EXECUTION (2026-05-29)**: Deliverables #1 (Platform) and #2 (Agent) are now executed by **HP1 / HP2** (`docs/planning/HANK_PLATFORM_MVP_PLAN.md` + `docs/planning/HANK_AGENT_OSS_BRIEF.md`). Significant evolutions from this strategy doc's original framing: (a) Platform is **hosted MCP bundle** (not pip-install OSS) for the primary investor audience — the pip-install direction (`PORTFOLIO_MCP_EXTRACTION_PLAN.md` / B4) was superseded for that audience but remains valid for a self-host audience if/when re-prioritized; (b) Agent is open-source OSS runtime (HP2) with **methodology delivered as Platform service via `get_skill()` MCP** — out-iterates any fork; (c) `OPEN_SOURCE_LAUNCH_GAPS.md` tracker reflects the current state across A1–C4 + HP1/HP2. This strategy doc remains the canonical vision/tagline source; HP1/HP2 are its current implementation.
 
 ---
 

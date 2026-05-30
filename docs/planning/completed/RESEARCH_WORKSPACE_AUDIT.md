@@ -3,7 +3,7 @@
 # Research Workspace Audit: Design Preview vs. Implementation
 
 **Date:** 2026-04-14
-**Design preview:** `~/.gstack/projects/henrysouchien-risk_module/designs/research-workspace-20260403/research-workspace-preview.html`
+**Design preview:** `docs/design/research-workspace-preview.html`
 **Product spec:** `docs/planning/EQUITY_RESEARCH_WORKSPACE_SPEC.md`
 **Status:** Phases 1-4 shipped. This audit compares the shipped UI against the original design preview HTML and product spec.
 

@@ -370,7 +370,7 @@ Legacy `sections` + `expected` fields **removed** (no programmatic consumer). Th
 ## Backward compatibility
 
 Verified via repo grep (2026-04-30):
-- `weak_documents` field name: appears in `scripts/corpus_health_report.py` (writer) and `docs/planning/CORPUS_PHASE1_REPORT.md` (descriptive prose only). No programmatic consumer.
+- `weak_documents` field name: appears in `scripts/corpus_health_report.py` (writer) and `docs/planning/completed/CORPUS_PHASE1_REPORT.md` (descriptive prose only). No programmatic consumer.
 - `sections` per-doc field name: same — no programmatic consumer.
 - `expected` per-doc field name: same.
 
@@ -466,7 +466,7 @@ Single-commit revert. JSON schema-break is bounded to weak_documents per-doc fie
 - `data/filings.db` — `sections_fts` table; per-doc section list source
 - `scripts/corpus_health_report.py:21` — flat `EXPECTED_SECTIONS` constant being replaced
 - `scripts/corpus_health_report.py:94` — `_docs_for_ticker` LEFT JOIN being dropped (Codex v2 MAJOR)
-- `docs/planning/CORPUS_PHASE1_REPORT.md` — describes weak_documents at ship time
+- `docs/planning/completed/CORPUS_PHASE1_REPORT.md` — describes weak_documents at ship time
 
 ## Plan review history
 

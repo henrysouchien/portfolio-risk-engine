@@ -1,6 +1,6 @@
 # risk_client — Per-Format TypedDict Split (Deferred Plan)
 
-**Status:** Deferred outline — not scheduled. Spawned from `RISK_CLIENT_AGENT_ERGONOMICS_PLAN.md` (the parent plan's R-006, deferred 2026-05-21 after two Codex review rounds).
+**Status:** Deferred outline — not scheduled. Spawned from `completed/RISK_CLIENT_AGENT_ERGONOMICS_PLAN.md` (the parent plan's R-006, deferred 2026-05-21 after two Codex review rounds).
 **Date:** 2026-05-21
 **Mode:** Plan-first per CLAUDE.md.
 
@@ -112,6 +112,6 @@ Until one of those, the parent plan's R-004 + R-009 + R-010 contract-test extens
 
 ## See also
 
-- **Parent plan:** `RISK_CLIENT_AGENT_ERGONOMICS_PLAN.md` — explains why this is deferred and how R-004's fallback rule lets the parent ship without this work.
+- **Parent plan:** `completed/RISK_CLIENT_AGENT_ERGONOMICS_PLAN.md` — explains why this is deferred and how R-004's fallback rule lets the parent ship without this work.
 - **Contract test:** `tests/test_risk_client_contract.py` — the harness this plan extends.
 - **agent-format runtime helpers:** `tests/mcp_tools/test_*_agent_format.py` — the seed fixtures for step-2 audit.

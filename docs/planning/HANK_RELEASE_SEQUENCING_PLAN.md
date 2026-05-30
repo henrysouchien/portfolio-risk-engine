@@ -4,6 +4,9 @@
 **Status:** Draft — strategic framing doc, pre-implementation
 **Scope:** High-level sequencing for commercial launch across v1 → v3, pairing each stage with benchmark strategy
 **Precedent:** Built on Fintool's GTM trajectory (see `docs/research/fintool/gtm-trajectory.md`). Gap audit context in `BETA_RELEASE_GAP_AUDIT.md`.
+**Companion (positioning argument):** `docs/strategy/HANK_PRODUCT_POSITIONING.md` (TODO V1.7) carries the citation-backed verifier-gap thesis + harness-as-moat framing this plan sequences into launch. Benchmark line: B1 still tracks Vals v1.1; **B1.v2** tracks the v2 re-baseline + cross-model lift run.
+**Companion (product/platform plan, 2026-05-29):** `docs/planning/HANK_PLATFORM_MVP_PLAN.md` (TODO Launch-HP1) — primary paid-product plan (hosted MCP bundle). HP1's resolved Q1/Q2/Q4/Q5 (Standard/Pro tiered SKU + premium scope inside Pro + Hank consumer credit-based at vNext + independent SKUs with funnel design) feed directly into the V1.1 pricing decision this plan sequences. Pickup punch list embedded in TODO `Launch-HP1` row.
+**Companion (open agent / distribution funnel):** `docs/planning/HANK_AGENT_OSS_BRIEF.md` (TODO Launch-HP2) — top-of-funnel OSS agent that drives discovery into HP1.
 
 ---
 

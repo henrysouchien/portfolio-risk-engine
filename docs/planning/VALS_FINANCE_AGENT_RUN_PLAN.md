@@ -4,6 +4,7 @@
 **Revised:** 2026-04-20 (r3 — publish posture + 8-week iteration arc); (r4 — cleanup stale one-week references); (r5 — Codex consistency cleanup).
 **Status:** Strategic envelope. Implementation plan at `docs/planning/VALS_FINANCE_AGENT_IMPL_PLAN.md` (r5) is the executable spec.
 **Supersedes:** `FINANCEBENCH_RUN_PLAN.md` as the primary v1 benchmark sprint. FinanceBench demoted to secondary; see §10.
+**Successor (v2 re-baseline):** Vals shipped Finance Agent **v2** (current board frontier ~52%, tied across GPT-5.5 / Claude / Gemini; [vals.ai/benchmarks/fabv2](https://www.vals.ai/benchmarks/fabv2)). This plan remains the v1.1 envelope; v2 re-baseline + cross-model lift run is tracked at TODO **B1.v2**, strategic framing in `docs/strategy/HANK_PRODUCT_POSITIONING.md` (V1.7).
 
 > **This document is the strategic envelope.** Targets, configurations, thresholds, publish posture, iteration budget. Day-by-day execution lives in the impl plan §7 (r5 — 8-week arc, baseline + iteration + Week-8 decision gate).
 **Scope:** 8-week iteration arc — run Hank on Vals AI Finance Agent v1.1 public 50, iterate architecturally, decide publish posture at Week 8 per §3.4.

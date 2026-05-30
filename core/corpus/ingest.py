@@ -14,6 +14,12 @@ from core.corpus.frontmatter import (
     canonical_path,
     finalize_with_hash,
 )
+from core.corpus.html_mapping import (
+    build_html_corpus_mapping_sidecar,
+    ingest_mapping_sidecar,
+    sidecar_path_for_canonical,
+    write_mapping_sidecar,
+)
 from core.corpus.section_map import parse_sections
 from core.corpus.supersession import update_is_superseded_by
 
@@ -25,6 +31,8 @@ class IngestResult:
     content_hash: str
     canonical_path: Path
     warnings: list[str]
+    mapping_sidecar_path: Path | None = None
+    mapping_record_count: int = 0
 
 
 _DOCUMENT_COLUMNS = (
@@ -95,6 +103,8 @@ def ingest_raw(
     metadata: dict,
     corpus_root: Path,
     db: sqlite3.Connection,
+    *,
+    html_mapping_source: dict | None = None,
 ) -> IngestResult:
     """Single authoritative write path for corpus markdown and index rows."""
     build_frontmatter(metadata, with_placeholder_hash=True)
@@ -115,7 +125,23 @@ def ingest_raw(
     os.rename(staging_path, finalized_path)
 
     sections = parse_sections(finalized_text, finalized_metadata['source'])
+    mapping_sidecar = build_html_corpus_mapping_sidecar(
+        finalized_text=finalized_text,
+        metadata=finalized_metadata,
+        sections=sections,
+        sections_response=html_mapping_source,
+        canonical_path=finalized_path,
+    )
+    mapping_sidecar_path: Path | None = None
+    mapping_sidecar_hash: str | None = None
+    if mapping_sidecar is not None:
+        mapping_sidecar_path = sidecar_path_for_canonical(finalized_path)
+        staging_sidecar_path = staging_dir / f'{uuid.uuid4()}.html_corpus_map.v1.json'
+        mapping_sidecar_hash = write_mapping_sidecar(staging_sidecar_path, mapping_sidecar)
+        os.rename(staging_sidecar_path, mapping_sidecar_path)
+
     document_row = _build_document_row(finalized_metadata, finalized_path)
+    mapping_record_count = 0
 
     with db:
         db.execute(_documents_upsert_sql(), tuple(document_row[column] for column in _DOCUMENT_COLUMNS))
@@ -143,6 +169,14 @@ def ingest_raw(
                     section.speaker_role,
                 ),
             )
+        if mapping_sidecar is not None and mapping_sidecar_path is not None and mapping_sidecar_hash is not None:
+            mapping_result = ingest_mapping_sidecar(
+                db,
+                sidecar=mapping_sidecar,
+                sidecar_path=mapping_sidecar_path,
+                sidecar_hash=mapping_sidecar_hash,
+            )
+            mapping_record_count = mapping_result.record_count
         if (
             document_row.get('supersedes')
             and document_row.get('supersedes_confidence') == 'high'
@@ -155,6 +189,8 @@ def ingest_raw(
         content_hash=content_hash,
         canonical_path=finalized_path,
         warnings=[],
+        mapping_sidecar_path=mapping_sidecar_path,
+        mapping_record_count=mapping_record_count,
     )
 
 

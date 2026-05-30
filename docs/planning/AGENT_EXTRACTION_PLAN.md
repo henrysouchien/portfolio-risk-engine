@@ -1,10 +1,12 @@
 # Agent Extraction Plan
 
-> **Status**: Draft
+> **Status**: SUPERSEDED 2026-05-29 — see `docs/planning/HANK_AGENT_OSS_BRIEF.md` (Launch-HP2)
+> **Supersession scope**: HP2 brings forward this C3 scope (extract `AI-excel-addin/api/agent/` + `api/memory/` into a standalone OSS package on top of the already-shipped `ai-agent-gateway` PyPI package) with the **methodology-stays-Platform-delivered** architecture decision (via `get_skill()` MCP) that this draft did not anticipate. HP2 is the current actionable; this draft remains a useful reference for the technical extraction mechanics (memory protocol split, skills decoupling, system-prompt decoupling).
 > **Created**: 2026-03-19
-> **Parent doc**: `docs/planning/launch/OPEN_SOURCE_LAUNCH_GAPS.md` (item C3)
+> **Parent doc**: `docs/planning/launch/OPEN_SOURCE_LAUNCH_GAPS.md` (item C3 — brought forward to pair with HP1 hosted Platform)
 > **Source repo**: `AI-excel-addin/` (`api/agent/`, `api/memory/`, `api/tools.py`, `packages/agent-gateway/`)
-> **Target**: Standalone `openclaw-agent` package in this repo
+> **Target (this draft)**: Standalone `openclaw-agent` package in this repo
+> **Target (HP2 successor)**: Standalone `hank-agent` (or neutral-named — Q1 open in HP2 brief) PyPI package; pairs with HP1 hosted Platform as the OSS-distribution-funnel into the paid product
 
 ---
 

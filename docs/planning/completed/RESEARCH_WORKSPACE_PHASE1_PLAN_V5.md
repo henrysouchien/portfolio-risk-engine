@@ -1838,6 +1838,6 @@ The per-user-everything model requires extending (not replacing) existing memory
 - 7 locked decisions: `docs/planning/RESEARCH_WORKSPACE_ARCHITECTURE_DECISIONS.md`
 - Product spec: `docs/planning/EQUITY_RESEARCH_WORKSPACE_SPEC.md`
 - Historical v4 plan: `docs/planning/RESEARCH_WORKSPACE_PHASE1_PLAN.md` (superseded by this document)
-- Design preview: `~/.gstack/projects/henrysouchien-risk_module/designs/research-workspace-20260403/`
+- Design preview: `docs/design/research-workspace-preview.html`
 - DESIGN.md research workspace section
 - Codex consult threads: `019d792b`, `019d7935`, `019d794e`, `019d7d6a`

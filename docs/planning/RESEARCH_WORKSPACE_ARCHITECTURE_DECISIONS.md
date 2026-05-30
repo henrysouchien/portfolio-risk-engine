@@ -15,7 +15,7 @@
 - `RESEARCH_WORKSPACE_ARCHITECTURE_CHECKPOINT.md` (2026-04-04) — prior hybrid-storage decision
 - `RESEARCH_WORKSPACE_PHASE1_PLAN_V5.md` — Phase 1 implementation plan (Codex PASS R15; supersedes v4)
 - `DESIGN.md` — research workspace design section
-- Design preview: `~/.gstack/projects/henrysouchien-risk_module/designs/research-workspace-20260403/`
+- Design preview: `docs/design/research-workspace-preview.html`
 
 ---
 
@@ -253,7 +253,7 @@ New abstraction layer in `AI-excel-addin/api/research/repository.py` (new module
 - **Step 5:** Zustand `researchStore` (tabs, messagesByThread, bootstrap, hydrate)
 - **Step 6:** `useResearchChat` hook + `ResearchStreamManager` (React context singleton, promise-sequenced aborts, 409 retry with 2.5s backoff, error-chunk → throw conversion, input lock on error)
 - **Step 7:** Hash routing extension (`hydrateFromHash` before `setInitialHash`, `buildHash` with context, `handlePopState` context handling)
-- **Step 8:** Component tree (11 components: `ResearchWorkspaceContainer`, `ResearchListView`, `ResearchWorkspace`, `ResearchTabBar`, `ExploreTab`, `ThreadTab`, `AgentPanel`, `ConversationFeed`, `MessageInput`, `ResearchFileCard`, `UpgradeSurface`)
+- **Step 8:** Component tree (10 components: `ResearchWorkspaceContainer`, `ResearchListView`, `ResearchWorkspace`, `ResearchTabBar`, `ExploreTab`, `ThreadTab`, `AgentPanel`, `ConversationFeed`, `MessageInput`, `UpgradeSurface`)
 - **Step 9:** React Query hooks (`useResearchFiles`, `useResearchBootstrap`, `useResearchThreads`, `useResearchMessages`) — pointed at proxy endpoints
 - **Step 10:** Integration wiring (sidebar, deep links `#research/VALE`, StockLookupContainer exit ramp)
 - **GatewayClaudeService refactor** (extract `_streamRequest`, add `streamWithContext` with `contextOverrides`)

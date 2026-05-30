@@ -4,7 +4,7 @@
 **Author**: 2026-05-07
 **Replaces what?** The architecture-spec Phase 2 (`CORPUS_ARCHITECTURE.md` §13.1417) that was renumbered/truncated as a "next-50 by 13F" run in `CORPUS_PHASE2_REPORT.md`. This plan executes the original spec's Phase 2 scope.
 
-**Pre-condition**: F51 closed as superseded by freshness machinery (`CORPUS_PHASE1_REPORT.md` §8). No soak-gate prerequisite on this expansion.
+**Pre-condition**: F51 closed as superseded by freshness machinery (`completed/CORPUS_PHASE1_REPORT.md` §8). No soak-gate prerequisite on this expansion.
 
 ---
 
