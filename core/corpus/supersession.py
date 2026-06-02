@@ -2,6 +2,11 @@ from __future__ import annotations
 
 import sqlite3
 
+from core.corpus.sections_index import (
+    refresh_all_sections_metadata_from_documents,
+    refresh_sections_metadata_for_document,
+)
+
 
 def update_is_superseded_by(
     db: sqlite3.Connection,
@@ -21,6 +26,7 @@ def update_is_superseded_by(
             )
             """
         )
+        refresh_all_sections_metadata_from_documents(db)
         return (cur1.rowcount or 0) + (cur2.rowcount or 0)
 
     cur = db.execute(
@@ -36,6 +42,7 @@ def update_is_superseded_by(
         """,
         (document_id,),
     )
+    refresh_sections_metadata_for_document(db, document_id)
     return cur.rowcount or 0
 
 

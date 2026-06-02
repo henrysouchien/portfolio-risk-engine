@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import sqlite3
 
+from core.corpus.sections_index import sections_fts_metadata_is_complete
 from core.corpus.types import InvalidInputError, SearchHit, SearchResponse
 from core.corpus.validation import normalize_fts5_query, resolve_corpus_universe_aliases
 
@@ -181,6 +182,7 @@ def _run_match_queries(
     include_low_quality: bool,
     low_quality_variant_clauses: list[str] | None,
     low_quality_variant_params: list[object] | None,
+    use_section_metadata: bool,
 ) -> tuple[list[sqlite3.Row], int, int, int]:
     """Run rows + total count + optional variant counts with one MATCH expr.
 
@@ -188,6 +190,8 @@ def _run_match_queries(
     """
     where_sql = ' AND '.join(where_clauses + ['s.content MATCH ?'])
     base_params = [*where_params, match_expr]
+    from_sql = _search_from_sql(use_section_metadata)
+    section_alias = 'm' if use_section_metadata else 's'
 
     rows = _execute_match(
         db,
@@ -203,19 +207,18 @@ def _run_match_queries(
             COALESCE(d.extraction_status, 'complete') AS extraction_status,
             d.is_superseded_by IS NOT NULL AS is_superseded,
             {_LOW_CONFIDENCE_SUPERSEDER_EXISTS_SQL} AS has_low_confidence_supersession,
-            s.section,
+            {section_alias}.section,
             snippet(sections_fts, 2, '<b>', '</b>', '...', 20) AS snippet,
             d.file_path,
-            s.char_start,
-            s.char_end,
+            {section_alias}.char_start,
+            {section_alias}.char_end,
             {_resolved_source_url_sql('d')} AS source_url,
             d.source_url_deep,
             d.source_accession,
             bm25(sections_fts) AS rank
-        FROM documents d
-        JOIN sections_fts s USING (document_id)
+        {from_sql}
         WHERE {where_sql}
-        ORDER BY rank ASC, d.document_id ASC, s.char_start ASC
+        ORDER BY rank ASC, d.document_id ASC, {section_alias}.char_start ASC
         LIMIT ?
         """,
         [*base_params, limit],
@@ -226,8 +229,7 @@ def _run_match_queries(
         db.execute(
             f"""
             SELECT COUNT(*) AS count
-            FROM documents d
-            JOIN sections_fts s USING (document_id)
+            {from_sql}
             WHERE {where_sql}
             """,
             base_params,
@@ -242,8 +244,7 @@ def _run_match_queries(
             db.execute(
                 f"""
                 SELECT COUNT(*) AS count
-                FROM documents d
-                JOIN sections_fts s USING (document_id)
+                {from_sql}
                 WHERE {' AND '.join(superseded_variant_clauses + ['s.content MATCH ?'])}
                 """,
                 [*superseded_variant_params, match_expr],
@@ -258,8 +259,7 @@ def _run_match_queries(
             db.execute(
                 f"""
                 SELECT COUNT(*) AS count
-                FROM documents d
-                JOIN sections_fts s USING (document_id)
+                {from_sql}
                 WHERE {' AND '.join(low_quality_variant_clauses + ['s.content MATCH ?'])}
                 """,
                 [*low_quality_variant_params, match_expr],
@@ -267,6 +267,16 @@ def _run_match_queries(
         )
 
     return rows, total_matches, superseded_count, low_quality_count
+
+
+def _search_from_sql(use_section_metadata: bool) -> str:
+    if use_section_metadata:
+        return (
+            'FROM sections_fts_metadata m '
+            'JOIN sections_fts s ON s.rowid = m.fts_rowid '
+            'JOIN documents d ON d.document_id = m.document_id'
+        )
+    return 'FROM documents d JOIN sections_fts s USING (document_id)'
 
 
 def _search(
@@ -331,6 +341,10 @@ def _search(
             query_warnings=query_warnings,
         )
 
+    use_section_metadata = sections_fts_metadata_is_complete(db)
+    document_filter_alias = 'm' if use_section_metadata else 'd'
+    section_filter_alias = 'm' if use_section_metadata else 's'
+
     where_clauses, where_params = _build_where_clause(
         form_types=form_types,
         sources=sources,
@@ -343,6 +357,8 @@ def _search(
         include_superseded=include_superseded,
         include_low_quality=include_low_quality,
         include_low_confidence_supersession=include_low_confidence_supersession,
+        document_alias=document_filter_alias,
+        section_alias=section_filter_alias,
     )
 
     superseded_variant_clauses = None
@@ -360,6 +376,8 @@ def _search(
             include_superseded=True,
             include_low_quality=include_low_quality,
             include_low_confidence_supersession=include_low_confidence_supersession,
+            document_alias=document_filter_alias,
+            section_alias=section_filter_alias,
         )
         superseded_variant_clauses = superseded_variant_where
 
@@ -378,6 +396,8 @@ def _search(
             include_superseded=include_superseded,
             include_low_quality=True,
             include_low_confidence_supersession=include_low_confidence_supersession,
+            document_alias=document_filter_alias,
+            section_alias=section_filter_alias,
         )
         low_quality_variant_clauses = low_quality_variant_where
 
@@ -393,6 +413,7 @@ def _search(
         include_low_quality=include_low_quality,
         low_quality_variant_clauses=low_quality_variant_clauses,
         low_quality_variant_params=low_quality_variant_params,
+        use_section_metadata=use_section_metadata,
     )
 
     if total_matches == 0 and not _FTS5_EXPLICIT_OPERATOR_RE.search(normalized_query):
@@ -445,6 +466,7 @@ def _search(
                 include_low_quality=include_low_quality,
                 low_quality_variant_clauses=low_quality_variant_clauses,
                 low_quality_variant_params=low_quality_variant_params,
+                use_section_metadata=use_section_metadata,
             )
             if candidate_total == 0 and not use_even_if_empty:
                 continue
@@ -516,46 +538,48 @@ def _build_where_clause(
     include_superseded: bool,
     include_low_quality: bool,
     include_low_confidence_supersession: bool,
+    document_alias: str = 'd',
+    section_alias: str = 's',
 ) -> tuple[list[str], list[object]]:
     clauses: list[str] = []
     params: list[object] = []
 
-    clauses.append(f"d.form_type IN ({_placeholders(form_types)})")
+    clauses.append(f"{document_alias}.form_type IN ({_placeholders(form_types)})")
     params.extend(form_types)
 
-    clauses.append(f"d.source IN ({_placeholders(sources)})")
+    clauses.append(f"{document_alias}.source IN ({_placeholders(sources)})")
     params.extend(sources)
 
     if universe:
-        clauses.append(f"d.ticker IN ({_placeholders(universe)})")
+        clauses.append(f"{document_alias}.ticker IN ({_placeholders(universe)})")
         params.extend(universe)
 
     if sector is not None:
-        clauses.append('d.sector = ?')
+        clauses.append(f'{document_alias}.sector = ?')
         params.append(sector)
 
     transcript_section = _TRANSCRIPT_SECTION_FILTERS.get(section) if section is not None else None
     if transcript_section is not None:
-        clauses.append('s.section = ?')
+        clauses.append(f'{section_alias}.section = ?')
         params.append(transcript_section)
 
     if speaker_role is not None:
-        clauses.append('s.speaker_role = ?')
+        clauses.append(f'{section_alias}.speaker_role = ?')
         params.append(speaker_role)
 
     if date_from is not None:
-        clauses.append('d.filing_date >= ?')
+        clauses.append(f'{document_alias}.filing_date >= ?')
         params.append(date_from)
 
     if date_to is not None:
-        clauses.append('d.filing_date <= ?')
+        clauses.append(f'{document_alias}.filing_date <= ?')
         params.append(date_to)
 
     if not include_superseded:
-        clauses.append('d.is_superseded_by IS NULL')
+        clauses.append(f'{document_alias}.is_superseded_by IS NULL')
 
     if not include_low_quality:
-        clauses.append(_quality_filter_sql('d'))
+        clauses.append(_quality_filter_sql(document_alias))
 
     if include_low_confidence_supersession:
         clauses.append(f'NOT {_LOW_CONFIDENCE_SUPERSEDER_EXISTS_SQL}')

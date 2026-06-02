@@ -21,6 +21,7 @@ from core.corpus.html_mapping import (
     write_mapping_sidecar,
 )
 from core.corpus.section_map import parse_sections
+from core.corpus.sections_index import replace_sections_for_document
 from core.corpus.supersession import update_is_superseded_by
 
 
@@ -145,30 +146,7 @@ def ingest_raw(
 
     with db:
         db.execute(_documents_upsert_sql(), tuple(document_row[column] for column in _DOCUMENT_COLUMNS))
-        db.execute('DELETE FROM sections_fts WHERE document_id = ?', (document_row['document_id'],))
-        for section in sections:
-            db.execute(
-                """
-                INSERT INTO sections_fts (
-                    document_id,
-                    section,
-                    content,
-                    char_start,
-                    char_end,
-                    speaker_name,
-                    speaker_role
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    document_row['document_id'],
-                    section.section,
-                    section.content,
-                    section.char_start,
-                    section.char_end,
-                    section.speaker_name,
-                    section.speaker_role,
-                ),
-            )
+        replace_sections_for_document(db, str(document_row['document_id']), sections)
         if mapping_sidecar is not None and mapping_sidecar_path is not None and mapping_sidecar_hash is not None:
             mapping_result = ingest_mapping_sidecar(
                 db,

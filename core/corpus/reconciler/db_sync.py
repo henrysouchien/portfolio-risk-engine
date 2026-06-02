@@ -9,6 +9,10 @@ import sqlite3
 from core.corpus.frontmatter import FRONTMATTER_PATTERN, FrontmatterValidationError, parse_frontmatter
 from core.corpus.reconciler.walker import AuthoritativeFile
 from core.corpus.section_map import parse_sections
+from core.corpus.sections_index import (
+    mark_sections_fts_metadata_complete,
+    replace_sections_for_document,
+)
 from core.corpus.supersession import update_is_superseded_by
 
 
@@ -176,31 +180,9 @@ def sync_sections_fts(
         parse_input = text if source in {'edgar', 'fmp_transcripts'} else body
         sections = parse_sections(parse_input, source=source)
 
-        db.execute('DELETE FROM sections_fts WHERE document_id = ?', (document_id,))
-        for section in sections:
-            db.execute(
-                """
-                INSERT INTO sections_fts (
-                    document_id,
-                    section,
-                    content,
-                    char_start,
-                    char_end,
-                    speaker_name,
-                    speaker_role
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    document_id,
-                    section.section,
-                    section.content,
-                    section.char_start,
-                    section.char_end,
-                    section.speaker_name,
-                    section.speaker_role,
-                ),
-            )
-            total_sections_inserted += 1
+        total_sections_inserted += replace_sections_for_document(db, document_id, sections)
+
+    mark_sections_fts_metadata_complete(db)
 
     return SectionsFtsReport(
         document_ids_refreshed=len(scan_result),

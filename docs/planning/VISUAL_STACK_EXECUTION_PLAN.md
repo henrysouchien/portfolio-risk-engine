@@ -29,9 +29,9 @@ Curated React                 Agent HTML                      Excalidraw
    ┌─────────────────────────────────────────────────────────────────────┐
    │ PATTERN 1 — F147 thesis registry                                     │
    │                                                                      │
-   │ F147 spec ✅ ──── PR-0 plan ✅ ─┐                                   │
-   │                                  ├→ PR-2 plan ⬜ → PR-2 impl ⬜      │
-   │                  PR-1 plan ✅ ─┘                  │                 │
+   │ F147 spec ✅ ──── PR-0 substrate ✅ ─┐                              │
+   │                                      ├→ PR-2 plan ⬜ → PR-2 impl ⬜  │
+   │                  PR-1 scaffold ✅ ───┘                  │           │
    │                                                    ↓                 │
    │                            PR-3-13 plans ⬜ → impls ⬜               │
    └─────────────────────────────────────────────────────────────────────┘
@@ -86,7 +86,7 @@ Curated React                 Agent HTML                      Excalidraw
    ┌─────────────────────────────────────────────────────────────────────┐
    │ LAYER 3 + DISCIPLINE                                                 │
    │                                                                      │
-   │ F148 Presentation Packs ⬜ ←── Block D inventory available; plan next │
+   │ F148 Presentation Packs ◐ ←── PR-0/1 shipped; plan R2 CODEX PASS      │
    │                         (F148 owns ArtifactComposition)              │
    │ F149 Tufte-viz validation ✅ DONE 2026-05-26                         │
    └─────────────────────────────────────────────────────────────────────┘
@@ -102,12 +102,11 @@ Current unblocked implementation dispatch after the 2026-06-02 reconciliation. B
 
 | # | Item | Type | Plan path | Why now |
 |---|---|---|---|---|
-| 1 | **F147 PR-1 impl** | Codex impl dispatch | `docs/planning/F147_PR1_IMPL_PLAN.md` §6 | Plan PASS R5; smallest F147 foundation scope; reconcile any local scaffold before duplicate dispatch |
-| 2 | **F147 PR-0 impl** | Codex impl dispatch | `docs/planning/F147_PR0_IMPL_PLAN.md` §6 | Plan PASS R7; data substrate; parallel to PR-1 |
-| 3 | **HTML addendum impl** | Codex impl dispatch | `../AI-excel-addin/docs/design/html-artifact-addendum-impl-plan.md` | Gateway-side impl plan PASS R7; unblocks F122 live-test once deployed (F122 PR-1–PR-6 can run in parallel with mocked upstream) |
-| 4 | **F122 PR-1–PR-6 impl** | Codex impl dispatch | `docs/planning/F122_HTML_ARTIFACT_RENDERER_IMPL_PLAN.md` | Plan PASS R3; can proceed against mocked sidecar + HTML fixtures while gateway addendum is built |
-| 5 | **Block E protocol versioning impl** | Codex impl dispatch | `../AI-excel-addin/docs/design/protocol-versioning-impl-plan.md` | Impl plan PASS R3; Block B envelope + subscribe prerequisite is now present |
-| 6 | **F148 Presentation Packs plan** | Plan authoring | `docs/planning/PRESENTATION_PACKS_PLAN.md` | Block D recap inventory is available; design the F148-owned `ArtifactComposition`/pack layer before implementation |
+| 1 | **F147 PR-2 thin-slice plan** | Plan authoring | `docs/planning/F147_IMPL_PLAN.md` + shipped PR-0/PR-1 code | PR-0 data substrate landed 2026-06-02 (`0296ea508`) and PR-1 foundation scaffold is present; next F147 work should target the first real registry entry against shipped types |
+| 2 | **HTML addendum impl** | Codex impl dispatch | `../AI-excel-addin/docs/design/html-artifact-addendum-impl-plan.md` | Gateway-side impl plan PASS R7; unblocks F122 live-test once deployed (F122 PR-1–PR-6 can run in parallel with mocked upstream) |
+| 3 | **F122 PR-1–PR-6 impl** | Codex impl dispatch | `docs/planning/F122_HTML_ARTIFACT_RENDERER_IMPL_PLAN.md` | Plan PASS R3; can proceed against mocked sidecar + HTML fixtures while gateway addendum is built |
+| 4 | **Block E protocol versioning impl** | Codex impl dispatch | `../AI-excel-addin/docs/design/protocol-versioning-impl-plan.md` | Impl plan PASS R3; Block B envelope + subscribe prerequisite is now present |
+| 5 | **F148 PR-2 scaffold reconciliation** | Codex impl dispatch | `docs/planning/PRESENTATION_PACKS_PLAN.md` (R2 CODEX PASS) | PR-0/PR-1 scaffold shipped (`dd60561aa`/`ed6850053`); plan reviewed R1 FAIL → R2 PASS (round 3). Next dispatch is PR-2 (strip `descriptor_id` from raw `RecapArtifact`, confirm id/version + `(contract_name,skill,ticker)` resolution); PR-3 ingress parallel; PR-5 THESIS_PACK gates on F147 PR-2 |
 
 ---
 
@@ -119,8 +118,8 @@ Realistic concurrency: ~3-4 in-flight Codex tasks before context-switching domin
 
 | Item | Status | Notes |
 |---|---|---|
-| F147 PR-1 impl | ⬜ NEXT | Validates Codex impl flow on smallest scope; reconcile any local scaffold before duplicate dispatch |
-| F147 PR-0 impl | ⬜ NEXT | Bigger scope; parallel to PR-1 |
+| F147 PR-1 impl | ✅ SHIPPED | Foundation scaffold present in main: generic descriptor/BuilderResult types, empty thesis registry, dispatch helper, and thesis artifact context |
+| F147 PR-0 impl | ✅ SHIPPED | Data substrate landed 2026-06-02 (`0296ea508`): signed artifact proxy, `artifact_ready`/`aggregate_ready` stream chain, artifact event store, `useArtifactReady`, `useThesis`, and chat invalidation hooks |
 | HTML addendum impl | ⬜ NEXT | Impl plan PASS R7 2026-06-01: `AI-excel-addin/docs/design/html-artifact-addendum-impl-plan.md`; unblocks F122 live E2E once deployed |
 | F122 PR-1–PR-6 impl | ⬜ NEXT | Can start with mocked upstream; PR-1–PR-5 are feature work and PR-6 closes mocked integration/anti-pattern tests |
 
@@ -129,15 +128,15 @@ Realistic concurrency: ~3-4 in-flight Codex tasks before context-switching domin
 | Item | Status | Notes |
 |---|---|---|
 | Block E protocol versioning impl | ⬜ NEXT | Impl plan PASS R3; Block B envelope + subscribe substrate is present |
-| F148 Presentation Packs plan | ⬜ NEXT | Block D recap inventory is live; write `docs/planning/PRESENTATION_PACKS_PLAN.md` around the F148-owned composition layer |
+| F148 PR-2+ impl | ◐ R2 CODEX PASS / SCAFFOLD SHIPPED | PR-0/PR-1 scaffold on main (`dd60561aa`/`ed6850053`); plan `PRESENTATION_PACKS_PLAN.md` R1 FAIL → R2 PASS (round 3, all 6 P1 closed). Next dispatch: PR-2 scaffold reconciliation; PR-3 ingress parallel; PR-5 gates on F147 PR-2 |
 | Agent-control artifact render bridge review | ◆ DRAFT / PARTIAL WORKTREE | `docs/planning/AGENT_CONTROL_ARTIFACT_RENDER_BRIDGE_PLAN.md`; current worktree already contains fallback/ref scaffold pieces, so reconcile existing implementation before dispatching more bridge work |
 | Agent-control artifact render bridge fallback scaffold | ◆ PARTIAL WORKTREE | Existing dirty worktree has `ArtifactRenderRef`/resolver/panel wiring started; next action is review/reconciliation, not duplicate scaffolding |
 
-### Wave 3 — After F147 PR-0 + PR-1 land
+### Wave 3 — F147 next slice
 
 | Item | Status | Notes |
 |---|---|---|
-| F147 PR-2 plan author | ⬜ | First plan against actually-shipped types |
+| F147 PR-2 plan author | ⬜ NEXT | First plan against actually-shipped PR-0 substrate + PR-1 scaffold |
 | F147 PR-2 Codex review | ⬜ | Should converge faster than PR-0/PR-1 (smaller scope, real types) |
 
 ### Wave 4 — After F147 PR-2 ships
@@ -166,7 +165,7 @@ Realistic concurrency: ~3-4 in-flight Codex tasks before context-switching domin
 | Item | Status | Why deferred |
 |---|---|---|
 | Block A streaming `artifact_updated` | ⬜ PARKED | Parked in AI-excel-addin TODO #36 — waiting on a progressively-chunking skill; do NOT dispatch until that prerequisite exists |
-| F148 Presentation Packs impl | ⬜ | Implementation waits on `docs/planning/PRESENTATION_PACKS_PLAN.md`; Block D recap inventory is live and ownership is locked: F148 defines `ArtifactComposition` derived from `session_recap` inventory |
+| F148 Presentation Packs impl (PR-2+) | ◐ | PR-0/PR-1 scaffold shipped (`dd60561aa`/`ed6850053`). Remaining impl waits on `PRESENTATION_PACKS_PLAN.md` R2 reaching Codex PASS; PR-2 (scaffold reconciliation) is the next dispatch, PR-5 (THESIS_PACK) gates on F147 PR-2. Ownership locked: F148 defines `ArtifactComposition` derived from `session_recap`, descriptor resolution is F148-local (Block D has no descriptor id) |
 | F147 PR-1b (overview migration to BuilderResult) | ⬜ | Cleanup; after F147 v1 ships |
 | Excalidraw (Pattern 2B) | ❌ KILLED | Re-trigger only if irreducibly-graph artifact gets scoped |
 
@@ -179,9 +178,7 @@ Note on F147 PR numbering: PR-7 is a placeholder in the F147 umbrella plan that 
 ### F147 critical path (this session's work)
 
 ```
-PR-0 + PR-1 impl (parallel)
-  ↓
-verify both merge cleanly
+PR-0 substrate + PR-1 scaffold ✅ landed
   ↓
 PR-2 plan author → review → impl (template)
   ↓
@@ -190,7 +187,7 @@ PR-3 through PR-13 differential plans + impls (12 PRs)
 Visual coverage: ~14% → ~41%
 ```
 
-**Estimated duration:** PR-0/PR-1 impl = 2-3 sessions. PR-2 plan + impl = 1-2 sessions. PR-3-13 = 6-10 sessions depending on Codex review iteration rate (probably 1-2 rounds each since template is proven).
+**Estimated duration:** PR-2 plan + impl = 1-2 sessions. PR-3-13 = 6-10 sessions depending on Codex review iteration rate (probably 1-2 rounds each since template is proven).
 
 ### F122 critical path (HTML renderer)
 
@@ -253,23 +250,25 @@ Tracks 1-4 can run roughly in parallel, with F148 implementation sequenced after
 | 2026-06-01 | Visualization-stack doc reconciliation | Corrected stale HTML-foundation wording, F122 PR count, F163 review status, agent-control bridge partial-worktree state, and the F148/Block D composition assumption. |
 | 2026-06-01 | F148 composition ownership locked | F148 owns `ArtifactComposition` as Pack-layer state derived from Block D `session_recap` inventory. Block D remains factual runtime recap and should not be amended with section/narrative/layout metadata for v1. |
 | 2026-06-02 | Group 4 implementation-status reconciliation | AI-excel-addin Blocks B/C/D are no longer runnable implementation work: Block B fanout substrate, Block C typed approvals, and Block D `session_recap` inventory are present. Block E is the remaining protocol-versioning implementation; F148 is unblocked for plan writing but still owns Pack composition design. |
+| 2026-06-02 | F147 PR-0 data substrate committed | `0296ea508` adds the signed `/api/artifacts/*` proxy, typed `artifact_ready`/`aggregate_ready` stream handling, connector event store/hooks, `useArtifactReady`, `useThesis`, and research/portfolio chat thesis invalidation. PR-1 foundation scaffold is already present in main; F147 moves to PR-2 thin-slice planning/implementation. |
+| 2026-06-02 | F148 Presentation Packs plan written (DRAFT R1) | `docs/planning/PRESENTATION_PACKS_PLAN.md` authored covering `ArtifactComposition`/`PresentationPack` types, named packs, session→pack transformation, persistence/API, export adapters, and an 8-PR breakdown. F148 status moves from "needs plan / plan-writing unblocked" to "draft plan needing Codex review." Next action is review-to-PASS, not authoring. |
+| 2026-06-02 | F148 PR-0/PR-1 scaffold shipped + plan reconciled R1→R2 | Discovered PR-0 type/registry scaffold (`dd60561aa`) and PR-1 recap-inventory adapter (`ed6850053`) already on main under `.../presentation-packs/`. Codex reviewed R1 (read-only, live tree) → FAIL, 6 P1. Plan reconciled to R2: shipped PRs marked; descriptor resolution made F148-local (Block D `RecapArtifact` has no descriptor id); recap-ingress prerequisite added (web `ClaudeStreamChunk`/`GatewayService.mapEvent` lack a `session_recap` path); pack id/version semantics fixed; THESIS_PACK gated on F147 PR-2 + made deliberately-incomplete; namespace-aware rendering specified; design gate moved ahead of preview; standalone `presentation_pack_compositions` table; all 5 open questions resolved. **Codex re-review PASS round 3** (P1-5 registry-validity vs composition-time missingRequiredSlots distinction, recap ts/hash added to `ArtifactComposition`, PR-3/PR-4 dependency split). Next: PR-2 dispatch. |
 
 ---
 
 ## 7. Status snapshot (as of 2026-06-02)
 
-**PASS-ready for impl dispatch (unblocked):**
-- F147 PR-1 plan (PASS R5)
-- F147 PR-0 plan (PASS R7)
+**Unblocked next work:**
+- F147 PR-2 thin-slice plan authoring, then review + impl (after PR-0/PR-1 landed)
 - HTML addendum impl (impl plan PASS R7, 2026-06-01) — `AI-excel-addin/docs/design/html-artifact-addendum-impl-plan.md`; unblocks addendum impl dispatch
 - F122 PR-1–PR-6 impl (impl plan PASS R3, 2026-05-31) — can proceed with mocked upstream; live E2E gates on addendum deploy
 - Block E protocol-versioning impl (impl plan PASS R3) — Block B envelope + subscribe substrate is present
 
 **Plan-writing now unblocked:**
-- F148 Presentation Packs — write `docs/planning/PRESENTATION_PACKS_PLAN.md` around F148-owned `ArtifactComposition`, `PresentationPack` templates, session-to-pack transformation, persistence/addressability, and export adapters
-- F147 PR-2 through PR-13 plans (after PR-0/PR-1 land)
+- F147 PR-3 through PR-13 plans (after PR-2 establishes the template)
 
-**Draft bridge plans needing review:**
+**Plans at PASS — ready for impl dispatch:**
+- F148 Presentation Packs — `docs/planning/PRESENTATION_PACKS_PLAN.md` **R2 CODEX PASS** (round 3, 2026-06-02; R1 FAIL 6 P1 → all closed). PR-0/PR-1 scaffold already shipped to main (`dd60561aa`/`ed6850053`). R2 adds F148-local descriptor resolution (Block D has no descriptor id), a recap-ingress prerequisite, fixed pack id/version semantics, namespace-aware rendering, design-gate-before-preview, standalone `presentation_pack_compositions` table, and resolves all 5 open questions. Next dispatch: PR-2 (scaffold reconciliation); PR-3 (recap ingress) parallel; PR-5 (THESIS_PACK) gates on F147 PR-2.
 - Agent-control artifact render bridge — `docs/planning/AGENT_CONTROL_ARTIFACT_RENDER_BRIDGE_PLAN.md`; defines the resolver/ref layer between `/control/artifacts` and `ArtifactPanelConnected`. Current worktree already contains partial fallback/ref scaffold wiring, so the next step is review/reconciliation before any additional bridge dispatch. F122/F147 branches wait on their shared infra/registry substrate.
 
 **Parked (do not dispatch):**

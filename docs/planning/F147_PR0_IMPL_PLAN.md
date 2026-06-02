@@ -1,6 +1,6 @@
 # F147 PR-0 — Data Substrate (Implementation Plan)
 
-**Status:** CODEX PASS R7 — ready for implementation.
+**Status:** SHIPPED 2026-06-02 in `0296ea508` (`feat(visual-stack): add artifact data substrate`). Retained as the design/acceptance record; do not redispatch PR-0.
 **Created:** 2026-05-25. **Revised:** 2026-05-26 (R6 → R7).
 
 **R6 → R7 changelog:**
