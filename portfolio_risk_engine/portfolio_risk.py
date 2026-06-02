@@ -95,6 +95,7 @@ from portfolio_risk_engine._logging import (
     log_operation,
     log_timing,
     log_errors,
+    portfolio_logger,
 )
 
 if TYPE_CHECKING:
@@ -735,13 +736,13 @@ def _fetch_option_prices(
 
     registry = get_registry()
     chain = registry.get_price_chain("option")
+    failures: list[str] = []
 
     for provider in chain:
+        provider_name = str(getattr(provider, "provider_name", provider.__class__.__name__))
         # Skip IBKR without contract_identity (same guard as realized perf)
-        if (
-            provider.provider_name == "ibkr"
-            and not (isinstance(contract_identity, dict) and contract_identity)
-        ):
+        if provider_name == "ibkr" and not (isinstance(contract_identity, dict) and contract_identity):
+            failures.append(f"{provider_name}: skipped because contract_identity is required")
             continue
         try:
             series = provider.fetch_monthly_close(
@@ -752,11 +753,26 @@ def _fetch_option_prices(
                 contract_identity=contract_identity,
             )
             if isinstance(series, pd.Series) and not series.dropna().empty:
+                series.attrs["price_provider"] = provider_name
+                if provider_name == "bs_option":
+                    series.attrs["pricing_mode"] = "theoretical_black_scholes"
+                    portfolio_logger.warning(
+                        "Priced option %s via Black-Scholes theoretical fallback (%d monthly bars)",
+                        ticker,
+                        len(series.dropna()),
+                    )
                 return series
-        except Exception:
+            failures.append(f"{provider_name}: returned no data")
+        except Exception as exc:
+            failures.append(f"{provider_name}: {exc}")
             continue
 
-    raise ValueError(f"All pricing providers failed for option {ticker}")
+    detail = "; ".join(failures) if failures else "no eligible option providers"
+    raise ReturnSeriesUnavailable(
+        f"Unable to fetch option price history for {ticker}: {detail}",
+        ticker=ticker,
+        missing_data=True,
+    )
 
 
 def _filter_tickers_by_data_availability(
@@ -921,7 +937,13 @@ def _fetch_ticker_returns(
                 end_date,
                 ticker_alias_map=ticker_alias_map,
             )
-        elif instrument_type == "option" and OPTION_PRICING_PORTFOLIO_ENABLED:
+        elif instrument_type == "option":
+            if not OPTION_PRICING_PORTFOLIO_ENABLED:
+                raise ReturnSeriesUnavailable(
+                    f"Option portfolio pricing disabled for {ticker}",
+                    ticker=ticker,
+                    missing_data=True,
+                )
             prices = _fetch_option_prices(
                 ticker,
                 start_date,

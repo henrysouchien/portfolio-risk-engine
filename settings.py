@@ -203,10 +203,10 @@ REALIZED_PROVIDER_FLOWS_REQUIRE_COVERAGE = (
 TRANSACTION_STORE_READ = os.getenv("TRANSACTION_STORE_READ", "true").strip().lower() in ("1", "true", "yes")
 TRANSACTION_STORE_MAX_AGE_HOURS = float(os.getenv("TRANSACTION_STORE_MAX_AGE_HOURS", "24"))
 TRANSACTION_STORE_RETRY_COOLDOWN_MINUTES = float(os.getenv("TRANSACTION_STORE_RETRY_COOLDOWN_MINUTES", "15"))
-OPTION_BS_FALLBACK_ENABLED = os.getenv("OPTION_BS_FALLBACK_ENABLED", "false").lower() == "true"
+OPTION_BS_FALLBACK_ENABLED = os.getenv("OPTION_BS_FALLBACK_ENABLED", "true").lower() == "true"
 OPTION_MULTIPLIER_NAV_ENABLED = os.getenv("OPTION_MULTIPLIER_NAV_ENABLED", "false").lower() == "true"
 EXERCISE_COST_BASIS_ENABLED = os.getenv("EXERCISE_COST_BASIS_ENABLED", "false").lower() == "true"
-OPTION_PRICING_PORTFOLIO_ENABLED = os.getenv("OPTION_PRICING_PORTFOLIO_ENABLED", "false").lower() == "true"
+OPTION_PRICING_PORTFOLIO_ENABLED = os.getenv("OPTION_PRICING_PORTFOLIO_ENABLED", "true").lower() == "true"
 
 # Risk Analysis Thresholds
 # These constants define the hardcoded limits and thresholds used throughout the risk analysis system
