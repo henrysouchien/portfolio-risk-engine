@@ -5,6 +5,14 @@
 **Author**: AI-assisted
 **Priority**: High (pre-production requirement)
 
+**2026-06-02 update:** this draft is no longer the active cost-guard
+implementation plan. Cost guardrails are tracked under
+`docs/planning/API_BUDGET_GUARD_PLAN.md` and `V4` in `docs/TODO.md`. The
+production monitoring closeout is tracked under
+`docs/deployment/MONITORING_RUNBOOK.md` with repo-managed apply/check scripts.
+Generic analytics/event DB tables remain deferred until product analytics or
+error-triage needs justify them.
+
 ---
 
 ## 1. Current State Assessment

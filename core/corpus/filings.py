@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
 import sqlite3
 
-from core.corpus._paths import normalize_corpus_path
+from core.corpus._paths import corpus_db_path, corpus_root
 from core.corpus import edgar_api_client
 from core.corpus.db import open_corpus_db
 from core.corpus.frontmatter import parse_frontmatter
+from core.corpus.offsets import slice_scoped_text_with_offsets
 from core.corpus.search import _quality_filter_sql, _resolved_source_url_sql, _search
 from core.corpus.section_map import corpus_header_to_edgar_id, parse_sections
 from core.corpus.types import (
@@ -55,9 +55,6 @@ _FILING_SOURCE_LOOKUP_COLUMNS = (
     'source_url_deep',
     'source_accession',
 )
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-_DEFAULT_CORPUS_ROOT = _REPO_ROOT / 'data' / 'filings'
-_DEFAULT_CORPUS_DB_PATH = _REPO_ROOT / 'data' / 'filings.db'
 
 
 def filings_search(
@@ -100,6 +97,7 @@ def filings_read(
     section: str | None = None,
     char_start: int | None = None,
     char_end: int | None = None,
+    offset_frame: str = 'auto',
 ) -> ReadResult:
     path = validate_read_path(file_path, _corpus_root())
     text = path.read_text(encoding='utf-8')
@@ -128,11 +126,14 @@ def filings_read(
         else:
             raise InvalidInputError(f"section {section!r} not found in filing")
 
-    content, resolved_start, resolved_end = _slice_text_with_offsets(
+    content, resolved_start, resolved_end = slice_scoped_text_with_offsets(
         scoped_text,
         char_start,
         char_end,
-        base_start=scoped_start,
+        scope_start=scoped_start,
+        scope_end=scoped_start + len(scoped_text),
+        offset_frame=offset_frame,
+        scope_name='selected filing scope',
     )
     return ReadResult(
         content=content,
@@ -506,24 +507,6 @@ def _resolve_filing_document_row(
     return rows[0]
 
 
-def _slice_text_with_offsets(
-    text: str,
-    char_start: int | None,
-    char_end: int | None,
-    *,
-    base_start: int,
-) -> tuple[str, int, int]:
-    if char_start is None and char_end is None:
-        return text, base_start, base_start + len(text)
-    start = 0 if char_start is None else char_start
-    end = len(text) if char_end is None else char_end
-    if start < 0 or end < 0:
-        raise InvalidInputError('char_start and char_end must be >= 0')
-    if end < start:
-        raise InvalidInputError('char_end must be >= char_start')
-    return text[start:end], base_start + start, base_start + end
-
-
 def _source_url_from_metadata(metadata: dict) -> str:
     return str(metadata.get('source_url_deep') or metadata.get('source_url') or '')
 
@@ -533,13 +516,11 @@ def _source_url_from_row(row: sqlite3.Row) -> str:
 
 
 def _corpus_root() -> Path:
-    raw = os.getenv('CORPUS_ROOT')
-    return normalize_corpus_path(raw) if raw else _DEFAULT_CORPUS_ROOT
+    return corpus_root()
 
 
 def _corpus_db_path() -> Path:
-    raw = os.getenv('CORPUS_DB_PATH')
-    return normalize_corpus_path(raw) if raw else _DEFAULT_CORPUS_DB_PATH
+    return corpus_db_path()
 
 
 def _open_runtime_db() -> sqlite3.Connection:

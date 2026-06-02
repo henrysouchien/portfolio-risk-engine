@@ -48,13 +48,13 @@ def _thesis_flags(snapshot: dict[str, Any]) -> list[dict[str, str]]:
     decisions_log = thesis.get("decisions_log")
     scorecard = thesis.get("scorecard")
 
-    if not isinstance(model_links, list) or not model_links:
+    if "model_links" in thesis and (not isinstance(model_links, list) or not model_links):
         flags.append({
             "flag": "no_model_links",
             "severity": "info",
             "message": "Thesis has no model links yet",
         })
-    if not isinstance(decisions_log, list) or not decisions_log:
+    if "decisions_log" in thesis and (not isinstance(decisions_log, list) or not decisions_log):
         flags.append({
             "flag": "no_decisions_log",
             "severity": "info",

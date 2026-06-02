@@ -210,6 +210,12 @@ class ThesisNotFoundError(ActionNotFoundError):
 class InvalidSectionError(ActionValidationError):
     """Raised when a thesis section key is not supported."""
 
+    error_type = "invalid_section"
+
+    def __init__(self, message: str, detail: dict[str, Any] | None = None) -> None:
+        self.detail = dict(detail or {})
+        super().__init__(message)
+
 
 class DecisionsLogLockTimeoutError(ActionInfrastructureError):
     """Raised when the thesis decisions-log lock cannot be acquired."""

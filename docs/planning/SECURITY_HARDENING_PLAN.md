@@ -25,7 +25,7 @@ The remediation plan addressed critical/high findings (session secret enforcemen
 | Production CORS origin lockdown | DONE (production rejects empty, wildcard, localhost/loopback, non-HTTPS, and path-bearing origins) |
 | OpenAPI docs disabled in prod | DONE (`FastAPI()` docs/OpenAPI/Redoc routes disabled in production) |
 | Error message sanitization | DONE for production 5xx `HTTPException` responses (global handler preserves 4xx/user errors and dev diagnostics) |
-| Plaid webhook JWT verification | NOT DONE (uses forward-auth shared secret only) |
+| Plaid webhook JWT verification | DONE (`Plaid-Verification` JWT enforced in production / when `PLAID_VERIFY_WEBHOOKS=true`) |
 | Pre-commit secrets scanning | DONE (local pre-commit hook scans staged files for common credential formats) |
 | Dependency vulnerability scan | DONE (`pip-audit` and `pnpm audit` return 0 vulnerabilities after pin/lock refresh) |
 | PII audit of logs | DONE for production auth/Kartra email logs (`redact_email()` masks addresses before logging) |
@@ -45,7 +45,7 @@ Items are sequenced by risk-to-effort ratio. Higher-risk items that block produc
 | P1 | 2. Security headers middleware | HIGH — missing HSTS/CSP/X-Frame enables XSS/clickjack | 1h |
 | P1 | 1. CSRF protection middleware | MEDIUM — SameSite=lax + httponly cookies provide partial defense | 2h |
 | P1 | 8. Dependency vulnerability scan + pin | HIGH — 47 Python CVEs identified in audit | 2h |
-| P2 | 6. Plaid webhook JWT signature verification | MEDIUM — forward-auth exists but not Plaid-native JWT | 2h |
+| P2 | 6. Plaid webhook JWT signature verification | DONE — Plaid-native JWT + raw-body hash verification shipped | 2h |
 | P2 | 9. PII audit of log statements + redaction | MEDIUM — user emails logged in auth events and Kartra push | 1.5h |
 | P3 | 7. Pre-commit secrets scanning hook | LOW — `.env` is gitignored; this is defense-in-depth | 30min |
 | P3 | 10. Duplicate MCP tool registration audit | LOW — no runtime risk, but tooling hygiene | 1h |
@@ -376,114 +376,25 @@ Remove global exception handler. Revert `routes/*.py` changes. Fully reversible.
 ## Item 6: Plaid Webhook JWT Signature Verification
 
 ### Current State
-`routes/plaid.py` has `_validate_plaid_webhook_forward_auth()` (line 192) which checks a shared secret in the `X-Plaid-Forward-Secret` header. This is a custom forwarding-proxy authentication mechanism but does NOT implement Plaid's native JWT webhook verification.
+Completed 2026-06-01. `routes/plaid.py` now verifies Plaid's native `Plaid-Verification` JWT before webhook processing when `ENVIRONMENT=production` or `PLAID_VERIFY_WEBHOOKS=true`.
 
-Plaid signs webhooks with a JWT in the `Plaid-Verification` header. The verification key is fetched from Plaid's JWKS endpoint. Without this, any attacker who discovers the webhook URL can forge webhook payloads (the forwarding secret only protects against accidental exposure, not a determined attacker).
-
-Relevant docstring at line 1370-1384 explicitly says: "Should implement Plaid webhook signature verification" and "Should implement signature verification in production."
-
-### Files to Modify
-- `routes/plaid.py` — add JWT verification to `plaid_webhook()` handler
-- `requirements.txt` — add `pyjwt>=2.8.0` and `jwcrypto>=1.5.0` (or use `plaid-python`'s built-in verification if available)
+The previous forward-auth shared secret remains available as an optional defense-in-depth check for the Edgar_updater forwarding path, but it is no longer the only production boundary.
 
 ### Implementation
-
-```python
-# routes/plaid.py — add Plaid JWT verification
-
-import jwt
-import time
-import hashlib
-import httpx
-
-_PLAID_JWKS_CACHE: dict = {}
-_PLAID_JWKS_CACHE_TTL = 3600  # 1 hour
-
-async def _get_plaid_verification_key(key_id: str) -> dict:
-    """Fetch Plaid's JWKS and cache. Plaid rotates keys periodically."""
-    now = time.time()
-    if _PLAID_JWKS_CACHE.get("keys") and now - _PLAID_JWKS_CACHE.get("fetched_at", 0) < _PLAID_JWKS_CACHE_TTL:
-        for key in _PLAID_JWKS_CACHE["keys"]:
-            if key.get("kid") == key_id:
-                return key
-
-    # Fetch fresh keys
-    async with httpx.AsyncClient() as client:
-        resp = await client.get("https://production.plaid.com/webhook_verification_key/get",
-            json={"client_id": PLAID_CLIENT_ID, "secret": PLAID_SECRET, "key_id": key_id})
-        resp.raise_for_status()
-        key_data = resp.json().get("key", {})
-        if "keys" not in _PLAID_JWKS_CACHE:
-            _PLAID_JWKS_CACHE["keys"] = []
-        _PLAID_JWKS_CACHE["keys"].append(key_data)
-        _PLAID_JWKS_CACHE["fetched_at"] = now
-        return key_data
-
-
-def _verify_plaid_webhook_jwt(body: bytes, plaid_verification_header: str) -> bool:
-    """Verify Plaid webhook JWT signature per Plaid docs."""
-    if not plaid_verification_header:
-        return False
-
-    # Decode header without verification to get key_id
-    unverified = jwt.get_unverified_header(plaid_verification_header)
-    key_id = unverified.get("kid")
-    if not key_id:
-        return False
-
-    # Fetch the verification key
-    # Note: This is sync for simplicity; consider async in the actual handler
-    key_data = ...  # fetched from cache or Plaid API
-
-    # Verify the JWT
-    claims = jwt.decode(
-        plaid_verification_header,
-        key_data,
-        algorithms=["ES256"],
-        options={"verify_iat": True},
-    )
-
-    # Verify the body hash matches
-    body_hash = hashlib.sha256(body).hexdigest()
-    if claims.get("request_body_sha256") != body_hash:
-        return False
-
-    # Verify iat is within 5 minutes
-    if abs(time.time() - claims.get("iat", 0)) > 300:
-        return False
-
-    return True
-```
-
-Modify `plaid_webhook()` handler:
-```python
-@plaid_router.post("/webhook")
-async def plaid_webhook(request: Request):
-    body = await request.body()
-    plaid_verification = request.headers.get("Plaid-Verification", "")
-
-    # Plaid-native JWT verification (production)
-    if _is_production or os.getenv("PLAID_VERIFY_WEBHOOKS", "false").lower() == "true":
-        if not await _verify_plaid_webhook_jwt(body, plaid_verification):
-            portfolio_logger.warning("Rejecting Plaid webhook: JWT verification failed")
-            raise HTTPException(status_code=401, detail="Webhook verification failed")
-
-    # Existing forward-auth check (development/staging proxy)
-    _validate_plaid_webhook_forward_auth(request)
-
-    webhook_data = WebhookRequest.model_validate_json(body)
-    # ... rest of handler
-```
+- Extracts JWT header without verification, requires `alg=ES256`, and reads `kid`.
+- Fetches the JWK from Plaid's environment-specific `/webhook_verification_key/get` endpoint using `PLAID_CLIENT_ID`, `PLAID_SECRET`, and `PLAID_ENV`.
+- Caches verification keys by `kid` for one hour and invalidates keys that carry an `expired_at` timestamp.
+- Verifies the ES256 signature using `PyJWT` + `cryptography`.
+- Enforces a five-minute `iat` freshness window with small future clock skew tolerance.
+- Hashes the exact raw request body with SHA-256 and compares it to `request_body_sha256` using constant-time comparison.
+- Rejects auth failures with `401` before the handler's processing catch-all, so forged webhooks are not acknowledged.
 
 ### Testing
-- Unit: Mock JWKS response, verify valid JWT passes
-- Unit: Verify expired JWT (iat > 5 min) is rejected
-- Unit: Verify body hash mismatch is rejected
-- Unit: Verify missing `Plaid-Verification` header is rejected in production mode
-- Integration: Feature-flag `PLAID_VERIFY_WEBHOOKS=true` in staging, send test webhook from Plaid sandbox
+- `pytest tests/api/test_plaid_webhook.py -q`
+- Covered: unsigned dev webhook still accepted when verification is disabled; missing `Plaid-Verification` rejected when flag-enabled and in production; valid ES256 webhook accepted; stale JWT and body hash mismatch rejected; existing forward-secret behavior preserved.
 
 ### Rollback
-Feature-flagged via `PLAID_VERIFY_WEBHOOKS` env var. Set to `false` to disable. Fully reversible.
+Revert the route verifier and tests if production rollback is required. In development/staging, leave `PLAID_VERIFY_WEBHOOKS` unset to keep unsigned local webhook testing available.
 
 ---
 
@@ -803,7 +714,7 @@ Items within the same commit/priority tier touch different files and can be deve
 | 3. CORS lockdown | Yes | None | Remove validation block |
 | 4. OpenAPI docs | Yes | None | Remove conditional args |
 | 5. Error sanitization | Yes | None | Remove global handler + revert route changes |
-| 6. Plaid JWT | Yes | None | Feature-flagged; set `PLAID_VERIFY_WEBHOOKS=false` |
+| 6. Plaid JWT | Yes | None | Non-prod opt-in via `PLAID_VERIFY_WEBHOOKS`; production fails closed |
 | 7. Pre-commit hook | Yes | None | Delete config + `pre-commit uninstall` |
 | 8. Dep versions | Yes | None | Pin back to old versions |
 | 9. PII redaction | Yes | None | Revert `utils/logging.py` |

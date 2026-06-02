@@ -9,14 +9,20 @@ from pathlib import Path
 import sqlite3
 from typing import Sequence
 
+from core.corpus._paths import (
+    corpus_db_path,
+    corpus_log_dir,
+    corpus_root,
+    dev_corpus_db_path,
+    dev_corpus_root,
+)
 from core.corpus.db import open_corpus_db
 from core.corpus.frontmatter import parse_frontmatter
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_DB = REPO_ROOT / 'data' / 'filings.db'
-DEFAULT_CORPUS_ROOT = REPO_ROOT / 'data' / 'filings'
-DEFAULT_LOG_DIR = REPO_ROOT / 'logs' / 'corpus'
+DEFAULT_DB = dev_corpus_db_path()
+DEFAULT_CORPUS_ROOT = dev_corpus_root()
 _LOG = logging.getLogger(__name__)
 
 
@@ -122,10 +128,13 @@ def sweep(db: sqlite3.Connection, corpus_root: Path) -> SweeperReport:
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description='Sweep old corpus re-ingest markdown files.')
-    parser.add_argument('--db', type=Path, default=DEFAULT_DB)
-    parser.add_argument('--corpus-root', type=Path, default=DEFAULT_CORPUS_ROOT)
+    parser.add_argument('--db', type=Path)
+    parser.add_argument('--corpus-root', type=Path)
     parser.add_argument('--log', type=Path)
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    args.db = args.db or corpus_db_path()
+    args.corpus_root = args.corpus_root or corpus_root()
+    return args
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -137,7 +146,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(json.dumps(payload, sort_keys=True))
 
     log_path = args.log or (
-        DEFAULT_LOG_DIR
+        corpus_log_dir()
         / f'reingest_sweeper_{datetime.now(timezone.utc).date().isoformat()}.jsonl'
     )
     log_path.parent.mkdir(parents=True, exist_ok=True)

@@ -1,8 +1,38 @@
 # Cross-Browser and Mobile Verification QA Plan
 
-**Status**: PROPOSED
+**Status**: PARTIAL - INFRASTRUCTURE LANDED
 **Created**: 2026-03-19
-**Last Updated**: 2026-03-19
+**Last Updated**: 2026-06-02
+
+---
+
+## 0. 2026-06-02 Infrastructure Landing
+
+The first durable slice is now in-tree:
+
+- `e2e/browser-projects.ts` defines one shared Playwright matrix: Chromium,
+  Firefox, WebKit, mobile Chrome emulation, and mobile Safari emulation.
+- `e2e/playwright.prod-smoke.config.ts` runs the public production smoke suite
+  across that full matrix. It remains unauthenticated and non-mutating.
+- `e2e/playwright.cross-browser.config.ts` runs a local mocked smoke suite
+  across the same matrix without expanding the entire local E2E suite by
+  default. The first deterministic slice covers Plaid/SnapTrade callback entry
+  pages plus the authenticated overview route; chat/control-gateway and trading
+  interactions remain explicit follow-up coverage.
+- `frontend/vite.config.ts` now pins the production build target to the
+  supported browser floor.
+- `frontend/package.json` now declares the active Browserslist used by
+  Autoprefixer.
+
+Remaining work: broaden route-specific cross-browser specs, add automated
+accessibility checks, add CI artifacting, and run a manual real-device mobile
+pass for iOS Safari/Android Chrome behaviors that emulation cannot prove.
+
+Validation on 2026-06-02:
+
+- `pnpm run test:e2e:prod-smoke` passed 35/35 against
+  `https://hank.investments`.
+- `pnpm run test:e2e:cross-browser` passed 15/15 locally.
 
 ---
 

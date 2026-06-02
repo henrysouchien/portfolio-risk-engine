@@ -24,6 +24,17 @@ This worked better than starting with isolated micro-optimizations or broad spec
 - Treat false empty states as bugs.
 - Rebaseline often enough that the active plan always reflects reality.
 
+## Live Failure Smoke Profiles
+
+Use the smoke profile that matches the claim being made:
+
+- Dashboard-only health: `python3 scripts/live_failure_smoke.py --dev-login --include-authenticated --profile dashboard --timeout 60`
+- Transaction-backed workflow health: `python3 scripts/live_failure_smoke.py --dev-login --include-authenticated --profile full --timeout 120`
+
+The dashboard profile covers the historical seven critical dashboard endpoints. It does not prove realized performance, trading analysis, or metric insights are healthy. The full profile adds `GET /api/sync/transactions/status`, `POST /api/performance/realized`, `GET /api/trading/analysis`, and `GET /api/positions/metric-insights`.
+
+If the full profile fails on transaction freshness, inspect `GET /api/sync/transactions/status?provider=<provider>` first. That response is the shared source of truth used by transaction-store freshness guards and includes stale providers, cooldown providers, retry timing, last success/failure timestamps, and the latest ingest error. Do not mask these failures with stale cache fallback; provider/credential remediation is the correct next step.
+
 ## Recommended Workflow
 
 ### 1. Start With A Real Baseline

@@ -2,7 +2,7 @@
 
 **Parent:** `docs/TODO.md` V5 · Vendor SDK Boundary Refactor Lane 2
 **Date:** 2026-04-23
-**Status:** SHIPPED 2026-04-24 — PR A + PR B landed; V5b legacy-shim removal remains deferred.
+**Status:** SHIPPED 2026-04-24 — PR A + PR B landed; V5b legacy-shim removal shipped 2026-06-01.
 
 ## Ship log
 
@@ -10,6 +10,7 @@
 - 2026-04-24 — PR A landed in `40aaf743`: added `IBKRContractSpec`, coercer support, and three callsite migrations.
 - 2026-04-24 — PR B landed in `815bca21`: moved `options/portfolio_greeks.py` to the public IBKR boundary and removed four allowlist entries.
 - 2026-04-24 — TODO closeout landed in `8a2275da`; legacy duck-typed snapshot-path removal remains tracked as V5b.
+- 2026-06-01 — V5b landed: `ibkr/server.py` now uses public `IBKRContractSpec`, `_coerce_snapshot_contract` rejects legacy marker/dict specs, and boundary allowlists/baseline no longer exempt the MCP wrapper.
 
 ---
 
@@ -262,7 +263,7 @@ Both must go for the baseline entries to shrink.
 - Rule B: file no longer in `_BOUNDARY_INTERNAL_RULES["ibkr"/"ibkr.compat"].files`; reintroducing `from ibkr.market_data import ...` fails lint (even for the currently-baselined patterns).
 - Greeks computation matches pre-migration on a live spot-check — numeric diff = 0.0 for at least one option position.
 
-### Phase 6: Deprecate duck-typed / legacy-marker paths (FUTURE — separate PR)
+### Phase 6: Deprecate duck-typed / legacy-marker paths (COMPLETED 2026-06-01)
 
 Once all known callers migrate, `_coerce_snapshot_contract` can drop:
 - The `getattr(contract, "_ibkr_contract_spec", False)` duck-typed branch
@@ -274,7 +275,7 @@ Trigger for this PR (stricter than "grep + one week" per Codex R1):
 3. Zero external imports of `ibkr.contracts.resolve_*` for snapshot input construction (remaining uses only permitted inside `ibkr/`)
 4. At least one production dogfood window (≥1 release cycle, ≥1 week) with PR A + PR B live
 
-Tracked as V5b in TODO (to file on PR A ship).
+Completed as V5b on 2026-06-01.
 
 ---
 

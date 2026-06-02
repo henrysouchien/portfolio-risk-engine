@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import os
 from pathlib import Path
 import re
 import sqlite3
 
-from core.corpus._paths import normalize_corpus_path
+from core.corpus._paths import corpus_db_path, corpus_root
 from core.corpus.db import open_corpus_db
 from core.corpus.frontmatter import parse_frontmatter
+from core.corpus.offsets import slice_scoped_text_with_offsets
 from core.corpus.search import _quality_filter_sql, _resolved_source_url_sql, _search
 from core.corpus.types import DocumentMetadata, ExcerptUnavailableError, InvalidInputError, ReadResult, SearchResponse
 from core.corpus.validation import (
@@ -27,11 +27,16 @@ _TRANSCRIPT_SECTION_LABELS = {
     'prepared_remarks': 'Prepared Remarks',
     'qa': 'Q&A Session',
 }
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-_DEFAULT_CORPUS_ROOT = _REPO_ROOT / 'data' / 'filings'
-_DEFAULT_CORPUS_DB_PATH = _REPO_ROOT / 'data' / 'filings.db'
-
-
+_TRANSCRIPT_SECTION_ALIASES = {
+    'prepared_remarks': 'prepared_remarks',
+    'prepared remarks': 'prepared_remarks',
+    'qa': 'qa',
+    'q&a': 'qa',
+    'q&a session': 'qa',
+    'q and a': 'qa',
+    'q and a session': 'qa',
+    'both': 'both',
+}
 @dataclass(frozen=True)
 class _TextSpan:
     content: str
@@ -52,7 +57,7 @@ def transcripts_search(
     limit: int = 20,
 ) -> SearchResponse:
     validate_search_inputs(query, universe, limit)
-    _validate_transcript_section(section, allow_both=True)
+    section_key = _validate_transcript_section(section, allow_both=True)
 
     db = _open_runtime_db()
     try:
@@ -62,7 +67,7 @@ def transcripts_search(
             form_types=['TRANSCRIPT'],
             sources=['fmp_transcripts'],
             universe=universe,
-            section=section,
+            section=section_key,
             speaker_role=speaker_role,
             date_from=date_from,
             date_to=date_to,
@@ -81,6 +86,7 @@ def transcripts_read(
     speaker: str | None = None,
     char_start: int | None = None,
     char_end: int | None = None,
+    offset_frame: str = 'auto',
 ) -> ReadResult:
     path = validate_read_path(file_path, _corpus_root())
     text = path.read_text(encoding='utf-8')
@@ -128,11 +134,14 @@ def transcripts_read(
         resolved_start = scoped_start
         resolved_end = scoped_source_end
     else:
-        content, resolved_start, resolved_end = _slice_text_with_offsets(
+        content, resolved_start, resolved_end = slice_scoped_text_with_offsets(
             scoped_text,
             char_start,
             char_end,
-            base_start=scoped_start,
+            scope_start=scoped_start,
+            scope_end=scoped_source_end,
+            offset_frame=offset_frame,
+            scope_name='selected transcript scope',
         )
     return ReadResult(
         content=content,
@@ -147,6 +156,7 @@ def transcripts_read(
 def transcripts_source_excerpt(
     document_id: str | None = None,
     speaker: str | None = None,
+    section: str | None = None,
     ticker: str | None = None,
     fiscal_period: str | None = None,
 ) -> ReadResult:
@@ -164,6 +174,7 @@ def transcripts_source_excerpt(
     fiscal_period_value = match.group('fiscal_period')
     year = int(fiscal_period_value[:4])
     quarter = int(match.group('quarter'))
+    section_key = _validate_transcript_section(section, allow_both=True) if section is not None else 'both'
 
     if speaker is not None:
         result = get_earnings_transcript(
@@ -171,42 +182,50 @@ def transcripts_source_excerpt(
             year=year,
             quarter=quarter,
             filter_speaker=speaker,
-            section='all',
+            section='all' if section_key == 'both' else section_key,
             format='full',
             max_words=None,
             output='inline',
         )
         _raise_on_fmp_error(resolved_document_id, result)
-        prepared_remarks = list(result.get('prepared_remarks') or [])
-        qa = list(result.get('qa') or [])
+        prepared_remarks = [] if section_key == 'qa' else list(result.get('prepared_remarks') or [])
+        qa = [] if section_key == 'prepared_remarks' else list(result.get('qa') or [])
     else:
-        prepared_result = get_earnings_transcript(
-            symbol=symbol,
-            year=year,
-            quarter=quarter,
-            section='prepared_remarks',
-            format='full',
-            max_words=None,
-            output='inline',
-        )
-        _raise_on_fmp_error(resolved_document_id, prepared_result)
-
-        qa_result = get_earnings_transcript(
-            symbol=symbol,
-            year=year,
-            quarter=quarter,
-            section='qa',
-            format='full',
-            max_words=None,
-            output='inline',
-        )
-        _raise_on_fmp_error(resolved_document_id, qa_result)
-
-        prepared_remarks = list(prepared_result.get('prepared_remarks') or [])
-        qa = list(qa_result.get('qa') or [])
+        prepared_remarks = []
+        qa = []
+        if section_key in {'both', 'prepared_remarks'}:
+            prepared_result = get_earnings_transcript(
+                symbol=symbol,
+                year=year,
+                quarter=quarter,
+                section='prepared_remarks',
+                format='full',
+                max_words=None,
+                output='inline',
+            )
+            _raise_on_fmp_error(resolved_document_id, prepared_result)
+            prepared_remarks = list(prepared_result.get('prepared_remarks') or [])
+        if section_key in {'both', 'qa'}:
+            qa_result = get_earnings_transcript(
+                symbol=symbol,
+                year=year,
+                quarter=quarter,
+                section='qa',
+                format='full',
+                max_words=None,
+                output='inline',
+            )
+            _raise_on_fmp_error(resolved_document_id, qa_result)
+            qa = list(qa_result.get('qa') or [])
 
     if not prepared_remarks and not qa:
-        reason = 'no content for speaker filter' if speaker is not None else 'transcript has no content'
+        reason = (
+            'no content for speaker filter'
+            if speaker is not None
+            else 'transcript has no content'
+            if section_key == 'both'
+            else f'transcript has no {section_key} content'
+        )
         raise ExcerptUnavailableError(resolved_document_id, reason=reason)
 
     lines: list[str] = []
@@ -319,13 +338,14 @@ def _extract_speaker_block_spans(text: str, speaker: str) -> list[_TextSpan]:
 
 
 def _validate_transcript_section(section: str, *, allow_both: bool) -> str:
+    normalized = _TRANSCRIPT_SECTION_ALIASES.get(str(section).strip().casefold())
     allowed = {'prepared_remarks', 'qa'}
     if allow_both:
         allowed.add('both')
-    if section not in allowed:
+    if normalized not in allowed:
         allowed_display = ', '.join(sorted(allowed))
         raise InvalidInputError(f'section must be one of: {allowed_display}')
-    return section
+    return normalized
 
 
 def _raise_on_fmp_error(document_id: str, result: dict) -> None:
@@ -345,24 +365,6 @@ def _format_speaker_segment(segment: dict) -> str:
         else f'### SPEAKER: {speaker_name}'
     )
     return f"{heading}\n\n{str(segment.get('text') or '').strip()}".rstrip()
-
-
-def _slice_text_with_offsets(
-    text: str,
-    char_start: int | None,
-    char_end: int | None,
-    *,
-    base_start: int,
-) -> tuple[str, int, int]:
-    if char_start is None and char_end is None:
-        return text, base_start, base_start + len(text)
-    start = 0 if char_start is None else char_start
-    end = len(text) if char_end is None else char_end
-    if start < 0 or end < 0:
-        raise InvalidInputError('char_start and char_end must be >= 0')
-    if end < start:
-        raise InvalidInputError('char_end must be >= char_start')
-    return text[start:end], base_start + start, base_start + end
 
 
 def _source_excerpt_section(*, prepared_remarks: list[dict], qa: list[dict]) -> str:
@@ -395,13 +397,11 @@ def _transcript_source_url(symbol: str, fiscal_period: str) -> str:
 
 
 def _corpus_root() -> Path:
-    raw = os.getenv('CORPUS_ROOT')
-    return normalize_corpus_path(raw) if raw else _DEFAULT_CORPUS_ROOT
+    return corpus_root()
 
 
 def _corpus_db_path() -> Path:
-    raw = os.getenv('CORPUS_DB_PATH')
-    return normalize_corpus_path(raw) if raw else _DEFAULT_CORPUS_DB_PATH
+    return corpus_db_path()
 
 
 def _open_runtime_db() -> sqlite3.Connection:

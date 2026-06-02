@@ -32,6 +32,9 @@ _FTS5_EXPLICIT_OPERATOR_RE = re.compile(r'\b(AND|OR|NOT)\b')
 
 _SCALE_HINT_RE = re.compile(r'\(in\s+(thousands|millions|billions)\)', re.IGNORECASE)
 _TABLE_SEPARATOR_RE = re.compile(r'\|\s*-{2,}\s*\|')
+_QUOTED_PHRASE_RE = re.compile(r'"([^"]*)"')
+_WORD_RE = re.compile(r'\w+')
+_MAX_SUBPHRASE_FALLBACKS = 16
 
 
 def _classify_snippet(snippet: str) -> tuple[str, str | None]:
@@ -56,7 +59,68 @@ def _classify_snippet(snippet: str) -> tuple[str, str | None]:
     if pipe_count >= 3 or scale_hint is not None:
         return "mixed", scale_hint
     return "prose", scale_hint
+
+
 _TOKEN_RE = re.compile(r'"[^"]*"|\S+')
+
+
+def _dequoted_terms(query: str) -> list[str]:
+    """Return FTS-safe word terms, expanding quoted phrases into individual words."""
+    terms: list[str] = []
+    for token in _TOKEN_RE.findall(query):
+        if token.startswith('"') and token.endswith('"'):
+            terms.extend(_WORD_RE.findall(token[1:-1]))
+        else:
+            terms.extend(_WORD_RE.findall(token))
+    return terms
+
+
+def _dequoted_match_expr(query: str) -> str | None:
+    if '"' not in query:
+        return None
+    expr = ' '.join(_dequoted_terms(query))
+    return expr if expr and expr != query else None
+
+
+def _subphrase_match_exprs(query: str) -> list[str]:
+    candidates: list[str] = []
+    seen: set[str] = set()
+
+    def add_candidate(words: list[str], start: int, window_size: int) -> bool:
+        expr = '"' + ' '.join(words[start:start + window_size]) + '"'
+        if expr in seen:
+            return False
+        seen.add(expr)
+        candidates.append(expr)
+        return len(candidates) >= _MAX_SUBPHRASE_FALLBACKS
+
+    for phrase in _QUOTED_PHRASE_RE.findall(query):
+        words = _WORD_RE.findall(phrase)
+        if len(words) < 3:
+            continue
+        for window_size in range(len(words) - 1, 1, -1):
+            if add_candidate(words, len(words) - window_size, window_size):
+                return candidates
+        for window_size in range(len(words) - 1, 1, -1):
+            for start in range(0, len(words) - window_size + 1):
+                if add_candidate(words, start, window_size):
+                    return candidates
+    return candidates
+
+
+def _is_single_quoted_phrase_query(query: str) -> bool:
+    tokens = _TOKEN_RE.findall(query)
+    return len(tokens) == 1 and tokens[0].startswith('"') and tokens[0].endswith('"')
+
+
+def _fallback_or_match_expr(query: str) -> str | None:
+    top_level_tokens = _TOKEN_RE.findall(query)
+    if len(top_level_tokens) < 3:
+        return None
+    tokens = _dequoted_terms(query) if '"' in query else top_level_tokens
+    if len(tokens) < 3:
+        return None
+    return ' OR '.join(tokens)
 
 
 def _resolved_source_url_sql(document_alias: str = 'd') -> str:
@@ -331,27 +395,67 @@ def _search(
         low_quality_variant_params=low_quality_variant_params,
     )
 
-    if (
-        total_matches == 0
-        and len(_TOKEN_RE.findall(normalized_query)) >= 3
-        and not _FTS5_EXPLICIT_OPERATOR_RE.search(normalized_query)
-    ):
-        tokens = _TOKEN_RE.findall(normalized_query)
-        or_expr = ' OR '.join(tokens)
-        rows, total_matches, superseded_count, low_quality_count = _run_match_queries(
-            db,
-            where_clauses=where_clauses,
-            where_params=where_params,
-            match_expr=or_expr,
-            limit=limit,
-            include_superseded=include_superseded,
-            superseded_variant_clauses=superseded_variant_clauses,
-            superseded_variant_params=superseded_variant_params,
-            include_low_quality=include_low_quality,
-            low_quality_variant_clauses=low_quality_variant_clauses,
-            low_quality_variant_params=low_quality_variant_params,
-        )
-        query_warnings = list(query_warnings) + ['fallback_or_search_used']
+    if total_matches == 0 and not _FTS5_EXPLICIT_OPERATOR_RE.search(normalized_query):
+        fallback_candidates: list[tuple[str, str, str, bool]] = []
+        dequoted_expr = _dequoted_match_expr(normalized_query)
+        subphrase_exprs = _subphrase_match_exprs(normalized_query)
+
+        def add_dequoted_candidate() -> None:
+            if dequoted_expr is None:
+                return
+            fallback_candidates.append((
+                'dequoted',
+                dequoted_expr,
+                'fallback_dequoted_search_used',
+                False,
+            ))
+
+        def add_subphrase_candidates() -> None:
+            fallback_candidates.extend(
+                ('subphrase', expr, 'fallback_subphrase_search_used', False)
+                for expr in subphrase_exprs
+            )
+
+        if _is_single_quoted_phrase_query(normalized_query):
+            add_subphrase_candidates()
+            add_dequoted_candidate()
+        else:
+            add_dequoted_candidate()
+            add_subphrase_candidates()
+
+        or_expr = _fallback_or_match_expr(normalized_query)
+        if or_expr is not None:
+            fallback_candidates.append(('or', or_expr, 'fallback_or_search_used', True))
+
+        for strategy, match_expr, warning, use_even_if_empty in fallback_candidates:
+            (
+                candidate_rows,
+                candidate_total,
+                candidate_superseded,
+                candidate_low_quality,
+            ) = _run_match_queries(
+                db,
+                where_clauses=where_clauses,
+                where_params=where_params,
+                match_expr=match_expr,
+                limit=limit,
+                include_superseded=include_superseded,
+                superseded_variant_clauses=superseded_variant_clauses,
+                superseded_variant_params=superseded_variant_params,
+                include_low_quality=include_low_quality,
+                low_quality_variant_clauses=low_quality_variant_clauses,
+                low_quality_variant_params=low_quality_variant_params,
+            )
+            if candidate_total == 0 and not use_even_if_empty:
+                continue
+            rows = candidate_rows
+            total_matches = candidate_total
+            superseded_count = candidate_superseded
+            low_quality_count = candidate_low_quality
+            query_warnings = list(query_warnings) + [warning]
+            applied_filters['fallback_strategy'] = strategy
+            applied_filters['fallback_query'] = match_expr
+            break
 
     has_superseded_matches = False
     if not include_superseded:

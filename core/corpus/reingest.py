@@ -665,7 +665,7 @@ def _frontmatter_content_hash(path: Path) -> str:
 def _optional_path(value: Any) -> Path | None:
     if value is None:
         return None
-    return Path(str(value)).resolve()
+    return normalize_corpus_path(value)
 
 
 def _nullable_str(value: Any) -> str | None:

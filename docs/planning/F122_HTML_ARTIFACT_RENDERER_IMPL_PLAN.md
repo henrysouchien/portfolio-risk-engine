@@ -1,6 +1,6 @@
 # F122 - HTML Artifact Renderer Implementation Plan
 
-**Status:** DRAFT R1 - ready for Codex review.
+**Status:** CODEX PASS R3 (2026-05-31) — ready for impl dispatch.
 **Created:** 2026-05-26.
 **Owner:** Henry.
 **Spec authority:** `docs/planning/F122_HTML_ARTIFACT_RENDERER_SPEC.md` (CODEX PASS round 7, 2026-05-22).
@@ -111,8 +111,7 @@ Observability:
 Rate limiting:
 
 - Apply v1 per-user limits: 60/min for list, 120/min for sidecar/content.
-- Prefer existing SlowAPI limiter if the route decorator can key on authenticated user cleanly.
-- If not clean, add a minimal in-memory sliding-window helper local to this router and mark it as process-local v1 behavior.
+- The existing SlowAPI limiter (`app_platform/middleware/rate_limiter.py`) keys on IP or API key, not authenticated user — it cannot be cleanly reused here. Add a minimal in-memory per-user token-bucket (keyed on `user_id`) local to this router. Mark it as process-local v1 behavior (not shared across processes/replicas).
 
 ### Tests
 
@@ -131,7 +130,9 @@ Rate limiting:
 
 | File | Change |
 |---|---|
-| `frontend/packages/connectors/src/features/external/htmlArtifacts.ts` | New TS contract types. |
+| `frontend/packages/connectors/src/types/htmlArtifact.ts` | New TS contract types — hand-mirrored from spec §12.1. |
+| `frontend/packages/connectors/src/types/__fixtures__/html_artifact_canonical.json` | Vendored copy of AI-excel-addin canonical fixture for parity test. |
+| `frontend/packages/connectors/src/types/__tests__/htmlArtifact.parity.test.ts` | Parity test: loads vendored fixture, asserts `HtmlArtifactSidecar` interface accepts it exhaustively. |
 | `frontend/packages/connectors/src/lib/requestText.ts` | New helper wrapping `api.requestRaw` with explicit non-OK throws. |
 | `frontend/packages/connectors/src/features/external/hooks/useHtmlArtifacts.ts` | New React Query hooks. |
 | `frontend/packages/connectors/src/index.ts` | Export hooks/types/helper. |
@@ -139,37 +140,42 @@ Rate limiting:
 
 ### Types
 
-Hand-mirror the sidecar shape from the addendum and keep it permissive where the upstream contract may add fields:
+Hand-mirror the sidecar shape exactly from spec §12.1. These types must match the AI-excel-addin `HtmlArtifact` Pydantic contract one-to-one. `SourceRecord` should reuse any existing TS-side source type; if none exists, mirror it alongside these types.
 
 ```ts
-export interface HtmlArtifactExport {
-  label: string;
-  mime_type: string;
-  content?: string;
-  href?: string;
+export type HtmlArtifactPurpose =
+  | 'exploration'
+  | 'comparison'
+  | 'explainer'
+  | 'session_log'
+  | 'report'
+  | 'other';
+
+export interface StaticExports {
+  copy_as_prompt: string | null;
+  copy_as_markdown: string | null;
+  copy_as_json: Record<string, unknown> | null;
 }
 
 export interface HtmlArtifactSidecar {
   artifact_id: string;
   title: string;
-  summary?: string | null;
-  ticker?: string | null;
-  skill?: string | null;
-  created_at?: string | number | null;
-  html_path?: string | null;
-  exports?: HtmlArtifactExport[];
-  [key: string]: unknown;
-}
-
-export interface HtmlArtifactListItem {
-  artifact_id: string;
-  title: string;
-  summary?: string | null;
-  ticker?: string | null;
-  skill?: string | null;
-  created_at?: string | number | null;
+  purpose: HtmlArtifactPurpose;
+  content_ref: string;
+  summary: string;
+  ticker: string | null;
+  session_id: string | null;
+  source_skill: string;
+  sources: SourceRecord[];
+  exports: StaticExports;
+  ts: string;
+  contract_name: 'HtmlArtifact';
 }
 ```
+
+**`SourceRecord`:** No existing TS type in the connectors package matches the `HtmlArtifact.sources` field (the existing `researchStore.Source` is a citation-registry shape, not the contract shape). PR-2 must define and export a `SourceRecord` interface in `types/htmlArtifact.ts` alongside the other types, mirroring the addendum's Python `SourceRecord` contract field-for-field.
+
+The parity test at `types/__tests__/htmlArtifact.parity.test.ts` loads the vendored fixture from `types/__fixtures__/html_artifact_canonical.json` and asserts exhaustive deep equality with a hand-written expected shape. This catches TS interface drift when the upstream contract changes. Sync the vendored fixture copy manually when AI-excel-addin's foundation-layer impl updates `tests/fixtures/html_artifact_canonical.json` (human-enforced at PR review per spec §12.2).
 
 ### Hooks
 
@@ -199,9 +205,9 @@ export interface HtmlArtifactListItem {
 | `frontend/packages/chassis/src/services/ClaudeStreamTypes.ts` | Add `ArtifactReadyChunk`. |
 | `frontend/packages/chassis/src/services/GatewayService.ts` | Map raw `artifact_ready` to typed chunk. |
 | `frontend/packages/connectors/src/features/external/chatStreamPayloads.ts` | Add parsed `artifact_ready` event. |
-| `frontend/packages/connectors/src/features/external/hooks/useResearchChat.ts` | Handle HTML artifact chunks. |
-| `frontend/packages/connectors/src/stores/researchStore.ts` | Add `ResearchMessageMetadata.htmlArtifacts`. |
-| Relevant tests | GatewayService, parser, useResearchChat. |
+| `frontend/packages/connectors/src/features/external/hooks/useResearchChat.ts` | Handle HTML artifact chunks; call `addMessageHtmlArtifact` to annotate the active optimistic message. |
+| `frontend/packages/connectors/src/stores/researchStore.ts` | Add `ResearchMessageMetadata.htmlArtifacts`; add `addMessageHtmlArtifact(threadId, messageId, artifact)` action (analogous to `addMessageReaderAction`); extend `reconcileResearchTurn` to carry `htmlArtifacts` through alongside existing `readerActions`/`documentContext`. |
+| Relevant tests | GatewayService, parser, useResearchChat, reconcile preserve. |
 
 ### Event shape
 
@@ -217,6 +223,8 @@ export interface ArtifactReadyChunk {
   contract_name: string;
   data_source: 'live' | 'fixture' | string;
   ts: number;
+  scope?: string | null;
+  portfolio_id?: string | null;
 }
 ```
 
@@ -234,12 +242,22 @@ Rules:
 - Do not auto-open a tab.
 - Do not persist this metadata server-side in v1.
 
+**`reconcileResearchTurn` preserve rule (load-bearing):** `researchStore.reconcileResearchTurn` currently preserves only `readerActions` and `documentContext` from the optimistic message when replacing it with the server-fetched version. `htmlArtifacts` is client-session-only metadata (never stored server-side), so it will be silently dropped without an explicit carry-through. PR-3 must extend `reconcileResearchTurn` to also preserve `optimisticMessage.metadata?.htmlArtifacts` when assembling the reconciled message — same pattern as the existing `streamedReaderActions` / `streamedDocumentContext` preserve at `researchStore.ts:1815`.
+
+**`addMessageHtmlArtifact` store action (new, analogous to `addMessageReaderAction`):** When `useResearchChat` receives an HTML `artifact_ready` chunk, it calls `addMessageHtmlArtifact(threadId, messageId, { artifact_id, title: null })` to append to the active optimistic message's `metadata.htmlArtifacts`. This action must be added to `ResearchStoreState` alongside the other message-mutation actions. The chip that renders from `htmlArtifacts` entries is scoped to PR-4 (where `openArtifactTab` is defined — chip dispatch requires that action to exist first).
+
+**`reconcileResearchTurn` preserve rule (load-bearing):** Extend `reconcileResearchTurn` at `researchStore.ts:~1815` to also carry `optimisticMessage.metadata?.htmlArtifacts` through alongside the existing `streamedReaderActions` / `streamedDocumentContext` preserve. Include `htmlArtifacts` in both the merge condition check and the preserved-metadata assembly. No parameter signature change needed.
+
+**`usePortfolioChat` callout:** `parseClaudeStreamChunk` is shared with `usePortfolioChat` (called at `usePortfolioChat.ts:~755`). Adding `artifact_ready` to the parser is safe — `usePortfolioChat` does not handle `artifact_ready` chunks and its dispatch path treats them as a no-op. The analyst-view delta-spec (parked, separate PR) is the future surface that will consume `artifact_ready` there.
+
 Tests:
 
 - GatewayService maps full event.
 - Parser preserves fields and rejects malformed required fields.
-- `useResearchChat` annotates only HTML contract events.
+- `useResearchChat` calls `addMessageHtmlArtifact` only on `contract_name === "HtmlArtifact"` chunks.
 - `useResearchChat` ignores typed-contract artifacts like `CriticalFactor` or `LpLetter`.
+- `reconcileResearchTurn` carries `htmlArtifacts` through to the reconciled message.
+- `addMessageHtmlArtifact` appends without overwriting existing entries.
 
 ## 7. PR-4 - research store and workspace tab
 
@@ -247,8 +265,9 @@ Tests:
 
 | File | Change |
 |---|---|
-| `frontend/packages/connectors/src/stores/researchStore.ts` | Add artifact tab type/data/actions. |
+| `frontend/packages/connectors/src/stores/researchStore.ts` | Add artifact tab type/data/actions (`openArtifactWorkbench`, `openArtifactTab`, `selectArtifactInTab`). |
 | `frontend/packages/ui/src/components/research/ResearchWorkspace.tsx` | Add Workbench entry point and artifact tab branch. |
+| `frontend/packages/ui/src/components/research/ConversationFeed.tsx` | Add inline artifact chip: render one chip per `metadata.htmlArtifacts` entry in the action-row area (line ~237, same as existing "Open in tab" tool-call chips). Each chip shows artifact title (or "Artifact" while sidecar loads) and an "Open" button; click dispatches `openArtifactTab({ artifactId, title?: string | null, ticker?: string | null })`. If title needs to be resolved from the sidecar (lazy load from `artifact_id`), render each chip as a child `HtmlArtifactChip` component rather than calling `useHtmlArtifact` inside the parent `.map` — hook ordering must not vary across renders. This is the only v1 artifact discovery surface during a session. |
 | `frontend/packages/ui/src/components/research/ResearchTabBar.test.tsx` / phase tests | Add tab behavior coverage. |
 
 ### Store additions
@@ -316,8 +335,9 @@ Tests:
 
 `StaticExportsBar`:
 
-- Copy/download controls only.
-- No dynamic calls into the iframe.
+- Renders 0–3 clipboard buttons depending on which `StaticExports` fields are non-null: "Copy as prompt", "Copy as markdown", "Copy as JSON".
+- Reads from `sidecar.exports` — static values captured at emit time, NOT fetched from inside the iframe.
+- No dynamic calls into the iframe. No link/download controls.
 - Uses existing button/icon patterns and compact labels/tooltips.
 
 Tests:
@@ -338,6 +358,8 @@ Integration tests:
 - Click chip -> opens single artifact tab.
 - Workbench button -> list view -> select artifact -> single renderer.
 - Mock sidecar/content fetches; no live upstream required.
+- Assert `htmlArtifacts` metadata survives `reconcileResearchTurn` — chip still present after stream-completion reconcile replaces optimistic message with server version.
+- Assert non-OK content fetch (e.g., 404, 500) enters the renderer error state instead of rendering the error response body inside the iframe.
 
 Docs/status updates:
 

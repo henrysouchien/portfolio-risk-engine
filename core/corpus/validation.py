@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 import sqlite3
 
+from core.corpus._paths import corpus_cik_cache_dir
 from core.corpus.types import InvalidInputError
 
 
@@ -13,7 +14,6 @@ MAX_UNIVERSE_SIZE = 5000
 MAX_LIMIT = 500
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _CORPUS_DATA_DIR = _REPO_ROOT / 'data' / 'corpus'
-_CIK_CACHE_DIR = _CORPUS_DATA_DIR / 'cache' / 'phase2_ciks'
 _UNIVERSE_FILES = (
     _CORPUS_DATA_DIR / 'universe.json',
     _CORPUS_DATA_DIR / 'universe_phase2.json',
@@ -193,7 +193,7 @@ def _lookup_reference_cik(ticker: str) -> str | None:
     """Resolve ticker->CIK from local corpus reference artifacts, no network calls."""
     ticker = ticker.strip().upper()
 
-    profile_path = _CIK_CACHE_DIR / f'{ticker}.json'
+    profile_path = corpus_cik_cache_dir() / f'{ticker}.json'
     profile = _read_json(profile_path)
     cik = _normalize_cik(profile.get('cik')) if isinstance(profile, dict) else None
     if cik:

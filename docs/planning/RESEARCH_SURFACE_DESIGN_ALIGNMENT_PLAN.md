@@ -70,6 +70,7 @@ The April audit is directionally useful but stale. Several items it listed as mi
 
 - The research shell reads partly like a file/workflow cockpit rather than an IDE for active research.
 - The main reader pane and right analyst rail can both look like conversation feeds, which blurs purpose.
+- Explore can read as an empty chat/document toggle surface instead of the default canvas where the analyst presents research output, evidence, and findings.
 - The research list still starts from operational controls instead of a briefing-style readout of what needs attention.
 - Some preview patterns are present in code but not yet visually resolved: dateline, exit ramps, tab bar, author distinction, findings, notes, and inline data.
 - Document mode is in transition. The source HTML filing reader needs to become a focused reading surface without losing notes, citations, selections, and corpus grounding.
@@ -119,10 +120,20 @@ Default first-viewport order for `#research`:
 The workspace should preserve the preview's mental model:
 
 - Top context line establishes date, file, ticker/company, stage, direction, strategy, and conviction.
-- Main pane owns the active artifact: explore feed, focused thread, filing, transcript, diligence checklist, report, or HTML artifact.
-- Right rail is the persistent analyst/context rail: active context, workspace scan, selected-text prompt, pinned finding, related threads, quick prompts, and message input.
+- Main pane owns the active artifact: Explore research canvas, focused thread, filing, transcript, diligence checklist, report, or HTML artifact.
+- Right rail is the persistent analyst/context rail: live analyst conversation, active context, workspace scan, selected-text prompt, pinned finding, related threads, quick prompts, and message input.
 - Exit ramps remain visible and low-friction, but should look like a natural bottom action row rather than a separate tool block.
 - Tabs should feel like IDE tabs: compact, flat, readable, and stable.
+
+### Explore view
+
+Explore is the default investigation canvas. It should preserve the original preview's inline research-output feel while reflecting the newer document-reader split.
+
+- The rail/composer is the primary live conversation with the analyst agent.
+- The Explore main pane is the durable presentation surface for agent-generated research output: findings, source/evidence trails, tables, metric strips, comparison snapshots, open questions, and links into threads/documents.
+- Conversation messages can remain the backing transport and persistence layer, but the user-facing Explore surface should not default to a wall-of-chat when richer output/artifact state exists.
+- Source/evidence sections being added by parallel sessions belong in this main Explore canvas. They should feel like working research outputs, not a document switcher or secondary inventory.
+- When no analyst outputs exist yet, the empty state should simply orient the canvas and route the first question or direction through the analyst rail. Do not fabricate findings, tables, evidence trails, or placeholder artifacts just to fill the surface.
 
 ### Document reader
 
@@ -154,16 +165,16 @@ Do not remove functioning features as the first move. Rehouse them into the inte
 
 Proposed target:
 
-- Main pane: the active research artifact.
-- Right rail: contextual analyst companion, workspace scan, selected-text handling, quick prompts, and input.
+- Main pane: the active research artifact or Explore research canvas.
+- Right rail: primary analyst conversation/composer plus contextual companion, workspace scan, selected-text handling, quick prompts, and input.
 
-The rail can show analyst messages, but it should not compete visually with the active thread/feed. If the main pane is a conversation artifact, the rail should become lighter and more contextual.
+In Explore, the rail is the primary live chat lane and the main pane is the research-output canvas. In focused Thread views, the main pane may still be the focused timeline; in that case the rail should become lighter and more contextual. The same message store may feed both surfaces, but the UI should not present two equal-weight chat transcripts.
 
 Default rail contract:
 
 | Active Artifact | Main Pane Owns | Rail Owns | Rail Message Feed? | Input Target | Selection / Persistence |
 | --- | --- | --- | --- | --- | --- |
-| Explore | Primary exploration conversation and branchable analyst turns | File context, workspace scan, suggested prompts, active metadata, message input | Compact recent context only; no full timestamped feed at equal weight | Panel thread unless an explicit thread is selected | Draft prompt persists in research store; no durable note unless sent/saved |
+| Explore | Durable exploration canvas: findings, evidence/source trails, tables, metrics, open questions, and launch links into threads/documents | Primary analyst conversation/composer, file context, workspace scan, suggested prompts, active metadata | Yes, but concise and rail-scaled; main pane does not duplicate a full timestamped transcript by default | Panel/explore agent thread unless an explicit focused thread is selected | Draft prompt persists in research store; durable output persists only through existing message/artifact/thesis/evidence write paths |
 | Thread | Focused thread timeline, notes, pinned finding, related evidence | Thread summary, pressure-test prompt, related threads, message input | Compact recent context only; must not duplicate full main timeline | Active thread while the focused thread tab is active | Thread notes/messages persist through research API |
 | Document / filing | Human-readable source/document surface | Active document identity, selected-text prompt, ask/save/branch actions, agent sidecar | No full competing feed by default; sidecar may show compact assistant context | Panel thread with document context | Visible-source anchors follow F156; corpus offsets only when mapping allows |
 | Diligence | Checklist/draft sections and source refs | Progress scan, missing sections, refresh/opening-take prompts, report action | No full feed by default | Panel thread with diligence context | Section state persists through diligence API |
@@ -189,6 +200,8 @@ No silent reader fallback: if the primary filing reader is missing, unsupported,
 ### D5. Structured output should be typed where possible
 
 Metric strips, peer tables, source chips, mini charts, and action links should not rely only on brittle markdown heuristics over time. The long-term direction is typed research-output blocks rendered by shared Hank design components.
+
+For the near-term Explore pass, typed blocks are preferred but not required before the surface becomes useful. Existing research messages, message metadata, reader artifacts, source/evidence summaries, and deterministic workspace state may be projected into preview-aligned research-output rows. This is a presentation contract, not a storage migration; do not mutate raw transcript/document/API payloads to make the human reading surface work.
 
 ### D6. Every result leads somewhere
 
@@ -236,6 +249,7 @@ Candidate scope:
 - Normalize top dateline/context treatment.
 - Align tab bar with the flat IDE-style preview.
 - Clarify main-pane vs right-rail purpose.
+- Establish Explore as a research-output canvas while keeping the rail as the primary live analyst chat lane.
 - Adjust right rail density and hierarchy so it is contextual, not a second equally weighted feed.
 - Align exit ramp row styling and placement.
 - Keep direction, strategy, and conviction controls, but move or quiet them so they do not dominate first impression.
@@ -283,12 +297,16 @@ Acceptance:
 - The list still supports repeated operational use.
 - Compare and open flows remain quick.
 
-### Phase 3 - Conversation, threads, notes, and findings
+### Phase 3 - Explore canvas, threads, notes, and findings
 
-Purpose: align active research artifacts with the preview's "threads emerge from exploration" model.
+Purpose: align active research artifacts with the preview's "data appears inline" and "threads emerge from exploration" model while preserving the rail as the primary analyst interaction lane.
 
 Candidate scope:
 
+- Rework populated Explore states around durable analyst outputs rather than a duplicated chat feed. For truly new/empty research, keep the canvas quiet and directional; do not force generated sections before there is output to show.
+- Treat sources/evidence sections as first-class Explore canvas content when available.
+- Project existing message/artifact/workspace state into the canvas before introducing any new backend contract.
+- Keep full chat/history available through existing persistence, but avoid duplicating the rail chat as the default Explore main-pane experience.
 - Standardize author distinction:
   - user message: dim bullet / no heavy rail
   - agent message: accent rail
@@ -310,6 +328,8 @@ Minimum visual requirements:
 
 Acceptance:
 
+- Explore's main pane communicates what the analyst has produced, what evidence is in play, and where to go next.
+- The rail is recognizable as the place to ask questions, give direction, and receive concise analyst context.
 - Exploration, thread, and note content feel related but distinct.
 - Threads feel like focused workstreams, not renamed chats.
 - Tool and system mechanics stay out of the analyst voice.
@@ -373,10 +393,10 @@ Acceptance:
 The safest order is:
 
 1. Phase 0 audit refresh.
-2. Decide the right-rail/main-pane contract.
+2. Decide the right-rail/main-pane/Explore-canvas contract.
 3. Phase 1 shell alignment.
 4. Phase 2 list briefing.
-5. Phase 3 conversation/thread visual model.
+5. Phase 3 Explore-canvas/thread visual model.
 6. Phase 4 filing reader fit, coordinated with F156.
 7. Phase 5 report/artifact/typed-output alignment, coordinated with F122.
 
@@ -1404,7 +1424,7 @@ Open follow-ups:
 
 Explore-composer follow-up batch status:
 
-- The normal Explore pane composer now reads as the primary active-artifact input, matching the preview language pattern: `Ask about {TICKER}, or type / for commands...`.
+- Historical note: the normal Explore pane composer was made to read as the primary active-artifact input in this batch, matching the preview language pattern: `Ask about {TICKER}, or type / for commands...`. The 2026-06-01 Explore-canvas contract supersedes that hierarchy: the rail is now the primary live analyst chat lane, and any main-pane Explore composer should be secondary, removed, or visually demoted as implementation catches up.
 - The root cause was placeholder hierarchy drift: the main Explore input still said `Explore this company with the research analyst...`, which made the primary pane sound like a generic helper surface while the right rail also had an analyst input.
 - `ResearchWorkspace` now passes the active file ticker into `ExploreTab`, and `ExploreTab` falls back to `this company` if no ticker is available.
 - A subagent code review caught a reader-boundary regression from the earlier manual thread-naming batch: the shared tab bar meant document-reader `+` would also open the naming dialog. That was fixed by restoring an immediate reader-only `Thread N` creation path while keeping the naming dialog limited to the normal workspace.

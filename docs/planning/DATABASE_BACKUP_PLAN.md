@@ -1,6 +1,6 @@
 # Database Backup & Recovery Plan
 
-**Status:** NOT STARTED
+**Status:** PARTIAL SHIPPED 2026-06-02 — LOCAL + PRE-MIGRATION + LIVE RDS/S3 LOGICAL BACKUPS
 **Date:** 2026-03-19
 **Priority:** High (financial data, multi-user production system)
 
@@ -16,19 +16,26 @@ Establish a comprehensive backup and recovery strategy for the risk_module Postg
 
 ### What Exists
 - **Local dev:** PostgreSQL (`risk_module_dev`) on macOS, `DATABASE_URL` from `.env`
-- **Production (planned):** RDS PostgreSQL in `us-east-2`, shared instance with `fmp_data_db` (see `docs/deployment/MULTI_USER_DEPLOYMENT_PLAN.md`)
+- **Production:** RDS PostgreSQL instance `fmp-data-db` in `us-east-2`. It hosts `risk_module_db` for Hank app/user data and `fmp_data_db` for FMP estimates data.
 - **Schema:** `database/schema.sql` (948 lines, ~30 tables including migration-added tables)
 - **Migrations:** `database/migrations/` (28 SQL files, tracked via `_migrations` table)
 - **Migration runner:** `scripts/run_migrations.py` (per-file transactions, idempotent tracking)
 - **Connection layer:** `app_platform/db/` (`ThreadedConnectionPool`, `SessionManager`, psycopg2)
 - **Existing backup script:** `scripts/backup_system.sh` -- filesystem rsync of source code/config only, **no database backup**
+- **Database backup helper:** `scripts/db_backup.py` creates atomic `pg_dump` outputs without logging database URLs.
+- **Local database backup wrapper:** `scripts/backup_db.sh` writes schema + full dumps to `backup/db/` by default.
+- **Pre-migration backup hook:** `scripts/run_migrations.py` creates a `database/migration_backups/pre_migration_*.dump` before pending migrations. `MIGRATION_BACKUP_MODE=auto` fails closed in production and is best-effort in development. Ops can override `PG_DUMP_BIN`, `MIGRATION_BACKUP_DIR`, and `MIGRATION_BACKUP_TIMEOUT_SECONDS`.
+- **Production logical backup CLI:** `scripts/backup_db_to_s3.py` / `scripts/backup_db_to_s3.sh` creates a portable custom-format `pg_dump` for `risk_module_db`, uploads it to S3, and writes a JSON manifest with checksum, size, tier, and source metadata.
+- **Backup posture checker:** `scripts/check_database_backup_posture.py` is a read-only AWS drift check for RDS retention/PITR freshness/encryption/tag-copy plus S3 bucket versioning/encryption/public-block/lifecycle/latest-manifest state.
+- **Live RDS cutover (2026-06-02):** `fmp-data-db` now has `BackupRetentionPeriod=7`, `CopyTagsToSnapshot=true`, `StorageEncrypted=true`, and fresh `LatestRestorableTime`.
+- **Live S3 logical-backup cutover (2026-06-02):** S3 bucket `risk-module-backups` exists in `us-east-2` with versioning, SSE-S3 encryption, public access blocked, bucket-owner enforcement, and `scripts/s3_lifecycle_policy.json` applied.
+- **Prod backup credential boundary:** EC2 instance profile `EC2-CloudWatchAgent-Hank` has inline policy `risk-module-db-backups-s3` from `docs/deployment/risk_module_backup_s3_policy.json`; `scripts/backup_db_to_s3.py --use-instance-profile` drops app AWS env vars after loading `.env`.
+- **Prod schedule:** `risk_module_db_backup.timer` is enabled on edgar-updater and triggers `risk_module_db_backup.service` daily at 07:00 UTC.
+- **Manual backup smoke (2026-06-02):** Uploaded `s3://risk-module-backups/db-backups/daily/risk_module_db_20260602T010950Z.dump` plus manifest; SHA-256 matched on download and `pg_restore --list` read the archive as a PostgreSQL 17 custom dump.
 
 ### What Does NOT Exist
-- No database backup script (pg_dump or otherwise)
-- No RDS snapshot configuration
-- No point-in-time recovery setup
-- No backup verification or dry-run testing
-- No pre-migration backup hook
+- No full temp-database restore drill yet. Current app role `risk_module_user` has neither superuser nor `CREATEDB`; a true restore drill needs RDS admin credentials, a dedicated restore role/database, or a separate restore environment.
+- No automated restore verification job yet.
 - No user data export capability
 - No disaster recovery runbook
 - No backup monitoring or alerting
@@ -225,16 +232,20 @@ Add `database/migration_backups/` to `.gitignore`.
 
 RDS provides native automated backups at no additional cost (included in instance price). Configure during RDS instance creation or modify after.
 
+These snapshots are instance-level protection for `fmp-data-db`; they include both `risk_module_db` and `fmp_data_db`. They are the right control for PITR and full RDS restores, but they are not a portable/selective logical backup for the Hank app database.
+
 **Configuration (AWS CLI):**
 
 ```bash
 aws rds modify-db-instance \
-  --db-instance-identifier risk-module-rds \
+  --db-instance-identifier fmp-data-db \
   --backup-retention-period 7 \
   --preferred-backup-window "06:00-06:30" \
   --copy-tags-to-snapshot \
   --region us-east-2
 ```
+
+**Live cutover (2026-06-02):** `fmp-data-db` now reports `BackupRetentionPeriod=7`, `CopyTagsToSnapshot=true`, `StorageEncrypted=true`, and a fresh `LatestRestorableTime`. Run `python3 -m scripts.check_database_backup_posture` to verify drift stays closed.
 
 | Setting | Value | Rationale |
 |---------|-------|-----------|
@@ -253,67 +264,20 @@ aws rds modify-db-instance \
 
 RDS snapshots are fast but RDS-only (cannot restore to local dev, different AWS account, or non-RDS Postgres). Logical backups via pg_dump provide full portability.
 
-**File:** `scripts/backup_db_to_s3.sh`
+**Files:** `scripts/backup_db_to_s3.py`, `scripts/backup_db_to_s3.sh`
 
 ```bash
-#!/usr/bin/env bash
-# Production logical backup: pg_dump -> gzip -> S3.
-# Designed to run on EC2 instance via cron or systemd timer.
-set -euo pipefail
-
-S3_BUCKET="${BACKUP_S3_BUCKET:-risk-module-backups}"
-S3_PREFIX="${BACKUP_S3_PREFIX:-db-backups}"
-TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-DAY_OF_WEEK=$(date +%u)  # 1=Monday, 7=Sunday
-DAY_OF_MONTH=$(date +%d)
-BACKUP_TYPE="daily"
-
-# Weekly backup on Sundays
-if [ "$DAY_OF_WEEK" = "7" ]; then
-    BACKUP_TYPE="weekly"
-fi
-
-# Monthly backup on 1st of month
-if [ "$DAY_OF_MONTH" = "01" ]; then
-    BACKUP_TYPE="monthly"
-fi
-
-S3_KEY="${S3_PREFIX}/${BACKUP_TYPE}/risk_module_${TIMESTAMP}.dump.gz"
-
-echo "$(date -Iseconds) Starting ${BACKUP_TYPE} backup..."
-
-# Stream pg_dump through gzip directly to S3 (no local disk needed)
-pg_dump --format=custom --compress=9 --no-owner --no-privileges "$DATABASE_URL" \
-  | aws s3 cp - "s3://${S3_BUCKET}/${S3_KEY}"
-
-RESULT=$?
-if [ $RESULT -eq 0 ]; then
-    SIZE=$(aws s3 ls "s3://${S3_BUCKET}/${S3_KEY}" | awk '{print $3}')
-    echo "$(date -Iseconds) Backup complete: s3://${S3_BUCKET}/${S3_KEY} (${SIZE} bytes)"
-
-    # Publish success metric to CloudWatch
-    aws cloudwatch put-metric-data \
-      --namespace "RiskModule" \
-      --metric-name "BackupSuccess" \
-      --value 1 \
-      --unit Count \
-      --dimensions BackupType="${BACKUP_TYPE}" \
-      --region us-east-2
-else
-    echo "$(date -Iseconds) ERROR: Backup failed with exit code $RESULT" >&2
-
-    # Publish failure metric
-    aws cloudwatch put-metric-data \
-      --namespace "RiskModule" \
-      --metric-name "BackupFailure" \
-      --value 1 \
-      --unit Count \
-      --dimensions BackupType="${BACKUP_TYPE}" \
-      --region us-east-2
-
-    exit 1
-fi
+# Defaults to DATABASE_URL_DIRECT, then DATABASE_URL.
+# In production this should resolve to fmp-data-db/.../risk_module_db.
+./scripts/backup_db_to_s3.sh \
+  --bucket risk-module-backups \
+  --prefix db-backups \
+  --use-instance-profile
 ```
+
+The CLI creates a custom-format, internally compressed `pg_dump` with `--no-owner --no-privileges`, uploads it under `db-backups/{daily,weekly,monthly}/`, then writes a sibling `.manifest.json` containing database name, source host, size, SHA-256, S3 key, tier, and timestamp. Tiering is monthly on day 1, weekly on Sunday, daily otherwise; `--tier` can override this for manual tests.
+
+**Scope:** the logical backup is `risk_module_db` only. The FMP estimates database (`fmp_data_db`) remains covered by whole-instance RDS snapshots unless a separate logical backup is explicitly added.
 
 **S3 Lifecycle Policy (retention):**
 
@@ -350,13 +314,17 @@ fi
 }
 ```
 
-**Cron (EC2):**
+**Systemd timer (EC2):**
 
 ```bash
-# /etc/cron.d/risk-module-backup
-# Daily at 07:00 UTC (2 AM ET, after RDS snapshot window)
-0 7 * * * ubuntu /var/www/risk_module/scripts/backup_db_to_s3.sh >> /var/log/risk-module-backup.log 2>&1
+sudo cp docs/deployment/systemd/risk_module_db_backup.service /etc/systemd/system/
+sudo cp docs/deployment/systemd/risk_module_db_backup.timer /etc/systemd/system/
+sudo systemd-analyze verify /etc/systemd/system/risk_module_db_backup.service /etc/systemd/system/risk_module_db_backup.timer
+sudo systemctl daemon-reload
+sudo systemctl enable --now risk_module_db_backup.timer
 ```
+
+The timer runs daily at 07:00 UTC, after the RDS automated snapshot window. The service loads `/var/www/risk_module/.env` for `DATABASE_URL_DIRECT` and uses `--use-instance-profile` so S3 writes use the EC2 role instead of the app credential user.
 
 **S3 Bucket Setup:**
 
@@ -386,38 +354,19 @@ aws s3api put-bucket-lifecycle-configuration \
   --lifecycle-configuration file://scripts/s3_lifecycle_policy.json
 ```
 
+**Live cutover (2026-06-02):** bucket creation, versioning, public-access block, SSE-S3 default encryption, bucket-owner enforcement, lifecycle rules, EC2 role policy, manual backup upload, and systemd timer enablement are complete.
+
 **IAM Policy for EC2 instance profile:**
 
-```json
-{
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Effect": "Allow",
-            "Action": [
-                "s3:PutObject",
-                "s3:GetObject",
-                "s3:ListBucket",
-                "s3:DeleteObject"
-            ],
-            "Resource": [
-                "arn:aws:s3:::risk-module-backups",
-                "arn:aws:s3:::risk-module-backups/*"
-            ]
-        },
-        {
-            "Effect": "Allow",
-            "Action": "cloudwatch:PutMetricData",
-            "Resource": "*",
-            "Condition": {
-                "StringEquals": {
-                    "cloudwatch:namespace": "RiskModule"
-                }
-            }
-        }
-    ]
-}
+```bash
+aws iam put-role-policy \
+  --role-name EC2-CloudWatchAgent-Hank \
+  --policy-name risk-module-db-backups-s3 \
+  --policy-document file://docs/deployment/risk_module_backup_s3_policy.json
 ```
+
+The policy allows RDS posture reads, S3 bucket posture reads, and read/write
+access only under `arn:aws:s3:::risk-module-backups/db-backups/*`.
 
 **Cost estimate:** ~$0.50/month (estimated 500 MB total across all retention tiers).
 
@@ -434,7 +383,7 @@ Use case: Complete database corruption, accidental DROP TABLE, or disaster recov
 ```bash
 # 1. List available snapshots
 aws rds describe-db-snapshots \
-  --db-instance-identifier risk-module-rds \
+  --db-instance-identifier fmp-data-db \
   --query 'DBSnapshots[*].{ID:DBSnapshotIdentifier,Time:SnapshotCreateTime,Status:Status}' \
   --output table \
   --region us-east-2
@@ -442,7 +391,7 @@ aws rds describe-db-snapshots \
 # 2. Restore to a NEW instance (non-destructive — original stays running)
 aws rds restore-db-instance-from-db-snapshot \
   --db-instance-identifier risk-module-rds-restored \
-  --db-snapshot-identifier rds:risk-module-rds-2026-03-19-06-00 \
+  --db-snapshot-identifier rds:fmp-data-db-2026-06-01-05-35 \
   --db-instance-class db.t3.micro \
   --vpc-security-group-ids sg-XXXXXXXX \
   --region us-east-2
@@ -470,7 +419,7 @@ TARGET_TIME="2026-03-19T14:25:00Z"
 
 # 2. Restore to a new instance at that exact point in time
 aws rds restore-db-instance-to-point-in-time \
-  --source-db-instance-identifier risk-module-rds \
+  --source-db-instance-identifier fmp-data-db \
   --target-db-instance-identifier risk-module-rds-pitr \
   --restore-time "$TARGET_TIME" \
   --db-instance-class db.t3.micro \
@@ -507,30 +456,30 @@ aws s3 ls s3://risk-module-backups/db-backups/ --recursive \
   | sort -k1,2 | tail -10
 
 # 2. Download the backup
-aws s3 cp s3://risk-module-backups/db-backups/daily/risk_module_20260319_070000.dump.gz \
-  /tmp/restore.dump.gz
+aws s3 cp s3://risk-module-backups/db-backups/daily/risk_module_db_20260602T120000Z.dump \
+  /tmp/restore.dump
 
 # 3a. Restore to existing database (destructive — drops and recreates objects)
 pg_restore --dbname=risk_module_db --clean --no-owner --no-privileges \
-  /tmp/restore.dump.gz
+  /tmp/restore.dump
 
 # 3b. OR restore to a fresh database (non-destructive)
 createdb risk_module_restored
 pg_restore --dbname=risk_module_restored --no-owner --no-privileges \
-  /tmp/restore.dump.gz
+  /tmp/restore.dump
 ```
 
 **Prod-to-local restore (for debugging):**
 
 ```bash
 # Download latest production backup to local machine
-aws s3 cp s3://risk-module-backups/db-backups/daily/risk_module_latest.dump.gz \
-  /tmp/prod_snapshot.dump.gz
+aws s3 cp s3://risk-module-backups/db-backups/daily/risk_module_db_20260602T120000Z.dump \
+  /tmp/prod_snapshot.dump
 
 # Restore to local dev database (separate from normal dev DB)
 createdb risk_module_prod_copy
 pg_restore --dbname=risk_module_prod_copy --no-owner --no-privileges \
-  /tmp/prod_snapshot.dump.gz
+  /tmp/prod_snapshot.dump
 
 # IMPORTANT: Scrub sensitive data if sharing with others
 psql risk_module_prod_copy -c "
@@ -545,8 +494,8 @@ psql risk_module_prod_copy -c "
 
 ```bash
 # 1. Download latest production backup
-aws s3 cp s3://risk-module-backups/db-backups/daily/risk_module_latest.dump.gz \
-  /tmp/staging_restore.dump.gz
+aws s3 cp s3://risk-module-backups/db-backups/daily/risk_module_db_20260602T120000Z.dump \
+  /tmp/staging_restore.dump
 
 # 2. Create staging database on target RDS (or local)
 psql "$STAGING_DATABASE_URL" -c "DROP DATABASE IF EXISTS risk_module_staging;"
@@ -554,7 +503,7 @@ psql "$STAGING_DATABASE_URL" -c "CREATE DATABASE risk_module_staging;"
 
 # 3. Restore
 pg_restore --dbname=risk_module_staging --no-owner --no-privileges \
-  /tmp/staging_restore.dump.gz
+  /tmp/staging_restore.dump
 
 # 4. Scrub PII and tokens
 psql risk_module_staging -c "
@@ -590,7 +539,7 @@ set -euo pipefail
 S3_BUCKET="${BACKUP_S3_BUCKET:-risk-module-backups}"
 VERIFY_DB="risk_module_verify_$$"
 LATEST_BACKUP=$(aws s3 ls "s3://${S3_BUCKET}/db-backups/daily/" \
-  | sort | tail -1 | awk '{print $4}')
+  | awk '$4 ~ /\.dump$/ {print $4}' | sort | tail -1)
 
 if [ -z "$LATEST_BACKUP" ]; then
     echo "ERROR: No backups found in S3" >&2
@@ -842,14 +791,20 @@ Contents (outline):
 
 | File | Action | Description |
 |------|--------|-------------|
-| `scripts/backup_db.sh` | CREATE | Local dev pg_dump backup script |
-| `scripts/backup_db_to_s3.sh` | CREATE | Production pg_dump to S3 pipeline |
+| `scripts/db_backup.py` | CREATED 2026-06-01 | Shared atomic `pg_dump` helper + CLI |
+| `scripts/backup_db.sh` | CREATED 2026-06-01 | Local dev pg_dump backup wrapper |
+| `scripts/backup_db_to_s3.py` | SHIPPED | Production pg_dump to S3 pipeline |
+| `scripts/backup_db_to_s3.sh` | SHIPPED | Shell wrapper for production pg_dump to S3 pipeline |
+| `scripts/check_database_backup_posture.py` | SHIPPED | Read-only RDS/S3 backup posture checker |
 | `scripts/verify_backup.sh` | CREATE | Weekly backup verification dry-run |
-| `scripts/s3_lifecycle_policy.json` | CREATE | S3 retention rules (7d/28d/365d) |
-| `scripts/run_migrations.py` | MODIFY | Add pre-migration backup hook |
+| `scripts/s3_lifecycle_policy.json` | SHIPPED | S3 retention rules (7d/28d/365d) |
+| `docs/deployment/risk_module_backup_s3_policy.json` | SHIPPED | Least-privilege EC2 role policy for backup S3 writes/posture reads |
+| `docs/deployment/systemd/risk_module_db_backup.service` | SHIPPED | Production logical backup systemd service |
+| `docs/deployment/systemd/risk_module_db_backup.timer` | SHIPPED | Daily 07:00 UTC production logical backup timer |
+| `scripts/run_migrations.py` | MODIFIED 2026-06-01 | Pre-migration backup hook |
 | `mcp_tools/export.py` | CREATE | User data export (CSV/JSON) |
 | `docs/deployment/DISASTER_RECOVERY_RUNBOOK.md` | CREATE | DR procedures and runbook |
-| `.gitignore` | MODIFY | Add `backup/db/`, `database/migration_backups/` |
+| `.gitignore` | MODIFIED 2026-06-01 | Add `database/migration_backups/`; `backup/` already ignored |
 
 ---
 
@@ -857,11 +812,13 @@ Contents (outline):
 
 | Step | Description | Effort | Priority | Depends On |
 |------|-------------|--------|----------|------------|
-| 1 | Local dev backup script (`scripts/backup_db.sh`) | 30 min | High | Nothing |
-| 2 | Pre-migration backup hook in `run_migrations.py` | 30 min | High | Nothing |
-| 3 | RDS automated snapshots (AWS config) | 15 min | High | RDS instance exists (deployment Phase 1) |
-| 4 | Logical backups to S3 (`backup_db_to_s3.sh` + lifecycle) | 1 hour | High | S3 bucket + EC2 IAM role |
-| 5 | Write and test restore procedures | 1 hour | High | Steps 1 + 4 |
+| 1 | Local dev backup script (`scripts/backup_db.sh`) | SHIPPED 2026-06-01 | High | Nothing |
+| 2 | Pre-migration backup hook in `run_migrations.py` | SHIPPED 2026-06-01 | High | Nothing |
+| 3 | RDS automated snapshots target config (`fmp-data-db` retention 7 days) | SHIPPED 2026-06-02 | High | RDS instance exists |
+| 4 | Logical backup CLI (`backup_db_to_s3.py` / `.sh`) | SHIPPED 2026-06-01 | High | Nothing |
+| 4B | S3 bucket + lifecycle + scheduled prod logical backups | SHIPPED 2026-06-02 | High | S3 bucket + EC2 IAM role |
+| 4C | Backup posture drift checker (`check_database_backup_posture.py`) | SHIPPED 2026-06-01 | High | Nothing |
+| 5 | Write and test restore procedures | PARTIAL — archive validation passed; full temp-DB restore blocked on admin/CREATEDB access | High | Steps 1 + 4 |
 | 6 | Backup verification script (`verify_backup.sh`) | 45 min | Medium | Step 4 |
 | 7 | User data export tool (`mcp_tools/export.py`) | 2 hours | Medium | Nothing |
 | 8 | CloudWatch monitoring alarms | 30 min | Medium | Step 4 |
@@ -869,15 +826,31 @@ Contents (outline):
 
 **Total effort:** ~7.5 hours
 
-**Steps 1-2** can be implemented immediately (local dev, no AWS dependency).
-**Steps 3-6, 8-9** depend on the RDS production deployment (Phase 1 of `MULTI_USER_DEPLOYMENT_PLAN.md`).
+**Steps 1-2, 4, and 4C** shipped 2026-06-01.
+**Steps 3 and 4B** shipped live on 2026-06-02.
+**Steps 5-6 and 8-9** remain: create a safe restore-drill credential/environment, automate restore verification, add monitoring, and write the disaster recovery runbook.
 **Step 7** is independent and can be implemented at any time.
 
 ---
 
 ## Testing Strategy
 
-### Local Dev Testing (Steps 1-2)
+### Local Dev Testing (Steps 1-2, 4, 4C)
+
+2026-06-01 implementation verification:
+
+```bash
+python3 -m py_compile scripts/db_backup.py scripts/run_migrations.py scripts/backup_db_to_s3.py scripts/check_database_backup_posture.py
+pytest tests/scripts/test_db_backup.py tests/scripts/test_database_backup_posture.py tests/scripts/test_run_migrations_backup.py tests/app_platform/test_db_migration.py -q
+bash -n scripts/backup_db.sh
+bash -n scripts/backup_db_to_s3.sh
+scripts/backup_db.sh --backup-dir "$(mktemp -d)" \
+  --database-url postgresql://user@example.test/db \
+  --pg-dump /bin/echo \
+  --retention-days -1
+```
+
+Result: Step 1-2 focused tests passed (`13 passed`) and the local CLI smoke wrote both `schema_*.sql` and `full_*.dump` artifacts. Step 4/4C focused tests passed (`13 passed`) for S3 manifest/checksum behavior, AWS posture drift evaluation, and `--use-instance-profile` credential handling. A real local `pg_dump` smoke was not run because `pg_dump` is not installed on this machine (`command -v pg_dump` returned no path). Prod host now has PostgreSQL 17 client tools installed from PGDG (`pg_dump 17.10`) to match the RDS PostgreSQL 17 server; `pg_dump 16.14` failed correctly with a server-version mismatch before the client upgrade.
 
 ```bash
 # Test backup script
@@ -916,40 +889,43 @@ psql "$DATABASE_URL" -c "DELETE FROM _migrations WHERE filename='99999999_test_b
 ### Production Testing (Post-Deployment)
 
 ```bash
+# 0. Read-only posture check.
+python3 -m scripts.check_database_backup_posture
+
 # 1. Manual backup run
-./scripts/backup_db_to_s3.sh
+./scripts/backup_db_to_s3.sh --use-instance-profile
 
-# 2. Verify S3 upload
-aws s3 ls s3://risk-module-backups/db-backups/daily/ | tail -3
+# 2. Verify S3 upload and manifest
+aws s3 ls s3://risk-module-backups/db-backups/daily/ | tail -5
 
-# 3. Manual verification run
+# 3. Manual verification run after Step 6 ships
 ./scripts/verify_backup.sh
 
 # 4. Full restore drill (to temp database, non-destructive)
-aws s3 cp s3://risk-module-backups/db-backups/daily/latest.dump.gz /tmp/drill.dump.gz
+aws s3 cp s3://risk-module-backups/db-backups/daily/risk_module_db_20260602T120000Z.dump /tmp/drill.dump
 createdb risk_module_drill
-pg_restore --dbname=risk_module_drill --no-owner /tmp/drill.dump.gz
+pg_restore --dbname=risk_module_drill --no-owner /tmp/drill.dump
 # Compare counts, drop drill DB
 dropdb risk_module_drill
 
 # 5. PITR drill (restore to 1 hour ago, verify, delete)
 aws rds restore-db-instance-to-point-in-time \
-  --source-db-instance-identifier risk-module-rds \
+  --source-db-instance-identifier fmp-data-db \
   --target-db-instance-identifier risk-module-pitr-drill \
   --restore-time "$(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%SZ)" \
   --region us-east-2
 # Wait, connect, verify, then delete the drill instance
 
-# 6. Verify CloudWatch metrics are reporting
-aws cloudwatch get-metric-statistics \
-  --namespace "RiskModule" \
-  --metric-name "BackupSuccess" \
-  --start-time "$(date -u -d '2 days ago' +%Y-%m-%dT%H:%M:%SZ)" \
-  --end-time "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-  --period 86400 \
-  --statistics Sum \
-  --region us-east-2
+# 6. Add/verify monitoring after Step 8 ships
 ```
+
+2026-06-02 live production result:
+
+- `python3 -m scripts.check_database_backup_posture` passed all RDS/S3 checks after cutover.
+- Manual backup uploaded `db-backups/daily/risk_module_db_20260602T010950Z.dump` and its manifest.
+- S3 object metadata reported `ServerSideEncryption=AES256`, `database=risk_module_db`, `backup-tier=daily`, and matching SHA-256.
+- Downloaded dump checksum matched the manifest and `pg_restore --list` read the archive (`Dumped from database version: 17.6`, `Dumped by pg_dump version: 17.10`).
+- Full temp-database restore was not run because prod `risk_module_user` is not superuser and does not have `CREATEDB`.
 
 ---
 
@@ -972,4 +948,4 @@ aws cloudwatch get-metric-statistics \
 - EC2 IAM role: least-privilege (S3 put/get + CloudWatch PutMetricData only)
 - Prod-to-local restores MUST scrub PII before any sharing (see Step 5D)
 - `database/migration_backups/` and `backup/db/` directories are gitignored -- never commit backup files
-- Pre-migration backups use `pg_dump` subprocess with `DATABASE_URL` from environment -- no credentials stored in script files
+- Pre-migration backups use `pg_dump` subprocess with `DATABASE_URL` from environment -- no credentials stored in script files. Use `PG_DUMP_BIN` when the executable is not on PATH.

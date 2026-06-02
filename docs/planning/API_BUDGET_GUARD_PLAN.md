@@ -249,7 +249,7 @@ Single Lua script, atomic across 4 (or 8 with user_id) counter keys. Computes `d
 --
 -- ARGV: inc_amount, (limit, warn, ttl_seconds) tuples aligned with KEYS, "-1" = no cap.
 -- Per key: INCRBY, EXPIRE iff TTL not set, compute new vs old crossing.
--- Crossing: (new >= threshold) AND (old < threshold) — fires once.
+-- Crossing: warn fires when (new >= warn) AND (old < warn); limit fires when (new > limit) AND (old <= limit).
 -- Dual-threshold same call: emit ONE crossing record with threshold_kind="limit".
 -- Crossings ordered by KEYS index ascending.
 --
@@ -278,8 +278,8 @@ API_BUDGET_REDIS_URL=redis://localhost:6379/2    # dedicated DB
 API_BUDGET_SAMPLE_LOG_PCT=10                     # non-LLM; LLM always 100%
 API_BUDGET_SNAPSHOT_INTERVAL_SECONDS=60
 API_BUDGET_LOG_RETENTION_DAYS=30
-API_BUDGET_TELEGRAM_BOT_TOKEN=                   # mirrors scripts/check_schwab_token.py:62
-API_BUDGET_TELEGRAM_CHAT_ID=
+API_BUDGET_TELEGRAM_BOT_TOKEN=                   # falls back to TELEGRAM_BOT_TOKEN when unset/empty
+API_BUDGET_TELEGRAM_CHAT_ID=                     # falls back to TELEGRAM_CHAT_ID when unset/empty
 API_BUDGET_ALERT_DEDUP_SECONDS=600               # 10-min window per (provider, severity)
 ```
 
@@ -361,6 +361,7 @@ All fields documented in the schema above. A blocked row is self-explanatory: `b
 - `GET /api/admin/api-budget?provider=plaid` — admin auth required; live counters, recent log rows, threshold config, today's cost per provider (`SUM(estimated_cost_usd)`), `redis_state`.
 - `python -m app_platform.api_budget status [--provider plaid]`
 - `python -m app_platform.api_budget reset plaid --window daily [--user-id 42]` — manual counter reset (logs audit event).
+- `python -m app_platform.api_budget rollout-check` — pre-live gate for PR4. Fails if required provider threshold policy is missing, Telegram alert env is absent, Redis/schema are unavailable, observation/snapshot windows are too sparse or stale, or recent dry-run blocked calls would raise after the flip. Use `--require-live` after setting `API_BUDGET_DRY_RUN=false`.
 
 ---
 
@@ -430,7 +431,7 @@ For each provider, the integration replaces each direct SDK/HTTP call with a `gu
 | 1 | **Framework + schema + admin/CLI** | Build `app_platform/api_budget/` (all modules + Lua), schema migration, snapshot beat job, log-retention beat job, admin route, CLI. NO provider wraps yet, NO sync gate. Ships the mechanism; nothing wired up. `app_platform[api-budget]` extra published. Tests cover Lua atomicity, partial-index UPSERT, alert dedup, LLM cost extraction, config validation, fail-open. Verifies framework works end-to-end via the proving test (synthetic provider entry). |
 | 2 | **Plaid integration + sync gate** | Wrap each outbound vendor call inside `brokerage/plaid/{client,connections}.py` (per the dispatch-layer rule). Plumb `budget_user_id` through Plaid public functions. Add `is_provider_over_budget()` gate to `services/sync_runner.py:enqueue_sync` (Plaid only — other providers added in PR3). Dry-run on. Verify real Plaid call volumes via `GET /api/admin/api-budget?provider=plaid`. |
 | 3 | **Remaining providers** | Wrap each outbound vendor call in SnapTrade (`brokerage/snaptrade/*.py`), Schwab (`brokerage/schwab/*.py`), IBKR (`ibkr/*.py`), OpenAI/Anthropic (`providers/completion.py`), FMP (`fmp/client.py:_make_request`), FMP estimates (`fmp/estimates_client.py:get`). Extend the `is_provider_over_budget()` gate to all providers. Wraps go INSIDE retry decorators so each retry counts. Each provider is independent; can be one PR per provider or one mega-PR per review preference. |
-| 4 | **Tune + flip dry-run off + admin UI (optional)** | After 1 week observation, tune thresholds at 1.5× observed P99 from `api_call_counters`, configure Telegram, flip `API_BUDGET_DRY_RUN=false`. Optionally add a frontend admin tile for live counters + cost. **PR4a unblocked V4a 2026-04-26** — schema now correctly attributes Plaid + SnapTrade subscription billing. Remaining gates for the dry-run flip: ≥7 days of accurate dry-run observation under V4a schema, threshold tuning at 1.5× observed P99, Telegram config. |
+| 4 | **Tune + flip dry-run off + admin UI (optional)** | After 1 week observation, tune thresholds at 1.5× observed P99 from `api_call_counters`, configure Telegram, flip `API_BUDGET_DRY_RUN=false`. Optionally add a frontend admin tile for live counters + cost. **PR4a unblocked V4a 2026-04-26** — schema now correctly attributes Plaid + SnapTrade subscription billing. **R1 2026-06-01:** investigation found the mechanism wired but inert operationally: prod had `API_BUDGET_DRY_RUN=true`, no `API_BUDGET_THRESHOLDS_JSON`, no budget Telegram env, and no persisted `api_call_counters` snapshots; local had the same missing threshold/env shape. R1 added `rollout-check`, Telegram shared-env fallback, and fixed hard-cap semantics so `limit=N` blocks call `N+1` (not call `N`). **R2 2026-06-01:** prod threshold JSON configured with `API_BUDGET_DRY_RUN=true`, Telegram resolves through existing prod SSM `TELEGRAM_*` values, and `risk_module_api_budget_snapshot.timer` is installed/enabled to run `snapshot_to_postgres()` every 60s without requiring Celery beat. Prod was restarted healthy. `rollout-check --min-observation-days 1` passes; default 7-day `rollout-check` still fails only on insufficient snapshot history. Remaining gate for the dry-run flip: collect 7 days of counter snapshots, run default `python -m app_platform.api_budget rollout-check` clean, set `API_BUDGET_DRY_RUN=false`, restart, then run `rollout-check --require-live`. |
 | 4a | ~~**Cost-guard schema upgrade — subscription dimensions (Plaid + SnapTrade)**~~ | ~~Add `per_item_month` (Plaid) and `per_connected_user_month` (SnapTrade) cost dimensions...~~ | **`✅ SHIPPED 2026-04-26`** — landed across 4 commits (P0 plan v7 `2a98f4b6`, P1 migration `1a43c9a4`, P2 dormant subscription branch `8b1937dd`, P3 callsite plumbing + `_PHASE_3_ENFORCED=True` flip `483374be`). Plan: `docs/planning/completed/API_BUDGET_SUBSCRIPTION_DIMENSION_PLAN.md` (v7 PASS after 9 Codex rounds). Cost guard now correctly attributes: Plaid per-Item-month for 4 of 6 product paths (Holdings $0.18, Inv-Tx $0.35, Transactions $0.30, Liabilities $0.20); SnapTrade per-Connected-User-month $1.50 for 16 of 18 ops; per-call carve-outs (Plaid Balance $0.10, Inv Refresh $0.12; SnapTrade Manual Refresh $0.05, Recent Orders $0.002 — V4c R2 verified). Preflight enforced: subscription ops without subject identifier raise `ValueError` before vendor call. Test verification: 65 unit tests + 18 threading tests pass; full P3 + mcp_tools scope shows zero P3 regressions vs pre-V4a baseline. **§11 live verification VERIFIED 2026-04-26** against dev DB: SnapTrade `accounts.list` first-call wrote `api_connected_user_subscription_charges` row `(provider=snaptrade, user_id=1, billing_month=2026-04-01, charged_amount=$1.5000)`; second SnapTrade subscription op (`accounts.positions`, different op same user/month) wrote `api_call_log` row with `estimated_cost_usd=$0.0000` confirming bundle dedup. Plaid `investments_holdings_get` first-call wrote `api_item_subscription_charges` row `(item_id=e0BRomkv..., billing_month=2026-04-01, charged_amount=$0.1800)`; second call kept exactly one charges row confirming per-Item dedup. Preflight live-verified: subscription op + missing subject raises `ValueError` before vendor call; per-call ops pass through. Live SnapTrade sync via `/api/sync/snaptrade/refresh` succeeded end-to-end after Celery worker restart (workers had stale pre-P3 code). Bundles V4d-corrected provider rates (Schwab/IBKR $0, Sonnet 4.6 $3/$15, Haiku 4.5 $1/$5). **Known issue (V4a-tail)**: `api_call_log` `_should_write_log` samples non-LLM `decision='ok'` rows at `sample_log_pct`, which silently drops the first-of-month subscription write that records the full rate. Result: `today_cost_by_provider` admin rollup currently undercounts subscription costs (charges tables remain authoritative). Fix: force `_should_write_log` to always write when `cost_model != 'per_call'`. Single-line change in `app_platform/api_budget/guard.py`. Filing as V4a-tail. Out of scope (V4e TODO row): LLM cache/batch dimensions + token-volume telemetry. Out of scope (V4d §6 Edge 2): tiered/volume-based per-call pricing — dormant; no live provider uses it. |
 
 ---
@@ -440,6 +441,7 @@ For each provider, the integration replaces each direct SDK/HTTP call with a `gu
 ### Unit (no external deps)
 - Lua: atomic increment of all 4/8 keys, TTL set-once, `decision` correctly distinguishes ok / warned / blocked, dual-threshold same-call emits ONE crossing with `threshold_kind="limit"`, `decision = max severity across keys`, `blocked_scope` correct for mixed-scope cases.
 - `guard_call`: dry-run returns `decision=blocked` AND `dry_run=true` → log + alert + return (no raise). Live mode: `decision=blocked` → raise `BudgetExceededError` with all blocked_* fields.
+- CLI rollout gate: fails closed on missing provider policy, missing alert env, Redis/schema outages, stale/missing counter snapshots, insufficient observation, or dry-run blockers.
 - `is_provider_over_budget`: single `MGET` of 2 (or 4) aggregate keys.
 - Config validation: rejects op-cap < aggregate-cap; accepts conforming.
 - Telegram: claim-then-confirm releases dedup key on send failure.
@@ -473,6 +475,7 @@ For each provider, the integration replaces each direct SDK/HTTP call with a `gu
 - Lua script + Postgres snapshot work end-to-end.
 - Admin route surfaces live counters + today's cost per provider (`SELECT SUM(estimated_cost_usd) ... GROUP BY provider`).
 - Dry-run rollout for 1 week → real call volumes visible in `api_call_counters` → tune thresholds at 1.5× observed P99 → flip `API_BUDGET_DRY_RUN=false`.
+- `rollout-check` passes before the dry-run flip, and `rollout-check --require-live` passes after the flip.
 - Telegram alerts fire on threshold crossing + dedupe correctly via claim-then-confirm.
 - `budget_user_id` is the cost-guard parameter name (NOT `user_id`, which collides with existing semantics on Plaid/SnapTrade boundary functions).
 
