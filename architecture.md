@@ -650,7 +650,7 @@ Each Claude Code session spawns its **own** MCP server process via stdio pipes. 
 #### Server Registration
 
 ```bash
-cd /Users/henrychien/Documents/Jupyter/risk_module
+cd /Users/henrychien/Jupyter/risk_module
 
 # portfolio-mcp (16 tools)
 claude mcp add portfolio-mcp -s user -e RISK_MODULE_USER_EMAIL=hc@henrychien.com -- python3 mcp_server.py
